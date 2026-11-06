@@ -379,6 +379,43 @@ Explicit custom commutativity or equality/hash protocols require their own
 supported algebra. Arithmetic graphs and formal differentiation are bounded; arbitrary non-cooperative
 Python hooks retain the existing supervised-boundary limitations.
 
+## Prime-field polynomials (development API)
+
+The Python shell exposes checked sparse polynomial arithmetic over `GF(p)`
+with one to eight ordered generators. Construction, addition, subtraction,
+multiplication, powers, monic normalization, mixed partial derivatives, and
+division retain the field and exact symbol identities:
+
+```python
+from sympy import Poly, reduced, symbols
+
+x, y = symbols("x y")
+f = Poly(x**2 + x*y + 2*y, x, y, modulus=5)
+g = Poly(x + y, x, y, modulus=5)
+q, r = f.div(g)
+assert q*g + r == f
+assert f.diff(x, y) == Poly(1, x, y, modulus=5)
+
+quotients, remainder = reduced(
+    f, [g, Poly(y, x, y, modulus=5)], order="grevlex")
+assert quotients[0]*g + quotients[1]*Poly(y, x, y, modulus=5) + remainder == f
+```
+
+`terms`, `monoms`, and `coeffs` support `lex`, `grlex`, and `grevlex` order.
+`reduced` returns a quotient for every supplied divisor and independently
+checks reconstruction and complete remainder reduction. Ordered division by
+an arbitrary list does not claim a unique normal form or a Gröbner basis.
+
+The lane admits primes through 65521, total degree at most 64, up to 4096 sparse
+terms, and at most 32 ordered divisors. Original source expressions and
+coefficient growth have additional bounds. Source admission, generation,
+verification, and lifting use cumulative budgets; an exhausted or rejected
+request cannot restart over the rationals. Multivariate factorization, GCD,
+resultants, composition, and evaluation remain unsupported. Existing
+univariate prime-field operations remain available. These are bounded
+in-process checked operations, not a certified compatibility profile or
+portable proof-kernel certificates.
+
 ## Planned algorithm program
 
 The native program includes proof- or certificate-aware portfolios for:

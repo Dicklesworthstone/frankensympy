@@ -20,13 +20,13 @@ pyo3::create_exception!(fsym_python, PrimeFieldCoefficientError, PyValueError);
 
 type FactorParts = (PyExpr, Vec<(PyExpr, u32)>);
 
-fn budget() -> Budget {
+pub(crate) fn budget() -> Budget {
     let mut limits = BudgetLimits::uniform(128 * 1024 * 1024, 0);
     limits.dimensions[Dimension::ComputeSteps.index()] = 20_000_000;
     Budget::new(limits)
 }
 
-fn charge(meter: &mut Budget, steps: usize, bytes: usize) -> PyResult<()> {
+pub(crate) fn charge(meter: &mut Budget, steps: usize, bytes: usize) -> PyResult<()> {
     meter.checkpoint().map_err(to_value_error)?;
     meter
         .charge_batch(&[
@@ -37,14 +37,14 @@ fn charge(meter: &mut Budget, steps: usize, bytes: usize) -> PyResult<()> {
         .map_err(to_value_error)
 }
 
-fn polynomial_error(error: PolyError) -> PyErr {
+pub(crate) fn polynomial_error(error: PolyError) -> PyErr {
     match error {
         PolyError::DivisionByZero => PyZeroDivisionError::new_err(error.to_string()),
         _ => to_value_error(error),
     }
 }
 
-fn source_error(error: PrimeFieldElementSourceError) -> PyErr {
+pub(crate) fn source_error(error: PrimeFieldElementSourceError) -> PyErr {
     match error {
         PrimeFieldElementSourceError::NonIntegralCoefficient => {
             PrimeFieldCoefficientError::new_err(error.to_string())

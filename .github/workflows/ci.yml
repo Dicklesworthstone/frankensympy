@@ -254,6 +254,7 @@ jobs:
               "python/tests/test_checked_ideal_operations.py",
               "python/tests/test_prime_field_factorization.py",
               "python/tests/test_finite_field_poly.py",
+              "python/tests/test_finite_field_multivariate_poly.py",
               "python/tests/test_polynomial_system_extensions.py",
               "python/tests/test_polynomial_relations.py",
               "python/tests/test_quotient_algebra.py",

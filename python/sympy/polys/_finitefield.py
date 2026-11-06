@@ -14,7 +14,7 @@ from ..core import (
 )
 from .polyerrors import (
     CoercionFailed, DomainError, GeneratorsError, GeneratorsNeeded,
-    NotInvertible, UnificationFailed,
+    NotInvertible, PolynomialError, UnificationFailed,
 )
 
 
@@ -27,9 +27,14 @@ def _poly_types():
     return Poly, PurePoly
 
 
+def _exact(value, classes):
+    """Type identity never invokes a user-defined metaclass comparison."""
+    return any(type(value) is cls for cls in classes)
+
+
 def is_finite(value):
     """Recognize the field marker without calling a public Poly protocol."""
-    if type(value) not in _poly_types():
+    if not _exact(value, _poly_types()):
         return False
     namespace = object.__getattribute__(value, "__dict__")
     domain = namespace.get("_domain")
@@ -52,7 +57,7 @@ def _options(options, allowed):
 
 
 def _integer(value, label):
-    if type(value) not in _INTEGER_TYPES:
+    if not _exact(value, _INTEGER_TYPES):
         raise CoercionFailed("%s must be an exact integer" % label)
     if type(value) is int:
         if value.bit_length() > 4096:
@@ -89,7 +94,7 @@ class _PolyState:
     """Bounded direct storage snapshot, including the field and its lift policy."""
 
     def __init__(self, polynomial, require_field=True):
-        if type(polynomial) not in _poly_types():
+        if not _exact(polynomial, _poly_types()):
             raise TypeError("prime-field operations require exact Poly or PurePoly operands")
         self.polynomial = polynomial
         self.namespace = object.__getattribute__(polynomial, "__dict__")
@@ -102,10 +107,10 @@ class _PolyState:
         self.items = tuple(self.namespace.items())
         self.expression = self.namespace.get("_expr", _ABSENT)
         self.gens = self.namespace.get("_gens", _ABSENT)
-        if type(self.gens) is not tuple or len(self.gens) != 1:
-            raise GeneratorsError("prime-field Poly supports exactly one generator")
-        if type(self.gens[0]) not in (Symbol, Dummy):
-            raise GeneratorsError("prime-field Poly requires an exact typed Symbol generator")
+        if type(self.gens) is not tuple or not 1 <= len(self.gens) <= 8:
+            raise GeneratorsError("prime-field Poly supports one to eight generators")
+        if any(not _exact(gen, (Symbol, Dummy)) for gen in self.gens):
+            raise GeneratorsError("prime-field Poly requires exact typed Symbol generators")
         self.prime = self.namespace.get("_modulus", _ABSENT)
         self.symmetric = self.namespace.get("_symmetric", _ABSENT)
         if require_field or is_finite(polynomial):
@@ -137,7 +142,7 @@ class _Retained:
         self.states = tuple(states)
         self.containers = []
         for container in containers:
-            if type(container) not in (tuple, list) or len(container) > 65:
+            if not _exact(container, (tuple, list)) or len(container) > 65:
                 raise TypeError("prime-field request requires bounded built-in containers")
             self.containers.append((container, tuple(container)))
         bases = [GroebnerBasis(expressions[i:i + 64], gens, "QQ", "lex")
@@ -158,13 +163,20 @@ class _Request(_Retained):
 
     def __init__(self, expressions, gens, states=()):
         super().__init__(expressions, gens, states)
+        # A native symbol binds the assumptions digest, but the commutative
+        # sparse ring cannot interpret that opaque digest. Admit the retained
+        # declaration itself, including unused generators and held children.
+        for _, owner, name, _, facts in self.snapshot.slots:
+            if (owner is Symbol and name == "_assumptions"
+                    and facts.get("commutative") is False):
+                raise GeneratorsError("prime-field polynomials require commutative symbols")
         (data,) = self.snapshot.inputs()
         self.sources, self.gens, self.raw, self.bindings = data
         # A stale public assumption dictionary must not reinterpret an older
         # immutable native atom, even if it was changed before this call.
         seen = set()
         for node, owner, name, _, native in self.snapshot.slots:
-            if (owner is Basic and name == "_value" and type(node) in (Symbol, Dummy)
+            if (owner is Basic and name == "_value" and _exact(node, (Symbol, Dummy))
                     and id(node) not in seen):
                 seen.add(id(node))
                 if (type(native) is not _native.Expr or not native.is_symbol or
@@ -178,11 +190,21 @@ class _Request(_Retained):
         return (*self.sources, *self.gens)
 
 
-def _call(request, prime, symmetric, operation, parameter=0):
+def _call(request, prime, symmetric, operation, parameter=0,
+          derivative_orders=None, order="lex"):
     try:
-        result = _native.prime_field_polynomial_native(
-            request.raw[0], request.raw[1] if len(request.raw) == 2 else None,
-            request.bindings[0], prime, operation, parameter, symmetric)
+        if len(request.gens) > 1 or operation == "reduced":
+            if operation not in ("normalize", "neg", "add", "sub", "mul", "monic",
+                                  "pow", "diff", "divrem", "reduced"):
+                raise NotImplementedError(
+                    "%s is not implemented for multivariate prime-field Poly" % operation)
+            result = _native.prime_field_multivariate_native(
+                request.raw, request.bindings, prime, operation, parameter,
+                derivative_orders, order, symmetric)
+        else:
+            result = _native.prime_field_polynomial_native(
+                request.raw[0], request.raw[1] if len(request.raw) == 2 else None,
+                request.bindings[0], prime, operation, parameter, symmetric)
     except _native.PrimeFieldCoefficientError as error:
         raise CoercionFailed("prime-field Poly coefficients must be integers") from error
     request.unchanged()
@@ -209,31 +231,45 @@ def _generator_tuple(gens, options):
         raise GeneratorsError("generators were specified both positionally and by keyword")
     if not gens and options.get("gens") is not None:
         supplied = options["gens"]
-        gens = supplied if type(supplied) in (tuple, list) else (supplied,)
-    if len(gens) == 1 and type(gens[0]) in (tuple, list):
+        gens = supplied if _exact(supplied, (tuple, list)) else (supplied,)
+    if len(gens) == 1 and _exact(gens[0], (tuple, list)):
         gens = gens[0]
-    if len(gens) > 1:
-        raise GeneratorsError("prime-field Poly supports exactly one generator")
-    if gens and type(gens[0]) not in (Symbol, Dummy):
-        raise GeneratorsError("prime-field Poly requires an exact typed Symbol generator")
+    if len(gens) > 8:
+        raise GeneratorsError("prime-field Poly supports at most eight generators")
+    if any(not _exact(gen, (Symbol, Dummy)) for gen in gens):
+        raise GeneratorsError("prime-field Poly requires exact typed Symbol generators")
     return tuple(gens)
+
+
+def _infer_generators(request):
+    """Infer bounded native atoms before the profile's public generator sort."""
+    from .polytools import _sort_gens
+
+    raw = _native.prime_field_polynomial_generators_native(
+        request.raw[0], request.raw[1] if len(request.raw) == 2 else None)
+    request.unchanged()
+    generators = [_lift_native_result(value, *request.context) for value in raw]
+    request.unchanged()
+    result = tuple(_sort_gens(generators))
+    request.unchanged()
+    return result
 
 
 def _generator_containers(gens, options):
     result = [gens]
-    if len(gens) == 1 and type(gens[0]) in (tuple, list):
+    if len(gens) == 1 and _exact(gens[0], (tuple, list)):
         result.append(gens[0])
     supplied = options.get("gens")
-    if type(supplied) in (tuple, list):
+    if _exact(supplied, (tuple, list)):
         result.append(supplied)
     return result
 
 
 def construct(cls, source, gens, options):
     _options(options, {"modulus", "domain", "symmetric", "gens"})
-    if cls not in _poly_types():
+    if not any(cls is admitted for admitted in _poly_types()):
         raise TypeError("prime-field construction requires exact Poly or PurePoly")
-    state = _PolyState(source, require_field=False) if type(source) in _poly_types() else None
+    state = _PolyState(source, require_field=False) if _exact(source, _poly_types()) else None
     field_source = state is not None and is_finite(source)
     prime = options.get("modulus")
     generators = _generator_tuple(gens, options)
@@ -241,7 +277,7 @@ def construct(cls, source, gens, options):
     if not generators and state is not None:
         generators = state.gens
     scalars = [] if prime is None else [prime]
-    if prime is not None and type(prime) not in _INTEGER_TYPES:
+    if prime is not None and not _exact(prime, _INTEGER_TYPES):
         raise CoercionFailed("modulus must be an exact integer")
     retained = _Retained([expression, *scalars], generators, (state,) if state else (),
                          _generator_containers(gens, options))
@@ -263,13 +299,9 @@ def construct(cls, source, gens, options):
     initial = None
     if not generators:
         initial = _Request([expression], (), (state,) if state else ())
-        raw_generator = _native.prime_field_polynomial_generator_native(initial.raw[0])
-        initial.unchanged()
-        if raw_generator is None:
+        generators = _infer_generators(initial)
+        if not generators:
             raise GeneratorsNeeded("a constant prime-field Poly requires an explicit generator")
-        generator = _lift_native_result(raw_generator, *initial.context)
-        initial.unchanged()
-        generators = (generator,)
     request = _Request([expression], generators, (state,) if state else ())
     raw = _call(request, prime, symmetric, "normalize")
     result = _publish(cls, raw[0], request, prime, symmetric)
@@ -282,7 +314,7 @@ def construct(cls, source, gens, options):
 def from_list(cls, coefficients, gens, options):
     """Build a retained held polynomial without dropping zero coefficients."""
     from ..core import Add, Mul, Pow
-    if type(coefficients) not in (list, tuple):
+    if not _exact(coefficients, (list, tuple)):
         raise TypeError("prime-field from_list requires a built-in list or tuple")
     if len(coefficients) > 65:
         raise ValueError("prime-field coefficient list exceeds degree 64")
@@ -290,11 +322,13 @@ def from_list(cls, coefficients, gens, options):
     generators = _generator_tuple((), {"gens": gens})
     if not generators:
         raise GeneratorsNeeded("from_list requires an explicit generator")
+    if len(generators) != 1:
+        raise NotImplementedError("multivariate prime-field from_list is not implemented")
     generator = generators[0]
-    if any(type(coefficient) not in _INTEGER_TYPES for coefficient in original):
+    if any(not _exact(coefficient, _INTEGER_TYPES) for coefficient in original):
         raise CoercionFailed("prime-field coefficients must be exact integers")
     scalars = [options["modulus"]] if options.get("modulus") is not None else []
-    if scalars and type(scalars[0]) not in _INTEGER_TYPES:
+    if scalars and not _exact(scalars[0], _INTEGER_TYPES):
         raise CoercionFailed("modulus must be an exact integer")
     retained = _Retained([*original, *scalars], generators,
                          containers=[coefficients, *_generator_containers((), {"gens": gens})])
@@ -318,7 +352,7 @@ def _operands(polynomial, other=_ABSENT):
     states = [left]
     sources = [left.expression]
     if other is not _ABSENT:
-        if type(other) in _poly_types():
+        if _exact(other, _poly_types()):
             right = _PolyState(other, require_field=False)
             if not is_finite(other) or right.prime != left.prime:
                 raise UnificationFailed("cannot unify polynomials over different coefficient domains")
@@ -327,17 +361,18 @@ def _operands(polynomial, other=_ABSENT):
             states.append(right)
             sources.append(right.expression)
         else:
-            if type(other) not in _INTEGER_TYPES:
+            if not _exact(other, _INTEGER_TYPES):
                 raise UnificationFailed("prime-field arithmetic requires a same-field Poly or exact integer")
             sources.append(other)
     return left, _Request(sources, left.gens, states)
 
 
-def operation(polynomial, name, other=_ABSENT, parameter=0, reverse=False):
+def operation(polynomial, name, other=_ABSENT, parameter=0, reverse=False,
+              derivative_orders=None):
     state, request = _operands(polynomial, other)
     if reverse:
         request.raw.reverse()
-    raw = _call(request, state.prime, state.symmetric, name, parameter)
+    raw = _call(request, state.prime, state.symmetric, name, parameter, derivative_orders)
     if raw is None:
         raise NotInvertible("zero divisor")
     result = tuple(_publish(type(polynomial), value, request, state.prime, state.symmetric)
@@ -364,6 +399,8 @@ def expression(polynomial):
 
 def coefficients(polynomial):
     state, request = _operands(polynomial)
+    if len(state.gens) != 1:
+        raise PolynomialError("multivariate polynomials not supported")
     raw = _call(request, state.prime, state.symmetric, "normalize")
     # Native normalization has certified an integer lift with degree <= 64.
     # The existing coefficient projection now reads that bounded canonical
@@ -375,23 +412,33 @@ def coefficients(polynomial):
 
 
 def _check_generator(state, gen):
-    if not ((type(gen) is int and gen in (0, -1)) or
-            (type(gen) in (Symbol, Dummy) and gen == state.gens[0])):
+    if type(gen) is int:
+        if not -len(state.gens) <= gen < len(state.gens):
+            raise GeneratorsError("generator is not in this polynomial")
+        return gen % len(state.gens)
+    if not _exact(gen, (Symbol, Dummy)) or gen not in state.gens:
         raise GeneratorsError("generator is not in this polynomial")
-    if type(gen) in (Symbol, Dummy):
-        native = _native_expr(gen)
-        _native.prime_field_source_preflight_native(native)
-        if (not native.is_symbol or _surface_binding_key(native.symbol_binding) !=
-                _surface_binding_key(_symbol_binding(gen))):
-            raise ValueError("prime-field generator identity disagrees with its assumptions")
+    native = _native_expr(gen)
+    _native.prime_field_source_preflight_native(native)
+    if (not native.is_symbol or _surface_binding_key(native.symbol_binding) !=
+            _surface_binding_key(_symbol_binding(gen))):
+        raise ValueError("prime-field generator identity disagrees with its assumptions")
+    return state.gens.index(gen)
 
 
 def degree(polynomial, gen=0):
     state = _PolyState(polynomial)
-    if type(gen) not in (int, Symbol, Dummy):
+    if not _exact(gen, (int, Symbol, Dummy)):
         raise GeneratorsError("generator is not in this polynomial")
     retained = _Retained([state.expression, gen], state.gens, (state,))
-    _check_generator(state, gen)
+    index = _check_generator(state, gen)
+    if len(state.gens) > 1:
+        values = terms(polynomial)
+        retained.unchanged()
+        if len(values) == 1 and values[0][1] == 0:
+            from ..core import S
+            return S.NegativeInfinity
+        return max(powers[index] for powers, _ in values)
     values = coefficients(polynomial)
     retained.unchanged()
     if len(values) == 1 and values[0] == 0:
@@ -400,7 +447,49 @@ def degree(polynomial, gen=0):
     return len(values) - 1
 
 
-def terms(polynomial):
+def total_degree(polynomial):
+    state = _PolyState(polynomial)
+    if len(state.gens) == 1:
+        result = degree(polynomial)
+        from ..core import S
+        return 0 if result is S.NegativeInfinity else result
+    return max(sum(powers) for powers, _ in terms(polynomial))
+
+
+def degree_list(polynomial):
+    state = _PolyState(polynomial)
+    values = terms(polynomial)
+    state.unchanged()
+    if len(values) == 1 and values[0][1] == 0:
+        from ..core import S
+        return (S.NegativeInfinity,) * len(state.gens)
+    return tuple(max(powers[index] for powers, _ in values)
+                 for index in range(len(state.gens)))
+
+
+def _monomial_order(order):
+    if order is None:
+        return "lex"
+    if type(order) is not str or order not in ("lex", "grlex", "grevlex"):
+        raise ValueError("prime-field monomial order must be lex, grlex, or grevlex")
+    return order
+
+
+def terms(polynomial, order=None):
+    order = _monomial_order(order)
+    state = _PolyState(polynomial)
+    if len(state.gens) > 1:
+        _, request = _operands(polynomial)
+        try:
+            raw = _native.prime_field_multivariate_terms_native(
+                request.raw[0], request.bindings, state.prime, state.symmetric, order)
+        except _native.PrimeFieldCoefficientError as error:
+            raise CoercionFailed("prime-field Poly coefficients must be integers") from error
+        request.unchanged()
+        result = [(tuple(powers), _lift_native_result(value, *request.context))
+                  for powers, value in raw]
+        request.unchanged()
+        return result or [((0,) * len(state.gens), Integer(0))]
     values = coefficients(polynomial)
     result = [((len(values) - i - 1,), value)
               for i, value in enumerate(values) if value != 0]
@@ -408,19 +497,37 @@ def terms(polynomial):
 
 
 def nth(polynomial, coordinates):
-    if len(coordinates) != 1:
-        raise GeneratorsError("prime-field nth requires one monomial exponent")
     state = _PolyState(polynomial)
-    if type(coordinates[0]) not in _INTEGER_TYPES:
+    if len(coordinates) != len(state.gens):
+        raise GeneratorsError("prime-field nth requires one exponent per generator")
+    if any(not _exact(coordinate, _INTEGER_TYPES) for coordinate in coordinates):
         raise CoercionFailed("monomial exponent must be an exact integer")
-    retained = _Retained([state.expression, coordinates[0]], state.gens, (state,), [coordinates])
-    exponent = _integer(coordinates[0], "monomial exponent")
+    retained = _Retained([state.expression, *coordinates], state.gens, (state,), [coordinates])
+    powers = tuple(_integer(coordinate, "monomial exponent") for coordinate in coordinates)
     retained.unchanged()
-    if exponent < 0:
+    if any(exponent < 0 for exponent in powers):
         raise IndexError("monomial exponent must be nonnegative")
+    if len(state.gens) > 1:
+        result = next((coefficient for monomial, coefficient in terms(polynomial)
+                       if monomial == powers), Integer(0))
+        retained.unchanged()
+        return result
+    exponent = powers[0]
     values = coefficients(polynomial)
     result = values[-exponent - 1] if exponent < len(values) else Integer(0)
     retained.unchanged()
+    return result
+
+
+def trailing_coefficient(polynomial):
+    state = _PolyState(polynomial)
+    return nth(polynomial, (0,) * len(state.gens))
+
+
+def is_constant(polynomial, value):
+    state = _PolyState(polynomial)
+    result = terms(polynomial) == [((0,) * len(state.gens), Integer(value))]
+    state.unchanged()
     return result
 
 
@@ -431,42 +538,43 @@ def derivative(polynomial, specs):
     controls = []
     containers = [specs]
     for spec in specs:
-        if type(spec) in (tuple, list):
+        if _exact(spec, (tuple, list)):
             if len(spec) != 2:
                 raise GeneratorsError("a derivative specification must be (generator, order)")
-            if type(spec[0]) not in (int, Symbol, Dummy):
+            if not _exact(spec[0], (int, Symbol, Dummy)):
                 raise GeneratorsError("generator is not in this polynomial")
-            if type(spec[1]) not in _INTEGER_TYPES:
+            if not _exact(spec[1], _INTEGER_TYPES):
                 raise CoercionFailed("derivative order must be an exact integer")
             containers.append(spec)
             controls.extend(spec)
         else:
-            if type(spec) not in (int, Symbol, Dummy):
+            if not _exact(spec, (int, Symbol, Dummy)):
                 raise GeneratorsError("generator is not in this polynomial")
             controls.append(spec)
     retained = _Retained([state.expression, *controls], state.gens, (state,), containers)
-    order = 0
+    orders = [0] * len(state.gens)
     for spec in specs or (state.gens[0],):
-        if type(spec) in (tuple, list):
+        if _exact(spec, (tuple, list)):
             if len(spec) != 2:
                 raise GeneratorsError("a derivative specification must be (generator, order)")
             variable, count = spec
         else:
             variable, count = spec, 1
-        _check_generator(state, variable)
+        index = _check_generator(state, variable)
         count = _integer(count, "derivative order")
-        if not 0 <= count <= 64 - order:
+        if not 0 <= count <= 64 - sum(orders):
             raise ValueError("prime-field derivative order must be in 0..64")
-        order += count
+        orders[index] += count
     retained.unchanged()
-    result = operation(polynomial, "diff", parameter=order)
+    result = operation(polynomial, "diff", parameter=orders[0],
+                       derivative_orders=orders if len(orders) > 1 else None)
     retained.unchanged()
     return result
 
 
 def power(polynomial, exponent):
     state = _PolyState(polynomial)
-    if type(exponent) not in _INTEGER_TYPES:
+    if not _exact(exponent, _INTEGER_TYPES):
         raise CoercionFailed("polynomial exponent must be an exact integer")
     retained = _Retained([state.expression, exponent], state.gens, (state,))
     exponent = _integer(exponent, "polynomial exponent")
@@ -480,16 +588,18 @@ def power(polynomial, exponent):
 
 def evaluate(polynomial, args):
     state = _PolyState(polynomial)
+    if len(state.gens) > 1:
+        return unsupported(polynomial, "multivariate evaluation")
     variable = None
     if len(args) == 1:
         value = args[0]
     elif len(args) == 2:
         variable, value = args
-        if type(variable) not in (int, Symbol, Dummy):
+        if not _exact(variable, (int, Symbol, Dummy)):
             raise GeneratorsError("generator is not in this polynomial")
     else:
         raise TypeError("eval takes one value or a generator and value")
-    if type(value) not in _INTEGER_TYPES:
+    if not _exact(value, _INTEGER_TYPES):
         raise UnificationFailed("prime-field evaluation requires an exact integer")
     retained = _Retained([state.expression, *args], state.gens, (state,), [args])
     if variable is not None:
@@ -503,6 +613,8 @@ def shift(polynomial, value):
     # Admit the original scalar before constructing the linear composition.
     # It contains no potentially simplifying symbolic source.
     state, request = _operands(polynomial, value)
+    if len(state.gens) > 1:
+        return unsupported(polynomial, "multivariate shift")
     offset = _integer(value, "shift")
     request.unchanged()
     from ..core import Add
@@ -517,6 +629,8 @@ def shift(polynomial, value):
 
 def factors(polynomial, mode="factor", expression=False):
     state, request = _operands(polynomial)
+    if len(state.gens) > 1:
+        return unsupported(polynomial, "multivariate factorization")
     try:
         unit, factors = _native.prime_field_polynomial_factor_native(
             request.raw[0], request.bindings[0], state.prime, state.symmetric, mode)
@@ -546,7 +660,7 @@ def factors(polynomial, mode="factor", expression=False):
 def factor_entry(polynomial, gens, prime=None, expression=False):
     state = _PolyState(polynomial)
     generators = _generator_tuple(gens, {})
-    if prime is not None and type(prime) not in _INTEGER_TYPES:
+    if prime is not None and not _exact(prime, _INTEGER_TYPES):
         raise CoercionFailed("modulus must be an exact integer")
     retained = _Retained([state.expression, *([] if prime is None else [prime]), *generators],
                          state.gens, (state,), _generator_containers(gens, {}))
@@ -554,6 +668,8 @@ def factor_entry(polynomial, gens, prime=None, expression=False):
         raise DomainError("factorization modulus differs from the polynomial's field")
     retained.unchanged()
     if generators:
+        if generators != state.gens:
+            raise GeneratorsError("factorization generators differ from the polynomial's ring")
         _check_generator(state, generators[0])
     result = factors(polynomial, expression=expression)
     retained.unchanged()
@@ -572,7 +688,7 @@ def unary_entry(source, generators, options, name):
     return _entry((source,), generators, options, name)
 
 
-def _entry(values, generators, options, name):
+def _entry(values, generators, options, name, containers=()):
     """One checked call for module-level operations with explicit GF options.
 
     Return ``None`` only when this is not a prime-field request. Raw symbolic
@@ -582,13 +698,17 @@ def _entry(values, generators, options, name):
     explicit = requested(None, options)
     if not explicit and not any(is_finite(value) for value in values):
         return None
-    _options(options, {"modulus", "domain", "symmetric", "gens", "polys"})
+    allowed = {"modulus", "domain", "symmetric", "gens", "polys"}
+    if name == "reduced":
+        allowed.add("order")
+    _options(options, allowed)
+    order = _monomial_order(options.get("order"))
     states = tuple(_PolyState(value, require_field=False)
-                   for value in values if type(value) in _poly_types())
+                   for value in values if _exact(value, _poly_types()))
     inherited = next((state for state in states if is_finite(state.polynomial)), None)
     if not explicit:
         for value in values:
-            if type(value) not in _poly_types() and type(value) not in _INTEGER_TYPES:
+            if not _exact(value, _poly_types()) and not _exact(value, _INTEGER_TYPES):
                 raise UnificationFailed("symbolic operands require explicit same-field Poly construction")
     prime = options.get("modulus")
     by_id = {id(state.polynomial): state.expression for state in states}
@@ -598,10 +718,10 @@ def _entry(values, generators, options, name):
     if not generators and states:
         generators = states[0].gens
     scalars = [] if prime is None else [prime]
-    if prime is not None and type(prime) not in _INTEGER_TYPES:
+    if prime is not None and not _exact(prime, _INTEGER_TYPES):
         raise CoercionFailed("modulus must be an exact integer")
     retained = _Retained([*sources, *scalars], generators, states,
-                         _generator_containers(original_generators, options))
+                         [*containers, *_generator_containers(original_generators, options)])
     domain = options.get("domain")
     if domain is not None:
         domain_prime = _domain_prime(domain)
@@ -619,21 +739,20 @@ def _entry(values, generators, options, name):
                 raise UnificationFailed("cannot unify polynomials over different coefficient domains")
     initial = None
     if not generators:
+        if len(sources) > 2:
+            raise GeneratorsNeeded("prime-field reduction requires explicit generators")
         initial = _Request(sources, (), states)
-        raw_generator = _native.prime_field_polynomial_generator_native(
-            initial.raw[0], initial.raw[1] if len(initial.raw) == 2 else None)
-        initial.unchanged()
-        if raw_generator is None:
+        generators = _infer_generators(initial)
+        if not generators:
             raise GeneratorsNeeded("constant prime-field operations require an explicit generator")
-        generators = (_lift_native_result(raw_generator, *initial.context),)
-        initial.unchanged()
     if not explicit and any(state.gens != generators for state in states):
         raise UnificationFailed("prime-field operands must use the same typed generator")
     request = _Request(sources, generators, states)
-    raw = _call(request, prime, symmetric, name)
+    raw = _call(request, prime, symmetric, name, order=order)
     if raw is None:
         raise NotInvertible("zero divisor")
     want_polys = name not in ("resultant", "discriminant") and (
+        options.get("polys", bool(states)) if name == "reduced" else
         bool(states) or options.get("polys", False))
     cls = type(inherited.polynomial) if inherited else _poly_types()[0]
     if want_polys:
@@ -644,7 +763,25 @@ def _entry(values, generators, options, name):
     if initial is not None:
         initial.unchanged()
     retained.unchanged()
+    if name == "reduced":
+        return list(result[:-1]), result[-1]
     return result if name in ("divrem", "gcdex") else result[0]
+
+
+def reduced_entry(source, divisors, generators, options):
+    """Retain an entire ordered divisor list before any native/scalar work."""
+    if not _exact(divisors, (tuple, list)):
+        raise TypeError("prime-field reduction requires a built-in divisor list or tuple")
+    if len(divisors) > 32:
+        raise ValueError("prime-field reduction supports at most 32 divisors")
+    original = tuple(divisors)
+    values = (source, *original)
+    if not requested(None, options) and not any(is_finite(value) for value in values):
+        raise NotImplementedError("reduced currently requires a prime-field polynomial domain")
+    result = _entry(values, generators, options, "reduced", (divisors,))
+    if len(divisors) != len(original) or any(a is not b for a, b in zip(divisors, original)):
+        raise RuntimeError("prime-field divisor list mutated during exact evaluation")
+    return result
 
 
 def unsupported(polynomial, operation):
@@ -656,30 +793,29 @@ def equal(polynomial, other):
     from ..core import Add, Half, Mul, Pow, Rational
     from .polytools import PurePoly
     left = _PolyState(polynomial)
-    if type(other) in _poly_types():
+    if _exact(other, _poly_types()):
         if not is_finite(other):
             return False
         right = _PolyState(other)
-        if left.prime != right.prime:
+        if left.prime != right.prime or len(left.gens) != len(right.gens):
             return False
         if (left.gens != right.gens and type(polynomial) is not PurePoly
                 and type(other) is not PurePoly):
             return False
-        generators = left.gens if left.gens == right.gens else (*left.gens, *right.gens)
-        request = _Request([left.expression, right.expression], generators, (left, right))
+        retained = _Retained([left.expression, right.expression, *left.gens, *right.gens],
+                             (), (left, right))
         # Signed and unsigned coefficient lifts denote the same field element.
-        result = (tuple(_native_expr(c).exact_numerator() % left.prime for c in coefficients(polynomial)) ==
-                  tuple(_native_expr(c).exact_numerator() % left.prime for c in coefficients(other)))
-        request.unchanged()
+        result = _residue_terms(polynomial, left.prime) == _residue_terms(other, left.prime)
+        retained.unchanged()
         return result
-    if type(other) not in (*_INTEGER_TYPES, Rational, Half, Symbol, Dummy, Add, Mul, Pow):
+    if not _exact(other, (*_INTEGER_TYPES, Rational, Half, Symbol, Dummy, Add, Mul, Pow)):
         return False
     request = _Request([left.expression, other], left.gens, (left,))
-    candidate_generator = _native.prime_field_polynomial_generator_native(request.raw[1])
+    candidate_generators = _native.prime_field_polynomial_generators_native(request.raw[1])
     request.unchanged()
-    if candidate_generator is not None and (
-            _surface_binding_key(candidate_generator.symbol_binding) !=
-            _surface_binding_key(request.bindings[0])):
+    bindings = tuple(_surface_binding_key(binding) for binding in request.bindings)
+    if any(_surface_binding_key(generator.symbol_binding) not in bindings
+           for generator in candidate_generators):
         return False
     try:
         converted = construct(type(polynomial), other, left.gens,
@@ -695,9 +831,14 @@ def equal(polynomial, other):
 def identity_hash(polynomial):
     state = _PolyState(polynomial)
     retained = _Retained([state.expression], state.gens, (state,))
-    values = tuple(_native_expr(c).exact_numerator() % state.prime for c in coefficients(polynomial))
+    values = _residue_terms(polynomial, state.prime)
     # PurePoly compares by coefficients even against Poly with another name.
     # Omitting names for both classes keeps equal public objects hash-equal.
-    result = hash(("GFPoly", state.prime, values))
+    result = hash(("GFPoly", state.prime, len(state.gens), values))
     retained.unchanged()
     return result
+
+
+def _residue_terms(polynomial, prime):
+    return tuple((powers, _native_expr(coefficient).exact_numerator() % prime)
+                 for powers, coefficient in terms(polynomial))

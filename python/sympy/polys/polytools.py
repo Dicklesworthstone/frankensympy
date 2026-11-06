@@ -50,9 +50,10 @@ def _sort_gens(gens: Any) -> list:
 class Poly(Basic):
     """Exact polynomial representation over QQ or a bounded prime field.
 
-    ``modulus=p`` and ``domain='GF(p)'`` select the checked univariate
-    prime-field lane (prime 2..65521, degree at most 64). Domain and typed
-    generator identity are retained by every supported polynomial operation.
+    ``modulus=p`` and ``domain='GF(p)'`` select checked prime-field arithmetic
+    (prime 2..65521, total degree at most 64, up to eight generators). Domain
+    and typed generator identity survive every supported operation. The
+    factorization and GCD families currently require one generator.
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -157,7 +158,7 @@ class Poly(Basic):
 
     def total_degree(self) -> Any:
         if _finitefield.is_finite(self):
-            return _finitefield.degree(self)
+            return _finitefield.total_degree(self)
         from ..core import S as _S
 
         if self.as_expr() == 0:
@@ -173,10 +174,12 @@ class Poly(Basic):
         raw = _native.poly_coeffs_native(_native_expr(self._expr), _symbol_binding(self.gen))
         return [_lift_native_result(c, self._expr, *self._gens) for c in raw]
 
-    def coeffs(self) -> List[Any]:
+    def coeffs(self, order: Any = None) -> List[Any]:
         """Return all non-zero coefficients in descending degree order."""
         if _finitefield.is_finite(self):
-            return [c for c in self.all_coeffs() if c != 0] or [Integer(0)]
+            return [c for _, c in _finitefield.terms(self, order)]
+        if order not in (None, "lex"):
+            raise NotImplementedError("non-lexicographic coefficient queries require a prime-field Poly")
         return [c for c in self.all_coeffs() if c != 0]
 
     def degree(self, gen: Any = 0) -> Optional[int]:
@@ -205,7 +208,7 @@ class Poly(Basic):
     def leading_coeff(self) -> Any:
         """Return the leading coefficient."""
         if _finitefield.is_finite(self):
-            return _finitefield.coefficients(self)[0]
+            return _finitefield.terms(self)[0][1]
         if self._parametric:
             return self.terms()[0][1]
         raw = _native.poly_leading_coeff_native(_native_expr(self._expr), _symbol_binding(self.gen))
@@ -217,6 +220,8 @@ class Poly(Basic):
 
     def trailing_coeff(self) -> Any:
         """Return the trailing coefficient."""
+        if _finitefield.is_finite(self):
+            return _finitefield.trailing_coefficient(self)
         coeffs = self.all_coeffs()
         if coeffs:
             return coeffs[-1]
@@ -230,7 +235,7 @@ class Poly(Basic):
     def EC(self) -> Any:
         """Alias for trailing_coeff."""
         if _finitefield.is_finite(self):
-            return next((c for c in reversed(self.all_coeffs()) if c != 0), Integer(0))
+            return _finitefield.terms(self)[-1][1]
         return self.trailing_coeff()
 
     def nth(self, *coords: int) -> Any:
@@ -284,16 +289,20 @@ class Poly(Basic):
 
     @property
     def is_linear(self) -> bool:
+        if _finitefield.is_finite(self):
+            return self.total_degree() <= 1
         return self.degree() == 1
 
     @property
     def is_quadratic(self) -> bool:
+        if _finitefield.is_finite(self):
+            return self.total_degree() <= 2
         return self.degree() == 2
 
     @property
     def is_zero(self) -> bool:
         if _finitefield.is_finite(self):
-            return _finitefield.coefficients(self) == [Integer(0)]
+            return _finitefield.is_constant(self, 0)
         if self.as_expr() == 0 or self.as_expr() == Integer(0):
             return True
         deg = self.degree()
@@ -307,7 +316,7 @@ class Poly(Basic):
     @property
     def is_one(self) -> bool:
         if _finitefield.is_finite(self):
-            return _finitefield.coefficients(self) == [Integer(1)]
+            return _finitefield.is_constant(self, 1)
         if self.as_expr() == 1 or self.as_expr() == Integer(1):
             return True
         deg = self.degree()
@@ -837,10 +846,12 @@ class Poly(Basic):
             return _finitefield.identity_hash(self)
         return hash((self._expr, self._gens))
 
-    def terms(self) -> list:
+    def terms(self, order: Any = None) -> list:
         """(monomial exponents, coefficient) pairs, lex-descending in gens."""
         if _finitefield.is_finite(self):
-            return _finitefield.terms(self)
+            return _finitefield.terms(self, order)
+        if order not in (None, "lex"):
+            raise NotImplementedError("non-lexicographic term queries require a prime-field Poly")
         from ..core import Add as _Add, Integer as _Integer, Mul as _Mul, Pow as _Pow, expand
 
         gens = list(self._gens)
@@ -862,6 +873,16 @@ class Poly(Basic):
         items = [(m, c) for m, c in acc.items() if c != 0]
         items.sort(key=lambda mc: mc[0], reverse=True)
         return items or [(tuple([0] * len(gens)), _Integer(0))]
+
+    def monoms(self, order: Any = None) -> list:
+        """Monomial exponent tuples in the requested supported order."""
+        return [monomial for monomial, _ in self.terms(order)]
+
+    def degree_list(self) -> tuple:
+        """Degree in each ordered polynomial generator."""
+        if _finitefield.is_finite(self):
+            return _finitefield.degree_list(self)
+        return tuple(self.degree(index) for index in range(len(self._gens)))
 
     def as_dict(self) -> dict:
         return {m: c for m, c in reversed(self.terms()) if c != 0}
@@ -3259,6 +3280,17 @@ def div(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Tuple[Any, Any]:
     return (q.as_expr(), r.as_expr())
 
 
+def reduced(f: Any, G: Any, *gens: Any, **kwargs: Any) -> Tuple[list, Any]:
+    """Reduce a prime-field polynomial by a complete ordered divisor list.
+
+    The checked bounded lane supports lex, grlex and grevlex with at most
+    eight generators and 32 divisors. It independently verifies the complete
+    quotient/remainder identity and that no divisor leading monomial divides
+    any remainder term. Other coefficient domains currently refuse.
+    """
+    return _finitefield.reduced_entry(f, G, gens, kwargs)
+
+
 def rem(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Any:
     """Polynomial remainder of f divided by g."""
     return div(f, g, *gens, **kwargs)[1]
@@ -3400,6 +3432,7 @@ __all__ = [
     "poly",
     "primitive",
     "quo",
+    "reduced",
     "rem",
     "resultant",
     "roots",

@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "observed_native_test_execution_summary",
+  "repository": "Dicklesworthstone/frankensympy",
+  "checkout_base_commit": "6495c16b1eb5328aacda3604a4ffa4210ce3df62",
+  "source_scope": {
+    "targets": [
+      "crates/fsym-polys/tests/finite_field_multivariate.rs",
+      "crates/fsym-polys/tests/finite_field_multivariate_source.rs"
+    ],
+    "working_tree_dirty": true,
+    "qualification": "Execution occurred in a checkout based on the named commit. The four multivariate native source/test files were formatted during the session; unrelated Python/Fourier implementation work was present. This is observed working-tree test evidence, not an immutable same-commit certification bundle.",
+    "complete_source_digest_recorded": false
+  },
+  "environment": {
+    "rustup_toolchain": "nightly-2026-08-20-x86_64-unknown-linux-gnu",
+    "rustc": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "cargo": "cargo 1.100.0-nightly (514c56dd7 2026-08-19)",
+    "explicit_variables": {
+      "RUSTUP_TOOLCHAIN": "nightly-2026-08-20",
+      "CARGO_HOME": "/workspace/scratch/e482b087395d/cargo-home",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_HTTP_USER_AGENT": "frankensympy-agent (+https://github.com/Dicklesworthstone/frankensympy)"
+    },
+    "donor_revisions_verified": {
+      "asupersync": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+      "franken_numpy": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+      "frankenscipy": "213a417c739025ed865a3875c89a7d86726ecb5a"
+    }
+  },
+  "command": "cargo test --locked -p fsym-polys --test finite_field_multivariate --test finite_field_multivariate_source -j1",
+  "observed_terminal_exit_code": 0,
+  "cargo_reported_build_seconds": 615,
+  "suites": [
+    {
+      "target": "finite_field_multivariate",
+      "passed": 18,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered_out": 0,
+      "reported_duration_seconds": 0.02
+    },
+    {
+      "target": "finite_field_multivariate_source",
+      "passed": 17,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered_out": 0,
+      "reported_duration_seconds": 24.38
+    }
+  ],
+  "totals": {
+    "passed": 35,
+    "failed": 0,
+    "ignored": 0
+  },
+  "evidence_provenance": "Exact command, terminal exit, and both result summaries were observed through the executor. The complete build log was saved in scratch, but a later sustained executor failure prevented attaching its bytes; this JSON is a summary, not a replacement raw log or a claim of source hashing.",
+  "subsequent_validation": {
+    "strict_polys_clippy": "Attempted cargo clippy --locked -p fsym-polys --all-targets -j1 -- -D warnings. Interrupt was requested while dependencies were still checking after the shared 8-GiB environment stalled; termination and terminal exit were not observable. No pass claimed.",
+    "full_python_extension": "Not started: queued startup was cancelled while the interrupt request remained blocked.",
+    "public_python_regressions": "Not executed against the new extension.",
+    "workspace_gates": "No full workspace test/check/clippy pass is established by this artifact."
+  },
+  "claim_scope": "The 35 named native multivariate arithmetic/source tests passed. No Python profile compatibility, portable proof certificate, full-workspace validation, release certification, or performance improvement is asserted."
+}

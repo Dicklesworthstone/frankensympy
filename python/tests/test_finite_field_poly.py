@@ -288,10 +288,8 @@ def test_constructor_coercion_and_regime_limits_are_explicit():
         sp.Poly(3, modulus=5)
     with pytest.raises(GeneratorsNeeded):
         sp.Poly.from_list([1, 2], modulus=5)
-    with pytest.raises(GeneratorsError):
-        sp.Poly(x + y, x, y, modulus=5)
-    with pytest.raises((ValueError, NotImplementedError)):
-        sp.Poly(x + y, modulus=5)
+    assert sp.Poly(x + y, x, y, modulus=5).terms() == [((1, 0), 1), ((0, 1), 1)]
+    assert sp.Poly(x + y, modulus=5).gens == (x, y)
     with pytest.raises(ValueError):
         sp.Poly(x**65, x, modulus=5)
     with pytest.raises(DomainError):
