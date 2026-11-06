@@ -1917,6 +1917,7 @@ pub mod callbacks;
 mod exact_integral;
 pub mod expr;
 mod finite_field;
+mod finite_field_polynomial;
 pub mod geometry;
 mod ideal_operations;
 pub mod logic;
@@ -1959,6 +1960,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySymbol>()?;
     m.add_class::<binding::PySymbolBinding>()?;
     numeric_budget::register(m)?;
+    finite_field_polynomial::register(m)?;
     m.add_class::<numeric::PyCompiledFunction>()?;
     m.add_class::<numeric::PySourceResidualSystem>()?;
     m.add_class::<numeric::PyVerifiedResidualSystem>()?;

@@ -143,7 +143,7 @@ jobs:
           cargo test --locked -p fsym-calculus --test certified_root_isolation -j1
           cargo test --locked -p fsym-calculus --test certified_parametric_cover -j1
           cargo test --locked -p fsym-bigint --lib floor_square_root_pins_exact_square_boundaries_and_governed_lane -j1
-          cargo test --locked -p fsym-polys --test rational_localization --test ideal_quotient --test ideal_inverse --test syzygy --test quotient_algebra --test quotient_minpoly --test radical --test finite_field --test finite_field_source -j1
+          cargo test --locked -p fsym-polys --test rational_localization --test ideal_quotient --test ideal_inverse --test syzygy --test quotient_algebra --test quotient_minpoly --test radical --test finite_field --test finite_field_source --test finite_field_arithmetic --test finite_field_element_source --test finite_field_resultant -j1
           cargo test --locked -p fsym-matrices --test affine_system --test rectangular_solve --test least_squares --test matrix_exponential --test minimal_polynomial -j1
           cargo test --locked -p fsym-calculus --test rational_laplace --test delayed_laplace --test distributional_laplace --test delayed_distributional_laplace --test rational_mellin -j1
           cargo test --locked -p fsym-calculus --test geometric_summation --test rational_summation -j1
@@ -253,6 +253,7 @@ jobs:
               "python/tests/test_polynomial_system_checked.py",
               "python/tests/test_checked_ideal_operations.py",
               "python/tests/test_prime_field_factorization.py",
+              "python/tests/test_finite_field_poly.py",
               "python/tests/test_polynomial_system_extensions.py",
               "python/tests/test_polynomial_relations.py",
               "python/tests/test_quotient_algebra.py",

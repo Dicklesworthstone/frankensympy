@@ -5,7 +5,8 @@ from __future__ import annotations
 import math
 from fractions import Fraction
 from typing import Any, List, Optional, Sequence, Tuple, Union
-from .polyerrors import NotInvertible, PolynomialError
+from .polyerrors import DomainError, ExactQuotientFailed, NotInvertible, PolynomialError
+from . import _finitefield
 from ..core import (
     Basic,
     Mul,
@@ -47,16 +48,19 @@ def _sort_gens(gens: Any) -> list:
 
 
 class Poly(Basic):
-    """Exact polynomial representation over rational field QQ."""
+    """Exact polynomial representation over QQ or a bounded prime field.
+
+    ``modulus=p`` and ``domain='GF(p)'`` select the checked univariate
+    prime-field lane (prime 2..65521, degree at most 64). Domain and typed
+    generator identity are retained by every supported polynomial operation.
+    """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         pass
 
     def __new__(cls, expr: Any, *gens: Any, **kwargs: Any) -> "Poly":
-        if kwargs.get("modulus") is not None:
-            raise NotImplementedError(
-                "Poly with a modulus is not supported; use factor or factor_list with modulus"
-            )
+        if _finitefield.requested(expr, kwargs):
+            return _finitefield.construct(cls, expr, gens, kwargs)
         if isinstance(expr, Poly):
             if not gens and "gens" not in kwargs:
                 return expr
@@ -96,9 +100,15 @@ class Poly(Basic):
         return obj
 
     def _domain_syms(self) -> frozenset:
+        if _finitefield.is_finite(self):
+            _finitefield.modulus(self)
+            return frozenset()
         return frozenset(self._expr.free_symbols - set(self._gens)) | self._extra_syms
 
     def _like(self, expr: Any, other: Any = None) -> "Poly":
+        if _finitefield.is_finite(self):
+            return type(self)(expr, *self._gens, modulus=_finitefield.modulus(self),
+                              symmetric=self._symmetric)
         extra = self._domain_syms()
         if isinstance(other, Poly):
             extra = extra | other._domain_syms()
@@ -113,12 +123,23 @@ class Poly(Basic):
         return self._gens
 
     def as_expr(self) -> Expr:
+        if _finitefield.is_finite(self):
+            return _finitefield.expression(self)
         return self._expr
+
+    def get_modulus(self) -> int:
+        """Return the characteristic of a prime-field polynomial."""
+        if not _finitefield.is_finite(self):
+            raise DomainError("not a polynomial over a prime field")
+        return _finitefield.modulus(self)
 
     @property
     def _parametric(self) -> bool:
         """Coefficients involve symbols outside the generators (domain
         ZZ[a, ...] / QQ(a, ...)); such polynomials take the Python lanes."""
+        if _finitefield.is_finite(self):
+            _finitefield.modulus(self)
+            return False
         return bool(self._expr.free_symbols - set(self._gens))
 
     def _gen_index(self, gen: Any) -> int:
@@ -135,6 +156,8 @@ class Poly(Basic):
         return out
 
     def total_degree(self) -> Any:
+        if _finitefield.is_finite(self):
+            return _finitefield.degree(self)
         from ..core import S as _S
 
         if self.as_expr() == 0:
@@ -143,6 +166,8 @@ class Poly(Basic):
 
     def all_coeffs(self) -> List[Any]:
         """Return all coefficients of the polynomial in descending degree order."""
+        if _finitefield.is_finite(self):
+            return _finitefield.coefficients(self)
         if self._parametric:
             return self._univariate_coeffs()
         raw = _native.poly_coeffs_native(_native_expr(self._expr), _symbol_binding(self.gen))
@@ -150,10 +175,14 @@ class Poly(Basic):
 
     def coeffs(self) -> List[Any]:
         """Return all non-zero coefficients in descending degree order."""
+        if _finitefield.is_finite(self):
+            return [c for c in self.all_coeffs() if c != 0] or [Integer(0)]
         return [c for c in self.all_coeffs() if c != 0]
 
     def degree(self, gen: Any = 0) -> Optional[int]:
         """Return polynomial degree."""
+        if _finitefield.is_finite(self):
+            return _finitefield.degree(self, gen)
         if self._parametric:
             from ..core import S as _S
 
@@ -175,6 +204,8 @@ class Poly(Basic):
 
     def leading_coeff(self) -> Any:
         """Return the leading coefficient."""
+        if _finitefield.is_finite(self):
+            return _finitefield.coefficients(self)[0]
         if self._parametric:
             return self.terms()[0][1]
         raw = _native.poly_leading_coeff_native(_native_expr(self._expr), _symbol_binding(self.gen))
@@ -198,10 +229,14 @@ class Poly(Basic):
 
     def EC(self) -> Any:
         """Alias for trailing_coeff."""
+        if _finitefield.is_finite(self):
+            return next((c for c in reversed(self.all_coeffs()) if c != 0), Integer(0))
         return self.trailing_coeff()
 
     def nth(self, *coords: int) -> Any:
         """Return coefficient of the given monomial degree."""
+        if _finitefield.is_finite(self):
+            return _finitefield.nth(self, coords)
         if len(coords) == 1:
             n = int(coords[0])
             deg = self.degree()
@@ -214,6 +249,8 @@ class Poly(Basic):
 
     def eval(self, *args: Any) -> Any:
         """Evaluate polynomial at the given points."""
+        if _finitefield.is_finite(self):
+            return _finitefield.evaluate(self, args)
         if len(args) == 1:
             return self.as_expr().subs(self.gen, args[0])
         elif len(args) == 2:
@@ -223,16 +260,22 @@ class Poly(Basic):
 
     def diff(self, *specs: Any) -> "Poly":
         """Differentiate polynomial."""
+        if _finitefield.is_finite(self):
+            return _finitefield.derivative(self, specs)
         from ..core import diff
         return self._like(diff(self.as_expr(), *(specs or (self.gen,))))
 
     def integrate(self, *specs: Any) -> "Poly":
         """Integrate polynomial."""
+        if _finitefield.is_finite(self):
+            return _finitefield.unsupported(self, "integration")
         from ..integrals import integrate
         return Poly(integrate(self.as_expr(), *(specs or (self.gen,))), *self._gens)
 
     def subs(self, *args: Any, **kwargs: Any) -> Any:
         """Substitute into polynomial expression."""
+        if _finitefield.is_finite(self):
+            return _finitefield.unsupported(self, "general substitution; use eval or compose")
         return self.as_expr().subs(*args, **kwargs)
 
     @property
@@ -249,6 +292,8 @@ class Poly(Basic):
 
     @property
     def is_zero(self) -> bool:
+        if _finitefield.is_finite(self):
+            return _finitefield.coefficients(self) == [Integer(0)]
         if self.as_expr() == 0 or self.as_expr() == Integer(0):
             return True
         deg = self.degree()
@@ -261,6 +306,8 @@ class Poly(Basic):
 
     @property
     def is_one(self) -> bool:
+        if _finitefield.is_finite(self):
+            return _finitefield.coefficients(self) == [Integer(1)]
         if self.as_expr() == 1 or self.as_expr() == Integer(1):
             return True
         deg = self.degree()
@@ -285,6 +332,9 @@ class Poly(Basic):
 
     @property
     def is_irreducible(self) -> bool:
+        if _finitefield.is_finite(self):
+            _, factors = _finitefield.factors(self)
+            return len(factors) == 1 and factors[0][1] == 1
         deg = self.degree()
         if deg is None or deg <= 0:
             return False
@@ -298,8 +348,10 @@ class Poly(Basic):
 
     def content(self) -> Any:
         """Compute the content (GCD of coefficients) of this polynomial."""
+        if _finitefield.is_finite(self):
+            return Integer(0 if self.is_zero else 1)
         from functools import reduce
-        from ..core import Add, Integer, Rational
+        from ..core import Add, Rational
         if self._parametric:
             g = Integer(0)
             for _, c in self.terms():
@@ -344,7 +396,11 @@ class Poly(Basic):
 
     def primitive(self) -> Tuple[Any, "Poly"]:
         """Compute the content and primitive form of this polynomial."""
-        from ..core import Integer, expand
+        if _finitefield.is_finite(self):
+            normalized = _finitefield.operation(self, "normalize")
+            expression = object.__getattribute__(normalized, "__dict__")["_expr"]
+            return (Integer(0 if expression == 0 else 1), normalized)
+        from ..core import expand
         cont = self.content()
         if cont == 0:
             return (Integer(0), Poly(0, *self._gens))
@@ -352,8 +408,10 @@ class Poly(Basic):
         return (cont, self._like(prim_expr))
 
     @classmethod
-    def from_list(cls, coeffs: Sequence[Any], gens: Any = None) -> "Poly":
+    def from_list(cls, coeffs: Sequence[Any], gens: Any = None, **kwargs: Any) -> "Poly":
         """Construct a polynomial from a list of coefficients in descending degree order."""
+        if _finitefield.requested(None, kwargs):
+            return _finitefield.from_list(cls, coeffs, gens, kwargs)
         if gens is None:
             gens = [Symbol("x")]
         elif isinstance(gens, (list, tuple)):
@@ -379,7 +437,7 @@ class Poly(Basic):
         else:
             from functools import reduce
             expr = reduce(lambda a, b: a + b, terms)
-        return cls(expr, *gens)
+        return cls(expr, *gens, **kwargs)
 
     @classmethod
     def from_expr(cls, expr: Any, *gens: Any, **kwargs: Any) -> "Poly":
@@ -389,10 +447,14 @@ class Poly(Basic):
     @classmethod
     def from_poly(cls, poly: "Poly", *gens: Any, **kwargs: Any) -> "Poly":
         """Construct a Poly from another Poly."""
+        if _finitefield.requested(poly, kwargs):
+            return cls(poly, *gens, **kwargs)
         return cls(poly.as_expr(), *(gens or poly.gens), **kwargs)
 
     def monic(self) -> "Poly":
         """Return the monic associate of this polynomial."""
+        if _finitefield.is_finite(self):
+            return _finitefield.operation(self, "monic")
         if self._parametric:
             lc = self.leading_coeff()
             out = Integer(0)
@@ -407,6 +469,11 @@ class Poly(Basic):
 
     def div(self, other: Any) -> Tuple["Poly", "Poly"]:
         """Polynomial division with remainder returning (quotient, remainder)."""
+        if _finitefield.is_finite(self):
+            return _finitefield.operation(self, "divrem", other)
+        if _finitefield.is_finite(other):
+            from .polyerrors import UnificationFailed
+            raise UnificationFailed("cannot unify rational and prime-field polynomials")
         other_expr = other.as_expr() if isinstance(other, Poly) else _wrap(_native_expr(other))
         other_gens = other._gens if isinstance(other, Poly) else ()
         if len(self._gens) == 1 and len(other_gens) <= 1 and (
@@ -438,14 +505,39 @@ class Poly(Basic):
     def quo(self, other: Any) -> "Poly":
         return self.div(other)[0]
 
+    def exquo(self, other: Any) -> "Poly":
+        """Return an exact polynomial quotient, refusing a nonzero remainder."""
+        quotient, remainder = self.div(other)
+        if not remainder.is_zero:
+            raise ExactQuotientFailed("polynomial division has a nonzero remainder")
+        return quotient
+
+    def invert(self, other: Any) -> "Poly":
+        """Return the multiplicative inverse modulo another polynomial."""
+        if _finitefield.is_finite(self):
+            return _finitefield.operation(self, "invert", other)
+        s, _, h = self.gcdex(other)
+        if h.is_zero or h.degree() != 0:
+            raise NotInvertible("zero divisor")
+        return self._like(s.as_expr() / h.as_expr()).rem(other)
+
     def sturm(self) -> List["Poly"]:
+        if _finitefield.is_finite(self):
+            return _finitefield.unsupported(self, "Sturm sequences")
         return sturm(self)
 
     def decompose(self) -> List["Poly"]:
+        if _finitefield.is_finite(self):
+            return _finitefield.unsupported(self, "decomposition")
         return decompose(self, polys=True)
 
     def resultant(self, other: Any) -> Any:
         """Resultant with respect to the primary generator."""
+        if _finitefield.is_finite(self):
+            return _finitefield.scalar_operation(self, "resultant", other)
+        if _finitefield.is_finite(other):
+            from .polyerrors import UnificationFailed
+            raise UnificationFailed("cannot unify rational and prime-field polynomials")
         other_expr = other.as_expr() if isinstance(other, Poly) else _wrap(_native_expr(other))
         raw = _native.poly_resultant_native(
             _native_expr(self._expr), _native_expr(other_expr), _symbol_binding(self.gen)
@@ -454,11 +546,17 @@ class Poly(Basic):
 
     def discriminant(self) -> Any:
         """Discriminant with respect to the primary generator."""
+        if _finitefield.is_finite(self):
+            return _finitefield.scalar_operation(self, "discriminant")
         raw = _native.poly_discriminant_native(_native_expr(self._expr), _symbol_binding(self.gen))
         return _lift_native_result(raw, self._expr, *self._gens)
 
     def gcd(self, other: Any) -> "Poly":
         """Greatest common divisor (monic)."""
+        if _finitefield.is_finite(self):
+            return _finitefield.operation(self, "gcd", other)
+        if _finitefield.is_finite(other):
+            return _finitefield.operation(other, "gcd", self)
         other_expr = other.as_expr() if isinstance(other, Poly) else _wrap(_native_expr(other))
         other_gens = other._gens if isinstance(other, Poly) else ()
         if len(self._gens) > 1 or len(other_gens) > 1:
@@ -475,6 +573,10 @@ class Poly(Basic):
 
     def lcm(self, other: Any) -> "Poly":
         """Least common multiple (monic)."""
+        if _finitefield.is_finite(self):
+            return _finitefield.operation(self, "lcm", other)
+        if _finitefield.is_finite(other):
+            return _finitefield.operation(other, "lcm", self)
         other_expr = other.as_expr() if isinstance(other, Poly) else _wrap(_native_expr(other))
         other_gens = other._gens if isinstance(other, Poly) else ()
         if len(self._gens) > 1 or len(other_gens) > 1:
@@ -491,6 +593,11 @@ class Poly(Basic):
 
     def gcdex(self, other: Any) -> Tuple["Poly", "Poly", "Poly"]:
         """Extended Euclidean algorithm: returns (s, t, h) such that s*self + t*other = h."""
+        if _finitefield.is_finite(self):
+            return _finitefield.operation(self, "gcdex", other)
+        if _finitefield.is_finite(other):
+            from .polyerrors import UnificationFailed
+            raise UnificationFailed("cannot unify rational and prime-field polynomials")
         other_poly = other if isinstance(other, Poly) else Poly(other, *self._gens)
         raw_s, raw_t, raw_h = _native.poly_gcdex_native(
             _native_expr(self._expr), _native_expr(other_poly._expr), _symbol_binding(self.gen)
@@ -508,6 +615,11 @@ class Poly(Basic):
 
     def compose(self, other: Any) -> "Poly":
         """Compute polynomial composition self(other)."""
+        if _finitefield.is_finite(self):
+            return _finitefield.operation(self, "compose", other)
+        if _finitefield.is_finite(other):
+            from .polyerrors import UnificationFailed
+            raise UnificationFailed("cannot unify rational and prime-field polynomials")
         other_poly = other if isinstance(other, Poly) else Poly(other, *self._gens)
         raw = _native.poly_compose_native(
             _native_expr(self._expr), _native_expr(other_poly._expr), _symbol_binding(self.gen)
@@ -516,6 +628,8 @@ class Poly(Basic):
 
     def shift(self, a: Any) -> "Poly":
         """Compute polynomial shift self(x + a)."""
+        if _finitefield.is_finite(self):
+            return _finitefield.shift(self, a)
         raw = _native.poly_shift_native(
             _native_expr(self._expr), _native_expr(a), _symbol_binding(self.gen)
         )
@@ -523,6 +637,8 @@ class Poly(Basic):
 
     def sqf_list(self) -> Tuple[Any, List[Tuple["Poly", int]]]:
         """Square-free factorization returning (scale, [(factor, multiplicity), ...])."""
+        if _finitefield.is_finite(self):
+            return _finitefield.factors(self, "sqf")
         scale_raw, factors_raw = _native.poly_sqf_list_native(
             _native_expr(self._expr), _symbol_binding(self.gen)
         )
@@ -535,6 +651,8 @@ class Poly(Basic):
 
     def sqf_part(self) -> "Poly":
         """Square-free part of the polynomial."""
+        if _finitefield.is_finite(self):
+            return _finitefield.factors(self, "sqf_part")
         scale, factors = self.sqf_list()
         res = scale
         for f, _ in factors:
@@ -543,6 +661,8 @@ class Poly(Basic):
 
     def factor_list(self) -> Tuple[Any, List[Tuple["Poly", int]]]:
         """Factorization over Q returning (scale, [(factor, multiplicity), ...])."""
+        if _finitefield.is_finite(self):
+            return _finitefield.factors(self)
         if self._parametric or len(self._gens) > 1:
             res = _native_factor_multivariate(
                 self._expr, list(self._gens) + _sort_gens(self._expr.free_symbols - set(self._gens))
@@ -568,6 +688,8 @@ class Poly(Basic):
 
     def factor(self) -> Expr:
         """Factor polynomial into a product of irreducible rational factors."""
+        if _finitefield.is_finite(self):
+            return _finitefield.factors(self, expression=True)
         scale, factors = self.factor_list()
         if not factors:
             return scale
@@ -583,22 +705,30 @@ class Poly(Basic):
         return _keep_coeff(scale, Mul(*terms))
 
     def all_roots(self, multiple: bool = True, radicals: bool = True) -> list:
+        if _finitefield.is_finite(self):
+            return _finitefield.unsupported(self, "algebraic roots")
         from .rootoftools import all_roots as _ar
 
         return _ar(self, multiple=multiple, radicals=radicals)
 
     def real_roots(self, multiple: bool = True, radicals: bool = True) -> list:
+        if _finitefield.is_finite(self):
+            return _finitefield.unsupported(self, "real roots")
         from .rootoftools import real_roots as _rr
 
         return _rr(self, multiple=multiple, radicals=radicals)
 
     def nroots(self, n: int = 15, maxsteps: int = 50, cleanup: bool = True) -> list:
+        if _finitefield.is_finite(self):
+            return _finitefield.unsupported(self, "numerical roots")
         from .. import nroots as _nroots
 
         return _nroots(self, n=n, maxsteps=maxsteps, cleanup=cleanup)
 
     def roots(self) -> dict[Any, int]:
         """Compute polynomial roots over Q with multiplicities."""
+        if _finitefield.is_finite(self):
+            return _finitefield.unsupported(self, "roots")
         if self._parametric:
             return _parametric_roots(self)
         roots_raw = _native.poly_roots_native(
@@ -607,6 +737,10 @@ class Poly(Basic):
         return {_lift_native_result(r, self._expr, *self._gens): mult for r, mult in roots_raw}
 
     def __add__(self, other: Any) -> "Poly":
+        if _finitefield.is_finite(self):
+            return _finitefield.operation(self, "add", other)
+        if _finitefield.is_finite(other):
+            return _finitefield.operation(other, "add", self)
         other_expr = other.as_expr() if isinstance(other, Poly) else other
         return self._like(self.as_expr() + other_expr, other)
 
@@ -614,14 +748,24 @@ class Poly(Basic):
         return self.__add__(other)
 
     def __sub__(self, other: Any) -> "Poly":
+        if _finitefield.is_finite(self):
+            return _finitefield.operation(self, "sub", other)
+        if _finitefield.is_finite(other):
+            return _finitefield.operation(other, "sub", self, reverse=True)
         other_expr = other.as_expr() if isinstance(other, Poly) else other
         return self._like(self.as_expr() - other_expr, other)
 
     def __rsub__(self, other: Any) -> "Poly":
+        if _finitefield.is_finite(self):
+            return _finitefield.operation(self, "sub", other, reverse=True)
         other_expr = other.as_expr() if isinstance(other, Poly) else other
         return self._like(other_expr - self.as_expr(), other)
 
     def __mul__(self, other: Any) -> "Poly":
+        if _finitefield.is_finite(self):
+            return _finitefield.operation(self, "mul", other)
+        if _finitefield.is_finite(other):
+            return _finitefield.operation(other, "mul", self)
         other_expr = other.as_expr() if isinstance(other, Poly) else other
         return self._like(self.as_expr() * other_expr, other)
 
@@ -629,12 +773,18 @@ class Poly(Basic):
         return self.__mul__(other)
 
     def __neg__(self) -> "Poly":
+        if _finitefield.is_finite(self):
+            return _finitefield.operation(self, "neg")
         return self._like(-self.as_expr())
 
     def __pos__(self) -> "Poly":
+        if _finitefield.is_finite(self):
+            return _finitefield.operation(self, "normalize")
         return self
 
     def __pow__(self, n: int) -> "Poly":
+        if _finitefield.is_finite(self):
+            return _finitefield.power(self, n)
         if not isinstance(n, int) or n < 0:
             raise ValueError("Polynomial exponent must be a non-negative integer")
         from ..core import expand
@@ -649,7 +799,17 @@ class Poly(Basic):
     def __divmod__(self, other: Any) -> Tuple["Poly", "Poly"]:
         return self.div(other)
 
+    add = __add__
+    sub = __sub__
+    mul = __mul__
+    neg = __neg__
+    pow = __pow__
+
     def __eq__(self, other: Any) -> bool:
+        if _finitefield.is_finite(self):
+            return _finitefield.equal(self, other)
+        if _finitefield.is_finite(other):
+            return False
         if not isinstance(other, Poly):
             # Upstream converts the other side into this ring first
             # (Poly(x**2, x) == x**2 is True).
@@ -673,10 +833,14 @@ class Poly(Basic):
         return False
 
     def __hash__(self) -> int:
+        if _finitefield.is_finite(self):
+            return _finitefield.identity_hash(self)
         return hash((self._expr, self._gens))
 
     def terms(self) -> list:
         """(monomial exponents, coefficient) pairs, lex-descending in gens."""
+        if _finitefield.is_finite(self):
+            return _finitefield.terms(self)
         from ..core import Add as _Add, Integer as _Integer, Mul as _Mul, Pow as _Pow, expand
 
         gens = list(self._gens)
@@ -744,6 +908,8 @@ class Poly(Basic):
 
     @property
     def domain(self) -> Any:
+        if _finitefield.is_finite(self):
+            return "GF(%d)" % _finitefield.modulus(self)
         return self._domain if self._domain_given else self._infer_domain()
 
     def __repr__(self) -> str:
@@ -778,6 +944,8 @@ class Poly(Basic):
             modifier = terms.pop(0)
             if modifier == "-":
                 terms[0] = "-" + terms[0]
+        if _finitefield.is_finite(self):
+            return "Poly(%s, %s, modulus=%d)" % (" ".join(terms), ", ".join(gens), self.get_modulus())
         return "Poly(%s, %s, domain='%s')" % (" ".join(terms), ", ".join(gens), self.domain)
 
     def __str__(self) -> str:
@@ -794,6 +962,8 @@ class PurePoly(Poly):
     __str__ = __repr__
 
     def __hash__(self) -> int:
+        if _finitefield.is_finite(self):
+            return _finitefield.identity_hash(self)
         return hash(("PurePoly", tuple(c for _, c in self.terms())))
 
 
@@ -993,8 +1163,13 @@ def LT(f: Any, *gens: Any) -> Any:
     return c * m
 
 
-def invert(f: Any, g: Any, *gens: Any) -> Any:
+def invert(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Any:
     """Inverse of ``f`` modulo ``g`` (integers or univariate polynomials)."""
+    modular = _finitefield.binary_entry(f, g, gens, kwargs, "invert")
+    if modular is not None:
+        return modular
+    if kwargs:
+        raise TypeError("unsupported inverse options outside a prime field")
     from ..core import Integer as _Integer, sympify as _sympify
 
     if isinstance(f, (int, _Integer)) and isinstance(g, (int, _Integer)):
@@ -1044,6 +1219,8 @@ def TC(f: Any, *gens: Any) -> Any:
 
 def EC(f: Any, *gens: Any) -> Any:
     """Alias for trailing_coeff."""
+    if _finitefield.is_finite(f):
+        return f.EC()
     return trailing_coeff(f, *gens)
 
 
@@ -1054,8 +1231,13 @@ def monic(f: Any) -> Any:
     return f.monic()
 
 
-def gcd(a: Any, b: Any) -> Any:
+def gcd(a: Any, b: Any, *gens: Any, **kwargs: Any) -> Any:
     """Compute polynomial or integer greatest common divisor."""
+    modular = _finitefield.binary_entry(a, b, gens, kwargs, "gcd")
+    if modular is not None:
+        return modular
+    if gens or kwargs:
+        raise TypeError("explicit gcd options currently require a prime field")
     if isinstance(a, int) and isinstance(b, int):
         return math.gcd(a, b)
     if isinstance(a, Poly):
@@ -1100,8 +1282,13 @@ def _multivariate_gcd_lcm(a: Any, b: Any, lcm: bool) -> Any:
     return _expand(out)
 
 
-def lcm(a: Any, b: Any) -> Any:
+def lcm(a: Any, b: Any, *gens: Any, **kwargs: Any) -> Any:
     """Compute polynomial or integer least common multiple."""
+    modular = _finitefield.binary_entry(a, b, gens, kwargs, "lcm")
+    if modular is not None:
+        return modular
+    if gens or kwargs:
+        raise TypeError("explicit lcm options currently require a prime field")
     if isinstance(a, int) and isinstance(b, int):
         return abs(a * b) // math.gcd(a, b) if a and b else 0
     if isinstance(a, Poly):
@@ -1116,8 +1303,13 @@ def lcm(a: Any, b: Any) -> Any:
     return res.as_expr()
 
 
-def gcdex(f: Any, g: Any, x: Any = None) -> Tuple[Any, Any, Any]:
+def gcdex(f: Any, g: Any, x: Any = None, **kwargs: Any) -> Tuple[Any, Any, Any]:
     """Extended Euclidean algorithm: returns (s, t, h) such that s*f + t*g = h = gcd(f, g)."""
+    modular = _finitefield.binary_entry(f, g, (x,) if x is not None else (), kwargs, "gcdex")
+    if modular is not None:
+        return modular
+    if kwargs:
+        raise TypeError("explicit gcdex options currently require a prime field")
     p_f = Poly(f, x) if x is not None else (f if isinstance(f, Poly) else Poly(f))
     p_g = Poly(g, x) if x is not None else (g if isinstance(g, Poly) else Poly(g, *p_f._gens))
     s, t, h = p_f.gcdex(p_g)
@@ -1126,9 +1318,9 @@ def gcdex(f: Any, g: Any, x: Any = None) -> Tuple[Any, Any, Any]:
     return s.as_expr(), t.as_expr(), h.as_expr()
 
 
-def half_gcdex(f: Any, g: Any, x: Any = None) -> Tuple[Any, Any]:
+def half_gcdex(f: Any, g: Any, x: Any = None, **kwargs: Any) -> Tuple[Any, Any]:
     """Half extended Euclidean algorithm: returns (s, h) such that s*f == h (mod g)."""
-    s, _, h = gcdex(f, g, x)
+    s, _, h = gcdex(f, g, x, **kwargs)
     return s, h
 
 
@@ -1161,9 +1353,13 @@ def _has_parameters(f: Any, x: Any) -> bool:
     return bool(set(expr.free_symbols) - {x})
 
 
-def resultant(p: Any, q: Any, x: Any = None) -> Any:
-    """Resultant of two polynomials in ``x`` (Sylvester determinant when
-    the coefficients are symbolic)."""
+def resultant(p: Any, q: Any, x: Any = None, **kwargs: Any) -> Any:
+    """Resultant of two polynomials in ``x`` in their declared coefficient domain."""
+    modular = _finitefield.binary_entry(p, q, (x,) if x is not None else (), kwargs, "resultant")
+    if modular is not None:
+        return modular
+    if kwargs:
+        raise TypeError("explicit resultant options currently require a prime field")
     if x is not None and (_has_parameters(p, x) or _has_parameters(q, x)):
         return _sylvester_resultant(p, q, x)
     poly_p = Poly(p, x) if x is not None else (p if isinstance(p, Poly) else Poly(p))
@@ -1267,8 +1463,13 @@ def terms_gcd(f: Any, *gens: Any, clear: bool = True, deep: bool = False, expand
     return _Mul(k, term, poly_part)
 
 
-def discriminant(p: Any, x: Any = None) -> Any:
-    """Discriminant ``(-1)**(n(n-1)/2) * res(p, p') / lc(p)``."""
+def discriminant(p: Any, x: Any = None, **kwargs: Any) -> Any:
+    """Discriminant specialized to the declared coefficient domain."""
+    modular = _finitefield.unary_entry(p, (x,) if x is not None else (), kwargs, "discriminant")
+    if modular is not None:
+        return modular
+    if kwargs:
+        raise TypeError("explicit discriminant options currently require a prime field")
     from ..core import diff as _diff, expand, sympify as _sympify
 
     if x is not None and _has_parameters(p, x):
@@ -1284,6 +1485,10 @@ def discriminant(p: Any, x: Any = None) -> Any:
 
 def sqf_list(p: Any, x: Any = None) -> Tuple[Any, List[Tuple[Any, int]]]:
     """Compute square-free factorization returning (scale, [(factor, multiplicity), ...])."""
+    if _finitefield.is_finite(p):
+        if x is not None:
+            _finitefield.degree(p, x)
+        return p.sqf_list()
     if not isinstance(p, Poly):
         mgens = _multivariate_gens(p, (x,) if x is not None else ())
         if mgens is not None:
@@ -1306,6 +1511,10 @@ def sqf_list(p: Any, x: Any = None) -> Tuple[Any, List[Tuple[Any, int]]]:
 
 def sqf_part(p: Any, x: Any = None) -> Any:
     """Compute the square-free part of a polynomial."""
+    if _finitefield.is_finite(p):
+        if x is not None:
+            _finitefield.degree(p, x)
+        return p.sqf_part()
     poly_p = Poly(p, x) if x is not None else (p if isinstance(p, Poly) else Poly(p))
     return poly_p.sqf_part().as_expr()
 
@@ -2162,6 +2371,8 @@ def _prime_field_factor_list(
 
 def factor_list(p: Any, *gens: Any, modulus: Any = None) -> Tuple[Any, List[Tuple[Any, int]]]:
     """Compute polynomial factor list returning (scale, [(factor, multiplicity), ...])."""
+    if _finitefield.is_finite(p):
+        return _finitefield.factor_entry(p, gens, modulus)
     if modulus is not None:
         return _prime_field_factor_list(p, gens, modulus)
     from . import _opaque
@@ -2222,6 +2433,8 @@ def _factor_rational(p: Any) -> Any:
 
 
 def factor(p: Any, *gens: Any, modulus: Any = None) -> Any:
+    if _finitefield.is_finite(p):
+        return _finitefield.factor_entry(p, gens, modulus, expression=True)
     if modulus is not None:
         from ..core import _keep_coeff
 
@@ -3034,6 +3247,9 @@ def poly(expr: Any, *gens: Any, **args: Any) -> Poly:
 
 def div(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Tuple[Any, Any]:
     """Polynomial division with remainder returning (quotient, remainder)."""
+    modular = _finitefield.binary_entry(f, g, gens, kwargs, "divrem")
+    if modular is not None:
+        return modular
     is_poly = isinstance(f, Poly) or isinstance(g, Poly)
     p_f = f if isinstance(f, Poly) else Poly(f, *gens, **kwargs)
     p_g = g if isinstance(g, Poly) else Poly(g, *p_f.gens)
@@ -3056,6 +3272,8 @@ def quo(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Any:
 def sturm(f: Any, *gens: Any, **kwargs: Any) -> List[Poly]:
     """Compute the Sturm sequence of a polynomial."""
     p0 = f if isinstance(f, Poly) else Poly(f, *gens, **kwargs)
+    if _finitefield.is_finite(p0):
+        return _finitefield.unsupported(p0, "Sturm sequences")
     if p0.is_zero:
         return []
     p1 = p0.diff()
@@ -3077,6 +3295,9 @@ def sturm(f: Any, *gens: Any, **kwargs: Any) -> List[Poly]:
 
 def compose(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Any:
     """Compute functional composition f(g)."""
+    modular = _finitefield.binary_entry(f, g, gens, kwargs, "compose")
+    if modular is not None:
+        return modular
     is_poly = isinstance(f, Poly) or isinstance(g, Poly)
     p_f = f if isinstance(f, Poly) else Poly(f, *gens, **kwargs)
     res = p_f.compose(g)
@@ -3144,6 +3365,9 @@ def _decompose_poly_core(f: Poly) -> List[Poly]:
 
 def decompose(f: Any, *gens: Any, **kwargs: Any) -> List[Any]:
     """Compute the functional decomposition of a polynomial."""
+    if _finitefield.is_finite(f) or _finitefield.requested(None, kwargs):
+        polynomial = f if _finitefield.is_finite(f) else Poly(f, *gens, **kwargs)
+        return _finitefield.unsupported(polynomial, "decomposition")
     is_poly = isinstance(f, Poly)
     p_f = f if isinstance(f, Poly) else Poly(f, *gens, **kwargs)
     res = _decompose_poly_core(p_f)

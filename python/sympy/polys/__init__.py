@@ -1,5 +1,10 @@
 """Polynomial module for FrankenSymPy (WS08, WS09)."""
 
+from .polyerrors import (
+    CoercionFailed, DomainError, ExactQuotientFailed, GeneratorsError,
+    GeneratorsNeeded, NotInvertible, PolynomialError, UnificationFailed,
+)
+
 from .polytools import (
     EC,
     GroebnerBasis,
@@ -43,6 +48,14 @@ from .polytools import (
 )
 
 __all__ = [
+    "CoercionFailed",
+    "DomainError",
+    "ExactQuotientFailed",
+    "GeneratorsError",
+    "GeneratorsNeeded",
+    "NotInvertible",
+    "PolynomialError",
+    "UnificationFailed",
     "EC",
     "GroebnerBasis",
     "LC",

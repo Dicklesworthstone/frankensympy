@@ -1268,6 +1268,17 @@ from .polys import (
     together,
     trailing_coeff,
 )
+from .polys.polyerrors import (
+    BasePolynomialError,
+    CoercionFailed,
+    DomainError,
+    ExactQuotientFailed,
+    GeneratorsError,
+    GeneratorsNeeded,
+    NotInvertible,
+    PolynomialError,
+    UnificationFailed,
+)
 from . import calculus
 from .calculus import (
     AccumBounds,
@@ -2001,6 +2012,15 @@ def reduce_inequalities(inequalities: Any, symbols: Any = None) -> Any:
 
 
 __all__ = [
+    "BasePolynomialError",
+    "CoercionFailed",
+    "DomainError",
+    "ExactQuotientFailed",
+    "GeneratorsError",
+    "GeneratorsNeeded",
+    "NotInvertible",
+    "PolynomialError",
+    "UnificationFailed",
     "imageset",
     "Rationals",
     "Range",
