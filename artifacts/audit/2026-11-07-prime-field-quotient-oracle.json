@@ -1,0 +1,700 @@
+{
+  "schema": "frankensympy.oracle-expectations.v1",
+  "oracle": "SymPy 1.14.0, isolated installed package",
+  "candidate_base": "5705e293165f5047ecc19294333ed9d0831d8e19",
+  "comparator": "Reduced monic Lex Groebner bases over the exact prime field and declared ordered variables; comparator selected before execution.",
+  "purpose": "Independent hand-derived finite ideal quotient expectations only; does not execute the FrankenSymPy public extension or prove its behavior.",
+  "cases": [
+    {
+      "case": "finite_multiplicity",
+      "prime": 2,
+      "variables": [
+        "x",
+        "y"
+      ],
+      "inputs": [
+        "x**3*y"
+      ],
+      "divisors": [
+        "x"
+      ],
+      "expected_lex_basis": [
+        "x**2*y"
+      ],
+      "oracle_lex_basis": [
+        "x**2*y"
+      ],
+      "passed": true
+    },
+    {
+      "case": "all_divisor_constraints",
+      "prime": 2,
+      "variables": [
+        "x",
+        "y"
+      ],
+      "inputs": [
+        "x**2",
+        "y**2"
+      ],
+      "divisors": [
+        "x",
+        "y"
+      ],
+      "expected_lex_basis": [
+        "x**2",
+        "x*y",
+        "y**2"
+      ],
+      "oracle_lex_basis": [
+        "x**2",
+        "x*y",
+        "y**2"
+      ],
+      "passed": true
+    },
+    {
+      "case": "nonmonomial_cancellation",
+      "prime": 2,
+      "variables": [
+        "x",
+        "y",
+        "z"
+      ],
+      "inputs": [
+        "x*(x + y)",
+        "z*(x + y)"
+      ],
+      "divisors": [
+        "x + y"
+      ],
+      "expected_lex_basis": [
+        "x",
+        "z"
+      ],
+      "oracle_lex_basis": [
+        "x",
+        "z"
+      ],
+      "passed": true
+    },
+    {
+      "case": "characteristic_repeated_factor",
+      "prime": 2,
+      "variables": [
+        "x"
+      ],
+      "inputs": [
+        "x**2 + 1"
+      ],
+      "divisors": [
+        "x + 1"
+      ],
+      "expected_lex_basis": [
+        "x + 1"
+      ],
+      "oracle_lex_basis": [
+        "x + 1"
+      ],
+      "passed": true
+    },
+    {
+      "case": "no_rational_point_shortcut",
+      "prime": 2,
+      "variables": [
+        "x"
+      ],
+      "inputs": [
+        "x**2 + 1"
+      ],
+      "divisors": [
+        "x"
+      ],
+      "expected_lex_basis": [
+        "x**2 + 1"
+      ],
+      "oracle_lex_basis": [
+        "x**2 + 1"
+      ],
+      "passed": true
+    },
+    {
+      "case": "unit_numerator",
+      "prime": 2,
+      "variables": [
+        "x",
+        "y"
+      ],
+      "inputs": [
+        "1"
+      ],
+      "divisors": [
+        "x",
+        "y"
+      ],
+      "expected_lex_basis": [
+        "1"
+      ],
+      "oracle_lex_basis": [
+        "1"
+      ],
+      "passed": true
+    },
+    {
+      "case": "zero_numerator",
+      "prime": 2,
+      "variables": [
+        "x",
+        "y"
+      ],
+      "inputs": [],
+      "divisors": [
+        "x",
+        "y"
+      ],
+      "expected_lex_basis": [],
+      "oracle_lex_basis": [],
+      "passed": true
+    },
+    {
+      "case": "zero_divisor",
+      "prime": 2,
+      "variables": [
+        "x",
+        "y"
+      ],
+      "inputs": [
+        "x*y"
+      ],
+      "divisors": [
+        "0"
+      ],
+      "expected_lex_basis": [
+        "1"
+      ],
+      "oracle_lex_basis": [
+        "1"
+      ],
+      "passed": true
+    },
+    {
+      "case": "finite_multiplicity",
+      "prime": 3,
+      "variables": [
+        "x",
+        "y"
+      ],
+      "inputs": [
+        "x**3*y"
+      ],
+      "divisors": [
+        "x"
+      ],
+      "expected_lex_basis": [
+        "x**2*y"
+      ],
+      "oracle_lex_basis": [
+        "x**2*y"
+      ],
+      "passed": true
+    },
+    {
+      "case": "all_divisor_constraints",
+      "prime": 3,
+      "variables": [
+        "x",
+        "y"
+      ],
+      "inputs": [
+        "x**2",
+        "y**2"
+      ],
+      "divisors": [
+        "x",
+        "y"
+      ],
+      "expected_lex_basis": [
+        "x**2",
+        "x*y",
+        "y**2"
+      ],
+      "oracle_lex_basis": [
+        "x**2",
+        "x*y",
+        "y**2"
+      ],
+      "passed": true
+    },
+    {
+      "case": "nonmonomial_cancellation",
+      "prime": 3,
+      "variables": [
+        "x",
+        "y",
+        "z"
+      ],
+      "inputs": [
+        "x*(x + y)",
+        "z*(x + y)"
+      ],
+      "divisors": [
+        "x + y"
+      ],
+      "expected_lex_basis": [
+        "x",
+        "z"
+      ],
+      "oracle_lex_basis": [
+        "x",
+        "z"
+      ],
+      "passed": true
+    },
+    {
+      "case": "characteristic_repeated_factor",
+      "prime": 3,
+      "variables": [
+        "x"
+      ],
+      "inputs": [
+        "x**2 + 1"
+      ],
+      "divisors": [
+        "x + 1"
+      ],
+      "expected_lex_basis": [
+        "x**2 + 1"
+      ],
+      "oracle_lex_basis": [
+        "x**2 + 1"
+      ],
+      "passed": true
+    },
+    {
+      "case": "no_rational_point_shortcut",
+      "prime": 3,
+      "variables": [
+        "x"
+      ],
+      "inputs": [
+        "x**2 + 1"
+      ],
+      "divisors": [
+        "x"
+      ],
+      "expected_lex_basis": [
+        "x**2 + 1"
+      ],
+      "oracle_lex_basis": [
+        "x**2 + 1"
+      ],
+      "passed": true
+    },
+    {
+      "case": "unit_numerator",
+      "prime": 3,
+      "variables": [
+        "x",
+        "y"
+      ],
+      "inputs": [
+        "1"
+      ],
+      "divisors": [
+        "x",
+        "y"
+      ],
+      "expected_lex_basis": [
+        "1"
+      ],
+      "oracle_lex_basis": [
+        "1"
+      ],
+      "passed": true
+    },
+    {
+      "case": "zero_numerator",
+      "prime": 3,
+      "variables": [
+        "x",
+        "y"
+      ],
+      "inputs": [],
+      "divisors": [
+        "x",
+        "y"
+      ],
+      "expected_lex_basis": [],
+      "oracle_lex_basis": [],
+      "passed": true
+    },
+    {
+      "case": "zero_divisor",
+      "prime": 3,
+      "variables": [
+        "x",
+        "y"
+      ],
+      "inputs": [
+        "x*y"
+      ],
+      "divisors": [
+        "0"
+      ],
+      "expected_lex_basis": [
+        "1"
+      ],
+      "oracle_lex_basis": [
+        "1"
+      ],
+      "passed": true
+    },
+    {
+      "case": "finite_multiplicity",
+      "prime": 5,
+      "variables": [
+        "x",
+        "y"
+      ],
+      "inputs": [
+        "x**3*y"
+      ],
+      "divisors": [
+        "x"
+      ],
+      "expected_lex_basis": [
+        "x**2*y"
+      ],
+      "oracle_lex_basis": [
+        "x**2*y"
+      ],
+      "passed": true
+    },
+    {
+      "case": "all_divisor_constraints",
+      "prime": 5,
+      "variables": [
+        "x",
+        "y"
+      ],
+      "inputs": [
+        "x**2",
+        "y**2"
+      ],
+      "divisors": [
+        "x",
+        "y"
+      ],
+      "expected_lex_basis": [
+        "x**2",
+        "x*y",
+        "y**2"
+      ],
+      "oracle_lex_basis": [
+        "x**2",
+        "x*y",
+        "y**2"
+      ],
+      "passed": true
+    },
+    {
+      "case": "nonmonomial_cancellation",
+      "prime": 5,
+      "variables": [
+        "x",
+        "y",
+        "z"
+      ],
+      "inputs": [
+        "x*(x + y)",
+        "z*(x + y)"
+      ],
+      "divisors": [
+        "x + y"
+      ],
+      "expected_lex_basis": [
+        "x",
+        "z"
+      ],
+      "oracle_lex_basis": [
+        "x",
+        "z"
+      ],
+      "passed": true
+    },
+    {
+      "case": "characteristic_repeated_factor",
+      "prime": 5,
+      "variables": [
+        "x"
+      ],
+      "inputs": [
+        "x**2 + 1"
+      ],
+      "divisors": [
+        "x + 1"
+      ],
+      "expected_lex_basis": [
+        "x**2 + 1"
+      ],
+      "oracle_lex_basis": [
+        "x**2 + 1"
+      ],
+      "passed": true
+    },
+    {
+      "case": "no_rational_point_shortcut",
+      "prime": 5,
+      "variables": [
+        "x"
+      ],
+      "inputs": [
+        "x**2 + 1"
+      ],
+      "divisors": [
+        "x"
+      ],
+      "expected_lex_basis": [
+        "x**2 + 1"
+      ],
+      "oracle_lex_basis": [
+        "x**2 + 1"
+      ],
+      "passed": true
+    },
+    {
+      "case": "unit_numerator",
+      "prime": 5,
+      "variables": [
+        "x",
+        "y"
+      ],
+      "inputs": [
+        "1"
+      ],
+      "divisors": [
+        "x",
+        "y"
+      ],
+      "expected_lex_basis": [
+        "1"
+      ],
+      "oracle_lex_basis": [
+        "1"
+      ],
+      "passed": true
+    },
+    {
+      "case": "zero_numerator",
+      "prime": 5,
+      "variables": [
+        "x",
+        "y"
+      ],
+      "inputs": [],
+      "divisors": [
+        "x",
+        "y"
+      ],
+      "expected_lex_basis": [],
+      "oracle_lex_basis": [],
+      "passed": true
+    },
+    {
+      "case": "zero_divisor",
+      "prime": 5,
+      "variables": [
+        "x",
+        "y"
+      ],
+      "inputs": [
+        "x*y"
+      ],
+      "divisors": [
+        "0"
+      ],
+      "expected_lex_basis": [
+        "1"
+      ],
+      "oracle_lex_basis": [
+        "1"
+      ],
+      "passed": true
+    },
+    {
+      "case": "finite_multiplicity",
+      "prime": 7,
+      "variables": [
+        "x",
+        "y"
+      ],
+      "inputs": [
+        "x**3*y"
+      ],
+      "divisors": [
+        "x"
+      ],
+      "expected_lex_basis": [
+        "x**2*y"
+      ],
+      "oracle_lex_basis": [
+        "x**2*y"
+      ],
+      "passed": true
+    },
+    {
+      "case": "all_divisor_constraints",
+      "prime": 7,
+      "variables": [
+        "x",
+        "y"
+      ],
+      "inputs": [
+        "x**2",
+        "y**2"
+      ],
+      "divisors": [
+        "x",
+        "y"
+      ],
+      "expected_lex_basis": [
+        "x**2",
+        "x*y",
+        "y**2"
+      ],
+      "oracle_lex_basis": [
+        "x**2",
+        "x*y",
+        "y**2"
+      ],
+      "passed": true
+    },
+    {
+      "case": "nonmonomial_cancellation",
+      "prime": 7,
+      "variables": [
+        "x",
+        "y",
+        "z"
+      ],
+      "inputs": [
+        "x*(x + y)",
+        "z*(x + y)"
+      ],
+      "divisors": [
+        "x + y"
+      ],
+      "expected_lex_basis": [
+        "x",
+        "z"
+      ],
+      "oracle_lex_basis": [
+        "x",
+        "z"
+      ],
+      "passed": true
+    },
+    {
+      "case": "characteristic_repeated_factor",
+      "prime": 7,
+      "variables": [
+        "x"
+      ],
+      "inputs": [
+        "x**2 + 1"
+      ],
+      "divisors": [
+        "x + 1"
+      ],
+      "expected_lex_basis": [
+        "x**2 + 1"
+      ],
+      "oracle_lex_basis": [
+        "x**2 + 1"
+      ],
+      "passed": true
+    },
+    {
+      "case": "no_rational_point_shortcut",
+      "prime": 7,
+      "variables": [
+        "x"
+      ],
+      "inputs": [
+        "x**2 + 1"
+      ],
+      "divisors": [
+        "x"
+      ],
+      "expected_lex_basis": [
+        "x**2 + 1"
+      ],
+      "oracle_lex_basis": [
+        "x**2 + 1"
+      ],
+      "passed": true
+    },
+    {
+      "case": "unit_numerator",
+      "prime": 7,
+      "variables": [
+        "x",
+        "y"
+      ],
+      "inputs": [
+        "1"
+      ],
+      "divisors": [
+        "x",
+        "y"
+      ],
+      "expected_lex_basis": [
+        "1"
+      ],
+      "oracle_lex_basis": [
+        "1"
+      ],
+      "passed": true
+    },
+    {
+      "case": "zero_numerator",
+      "prime": 7,
+      "variables": [
+        "x",
+        "y"
+      ],
+      "inputs": [],
+      "divisors": [
+        "x",
+        "y"
+      ],
+      "expected_lex_basis": [],
+      "oracle_lex_basis": [],
+      "passed": true
+    },
+    {
+      "case": "zero_divisor",
+      "prime": 7,
+      "variables": [
+        "x",
+        "y"
+      ],
+      "inputs": [
+        "x*y"
+      ],
+      "divisors": [
+        "0"
+      ],
+      "expected_lex_basis": [
+        "1"
+      ],
+      "oracle_lex_basis": [
+        "1"
+      ],
+      "passed": true
+    }
+  ],
+  "passed": 32,
+  "failed": 0,
+  "elapsed_seconds": 0.042
+}

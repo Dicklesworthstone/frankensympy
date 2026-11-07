@@ -1,0 +1,147 @@
+{
+  "schema": "frankensympy.bounded-feature-progress.v1",
+  "recorded_at": "2026-11-07T04:52:44Z",
+  "base_main": "5705e293165f5047ecc19294333ed9d0831d8e19",
+  "workstream": "WS17",
+  "bead": "fra-546",
+  "objective": "Complete bounded finite ideal quotient I:J over exact prime fields.",
+  "implementation": {
+    "module": "crates/fsym-polys/src/finite_field_ideal_quotient.rs",
+    "entry_points": [
+      "checked_prime_field_ideal_quotient",
+      "verify_prime_field_ideal_quotient"
+    ],
+    "mathematical_construction": "For each nonzero original divisor g, divide every generator of the complete accepted intersection I intersect <g> by g. Intersect all resulting principal quotients. An empty or all-zero divisor list yields the unit ideal only after admitting both original lists.",
+    "independent_verification": "Bind exact original ordered coefficients, typed variables and prime; check every cancellation by independent signed coefficient convolution; require all principal witnesses, accepted Lex quotient bases, all intersection links and the entire final basis. The outer verifier performs no basis search or division.",
+    "ownership": "Large accepted lower receipts are immutable and shared through Arc. Untrusted quotients and the published basis are bounded and copied on acceptance.",
+    "scope": "Complete reduced Lex arithmetic ideal over F_p, preserving finite multiplicity, including nonmonomial divisors, multiple constraints, zero/unit ideals and explicit constant fields.",
+    "not_claimed": [
+      "finite-point-set replacement",
+      "portable proof-kernel certificate",
+      "whole WS17 or compatibility profile closure",
+      "performance superiority"
+    ]
+  },
+  "bounds": {
+    "prime": "prime p in 2..65521",
+    "maximum_variables": 8,
+    "maximum_numerator_inputs": 32,
+    "maximum_divisors": 32,
+    "nonzero_divisor_maximum_variables": 7,
+    "nonzero_divisor_maximum_numerator_inputs": 31,
+    "augmented_total_degree": 64,
+    "maximum_terms_per_polynomial": 4096,
+    "intermediate_combined_inputs": 32,
+    "cumulative_compute_steps_per_phase": 20000000,
+    "cumulative_logical_allocation_bytes_per_phase": 134217728,
+    "source_admission_precedes_shortcuts": true,
+    "phase_accounting_survives_all_nested_calls": true
+  },
+  "validation": {
+    "toolchain": "nightly-2026-08-20",
+    "dependencies": "unchanged locked Cargo graph, offline",
+    "environment": {
+      "jobs": 1,
+      "debug": 0,
+      "codegen_units": 256,
+      "incremental": false,
+      "rustflags": "-D warnings"
+    },
+    "recovered_baseline": {
+      "command": "cargo test --locked --offline -p fsym-polys --test finite_field_elimination --test finite_field_ideal_operations --test finite_field_multivariate --test finite_field_groebner --test finite_field_groebner_adversaries --test finite_field_recursive_division -j1",
+      "exit_code": 0,
+      "passed": 71,
+      "failed": 0,
+      "note": "All recovered prior tests now execute successfully against the exact 5705 baseline implementation. Pinned formatting was reapplied; only the two previously reconstructed new test files changed formatting. This resolves the earlier native recovery formatting/execution gap."
+    },
+    "new_quotient": {
+      "command": "cargo test --locked --offline -p fsym-polys --test finite_field_ideal_quotient -j1",
+      "exit_code": 0,
+      "passed": 18,
+      "failed": 0,
+      "coverage": [
+        "finite multiplicity versus saturation",
+        "nonmonomial cancellation and complete multi-generator quotients",
+        "characteristic-dependent common factors",
+        "zero/unit/constant rings and modular zero divisors",
+        "typed ring and exact original coefficient binding",
+        "omitted/reordered/forged principal certificates and intersection links",
+        "coordinated cancellation and basis mutations",
+        "independent phase compute/allocation exhaustion and cancellation",
+        "source and auxiliary bounds"
+      ]
+    },
+    "formatting": "Pinned Rust 2024 formatting and diff whitespace checks pass for the new module, export and focused tests.",
+    "independent_review": "Implementation author, independent test/build owner and root reviewed the composition argument, exact source binding, completeness, cumulative budgets and failure semantics.",
+    "oracle": {
+      "artifact": "artifacts/audit/2026-11-07-prime-field-quotient-oracle.json",
+      "passed": 32,
+      "failed": 0,
+      "scope": "Isolated SymPy 1.14.0 AGCA checks of hand-derived expected ideals; not execution of the FrankenSymPy public extension."
+    },
+    "broader_native_gate": "In progress at this checkpoint: cargo test --locked --offline -p fsym-polys --lib --tests -j1, followed by strict all-target polynomial Clippy. The public follow-up records terminal outcomes.",
+    "public_extension": "Separate public integration follows. Fresh full build and metadata-only cargo check both stopped with SIGKILL in unchanged pinned asupersync before bridge compilation. No public execution or full workspace success is claimed.",
+    "logs": [
+      {
+        "path": "/tmp/frankensympy-fp-recovered-baseline-tests-20261107.log",
+        "sha256": "6c533dd0b8150e752ae9689f75dcea58d8a6a87288a65274414142963acaeea1",
+        "bytes": 10187,
+        "summaries": [
+          "test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+          "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s",
+          "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+          "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+          "test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+          "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+        ],
+        "last_diagnostic": ""
+      },
+      {
+        "path": "/tmp/frankensympy-fp-quotient-tests-20261107.log",
+        "sha256": "859beac709f9835ffa2b9379f0a4fa88a37493202ce54990ff7e0411434e3c71",
+        "bytes": 2047,
+        "summaries": [
+          "test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s"
+        ],
+        "last_diagnostic": ""
+      },
+      {
+        "path": "/tmp/frankensympy-python-quotient-build-20261107.log",
+        "sha256": "312a8472562b67481a624daaca9da038ace85689dc87f6c32adbd4e1cd577da8",
+        "bytes": 26504,
+        "summaries": [],
+        "last_diagnostic": "1107/debug/build/xattr/39157d4bdf18a5d2/out/libxattr-39157d4bdf18a5d2.rmeta --extern zeroize=/tmp/frankensympy-python-quotient-20261107/debug/build/zeroize/4f49289838437ee7/out/libzeroize-4f49289838437ee7.rmeta -D warnings` (signal: 9, SIGKILL: kill)"
+      },
+      {
+        "path": "/tmp/frankensympy-python-quotient-check-20261107.log",
+        "sha256": "44e2cc60dbbd97b4e10c81cb501caac9b524f67b0d8c97492391350dcf75e52c",
+        "bytes": 29985,
+        "summaries": [],
+        "last_diagnostic": "1107/debug/build/xattr/9aacda25c284294f/out/libxattr-9aacda25c284294f.rmeta --extern zeroize=/tmp/frankensympy-python-quotient-20261107/debug/build/zeroize/f162c982be008980/out/libzeroize-f162c982be008980.rmeta -D warnings` (signal: 9, SIGKILL: kill)"
+      }
+    ]
+  },
+  "source_sha256": {
+    "crates/fsym-polys/src/finite_field_ideal_quotient.rs": "974e32d28e48525ac57ce4656f23360dcce643484f4db92491faa299cfc773a9",
+    "crates/fsym-polys/src/lib.rs": "2f08437f47fe8f8fadca1f9b0ee6d3058d36f02fc108626fc566819b33aa61e1",
+    "crates/fsym-polys/tests/finite_field_ideal_quotient.rs": "01e88432c08a6aeea86b69582e3c7cccb2ed76fb8c27d8729298c716b2ca6592",
+    "crates/fsym-polys/tests/finite_field_elimination.rs": "cbfb9705ddf2631c0c47426428b8a858e4ab942d8e7700043429179b609e6022",
+    "crates/fsym-polys/tests/finite_field_ideal_operations.rs": "f8602b305034dacead0f7bdd194a5853f329c64772e51b9890113402d6e758b4",
+    ".github/workflows/ci.yml": "62a0198827e7482610922071d36606891b0da5dbe9664ad34a0a4247ce657242",
+    "artifacts/audit/2026-11-07-prime-field-quotient-oracle.json": "c0edd39898bc0d01f750d3d347510e26db091df8376349237e64d28c85c0b2ba"
+  },
+  "source_blobs": {
+    "crates/fsym-polys/src/finite_field_ideal_quotient.rs": "e3eec6a07a1ba26e32aa0b89612bdd4fda33e88d",
+    "crates/fsym-polys/src/lib.rs": "a80123f87d7f83a349297833f999c5b261ff9170",
+    "crates/fsym-polys/tests/finite_field_ideal_quotient.rs": "e500e043a75b2d1e6d1a1f2f037843a671bef180",
+    "crates/fsym-polys/tests/finite_field_elimination.rs": "c68d87439c613e584215c8f38d2656f601cb42f6",
+    "crates/fsym-polys/tests/finite_field_ideal_operations.rs": "6c2848453d97dbd632499ab09d4f5e664fdeb9e9",
+    ".github/workflows/ci.yml": "69a78ddbd534c3a0c742f9b7653c3f14b0968e18",
+    "artifacts/audit/2026-11-07-prime-field-quotient-oracle.json": "a0931eccfb2d261c6ab9de3254059177e411de8f"
+  },
+  "claims": {
+    "bead_status_priority_dependencies_changed": false,
+    "workstream_closed": false,
+    "compatibility_profile_promoted": false
+  }
+}
