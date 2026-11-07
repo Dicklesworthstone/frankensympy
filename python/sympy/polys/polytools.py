@@ -1744,14 +1744,20 @@ class GroebnerBasis:
         return sources, gens, [_native_expr(source) for source in sources], [_symbol_binding(g) for g in gens]
 
     def eliminate(self, *generators: Any) -> GroebnerBasis:
-        """Return the complete elimination ideal over QQ in lexicographic order.
+        """Return the complete elimination ideal in lexicographic order.
 
         This FrankenSymPy extension eliminates the specified typed generators,
         including generators outside the original leading block. Remaining
         generators keep their original order. Eliminating all variables yields
         the constant ring, represented by an empty basis or the unit basis.
         ZZ input coefficients are explicitly extended to the rational field.
+        A retained GF(p) basis keeps its characteristic and output policies.
         """
+        from . import _finitefield_groebner as finite
+
+        if finite.has_field_marker(self):
+            from . import _finitefield_ideals
+            return _finitefield_ideals.eliminate(self, generators)
         if len(generators) == 1 and isinstance(generators[0], (list, tuple)):
             generators = tuple(generators[0])
         if len(generators) > 8:
@@ -1766,15 +1772,26 @@ class GroebnerBasis:
         return GroebnerBasis(values, remaining, "QQ", "lex")
 
     def intersection(self, other: GroebnerBasis) -> GroebnerBasis:
-        """Return the complete intersection of two rational polynomial ideals.
+        """Return the complete intersection of two polynomial ideals.
 
         This FrankenSymPy extension uses an independently checked auxiliary
         ideal and complete elimination. Both ideals must use the same typed
         variables, but their variable and monomial orders may differ. The
         result uses this basis's variable order and QQ coefficients in lex order.
+        Two GF(p) operands instead retain their common characteristic and this
+        basis's coefficient lift and polynomial output policies.
         """
+        from . import _finitefield_groebner as finite
+
+        if finite.has_field_marker(self):
+            from . import _finitefield_ideals
+            return _finitefield_ideals.intersection(self, other)
         if type(other) is not GroebnerBasis:
             raise TypeError("ideal intersection requires a GroebnerBasis")
+        if finite.has_field_marker(other):
+            finite._BasisState(other)
+            from .polyerrors import UnificationFailed
+            raise UnificationFailed("ideal intersection requires the same coefficient field")
         sources, gens, equations, bindings = self._ideal_inputs()
         other_sources, other_gens, other_equations, _ = other._ideal_inputs()
         if set(gens) != set(other_gens):
@@ -1962,14 +1979,21 @@ class GroebnerBasis:
     minpoly = minimal_polynomial
 
     def saturate(self, polynomial: Any) -> GroebnerBasis:
-        """Return the ideal saturation I:polynomial**infinity over QQ.
+        """Return the ideal saturation I:polynomial**infinity.
 
         This FrankenSymPy extension returns the algebraic closure of the part
         away from the polynomial's zero set. It is not a domain-filtered set
         of solutions: saturating <x*y> by x gives <y>, whose variety still
         contains the origin. Denominator exclusions must be retained separately
         by callers solving rational equations. Results use QQ and lex order.
+        A retained GF(p) basis instead keeps its prime field and output policies;
+        the ideal is not restricted to points with coordinates in GF(p).
         """
+        from . import _finitefield_groebner as finite
+
+        if finite.has_field_marker(self):
+            from . import _finitefield_ideals
+            return _finitefield_ideals.saturate(self, polynomial)
         sources, gens, equations, bindings = self._ideal_inputs()
         factor = _ideal_polynomial_source(polynomial)
         raw = _native.ideal_saturation_native(equations, bindings, _native_expr(factor))

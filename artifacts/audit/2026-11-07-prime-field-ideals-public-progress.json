@@ -1,0 +1,97 @@
+{
+  "schema": "frankensympy.bounded-feature-progress.v1",
+  "recorded_at": "2026-11-07T04:21:17Z",
+  "base_main": "60f8d6c70c48baa90fc9dfe637080aa9f2674a79",
+  "workstream": "WS17",
+  "bead": "fra-546",
+  "objective": "Expose complete bounded prime-field elimination, intersection and principal saturation through the existing GroebnerBasis API.",
+  "public_api": {
+    "operations": [
+      "GroebnerBasis.eliminate(*generators)",
+      "GroebnerBasis.intersection(other)",
+      "GroebnerBasis.saturate(polynomial)"
+    ],
+    "result": "Complete reduced Lex basis over the retained prime field, preserving remaining variable order, left symmetric coefficient lift and expression/Poly output policy.",
+    "constant_ring": "Eliminating all coordinates produces gens=(). Membership, reduction, constant Poly arithmetic, scalar equality and subsequent ideal operations remain in F_p. Bare public constant constructors still require generator inference to succeed.",
+    "original_sources": "Both bases, all retained expressions and declared Poly axes, source containers and elimination controls are captured before native admission and checked through output lifting.",
+    "immutable_axis_check": "Unused declared Poly axes must match their original immutable native symbol bindings, even when their source polynomial is zero.",
+    "refusal": "Mixed primes, mixed QQ/GF ideals, incompatible typed rings, invalid coefficients, source mutation and exhausted native budgets are terminal.",
+    "bridge": "Bounded borrowed PyList inputs share existing source admission; source conversion, ambient construction, independent verification and lifting use one cumulative generator/verifier budget pair."
+  },
+  "bounds": {
+    "prime": "prime p in 2..65521",
+    "ambient_variables": 8,
+    "constructed_polynomials": 32,
+    "augmented_total_degree": 64,
+    "terms_per_polynomial": 4096,
+    "compute_steps_per_phase": 20000000,
+    "logical_bytes_per_phase": 134217728,
+    "saturation_maximum_original_generators": 31,
+    "intersection_maximum_combined_original_generators": 32,
+    "auxiliary_variable_counts_against_limit": true
+  },
+  "validation": {
+    "native_dependency": {
+      "commit": "60f8d6c70c48baa90fc9dfe637080aa9f2674a79",
+      "audit": "artifacts/audit/2026-11-07-prime-field-ideals-native-progress.json",
+      "result": "71 native tests and strict scoped Clippy passed before executor loss. All five implementation source files were recovered exactly. Reconstructed test-file formatting and re-execution remain pending."
+    },
+    "authored_public_regressions": {
+      "path": "python/tests/test_finite_field_ideal_operations.py",
+      "methods": 22,
+      "parameterized_cases": 45,
+      "coverage": [
+        "arbitrary typed-subset elimination and characteristic-dependent cusp identities",
+        "complete intersections and nilpotent multiplicity",
+        "principal saturation and zero/unit ideal laws",
+        "arithmetic ideals distinct from finite rational point sets",
+        "constant-field result closure including scalar equality and division",
+        "typed same-printed symbols, Dummy identity and fresh auxiliary symbols",
+        "output-policy retention and operation chaining",
+        "mixed-domain/ring refusal and unused-axis native-identity checks",
+        "original invalid sources preserved before shortcuts",
+        "mutation during preflight, native checking and output lifting",
+        "terminal failures without QQ retry",
+        "closed bounded admission without user hooks",
+        "ambient-variable and source-count limits"
+      ]
+    },
+    "public_execution": "PENDING. Executor became unavailable before requested Python AST checks, final bridge compilation and public test execution. No passing public runtime or AST check is asserted for this increment.",
+    "bridge_formatting": "The initial new bridge was formatted before executor loss; final reconstructed bridge bytes and later constant-division changes have not been checked by rustfmt.",
+    "post_outage_changes": "Unused retained-axis identity checking, constant-Poly scalar equality and associated regressions were source-reviewed after the outage and remain unexecuted.",
+    "recovery": "Exact uploaded blob contents were independently fetched and reviewed. GitHub blobs are authoritative; the unavailable local worktree predates the final public changes.",
+    "independent_review": "Root and public author reviewed mixed-domain dispatch, source retention, exact typed axes, constant results and all public cases. Root also checked exported native signatures, helper visibility, constant sparse division routing and module registration. Independent build-owner bridge review was requested; compilation and runtime remain pending.",
+    "ci": "The focused native targets and new public test module are included in the existing CI gate. Native checkpoint runs were queued/pending when inspected; no whole-head CI success is claimed.",
+    "preceding_extension_limit": "Earlier full-extension build on the unchanged locked graph was killed in pinned asupersync before bridge compilation; it does not validate this public increment."
+  },
+  "source_blobs": {
+    "crates/fsym-python/src/finite_field_ideal.rs": "9cf6c005f5df6f031dff99f85a4474698eecef26",
+    "crates/fsym-python/src/finite_field_groebner.rs": "2bcdd8e313369d82b1111a3e07217e944057c294",
+    "crates/fsym-python/src/finite_field_multivariate.rs": "889e975d06bea5b98916a795414033751c0fa56d",
+    "crates/fsym-python/src/lib.rs": "fba897f90bef81b9b147a1951ca934a89257ac47",
+    "python/sympy/polys/_finitefield_ideals.py": "9da04b1b425ce72072e601123d30a389e8cd1fae",
+    "python/sympy/polys/_finitefield.py": "cdaf822b18ff4fd5fc3009191af598a343ce877c",
+    "python/sympy/polys/_finitefield_groebner.py": "2ce59483df243f765ce9bc296d28c7a657937943",
+    "python/sympy/polys/polytools.py": "6dbbde24aa3cdaa95fae814b3711a874c4966884",
+    "python/tests/test_finite_field_groebner.py": "0521683b5c8dd43db2169e49ada846eaad545ca0",
+    "python/tests/test_finite_field_ideal_operations.py": "160449b21db4a62fe2f34807879d3cc974b9c08b"
+  },
+  "source_sha256": {
+    "python/tests/test_finite_field_ideal_operations.py": "c4b3939c24c31ce2979a180160675ce0b7a90b88d5b45c4bf57cac60fba85973",
+    "python/sympy/polys/_finitefield.py": "1e257b11981a83cd76d92a3b633ef22d63a3c042e0aa38ec9b66b8af2df38941",
+    "crates/fsym-python/src/finite_field_groebner.rs": "975c8b6017bd4474e7222e3bf0a68ecfc287d8e868497d7e3e4e48b72fd4c9e5",
+    "python/tests/test_finite_field_groebner.py": "a8bee201100990af20c46be9fe75a6b63b891bac7f74828fa34d26b143f8448d",
+    "crates/fsym-python/src/finite_field_ideal.rs": "0debbbfbbcdbb1a43b0bcdcb8756e86471305f3bd5689cc45c02c9c86b18b323",
+    "crates/fsym-python/src/lib.rs": "a5c132147a0b17480074393d19cbe4ae9a4e4d15dd7ebd4152a7351dc7e59960",
+    "python/sympy/polys/polytools.py": "41ba661ca5fff254817784bf8bc66b7de83848dedaaba9f6417236aa633291f5",
+    "python/sympy/polys/_finitefield_ideals.py": "3adb1f8ebfd3c3ba656c5c7f892793c341f6e22289c9783235c35f50bf1462de",
+    "python/sympy/polys/_finitefield_groebner.py": "e5840281168e4255c69bacc517efea038cc249f43589ed99c0ad423befbc1a38",
+    "crates/fsym-python/src/finite_field_multivariate.rs": "d2e608af7fde6515009c837f3a816aa1fd351a58f9478476bacc7474ba9e67d9"
+  },
+  "claims": {
+    "bead_status_priority_or_dependencies_changed": false,
+    "workstream_closed": false,
+    "compatibility_profile_promoted": false,
+    "portable_proof_claimed": false
+  }
+}

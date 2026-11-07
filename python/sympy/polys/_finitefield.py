@@ -110,8 +110,8 @@ class _PolyState:
         self.items = tuple(self.namespace.items())
         self.expression = self.namespace.get("_expr", _ABSENT)
         self.gens = self.namespace.get("_gens", _ABSENT)
-        if type(self.gens) is not tuple or not 1 <= len(self.gens) <= 8:
-            raise GeneratorsError("prime-field Poly supports one to eight generators")
+        if type(self.gens) is not tuple or len(self.gens) > 8:
+            raise GeneratorsError("prime-field Poly supports at most eight generators")
         if any(not _exact(gen, (Symbol, Dummy)) for gen in self.gens):
             raise GeneratorsError("prime-field Poly requires exact typed Symbol generators")
         self.prime = self.namespace.get("_modulus", _ABSENT)
@@ -196,7 +196,7 @@ class _Request(_Retained):
 def _call(request, prime, symmetric, operation, parameter=0,
           derivative_orders=None, order="lex"):
     try:
-        if len(request.gens) > 1 or operation == "reduced":
+        if len(request.gens) != 1 or operation == "reduced":
             if operation not in ("normalize", "neg", "add", "sub", "mul", "monic",
                                   "pow", "diff", "divrem", "reduced"):
                 raise NotImplementedError(
@@ -481,7 +481,7 @@ def _monomial_order(order):
 def terms(polynomial, order=None):
     order = _monomial_order(order)
     state = _PolyState(polynomial)
-    if len(state.gens) > 1:
+    if len(state.gens) != 1:
         _, request = _operands(polynomial)
         try:
             raw = _native.prime_field_multivariate_terms_native(
@@ -510,7 +510,7 @@ def nth(polynomial, coordinates):
     retained.unchanged()
     if any(exponent < 0 for exponent in powers):
         raise IndexError("monomial exponent must be nonnegative")
-    if len(state.gens) > 1:
+    if len(state.gens) != 1:
         result = next((coefficient for monomial, coefficient in terms(polynomial)
                        if monomial == powers), Integer(0))
         retained.unchanged()
@@ -536,6 +536,8 @@ def is_constant(polynomial, value):
 
 def derivative(polynomial, specs):
     state = _PolyState(polynomial)
+    if not state.gens:
+        raise GeneratorsError("the constant prime field has no differentiation generator")
     if len(specs) > 64:
         raise ValueError("prime-field derivative accepts at most 64 specifications")
     controls = []
@@ -591,8 +593,8 @@ def power(polynomial, exponent):
 
 def evaluate(polynomial, args):
     state = _PolyState(polynomial)
-    if len(state.gens) > 1:
-        return unsupported(polynomial, "multivariate evaluation")
+    if len(state.gens) != 1:
+        return unsupported(polynomial, "evaluation outside a univariate ring")
     variable = None
     if len(args) == 1:
         value = args[0]
@@ -616,8 +618,8 @@ def shift(polynomial, value):
     # Admit the original scalar before constructing the linear composition.
     # It contains no potentially simplifying symbolic source.
     state, request = _operands(polynomial, value)
-    if len(state.gens) > 1:
-        return unsupported(polynomial, "multivariate shift")
+    if len(state.gens) != 1:
+        return unsupported(polynomial, "shift outside a univariate ring")
     offset = _integer(value, "shift")
     request.unchanged()
     from ..core import Add
@@ -632,8 +634,8 @@ def shift(polynomial, value):
 
 def factors(polynomial, mode="factor", expression=False):
     state, request = _operands(polynomial)
-    if len(state.gens) > 1:
-        return unsupported(polynomial, "multivariate factorization")
+    if len(state.gens) != 1:
+        return unsupported(polynomial, "factorization outside a univariate ring")
     try:
         unit, factors = _native.prime_field_polynomial_factor_native(
             request.raw[0], request.bindings[0], state.prime, state.symmetric, mode)
@@ -820,6 +822,17 @@ def equal(polynomial, other):
     if any(_surface_binding_key(generator.symbol_binding) not in bindings
            for generator in candidate_generators):
         return False
+    if not left.gens:
+        # Internally published constant-ring polynomials already retain their
+        # ring. Compare there without inventing a generator through inference.
+        try:
+            raw = _call(request, left.prime, left.symmetric, "sub")
+        except CoercionFailed:
+            request.unchanged()
+            return False
+        difference = _lift_native_result(raw[0], *request.context)
+        request.unchanged()
+        return difference == Integer(0)
     try:
         converted = construct(type(polynomial), other, left.gens,
                               {"modulus": left.prime, "symmetric": left.symmetric})

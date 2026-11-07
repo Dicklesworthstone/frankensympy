@@ -39,9 +39,9 @@ pub(crate) fn order(value: &str) -> PyResult<TermOrder> {
 }
 
 pub(crate) fn symbols(values: &Bound<'_, PyList>, meter: &mut Budget) -> PyResult<Vec<Symbol>> {
-    if !(1..=8).contains(&values.len()) {
+    if values.len() > 8 {
         return Err(PyValueError::new_err(
-            "prime-field polynomial requires 1..8 typed generators",
+            "prime-field polynomial requires at most eight typed generators",
         ));
     }
     let mut name_bytes = 0usize;
@@ -230,7 +230,7 @@ pub fn prime_field_multivariate_native(
         )
         .map_err(polynomial_error)?;
         output.push(lift(accepted.result(), symmetric, &mut generator)?);
-    } else if operation == "divrem" {
+    } else if operation == "divrem" && !variables.is_empty() {
         // Poly.div recursively divides in the first declared variable over
         // the polynomial ring in the rest. A coefficient obstruction stops
         // it before the complete sparse normal form used by reduced().
@@ -244,6 +244,8 @@ pub fn prime_field_multivariate_native(
         output.push(lift(accepted.quotient(), symmetric, &mut generator)?);
         output.push(lift(accepted.remainder(), symmetric, &mut generator)?);
     } else {
+        // A constant field has no first variable for recursive division. Its
+        // one-divisor quotient/remainder is the checked sparse normal form.
         let accepted = checked_prime_field_multivariate_division(
             &polynomials[0],
             &polynomials[1..],

@@ -465,7 +465,7 @@ def test_effectful_poly_storage_is_refused_before_retained_field_dispatch(monkey
 def test_unsupported_ideal_operations_do_not_reinterpret_a_prime_field_as_rationals():
     x, y = sp.symbols("x y")
     basis = sp.groebner([x + y, y**2 - 1], x, y, modulus=5)
-    for operation in (lambda: basis.fglm("grlex"), lambda: basis.eliminate(x),
+    for operation in (lambda: basis.fglm("grlex"),
                       lambda: basis.invert(y), lambda: basis.multiplication_matrix(y),
                       lambda: basis.minpoly(y)):
         with pytest.raises(NotImplementedError):

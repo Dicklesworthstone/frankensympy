@@ -8,7 +8,7 @@ This module delegates all polynomial mathematics to the prime-field kernels.
 from __future__ import annotations
 
 from ..core import (
-    Add, Dummy, Integer, Symbol, _lift_native_result, _native,
+    Add, Dummy, Integer, Symbol, _lift_native_result, _native, _native_expr,
     _surface_binding_key, _symbol_binding,
 )
 from . import _finitefield as field
@@ -102,7 +102,17 @@ def _ring_states(states, generators, prime):
     for state in states:
         if field.is_finite(state.polynomial) and state.prime != prime:
             raise UnificationFailed("cannot combine polynomials over different prime fields")
-        if any(_surface_binding_key(_symbol_binding(gen)) not in bindings for gen in state.gens):
+        declared = []
+        for gen in state.gens:
+            native = _native_expr(gen)
+            if type(native) is not _native.Expr or not native.is_symbol:
+                raise ValueError("Poly generator requires an immutable native symbol identity")
+            _native.prime_field_source_preflight_native(native)
+            key = _surface_binding_key(_symbol_binding(gen))
+            if key != _surface_binding_key(native.symbol_binding):
+                raise ValueError("Poly generator identity disagrees with its assumptions")
+            declared.append(key)
+        if any(key not in bindings for key in declared):
             raise UnificationFailed("Poly generators are outside the requested typed polynomial ring")
 
 
@@ -228,7 +238,7 @@ class _BasisState:
         self.polynomial_output = self.namespace.get("_polys", field._ABSENT)
         self.order = self.namespace.get("order", field._ABSENT)
         if (not field._exact(self.expressions, (list, tuple)) or len(self.expressions) > 32
-                or type(self.gens) is not tuple or not 1 <= len(self.gens) <= 8
+                or type(self.gens) is not tuple or len(self.gens) > 8
                 or any(not field._exact(gen, (Symbol, Dummy)) for gen in self.gens)):
             raise ValueError("prime-field basis requires bounded expressions and typed generators")
         if (type(self.prime) is not int or not 2 <= self.prime <= 65521
@@ -368,5 +378,4 @@ def contains(basis, expression):
 
 def unsupported(basis, *args, **kwargs):
     raise NotImplementedError(
-        "this ideal operation is not implemented over prime fields; "
-        "supported operations are construction, reduction and membership")
+        "this ideal operation is not implemented over prime fields")

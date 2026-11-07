@@ -21,7 +21,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyList;
 use std::collections::BTreeMap;
 
-fn admit_sources(
+pub(crate) fn admit_sources(
     sources: &Bound<'_, PyList>,
     variables: &[Symbol],
     prime: u64,
