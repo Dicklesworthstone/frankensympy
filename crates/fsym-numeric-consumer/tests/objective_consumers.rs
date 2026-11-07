@@ -59,14 +59,14 @@ fn coupled_quadratic_publishes_original_value_and_gradient_at_known_minimizer() 
 fn one_three_and_sixteen_variable_objectives_retain_every_coordinate() {
     for n in [1, 3, 16] {
         let variables: Vec<_> = (0..n).map(|i| Symbol::new(format!("x{i}"))).collect();
-        let source = variables.iter().enumerate().fold(
-            Expr::from_i64(5),
-            |sum, (i, var)| {
+        let source = variables
+            .iter()
+            .enumerate()
+            .fold(Expr::from_i64(5), |sum, (i, var)| {
                 let offset = Expr::Sym(var.clone()) - Expr::from_i64((i + 1) as i64);
                 sum + Expr::from_i64((i + 1) as i64)
                     * Expr::Pow(Arc::new(offset), Arc::new(Expr::from_i64(2)))
-            },
-        );
+            });
         let source = VerifiedObjective::try_compile(&source, &variables).unwrap();
         let result = minimize(&source, &vec![0.0; n], &MinimizeOptions::default()).unwrap();
         assert_eq!(result.point.len(), n);
@@ -201,10 +201,7 @@ fn original_holes_hidden_by_zero_products_and_powers_fail_before_stationarity() 
     let held_power = Expr::Pow(Arc::new(logarithm), Arc::new(Expr::from_i64(0)));
     for hidden in [held_product, held_power] {
         let source = Expr::Add(vec![
-            Expr::Pow(
-                Arc::new(Expr::Sym(x.clone())),
-                Arc::new(Expr::from_i64(2)),
-            ),
+            Expr::Pow(Arc::new(Expr::Sym(x.clone())), Arc::new(Expr::from_i64(2))),
             hidden,
         ]);
         let source = VerifiedObjective::try_compile(&source, std::slice::from_ref(&x)).unwrap();
@@ -223,7 +220,28 @@ fn finite_values_cannot_hide_undefined_first_or_second_derivatives() {
             "published at the derivative-domain boundary of {formula}"
         );
     }
-    for (formula, point) in [("exp(x)", 800.0), ("10^308*x^2", 1.0), ("x^4", 1e100)] {
+    // The source coefficient rounds to finite binary64, but its second
+    // derivative contains 2*10^308. Admission must reject that literal before
+    // the numerical consumer is reachable; it is not a runtime-overflow case.
+    let overflowing_derivative = parse("10^308*x^2").unwrap();
+    assert!(matches!(
+        VerifiedObjective::try_compile(&overflowing_derivative, &[Symbol::new("x")]),
+        Err(
+            fsym_calculus::sparse_hessian::ObjectiveCompilationError::Compilation(
+                fsym_calculus::compile::CompileError::NumericConversion(_)
+            )
+        )
+    ));
+
+    // Here the source and gradient stay finite while the Hessian's x^4
+    // intermediate overflows. All compiled literals are small and admissible.
+    let point = 1e100_f64;
+    assert!(point.powi(3).sin().is_finite());
+    assert!((3.0 * point.powi(2) * point.powi(3).cos()).is_finite());
+    let oscillatory = objective("sin(x^3)", &["x"]);
+    assert!(minimize(&oscillatory, &[point], &MinimizeOptions::default()).is_err());
+
+    for (formula, point) in [("exp(x)", 800.0), ("x^4", 1e100)] {
         let source = objective(formula, &["x"]);
         assert!(minimize(&source, &[point], &MinimizeOptions::default()).is_err());
     }
@@ -293,9 +311,7 @@ fn shape_nonfinite_inputs_and_invalid_controls_refuse_before_dense_work() {
         let variables: Vec<_> = (0..n).map(|i| Symbol::new(format!("x{i}"))).collect();
         let source = VerifiedObjective::try_compile(&Expr::from_i64(1), &variables).unwrap();
         let mut meter = RecordingMeter::default();
-        assert!(
-            minimize_with_meter(&source, &vec![0.0; n], &defaults, &mut meter).is_err()
-        );
+        assert!(minimize_with_meter(&source, &vec![0.0; n], &defaults, &mut meter).is_err());
         assert_eq!(
             meter.bytes, 0,
             "dense buffers allocated before shape admission"

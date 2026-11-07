@@ -13,6 +13,11 @@
       "sha": "016f37a6a88f2541b56ec4747e582753e3c20178",
       "feature": "Native checked-Hessian minimization and independent objective-consumer regression suite",
       "remote_fetched_after_write": true
+    },
+    {
+      "sha": "4200742616530d22442ea65d2776500d2bf88e7b",
+      "feature": "Public minimization and independent strict-local-minimum search",
+      "remote_fetched_after_write": true
     }
   ],
   "implemented": [
@@ -60,8 +65,8 @@
       "python/tests/test_objective_minimization.py",
       "python/tests/test_certified_minimization.py"
     ],
-    "local_runtime": "NOT COMPLETED: native test compilation was interrupted by toolchain setup exhausting workspace disk. The executor then became unavailable; no new native or extension test success is asserted.",
-    "source_reconstruction": "Final source was reconstructed through the GitHub connector after workspace loss, reviewed independently and refetched by exact blob identity. Earlier local formatting/AST checks do not establish acceptance of these reconstructed final blobs.",
+    "local_runtime": "CONTINUATION: the restored executor compiled and ran all75 native consumer tests successfully on the pinned toolchain, including all19 new objective regressions. The original interrupted attempt remains historical; full Python-extension execution is still pending.",
+    "source_reconstruction": "The recovered sources now pass the pinned workspace formatter, changed Python AST checks and the applicable native consumer tests/strict Clippy. Full-extension/public-runtime and full-workspace acceptance remain separate pending gates.",
     "independent_review": [
       "Native domain-error whitelist, cumulative meter and publication checks",
       "Hessian scaling, finite arithmetic, independent formula fixtures and operational-error regression expectations",
@@ -85,14 +90,48 @@
       "Actual fsym-python extension with both new Python minimization suites and the existing stationary/certified suites"
     ],
     "runtime_acceptance_pending": true,
-    "new_public_test_functions": 34
+    "new_public_test_functions": 34,
+    "native_continuation": {
+      "observed_at_utc": "2026-11-07T02:53:08Z",
+      "source_base": "4200742616530d22442ea65d2776500d2bf88e7b",
+      "source_corrections": "Source-identical optimizer/bridge formatting plus a corrected admission-vs-runtime overflow fixture; no numerical algorithm, tolerance or domain guard weakened.",
+      "test_command": "cargo test --locked --offline -p fsym-numeric-consumer --tests -j1",
+      "test_exit_code": 0,
+      "test_counts": {
+        "library": 1,
+        "analytic_system_consumers": 13,
+        "campaign": 14,
+        "generic_system_consumers": 10,
+        "least_squares_consumers": 13,
+        "objective_consumers": 19,
+        "root_box": 5,
+        "total": 75
+      },
+      "clippy_command": "cargo-clippy clippy --locked --offline -p fsym-numeric-consumer --all-targets -j1 -- -D warnings",
+      "clippy_exit_code": 0,
+      "workspace_format": "PASS: pinned cargo-fmt fmt -- --check",
+      "changed_python_syntax": "PASS: all seven recovered Python source/test files",
+      "planning_integrity": "PASS: python tools/validate_planning.py",
+      "profile": {
+        "rustflags": "-D warnings",
+        "build_jobs": 1,
+        "dev_debug": 0,
+        "test_debug": 0,
+        "dev_codegen_units": 256,
+        "test_codegen_units": 256,
+        "incremental": false
+      },
+      "public_extension": "Build in progress; no public execution pass asserted.",
+      "runtime_acceptance_pending": true
+    }
   },
   "review_corrections": [
     "ObjectiveConsumerError does not derive Clone because its nested checked-evaluation error does not support it.",
     "Python candidates reject a different native objective and wrong length/order/typed identity of coordinate labels.",
     "Coordinate validation reads admitted immutable native Symbol/Dummy handles, preserving captured identity after mutation of surface assumptions.",
     "Strict-minimum acceptance reads the cached frozen native receipt descriptor, so a mutable Python kind property cannot promote a maximum or saddle.",
-    "Three native regression range assertions use equivalent Range::contains expressions for strict Clippy without loosening their bounds."
+    "Three native regression range assertions use equivalent Range::contains expressions for strict Clippy without loosening their bounds.",
+    "Actual execution exposed a fixture that expected runtime overflow from10^308*x^2 even though its Hessian literal2*10^308 is correctly refused during compilation. The regression now requires that specific admission error and separately exercises a compilable sin(x^3) source whose Hessian overflows at runtime while source and gradient stay finite."
   ],
   "excluded_incomplete_work": "The exploratory recurrence-solver repair was incomplete at workspace loss and is deliberately absent from all committed changes.",
   "claims": {
@@ -105,9 +144,9 @@
   },
   "source_git_blobs": {
     "crates/fsym-numeric-consumer/src/lib.rs": "a098c83fef0009c1971f433bbc2ff042752e3b75",
-    "crates/fsym-numeric-consumer/src/objectives.rs": "d8d37906226f8ea8692007e6d3727371648940ff",
-    "crates/fsym-numeric-consumer/tests/objective_consumers.rs": "c5ac21f4e78f9757eac1630d3e414154de6ac7fe",
-    "crates/fsym-python/src/objective.rs": "8d29c6aeb1e61b71ed6581fa74cb271ce371078b",
+    "crates/fsym-numeric-consumer/src/objectives.rs": "380398645682d0eb09b8f9aacb9f7a47b2a9bacb",
+    "crates/fsym-numeric-consumer/tests/objective_consumers.rs": "d0c3f52dae0fa6fbec51b2324a31e30e48348f98",
+    "crates/fsym-python/src/objective.rs": "cf9d6ed35816df8a643a9ccaded07b1066b51b4d",
     "crates/fsym-python/src/numeric.rs": "8cf7a3c0c7bf1465594dec82f06d9c99145d3d60",
     "crates/fsym-python/src/numeric_budget.rs": "f2305f15cbe62cf3bfc573261ba2e302fc7e739a",
     "crates/fsym-python/src/lib.rs": "792472025470d2862eab7e4806ad2610434bd814",

@@ -317,7 +317,11 @@ fn descent_direction<M: BudgetMeter + ?Sized>(
     let n = objective.variables().len();
     let mut hessian = zeros(n * n, meter)?;
     charge(meter, objective.hessian_pattern().len() as u64, 0, 0)?;
-    for (&(row, column), value) in objective.hessian_pattern().iter().zip(&state.values.hessian) {
+    for (&(row, column), value) in objective
+        .hessian_pattern()
+        .iter()
+        .zip(&state.values.hessian)
+    {
         if row >= n || column >= n {
             return Err(ObjectiveConsumerError::ConsumerContract(
                 "Hessian coordinates",

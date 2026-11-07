@@ -6,7 +6,8 @@ use crate::binding::PySymbolBinding;
 use crate::expr::PyExpr;
 use crate::numeric::{
     ball_bounds, check_certified_sources, check_source, donor_float_option, donor_newton_guards,
-    exact_box, exact_rational, exact_vector, extract_variables, input_values_metered, rational_expr,
+    exact_box, exact_rational, exact_vector, extract_variables, input_values_metered,
+    rational_expr,
 };
 use crate::numeric_budget::{
     PyEvaluationBudget, evaluation_buffer, with_certification_meter, with_evaluation_meter,
@@ -420,7 +421,9 @@ impl PyVerifiedObjective {
         let objective = slf.borrow();
         let dimension = objective.objective.variables().len();
         if !(1..=MAX_MINIMIZE_VARIABLES).contains(&dimension) {
-            return Err(PyValueError::new_err("minimization requires 1..16 variables"));
+            return Err(PyValueError::new_err(
+                "minimization requires 1..16 variables",
+            ));
         }
         let inputs = input_values_metered(initial, dimension, budget.as_deref())?;
         let options = MinimizeOptions {
