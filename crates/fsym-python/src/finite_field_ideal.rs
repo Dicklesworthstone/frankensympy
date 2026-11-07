@@ -1,4 +1,4 @@
-//! Source-bound elimination, intersection and principal saturation over F_p.
+//! Source-bound elimination, intersection, finite quotient and saturation over F_p.
 //!
 //! Original operands, declared Poly rings, checked ambient construction,
 //! independent ideal verification and result lifting share two cumulative
@@ -14,8 +14,8 @@ use crate::to_value_error;
 use fsym_budget::{Budget, BudgetMeter};
 use fsym_core::Symbol;
 use fsym_polys::{
-    PrimeFieldMultivariatePolynomial as Polynomial, VerifiedPrimeFieldIdealOperation,
-    checked_prime_field_elimination_ideal, checked_prime_field_ideal_intersection,
+    PrimeFieldMultivariatePolynomial as Polynomial, checked_prime_field_elimination_ideal,
+    checked_prime_field_ideal_intersection, checked_prime_field_ideal_quotient,
     checked_prime_field_ideal_saturation,
 };
 use pyo3::exceptions::PyValueError;
@@ -23,7 +23,11 @@ use pyo3::prelude::*;
 use pyo3::types::PyList;
 use std::collections::BTreeMap;
 
-fn ring(variables: &Bound<'_, PyList>, prime: u64, generator: &mut Budget) -> PyResult<Vec<Symbol>> {
+fn ring(
+    variables: &Bound<'_, PyList>,
+    prime: u64,
+    generator: &mut Budget,
+) -> PyResult<Vec<Symbol>> {
     let variables = symbols(variables, generator)?;
     // Empty source ideals still retain a validated characteristic and ring.
     Polynomial::metered_new(&variables, prime, &BTreeMap::new(), generator)
@@ -32,18 +36,18 @@ fn ring(variables: &Bound<'_, PyList>, prime: u64, generator: &mut Budget) -> Py
 }
 
 fn publish(
-    receipt: VerifiedPrimeFieldIdealOperation,
+    basis: &[Polynomial],
     symmetric: bool,
     generator: &mut Budget,
     verifier: &mut Budget,
 ) -> PyResult<Vec<PyExpr>> {
     charge(
         generator,
-        receipt.basis().len() + 1,
-        (receipt.basis().len() + 1) * std::mem::size_of::<PyExpr>(),
+        basis.len() + 1,
+        (basis.len() + 1) * std::mem::size_of::<PyExpr>(),
     )?;
-    let mut result = Vec::with_capacity(receipt.basis().len());
-    for polynomial in receipt.basis() {
+    let mut result = Vec::with_capacity(basis.len());
+    for polynomial in basis {
         result.push(lift(polynomial, symmetric, generator)?);
     }
     generator.checkpoint().map_err(to_value_error)?;
@@ -88,7 +92,7 @@ pub fn prime_field_ideal_eliminate_native(
         &mut verifier,
     )
     .map_err(polynomial_error)?;
-    publish(receipt, symmetric, &mut generator, &mut verifier)
+    publish(receipt.basis(), symmetric, &mut generator, &mut verifier)
 }
 
 /// Complete ideal intersection in the left operand's retained coordinate
@@ -136,7 +140,55 @@ pub fn prime_field_ideal_intersection_native(
         &mut verifier,
     )
     .map_err(polynomial_error)?;
-    publish(receipt, symmetric, &mut generator, &mut verifier)
+    publish(receipt.basis(), symmetric, &mut generator, &mut verifier)
+}
+
+/// Complete finite quotient I:J. Every original divisor is admitted before a
+/// zero divisor can yield the whole ring or a unit divisor can retain I.
+#[pyfunction]
+#[pyo3(signature = (left, right, variables, prime, symmetric=true, left_source_variables=None, right_source_variables=None))]
+pub fn prime_field_ideal_quotient_native(
+    left: &Bound<'_, PyList>,
+    right: &Bound<'_, PyList>,
+    variables: &Bound<'_, PyList>,
+    prime: u64,
+    symmetric: bool,
+    left_source_variables: Option<&Bound<'_, PyList>>,
+    right_source_variables: Option<&Bound<'_, PyList>>,
+) -> PyResult<Vec<PyExpr>> {
+    if left.len() > 32 || right.len() > 32 {
+        return Err(PyValueError::new_err(
+            "prime-field quotient requires at most 32 numerator and 32 divisor polynomials",
+        ));
+    }
+    let (mut generator, mut verifier) = (budget(), budget());
+    let variables = ring(variables, prime, &mut generator)?;
+    let inputs = admit_sources(
+        left,
+        &variables,
+        prime,
+        left_source_variables,
+        &mut generator,
+        &mut verifier,
+    )?;
+    let divisors = admit_sources(
+        right,
+        &variables,
+        prime,
+        right_source_variables,
+        &mut generator,
+        &mut verifier,
+    )?;
+    let receipt = checked_prime_field_ideal_quotient(
+        &variables,
+        prime,
+        &inputs,
+        &divisors,
+        &mut generator,
+        &mut verifier,
+    )
+    .map_err(polynomial_error)?;
+    publish(receipt.basis(), symmetric, &mut generator, &mut verifier)
 }
 
 /// Complete I:f^infinity. Sources are the original factor f followed by the
@@ -174,15 +226,22 @@ pub fn prime_field_ideal_saturation_native(
         &mut verifier,
     )
     .map_err(polynomial_error)?;
-    publish(receipt, symmetric, &mut generator, &mut verifier)
+    publish(receipt.basis(), symmetric, &mut generator, &mut verifier)
 }
 
 pub fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add_function(wrap_pyfunction!(prime_field_ideal_eliminate_native, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        prime_field_ideal_eliminate_native,
+        module
+    )?)?;
     module.add_function(wrap_pyfunction!(
         prime_field_ideal_intersection_native,
         module
     )?)?;
-    module.add_function(wrap_pyfunction!(prime_field_ideal_saturation_native, module)?)?;
+    module.add_function(wrap_pyfunction!(prime_field_ideal_quotient_native, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        prime_field_ideal_saturation_native,
+        module
+    )?)?;
     Ok(())
 }

@@ -1,0 +1,115 @@
+{
+  "schema": "frankensympy.bounded-feature-progress.v1",
+  "recorded_at": "2026-11-07T04:58:23Z",
+  "base_main": "8fd1f109e579b448736f95f96cc362b4b803618a",
+  "workstream": "WS17",
+  "bead": "fra-546",
+  "objective": "Expose complete finite ideal quotient I:J over F_p through GroebnerBasis.quotient.",
+  "public_api": {
+    "method": "GroebnerBasis.quotient(other)",
+    "domain": "Both operands must retain the same prime field and typed polynomial ring. Variable and monomial orders may differ.",
+    "output": "Complete reduced Lex basis using the left operand's typed variable order, modulus, symmetric coefficient lift and expression/Poly output policy.",
+    "admission": "Exact basis classes are checked before attribute protocols; both original source lists, declared Poly rings, unused axes, held nodes and metadata are retained before the first preflight and rechecked through result lifting.",
+    "bridge": "The bounded borrowed native lists use one cumulative generator/verifier budget pair for source admission, all ideal computation, verification and result lifting.",
+    "shortcuts": "Empty/all-zero divisor ideals produce the unit ideal only after all original sources pass admission.",
+    "failures": "Mixed primes, mixed QQ/GF operands, inconsistent typed rings, invalid coefficients, source mutation and resource failures terminate without rational or fresh modular retry.",
+    "constant_fields": "Explicit gens=() results remain valid operands; finite multiplicity and algebraic ideal semantics are retained."
+  },
+  "validation": {
+    "native_checkpoint": {
+      "commit": "8fd1f109e579b448736f95f96cc362b4b803618a",
+      "audit": "artifacts/audit/2026-11-07-prime-field-quotient-native-progress.json",
+      "recovered_baseline_passed": 71,
+      "new_quotient_passed": 18,
+      "scope": "Actual pinned locked offline Cargo tests completed in two focused runs. Final implementation/test source hashes were captured before the outage and verified against committed blobs."
+    },
+    "public_regressions": {
+      "path": "python/tests/test_finite_field_ideal_quotient.py",
+      "methods": 22,
+      "parameterized_cases": 53,
+      "executed": false,
+      "coverage": [
+        "finite multiplicity versus saturation",
+        "nonmonomial, nonmonic and multiple divisor constraints",
+        "characteristic-two and algebraic rather than finite-point semantics",
+        "zero/unit and explicit constant-field rings",
+        "left field/output-policy retention across variable orders",
+        "exact typed Symbol/Dummy/auxiliary identity",
+        "both mixed-domain directions and inconsistent metadata",
+        "invalid original held sources before shortcuts",
+        "mutated declared Poly rings and unused axes",
+        "source mutation during preflight/native verification/result lifting",
+        "hostile subclasses and conversion hooks",
+        "terminal operational failures without retry",
+        "bounded zero/nonzero divisor admission"
+      ]
+    },
+    "syntax": "PASS before outage: six recovered baseline Python files parsed/compiled; all three changed/new quotient Python files parsed/compiled. Recovered quotient source bytes exactly match those checked files.",
+    "formatting": "PASS before outage: pinned rustfmt on the changed Rust bridge and scoped whitespace checks. Exact recovered bridge SHA256 matches the checked formatted file.",
+    "independent_review": "Root reviewed all public source diffs and all 22 test methods; native author independently reviewed bridge signatures, registration, source admission and publication. No concrete blocker identified. Source review is not runtime execution.",
+    "oracle": {
+      "artifact": "artifacts/audit/2026-11-07-prime-field-quotient-oracle.json",
+      "passed": 32,
+      "failed": 0,
+      "scope": "Independent hand-derived expected-ideal checks with isolated SymPy 1.14.0; no public candidate execution."
+    },
+    "full_extension_attempts": [
+      {
+        "command": "cargo build --locked --offline -p fsym-python --features extension-module -j1",
+        "exit_code": 101,
+        "elapsed_seconds": 83.76,
+        "maximum_child_rss_kib": 2406996,
+        "result": "SIGKILL in unchanged pinned asupersync before bridge compilation"
+      },
+      {
+        "command": "cargo check --locked --offline -p fsym-python --features extension-module -j1",
+        "exit_code": 101,
+        "elapsed_seconds": 67.33,
+        "maximum_child_rss_kib": 1615940,
+        "result": "SIGKILL in unchanged pinned asupersync before bridge compilation"
+      }
+    ],
+    "broader_native_gate": {
+      "command": "cargo test --locked --offline -p fsym-polys --lib --tests -j1",
+      "result": "PENDING: executor became unavailable during compilation. Last observed output was Compiling fsym-polys; no terminal test result.",
+      "clippy_command": "cargo-clippy clippy --locked --offline -p fsym-polys --all-targets -j1 -- -D warnings",
+      "clippy_result": "PENDING: scheduled after the broader tests; no completion evidence."
+    },
+    "recovery": "All four public files were recovered from saved patches/content against exact 5705 baseline. Their UTF-8 SHA256 values match the frozen pre-outage hashes. Author and root independently fetched GitHub blobs; root recomputed every hash. No source changes were introduced during recovery.",
+    "ci": "Native focused quotient target and new public quotient test module are included in the existing CI gate; no whole-head or full-profile gate success is claimed.",
+    "logs": [
+      {
+        "path": "/tmp/frankensympy-python-quotient-build-20261107.log",
+        "sha256": "312a8472562b67481a624daaca9da038ace85689dc87f6c32adbd4e1cd577da8",
+        "bytes": 26504,
+        "summaries": [],
+        "last_diagnostic": "1107/debug/build/xattr/39157d4bdf18a5d2/out/libxattr-39157d4bdf18a5d2.rmeta --extern zeroize=/tmp/frankensympy-python-quotient-20261107/debug/build/zeroize/4f49289838437ee7/out/libzeroize-4f49289838437ee7.rmeta -D warnings` (signal: 9, SIGKILL: kill)"
+      },
+      {
+        "path": "/tmp/frankensympy-python-quotient-check-20261107.log",
+        "sha256": "44e2cc60dbbd97b4e10c81cb501caac9b524f67b0d8c97492391350dcf75e52c",
+        "bytes": 29985,
+        "summaries": [],
+        "last_diagnostic": "1107/debug/build/xattr/9aacda25c284294f/out/libxattr-9aacda25c284294f.rmeta --extern zeroize=/tmp/frankensympy-python-quotient-20261107/debug/build/zeroize/f162c982be008980/out/libzeroize-f162c982be008980.rmeta -D warnings` (signal: 9, SIGKILL: kill)"
+      }
+    ]
+  },
+  "source_blobs": {
+    "crates/fsym-python/src/finite_field_ideal.rs": "8f90bec80177041fa1f03c9a156716bc125557f8",
+    "python/sympy/polys/_finitefield_ideals.py": "dfc3f1fee581438169b3072ce0f1ecdd15fb5007",
+    "python/sympy/polys/polytools.py": "8685bd894a58e648591b0e587668787f883fe49c",
+    "python/tests/test_finite_field_ideal_quotient.py": "9bc810b5e83c4832c5d5ac314e9e45f2d94c7763"
+  },
+  "source_sha256": {
+    "crates/fsym-python/src/finite_field_ideal.rs": "79142415ab06ef1915dfba11d0f5847a4b8e98cbad422d546b406dcf24efe4ea",
+    "python/sympy/polys/_finitefield_ideals.py": "0b9d61c7c9bb3b2298c5a3ee407d3caff7c964a88cb077bebdca0049dc96a0f6",
+    "python/sympy/polys/polytools.py": "1adbca1e10c2de13ead210d99b8285fd565f7aff4cb2d50500a4fdb3023bbee6",
+    "python/tests/test_finite_field_ideal_quotient.py": "a790e1a1393c11e1b447c08781924441351cd72559c8d9a5816c46658711c391"
+  },
+  "claims": {
+    "bead_status_priority_dependencies_changed": false,
+    "workstream_closed": false,
+    "compatibility_profile_promoted": false,
+    "portable_proof_claimed": false
+  }
+}

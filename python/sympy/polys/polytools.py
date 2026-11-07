@@ -1801,7 +1801,7 @@ class GroebnerBasis:
         return GroebnerBasis(values, gens, "QQ", "lex")
 
     def quotient(self, other: GroebnerBasis) -> GroebnerBasis:
-        """Return the complete finite ideal quotient I:J over QQ.
+        """Return the complete finite ideal quotient I:J in its coefficient field.
 
         This FrankenSymPy extension returns all polynomials whose product with
         every member of J belongs to I. Multiplicity is retained: <x**3*y>:<x>
@@ -1809,14 +1809,30 @@ class GroebnerBasis:
         declare the same typed polynomial ring; their variable and monomial
         orders may differ. The result uses this operand's variable order, QQ
         coefficients, and lex order. ZZ coefficients are extended to QQ.
+        Two GF(p) operands instead retain their common characteristic and this
+        basis's coefficient lift and polynomial output policies.
 
         Each principal quotient uses a complete checked intersection and
         independently checked exact division; intersections combine all
         divisor constraints. Nonzero divisors support at most seven variables
-        and 63 numerator generators, with at most 64 divisor generators.
+        and 63 numerator generators, with at most 64 divisor generators over QQ.
+        Over GF(p), these counts are 31 numerator and 32 divisor generators;
+        an all-zero divisor list permits eight variables and 32 numerator
+        generators. Intermediate modular intersections remain bounded too.
         Unsupported inputs, mutation, resource exhaustion and verifier failure
         raise rather than returning a partial ideal.
         """
+        from . import _finitefield_groebner as finite
+
+        if type(self) is not GroebnerBasis or type(other) is not GroebnerBasis:
+            raise TypeError("ideal quotient requires exact GroebnerBasis operands")
+        if finite.has_field_marker(self):
+            from . import _finitefield_ideals
+            return _finitefield_ideals.quotient(self, other)
+        if finite.has_field_marker(other):
+            finite._BasisState(other)
+            from .polyerrors import UnificationFailed
+            raise UnificationFailed("ideal quotient requires the same coefficient field")
         snapshot = _IdealQuotientSnapshot(self, other)
         left, right = snapshot.inputs()
         sources, gens, equations, bindings = left

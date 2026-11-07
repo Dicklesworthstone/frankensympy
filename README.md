@@ -455,7 +455,7 @@ before a reduction or membership answer. Retained `Poly` inputs are checked
 in their own declared typed rings before promotion to the common ring, and
 original sources are admitted before zero or unit ideal shortcuts.
 
-Prime-field bases support three checked ideal operations:
+Prime-field bases support four checked ideal operations:
 
 - `eliminate(*generators)` removes any distinct subset of the original typed
   coordinates and preserves the order of the remaining coordinates.
@@ -463,12 +463,17 @@ Prime-field bases support three checked ideal operations:
   the same prime field and typed polynomial ring.
 - `saturate(polynomial)` computes the principal saturation
   `I:polynomial**infinity`, retaining multiplicity in the remaining factors.
+- `quotient(other)` computes the finite ideal quotient `I:J`, requiring the
+  product with every divisor generator to lie in `I`. It removes only the
+  finite multiplicity present in the divisor ideal.
 
-All three return complete reduced bases in lexicographic order and retain the
+All four return complete reduced bases in lexicographic order and retain the
 left operand's coefficient lift and expression/`Poly` output policy. They
-check the complete projection of an independently accepted ambient basis;
-checking only that the returned generators belong to the target ideal would
-not establish completeness.
+use independently accepted complete ambient bases. Elimination, intersection
+and saturation check the complete projected subset. Finite quotients check
+every principal intersection, every exact coefficient-level cancellation and
+every intersection combining the divisor constraints; a list of valid members
+alone would not establish completeness.
 
 ```python
 curve = groebner([x*y - 1, y**2 - x], x, y, modulus=5)
@@ -480,6 +485,14 @@ assert first.intersection(second).exprs == [x*y]
 
 nonreduced = groebner([x**2*y**2], x, y, modulus=2)
 assert nonreduced.saturate(x).exprs == [y**2]
+
+numerator = groebner([x**3*y], x, y, modulus=5)
+divisor = groebner([x], x, y, modulus=5)
+assert numerator.quotient(divisor).exprs == [x**2*y]
+
+numerator = groebner([x**2, y**2], x, y, modulus=5)
+divisor = groebner([x, y], y, x, modulus=5)
+assert numerator.quotient(divisor).exprs == [x**2, x*y, y**2]
 ```
 
 These operations act on polynomial ideals, preserving characteristic and
@@ -493,9 +506,13 @@ membership, reduction and further ideal operations.
 Intersection and saturation introduce one auxiliary variable, which counts
 toward the eight-variable bound. Their constructed inputs count toward the
 32-polynomial limit, so intersection admits at most 32 combined generators
-and saturation admits at most 31 original generators. The degree bound applies
-after the auxiliary construction. FGLM, finite ideal quotients and syzygies
-over prime fields remain unsupported.
+and saturation admits at most 31 original generators. A finite quotient admits
+at most 32 generators per operand; any nonzero divisor requires at most seven
+original variables and 31 numerator generators. An empty or all-zero divisor
+ideal yields the unit ideal after both original source lists pass admission,
+including unused declared polynomial coordinates. Intermediate intersections
+remain bounded by 32 combined generators. The degree bound applies after the
+auxiliary construction. FGLM and syzygies over prime fields remain unsupported.
 
 The lane admits primes through 65521, total degree at most 64, up to 4096 sparse
 terms, and at most 32 basis polynomials or ordered divisors. Original source expressions and

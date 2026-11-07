@@ -71,16 +71,17 @@ def eliminate(basis, generators):
     return _publish(raw, remaining, (state,), (request,), retained)
 
 
-def intersection(basis, other):
+def _binary_inputs(basis, other, operation):
+    """Retain both complete source lists before any native source preflight."""
     left = _BasisState(basis)
     if type(other) is not GroebnerBasis:
-        raise TypeError("ideal intersection requires an exact GroebnerBasis")
+        raise TypeError("ideal %s requires an exact GroebnerBasis" % operation)
     if not has_field_marker(other):
-        raise UnificationFailed("ideal intersection requires the same prime field")
+        raise UnificationFailed("ideal %s requires the same prime field" % operation)
     right = _BasisState(other)
     if left.prime != right.prime:
-        raise UnificationFailed("ideal intersection requires the same prime field")
-    if len(left.expressions) + len(right.expressions) > 32:
+        raise UnificationFailed("ideal %s requires the same prime field" % operation)
+    if operation == "intersection" and len(left.expressions) + len(right.expressions) > 32:
         raise ValueError("prime-field intersection supports at most 32 combined source polynomials")
     left_sources, left_polys, left_declared = _unpack(left.expressions, 32)
     right_sources, right_polys, right_declared = _unpack(right.expressions, 32)
@@ -98,7 +99,14 @@ def intersection(basis, other):
     _unchanged((left, right), (left_request, right_request), retained)
     if ({_surface_binding_key(binding) for binding in left_request.bindings}
             != {_surface_binding_key(binding) for binding in right_request.bindings}):
-        raise UnificationFailed("ideal intersection requires the same typed polynomial ring")
+        raise UnificationFailed("ideal %s requires the same typed polynomial ring" % operation)
+    return (left, right), (left_request, right_request), retained
+
+
+def intersection(basis, other):
+    states, requests, retained = _binary_inputs(basis, other, "intersection")
+    left, _ = states
+    left_request, right_request = requests
     try:
         raw = _native.prime_field_ideal_intersection_native(
             left_request.raw, right_request.raw, left_request.bindings,
@@ -106,7 +114,23 @@ def intersection(basis, other):
             right_request.source_bindings)
     except _native.PrimeFieldCoefficientError as error:
         raise CoercionFailed("prime-field ideal coefficients must be integers") from error
-    return _publish(raw, left.gens, (left, right), (left_request, right_request), retained)
+    return _publish(raw, left.gens, states, requests, retained)
+
+
+def quotient(basis, other):
+    states, requests, retained = _binary_inputs(basis, other, "quotient")
+    left, _ = states
+    left_request, right_request = requests
+    # Zero and nonzero divisor cases are distinguished only after native
+    # admission of both original lists, including every held source child.
+    try:
+        raw = _native.prime_field_ideal_quotient_native(
+            left_request.raw, right_request.raw, left_request.bindings,
+            left.prime, left.symmetric, left_request.source_bindings,
+            right_request.source_bindings)
+    except _native.PrimeFieldCoefficientError as error:
+        raise CoercionFailed("prime-field ideal coefficients must be integers") from error
+    return _publish(raw, left.gens, states, requests, retained)
 
 
 def saturate(basis, polynomial):
