@@ -25,6 +25,8 @@
 
 mod systems;
 pub use systems::*;
+pub mod objectives;
+pub use objectives::*;
 
 use fsym_calculus::compile::EvalError;
 use fsym_calculus::{CompiledExpr, CompiledResidualSystem, VerifiedResidualSystem};
