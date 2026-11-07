@@ -8,12 +8,118 @@ original exact source with second-order interval arithmetic.
 
 from fractions import Fraction
 
-from ..core import _native, _symbol_binding
+from ..core import (
+    _native, _native_expr, _require_symbol, _surface_binding_key, _symbol_binding, _wrap,
+)
 from .lambdify import (
     _argument_layout, _call_arguments, _check_evaluation_budget, _functions, _numeric_source,
 )
 
-__all__ = ["StationarySearchError", "compile_objective"]
+__all__ = [
+    "MinimizationSearchError", "NumericMinimizationCandidate",
+    "StationarySearchError", "compile_objective",
+]
+
+
+class NumericMinimizationCandidate:
+    """Immutable approximate stationary proposal for one compiled objective.
+
+    Value and gradient diagnostics are freshly evaluated at point. An initial
+    stationary maximum or saddle also meets the numerical stopping criterion.
+    This object supplies no minimum, uniqueness, global-optimality, rounding
+    error or declared-assumption certificate.
+    """
+
+    __slots__ = ("_proposal", "_native_objective", "_variables")
+
+    def __init__(self, proposal, native_objective, variables):
+        if hasattr(self, "_proposal"):
+            raise AttributeError("minimization candidates are immutable")
+        if type(proposal) is not _native.NumericMinimizationProposal:
+            raise TypeError("an immutable native minimization proposal is required")
+        if type(native_objective) is not _native.VerifiedObjective:
+            raise TypeError("an immutable native objective is required")
+        if native_objective is not proposal.objective:
+            raise ValueError("minimization proposal belongs to a different objective")
+        from ._certified_numeric import _sequence
+        variables = _sequence(
+            variables, native_objective.variable_count, "minimization variables",
+        )
+        # Read the immutable native atom, not a later-mutated assumptions
+        # dictionary. Dummy intern identities remain distinct in this handle.
+        bindings = tuple(_native_expr(_require_symbol(axis)).symbol_binding for axis in variables)
+        if any(binding is None for binding in bindings):
+            raise ValueError("minimization variables must retain native symbol atoms")
+        supplied = tuple(_surface_binding_key(binding) for binding in bindings)
+        expected = tuple(_surface_binding_key(axis) for axis in native_objective.variables)
+        if supplied != expected:
+            raise ValueError("minimization variables do not match the captured typed coordinate order")
+        object.__setattr__(self, "_proposal", proposal)
+        object.__setattr__(self, "_native_objective", native_objective)
+        object.__setattr__(self, "_variables", variables)
+
+    def __setattr__(self, name, value):
+        raise AttributeError("minimization candidates are immutable")
+
+    def __delattr__(self, name):
+        raise AttributeError("minimization candidates are immutable")
+
+    @property
+    def point(self):
+        return self._proposal.point
+
+    @property
+    def objective(self):
+        """The immutable original source captured by the compiled objective."""
+        return _wrap(self._native_objective.source)
+
+    @property
+    def variables(self):
+        """The caller's captured Symbol/Dummy objects in coordinate order."""
+        return self._variables
+
+    @property
+    def value(self):
+        return self._proposal.value
+
+    @property
+    def gradient(self):
+        return self._proposal.gradient
+
+    @property
+    def gradient_norm(self):
+        """Infinity norm of the freshly evaluated binary64 gradient."""
+        return self._proposal.gradient_norm
+
+    @property
+    def iterations(self):
+        return self._proposal.iterations
+
+    @property
+    def evaluations(self):
+        """Full source/gradient/Hessian evaluations, including rejected trials."""
+        return self._proposal.evaluations
+
+    @property
+    def regularizations(self):
+        """Number of shifted Hessian systems attempted during descent."""
+        return self._proposal.regularizations
+
+    @property
+    def termination(self):
+        return "gradient_tolerance"
+
+    @property
+    def backend(self):
+        return "frankennumpy"
+
+    @property
+    def evidence(self):
+        return "approximate"
+
+    def __repr__(self):
+        return (f"NumericMinimizationCandidate(point={self.point!r}, value={self.value!r}, "
+                f"gradient_norm={self.gradient_norm!r}, iterations={self.iterations!r})")
 
 
 class StationarySearchError(ValueError):
@@ -31,6 +137,16 @@ class StationarySearchError(ValueError):
         self.failures = tuple(failures)
         self.attempts = len(self.failures)
         super().__init__(message)
+
+
+class MinimizationSearchError(StationarySearchError):
+    """A bounded search did not obtain a strict local minimum certificate.
+
+    stage is "candidate", "certification" or "classification". Rejected boxes
+    and inconclusive classifications retain their failures and attempt count.
+    Failure makes no assertion that a minimum is absent. Cancellation, budget
+    exhaustion and allocation failure retain their operational exception types.
+    """
 
 
 class _ObjectiveCallable:
@@ -174,6 +290,83 @@ class _ObjectiveCallable:
         from ._stationary_search import solve_stationary_certified
         return solve_stationary_certified(
             self, initial, tol, maxiter, precision, max_attempts, budget=budget,
+        )
+
+    def minimize(self, initial, *, gtol=None, maxiter=None, max_step=None,
+                 budget=None):
+        """Find an approximate stationary point by bounded Newton descent.
+
+        initial is a finite real scalar for one variable or a flat built-in
+        list/tuple in variables order, including with nested evaluation args.
+        The checked gradient and Hessian drive equilibrated pinned FrankenNumPy
+        linear solves, bounded diagonal regularization and Armijo backtracking.
+        Controls default to gtol=1e-10, maxiter=64 and max_step=1e6. The gradient
+        tolerance is nonnegative, maxiter is 0..1024, and the positive step
+        limit clips the infinity norm before at most 64 line-search trials.
+
+        Success requires a freshly evaluated gradient infinity norm <= gtol.
+        A small step or unchanged objective alone cannot succeed. The returned
+        immutable NumericMinimizationCandidate contains the point, source,
+        value, gradient and work counts. A stationary maximum or saddle can
+        satisfy this criterion, so it carries no minimum certificate.
+
+        Every initial, trial and final evaluation retains the full original
+        objective and both derivative domains. Mathematical domain/nonfinite
+        trial failures backtrack; operational errors remain terminal. One
+        supplied EvaluationBudget accounts cumulatively for native buffers,
+        failed trials, donor work and final reevaluation. Cancellation is
+        cooperative around synchronous donor work. Python object allocation
+        and compilation are outside the ledger; no fallback resets its work.
+        """
+        from ..solvers.numerical import _candidate_options
+
+        _check_evaluation_budget(budget)
+        dimension = self.native_objective.variable_count
+        if not 1 <= dimension <= 16:
+            raise ValueError("minimization requires 1..16 variables")
+        gtol, maxiter, max_step = _candidate_options(
+            "frankennumpy", 1e-10 if gtol is None else gtol, maxiter,
+            max_step, allow_python=False,
+        )
+        values = initial if type(initial) in (list, tuple) else (initial,)
+        inputs = _call_arguments((None,) * dimension, values, native=True)
+        proposal = self.native_objective.minimize(
+            inputs, gtol=gtol, maxiter=maxiter, max_step=max_step, budget=budget,
+        )
+        result = NumericMinimizationCandidate(
+            proposal, self.native_objective, self.variables,
+        )
+        _check_evaluation_budget(budget)
+        return result
+
+    def minimize_certified(self, initial, *, gtol=None, maxiter=None, max_step=None,
+                           precision=32, max_attempts=12, budget=None):
+        """Find and independently certify one strict local minimum.
+
+        The bounded minimizer supplies only approximate coordinates. Exact
+        rational witness boxes then go through the original-source C2,
+        strict inclusion and contraction checker. A result is returned only
+        when the immutable native receipt proves strict local minimum
+        curvature. Maximum and saddle classifications refuse; unclassified
+        boxes retry within the same attempt cap. A singular minimum may remain
+        inconclusive. No global optimum or completeness claim is made.
+
+        Exact source literals and 1..16 variables with supported captured
+        Boolean assumptions are required. Numerical controls match minimize.
+        precision is 8..128 digits and max_attempts is 1..24 (default 12).
+        Static eligibility is checked before initial conversion or numerical
+        work. MinimizationSearchError identifies candidate, certification or
+        classification failure and never returns an unverified candidate.
+
+        One cumulative EvaluationBudget spans numerical search, exact witness
+        proposals, failed boxes and final verification. If omitted, a private
+        default budget is created once for the entire operation. Cancellation,
+        exhausted budgets and allocation failures keep their exception types.
+        """
+        from ._objective_minimization import minimize_certified
+        return minimize_certified(
+            self, initial, gtol, maxiter, max_step, precision, max_attempts,
+            budget=budget,
         )
 
     def evaluate_sparse(self, *values, budget=None):

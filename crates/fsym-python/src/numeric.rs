@@ -51,7 +51,7 @@ const MAX_BATCH_VALUES: usize = 262_144;
 
 type ResidualValues = (Vec<f64>, Vec<Vec<f64>>);
 
-fn donor_float_option(
+pub(crate) fn donor_float_option(
     value: Option<&Bound<'_, PyAny>>,
     default: f64,
     name: &'static str,
@@ -83,7 +83,7 @@ fn donor_float_option(
     Ok(value)
 }
 
-fn donor_newton_guards(
+pub(crate) fn donor_newton_guards(
     tol: Option<&Bound<'_, PyAny>>,
     maxiter: Option<&Bound<'_, PyAny>>,
     max_step_norm: Option<&Bound<'_, PyAny>>,

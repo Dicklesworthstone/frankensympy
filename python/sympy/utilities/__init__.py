@@ -12,7 +12,10 @@ from .lambdify import (
 )
 from .hybrid import compile_numeric_hybrid
 from .hybrid_system import compile_hybrid_residual_system
-from .objective import StationarySearchError, compile_objective
+from .objective import (
+    MinimizationSearchError, NumericMinimizationCandidate,
+    StationarySearchError, compile_objective,
+)
 from .source_certification import (
     certify_box_extremum, certify_root_box, certify_stationary_point,
     enclose_objective, enclose_residual_system, optimize_box_certified,
@@ -36,7 +39,7 @@ __all__ = [
     "EvaluationBudget", "EvaluationBudgetExceeded", "EvaluationCancelled",
     "NumericRootCandidate",
     "NumericLeastSquaresCandidate",
-    "StationarySearchError",
+    "StationarySearchError", "MinimizationSearchError", "NumericMinimizationCandidate",
     "ResidualJacobianEnclosure", "RootBoxReceipt",
     "RootIsolationReceipt",
     "ParametricRootBoxReceipt",

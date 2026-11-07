@@ -41,10 +41,7 @@ fn meter_cause(error: &ObjectiveConsumerError) -> Option<MeterError> {
 fn coupled_quadratic_publishes_original_value_and_gradient_at_known_minimizer() {
     // The positive-definite Hessian is [[6, 2], [2, 8]]. The additive
     // constant separates objective minimization from solving objective = 0.
-    let source = objective(
-        "3*(x-2)^2+2*(x-2)*(y+1)+4*(y+1)^2+7",
-        &["x", "y"],
-    );
+    let source = objective("3*(x-2)^2+2*(x-2)*(y+1)+4*(y+1)^2+7", &["x", "y"]);
     let result = minimize(&source, &[-4.0, 6.0], &MinimizeOptions::default()).unwrap();
     near(result.point[0], 2.0, 1e-10);
     near(result.point[1], -1.0, 1e-10);
@@ -88,7 +85,7 @@ fn rosenbrock_descent_reaches_the_known_nonlinear_minimum() {
     let result = minimize(&source, &[-1.2, 1.0], &MinimizeOptions::default()).unwrap();
     near(result.point[0], 1.0, 1e-8);
     near(result.point[1], 1.0, 1e-8);
-    assert!(result.value >= 0.0 && result.value < 1e-16);
+    assert!((0.0..1e-16).contains(&result.value));
     assert!(result.gradient_norm <= 1e-10);
     let x = result.point[0];
     let y = result.point[1];
@@ -107,7 +104,7 @@ fn negative_curvature_direction_is_regularized_before_armijo_descent() {
     let source = objective("(x^2-1)^2", &["x"]);
     let result = minimize(&source, &[0.1], &MinimizeOptions::default()).unwrap();
     near(result.point[0], 1.0, 1e-8);
-    assert!(result.value >= 0.0 && result.value < 1e-16);
+    assert!((0.0..1e-16).contains(&result.value));
     assert!(result.gradient_norm <= 1e-10);
     assert!(result.regularizations > 0);
 }
@@ -129,11 +126,7 @@ fn zero_hessian_with_nonzero_gradient_uses_a_bounded_regularized_step() {
 fn stationary_maximum_and_saddle_are_only_numerical_candidates() {
     for (source, initial, expected_value) in [
         (objective("3-x^2", &["x"]), vec![0.0], 3.0),
-        (
-            objective("x^2-y^2", &["x", "y"]),
-            vec![0.0, 0.0],
-            0.0,
-        ),
+        (objective("x^2-y^2", &["x", "y"]), vec![0.0, 0.0], 0.0),
     ] {
         let result = minimize(&source, &initial, &MinimizeOptions::default()).unwrap();
         assert_eq!(result.point, initial);
@@ -167,14 +160,11 @@ fn flat_objective_and_unused_coordinate_do_not_forge_uniqueness() {
 fn ill_scaled_coupled_hessian_preserves_original_coordinate_units() {
     // Both squares vanish at (10^6, 2). Hessian entries span twelve
     // orders of magnitude, with a nonzero coupling term.
-    let source = objective(
-        "(x/1000000+y-3)^2+(2*x/1000000-y)^2",
-        &["x", "y"],
-    );
+    let source = objective("(x/1000000+y-3)^2+(2*x/1000000-y)^2", &["x", "y"]);
     let result = minimize(&source, &[0.0, 0.0], &MinimizeOptions::default()).unwrap();
     near(result.point[0], 1_000_000.0, 1e-4);
     near(result.point[1], 2.0, 1e-10);
-    assert!(result.value >= 0.0 && result.value < 1e-20);
+    assert!((0.0..1e-20).contains(&result.value));
     assert!(result.gradient_norm <= 1e-10);
 }
 
@@ -186,11 +176,7 @@ fn logarithmic_trial_holes_backtrack_without_becoming_success() {
     let result = minimize(&source, &[10.0], &MinimizeOptions::default()).unwrap();
     near(result.point[0], 1.0, 1e-9);
     near(result.value, 1.0, 1e-12);
-    near(
-        result.gradient[0],
-        1.0 - result.point[0].recip(),
-        1e-12,
-    );
+    near(result.gradient[0], 1.0 - result.point[0].recip(), 1e-12);
     assert!(result.gradient_norm <= 1e-10);
     assert!(result.evaluations > result.iterations + 2);
 }
@@ -202,11 +188,7 @@ fn overflowing_trial_values_backtrack_to_a_finite_original_objective() {
     let result = minimize(&source, &[-8.0], &MinimizeOptions::default()).unwrap();
     near(result.point[0], 0.0, 1e-9);
     near(result.value, 1.0, 1e-12);
-    near(
-        result.gradient[0],
-        result.point[0].exp() - 1.0,
-        1e-12,
-    );
+    near(result.gradient[0], result.point[0].exp() - 1.0, 1e-12);
     assert!(result.gradient_norm <= 1e-10);
     assert!(result.evaluations > result.iterations + 2);
 }
@@ -225,8 +207,7 @@ fn original_holes_hidden_by_zero_products_and_powers_fail_before_stationarity() 
             ),
             hidden,
         ]);
-        let source =
-            VerifiedObjective::try_compile(&source, std::slice::from_ref(&x)).unwrap();
+        let source = VerifiedObjective::try_compile(&source, std::slice::from_ref(&x)).unwrap();
         assert!(minimize(&source, &[0.0], &MinimizeOptions::default()).is_err());
     }
     let constant_hole = objective("log(-1)", &["x"]);
@@ -242,11 +223,7 @@ fn finite_values_cannot_hide_undefined_first_or_second_derivatives() {
             "published at the derivative-domain boundary of {formula}"
         );
     }
-    for (formula, point) in [
-        ("exp(x)", 800.0),
-        ("10^308*x^2", 1.0),
-        ("x^4", 1e100),
-    ] {
+    for (formula, point) in [("exp(x)", 800.0), ("10^308*x^2", 1.0), ("x^4", 1e100)] {
         let source = objective(formula, &["x"]);
         assert!(minimize(&source, &[point], &MinimizeOptions::default()).is_err());
     }
@@ -254,14 +231,8 @@ fn finite_values_cannot_hide_undefined_first_or_second_derivatives() {
 
 #[test]
 fn same_printed_names_keep_distinct_typed_bindings_and_argument_order() {
-    let first = Symbol::with_identity(
-        "x",
-        SymbolIdentity::from_assumptions_digest([1; 32]),
-    );
-    let second = Symbol::with_identity(
-        "x",
-        SymbolIdentity::from_assumptions_digest([2; 32]),
-    );
+    let first = Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([1; 32]));
+    let second = Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([2; 32]));
     let a = Expr::Sym(first.clone()) - Expr::from_i64(2);
     let b = Expr::Sym(second.clone()) + Expr::from_i64(3);
     let source = Expr::Pow(Arc::new(a), Arc::new(Expr::from_i64(2)))
@@ -320,8 +291,7 @@ fn shape_nonfinite_inputs_and_invalid_controls_refuse_before_dense_work() {
     let defaults = MinimizeOptions::default();
     for n in [0, 17] {
         let variables: Vec<_> = (0..n).map(|i| Symbol::new(format!("x{i}"))).collect();
-        let source =
-            VerifiedObjective::try_compile(&Expr::from_i64(1), &variables).unwrap();
+        let source = VerifiedObjective::try_compile(&Expr::from_i64(1), &variables).unwrap();
         let mut meter = RecordingMeter::default();
         assert!(
             minimize_with_meter(&source, &vec![0.0; n], &defaults, &mut meter).is_err()
@@ -403,11 +373,7 @@ struct RecordingMeter {
 }
 
 impl RecordingMeter {
-    fn before_charge(
-        &mut self,
-        dimension: Dimension,
-        amount: u64,
-    ) -> Result<(), MeterError> {
+    fn before_charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
         assert!(
             !self.stopped,
             "work continued after a terminal meter refusal"
@@ -472,8 +438,7 @@ fn cancellation_at_every_safe_point_including_rejected_trials_and_publication_is
     let source = objective("x-log(x)", &["x"]);
     let options = MinimizeOptions::default();
     let mut complete = RecordingMeter::default();
-    let proposal =
-        minimize_with_meter(&source, &[10.0], &options, &mut complete).unwrap();
+    let proposal = minimize_with_meter(&source, &[10.0], &options, &mut complete).unwrap();
     assert!(proposal.evaluations > proposal.iterations + 2);
     assert!(complete.compute > 0 && complete.bytes > 0 && complete.allocations > 0);
     for checkpoint in 1..=complete.checkpoints {
@@ -530,8 +495,7 @@ fn rejected_trials_and_repeated_calls_retain_cumulative_budget_and_verifier_rese
     minimize_with_meter(&source, &[10.0], &options, &mut budget).unwrap();
     assert_eq!(budget.remaining(Dimension::ComputeSteps), 0);
     assert_eq!(budget.verifier_remaining(), 37);
-    let error =
-        minimize_with_meter(&source, &[10.0], &options, &mut budget).unwrap_err();
+    let error = minimize_with_meter(&source, &[10.0], &options, &mut budget).unwrap_err();
     assert!(matches!(
         meter_cause(&error),
         Some(MeterError::Budget(BudgetError::Exhausted {

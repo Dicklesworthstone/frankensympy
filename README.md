@@ -273,6 +273,32 @@ derivative checks do not establish interval error bounds, convexity, global
 smoothness, or supervised cancellation; the complete campaign and compatibility
 gates remain open.
 
+Checked objectives also feed a bounded local minimization consumer:
+
+```python
+candidate = objective.minimize([-1.2, 1.0], gtol=1e-10, maxiter=64)
+# candidate.point is approximately (1.0, 1.0).
+# candidate.value and candidate.gradient are evaluated again at that point.
+assert candidate.evidence == "approximate"
+
+receipt = objective.minimize_certified([-1.2, 1.0])
+assert receipt.kind == "strict_minimum"
+```
+
+The numerical search uses the pinned FrankenNumPy linear solver with the checked
+Hessian, coordinate scaling, explicit diagonal regularization and bounded
+Armijo backtracking. It admits 1 through 16 variables and at most 1024 iterations.
+Domain-invalid trial points are rejected; cancellation, allocation and budget
+failures remain terminal. A caller's `EvaluationBudget` is cumulative across
+rejected trials, donor work and final publication.
+
+An approximate candidate establishes only a small floating gradient; an initial
+maximum or saddle can also be stationary. `minimize_certified` separately checks
+the original exact source, the full proposed box, root contraction and sufficient
+positive curvature. It returns only a verified strict local minimum, with no
+global-optimum claim. Unsupported or inconclusive certification returns no
+partial receipt, and one budget spans both numerical search and verification.
+
 ---
 
 ## Custom functions in residual systems (development API)

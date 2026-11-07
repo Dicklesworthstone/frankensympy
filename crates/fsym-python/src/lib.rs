@@ -1972,6 +1972,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<numeric::PyVerifiedResidualSystem>()?;
     m.add_class::<objective::PySourceObjective>()?;
     m.add_class::<objective::PyVerifiedObjective>()?;
+    m.add_class::<objective::PyNumericMinimizationProposal>()?;
     m.add_class::<objective::PyObjectiveEnclosure>()?;
     m.add_class::<objective::PyStationaryPointReceipt>()?;
     m.add_class::<objective::PyBoxExtremumReceipt>()?;

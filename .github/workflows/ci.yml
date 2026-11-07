@@ -322,6 +322,8 @@ jobs:
               "python/tests/test_numeric_donor_consumers.py",
               "python/tests/test_analytic_donor_backend.py",
               "python/tests/test_least_squares_consumer.py",
+              "python/tests/test_objective_minimization.py",
+              "python/tests/test_certified_minimization.py",
               "python/tests/test_certified_donor_backends.py",
               "python/tests/test_held_power_surface_identity.py",
               "python/tests/test_held_numeric_structure.py",

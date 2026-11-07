@@ -428,8 +428,18 @@ present_tense_allowed = false
 minimum_evidence = "validated"
 workstreams = ["WS12"]
 gate = "gate://franken-numeric-adapters"
-evidence_artifacts = ["crates/fsym-numeric-consumer/src/systems.rs", "crates/fsym-numeric-consumer/tests/generic_system_consumers.rs", "artifacts/audit/2026-11-03-certified-consumer-progress.json"]
-notes = "Bounded checked residual/Jacobian consumers now execute real pinned donors at dimensions 1..16 with shared ledgers and independent original-source root receipts. All 25 consumer crate tests pass at 91f3d0ab1e13f559ef4c222154a78fd2cb4d40d5. This does not establish the broader Hessian/sparsity/reference adapter gate; status and evidence minimum are unchanged."
+evidence_artifacts = [
+    "crates/fsym-numeric-consumer/src/systems.rs",
+    "crates/fsym-numeric-consumer/tests/generic_system_consumers.rs",
+    "artifacts/audit/2026-11-03-certified-consumer-progress.json",
+    "crates/fsym-numeric-consumer/src/objectives.rs",
+    "crates/fsym-numeric-consumer/tests/objective_consumers.rs",
+    "python/sympy/utilities/_objective_minimization.py",
+    "python/tests/test_objective_minimization.py",
+    "python/tests/test_certified_minimization.py",
+    "artifacts/audit/2026-11-07-objective-minimization-progress.json",
+]
+notes = "Bounded checked residual/Jacobian consumers now execute real pinned donors at dimensions 1..16 with shared ledgers and independent original-source root receipts. All 25 consumer crate tests pass at 91f3d0ab1e13f559ef4c222154a78fd2cb4d40d5. This does not establish the broader Hessian/sparsity/reference adapter gate; status and evidence minimum are unchanged. 2026-11-07 scoped continuation: direct-main 016f37a6a88f2541b56ec4747e582753e3c20178 adds bounded checked-Hessian objective minimization through the pinned FrankenNumPy linear solver. The public continuation exposes source-bound approximate candidates and independently checked strict-local-minimum search with cumulative budgets. Nineteen native regression functions and two public suites cover the new paths. Final sources were reconstructed and reviewed after workspace disk exhaustion; executable acceptance remains pending CI, with the first run42328763281 still queued and no new test pass asserted. The complete adapter/campaign/profile gate, claim status and evidence minimum remain unchanged."
 
 [[claims]]
 id = "MONITOR-001"

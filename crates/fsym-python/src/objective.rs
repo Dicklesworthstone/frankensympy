@@ -5,8 +5,8 @@
 use crate::binding::PySymbolBinding;
 use crate::expr::PyExpr;
 use crate::numeric::{
-    ball_bounds, check_certified_sources, check_source, exact_box, exact_rational, exact_vector,
-    extract_variables, input_values_metered, rational_expr,
+    ball_bounds, check_certified_sources, check_source, donor_float_option, donor_newton_guards,
+    exact_box, exact_rational, exact_vector, extract_variables, input_values_metered, rational_expr,
 };
 use crate::numeric_budget::{
     PyEvaluationBudget, evaluation_buffer, with_certification_meter, with_evaluation_meter,
@@ -20,6 +20,9 @@ use fsym_core::{
     MAX_BOX_OPTIMIZATION_LEAVES, ObjectiveEnclosure, RootBoxWitness, StationaryPointKind,
     StationaryPointReceipt, Symbol, metered_enclose_objective, verify_box_extremum,
     verify_box_optimization, verify_stationary_point,
+};
+use fsym_numeric_consumer::{
+    MAX_MINIMIZE_VARIABLES, MinimizationProposal, MinimizeOptions, minimize_with_meter,
 };
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -395,6 +398,54 @@ impl PyVerifiedObjective {
         )
     }
 
+    /// Propose a finite stationary point using bounded damped Newton descent.
+    /// This is approximate evidence, including at a stationary maximum or saddle.
+    #[pyo3(signature = (initial, *, gtol=None, maxiter=None, max_step=None, budget=None))]
+    fn minimize(
+        slf: &Bound<'_, Self>,
+        initial: &Bound<'_, PyAny>,
+        gtol: Option<&Bound<'_, PyAny>>,
+        maxiter: Option<&Bound<'_, PyAny>>,
+        max_step: Option<&Bound<'_, PyAny>>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Py<PyNumericMinimizationProposal>> {
+        // Admit every control before any initial-coordinate conversion or work.
+        let guards = donor_newton_guards(None, maxiter, max_step)?;
+        let gradient_tolerance = donor_float_option(
+            gtol,
+            MinimizeOptions::default().gradient_tolerance,
+            "gtol",
+            true,
+        )?;
+        let objective = slf.borrow();
+        let dimension = objective.objective.variables().len();
+        if !(1..=MAX_MINIMIZE_VARIABLES).contains(&dimension) {
+            return Err(PyValueError::new_err("minimization requires 1..16 variables"));
+        }
+        let inputs = input_values_metered(initial, dimension, budget.as_deref())?;
+        let options = MinimizeOptions {
+            max_iterations: guards.max_iterations,
+            gradient_tolerance,
+            max_step_norm: guards.max_step_norm,
+        };
+        // Capture only the immutable Rust program across GIL detachment; the
+        // Python borrow guard and owner remain on this attached stack.
+        let program = &objective.objective;
+        let py = slf.py();
+        let proposal = with_evaluation_meter(py, budget.as_deref(), |meter| {
+            minimize_with_meter(program, &inputs, &options, meter)
+        })?;
+        let result = Py::new(
+            py,
+            PyNumericMinimizationProposal {
+                proposal,
+                objective: slf.clone().unbind(),
+            },
+        )?;
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
+    }
+
     /// Return value, gradient and ordered sparse Hessian values atomically.
     #[pyo3(signature = (values, *, budget=None))]
     fn evaluate(
@@ -433,6 +484,15 @@ impl PyVerifiedObjective {
     }
 
     #[getter]
+    fn variables(&self) -> Vec<PySymbolBinding> {
+        self.objective
+            .variables()
+            .iter()
+            .map(PySymbolBinding::from_symbol)
+            .collect()
+    }
+
+    #[getter]
     fn hessian_pattern(&self) -> Vec<(usize, usize)> {
         self.objective.hessian_pattern().to_vec()
     }
@@ -452,6 +512,62 @@ impl PyVerifiedObjective {
     #[getter]
     fn zero_entries_checked(&self) -> usize {
         self.objective.receipt().zero_entries_checked
+    }
+}
+
+/// An immutable approximate proposal tied to its exact compiled source owner.
+/// There is no public constructor and no minimum or rounding-error certificate.
+#[pyclass(name = "NumericMinimizationProposal", module = "fsym_python", frozen)]
+pub struct PyNumericMinimizationProposal {
+    proposal: MinimizationProposal,
+    objective: Py<PyVerifiedObjective>,
+}
+
+#[pymethods]
+impl PyNumericMinimizationProposal {
+    #[getter]
+    fn objective(&self, py: Python<'_>) -> Py<PyVerifiedObjective> {
+        self.objective.clone_ref(py)
+    }
+
+    #[getter]
+    fn point<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+        PyTuple::new(py, self.proposal.point.iter().copied())
+    }
+
+    #[getter]
+    fn value(&self) -> f64 {
+        self.proposal.value
+    }
+
+    #[getter]
+    fn gradient<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+        PyTuple::new(py, self.proposal.gradient.iter().copied())
+    }
+
+    #[getter]
+    fn gradient_norm(&self) -> f64 {
+        self.proposal.gradient_norm
+    }
+
+    #[getter]
+    fn iterations(&self) -> usize {
+        self.proposal.iterations
+    }
+
+    #[getter]
+    fn evaluations(&self) -> usize {
+        self.proposal.evaluations
+    }
+
+    #[getter]
+    fn regularizations(&self) -> usize {
+        self.proposal.regularizations
+    }
+
+    #[getter]
+    fn evidence(&self) -> &'static str {
+        "approximate"
     }
 }
 

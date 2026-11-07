@@ -12,22 +12,28 @@ from ._certified_numeric import (
     _MAX_ROOT_SEARCH_ATTEMPTS, _MAX_VARIABLES, _call_budgeted,
     _charge_exact_work, _sequence,
 )
-from ._certified_objective import certify_stationary_point
+from ..core import _native
+from ._certified_objective import (
+    StationaryPointReceipt, _ObjectiveReceipt, certify_stationary_point,
+)
 from .lambdify import _call_arguments, _check_evaluation_budget
 from .objective import StationarySearchError
 
 
-def _prepare_search(program, tol, maxiter, precision, max_attempts):
-    """Refuse static ineligibility before numerical evaluation or conversion."""
-    from ..solvers.numerical import _MAX_NEWTON_ITERATIONS
+# Classification is read from the frozen native receipt. Mutable shell
+# descriptors are presentation, never authority for a minimum claim.
+_STATIONARY_RECEIPT_SLOT = _ObjectiveReceipt.__dict__["_receipt"]
+_NATIVE_STATIONARY_RECEIPT = _native.StationaryPointReceipt
+_NATIVE_STATIONARY_KIND = _NATIVE_STATIONARY_RECEIPT.kind
 
+
+def _prepare_stationary_certification(program, precision, max_attempts):
+    """Admit exact source, captured assumptions and bounded witness controls."""
     if type(precision) is not int or not 8 <= precision <= 128:
         raise ValueError("certified precision must be an integer from 8 through 128")
     if (type(max_attempts) is not int
             or not 1 <= max_attempts <= _MAX_ROOT_SEARCH_ATTEMPTS):
         raise ValueError("stationary search max_attempts must be an integer from 1 through 24")
-    if type(maxiter) is not int or not 1 <= maxiter <= _MAX_NEWTON_ITERATIONS:
-        raise ValueError("stationary search maxiter must be an integer from 1 through 10,000")
     dimension = program.native_objective.variable_count
     if not 1 <= dimension <= _MAX_VARIABLES:
         raise ValueError("certified stationary search requires 1..16 variables")
@@ -44,6 +50,16 @@ def _prepare_search(program, tol, maxiter, precision, max_attempts):
     for facts in program._assumptions:
         if any(key not in supported for key, _ in facts):
             raise NotImplementedError("certified real boxes do not support one or more declared symbol assumptions")
+    return dimension
+
+
+def _prepare_search(program, tol, maxiter, precision, max_attempts):
+    """Refuse static ineligibility before numerical evaluation or conversion."""
+    from ..solvers.numerical import _MAX_NEWTON_ITERATIONS
+
+    dimension = _prepare_stationary_certification(program, precision, max_attempts)
+    if type(maxiter) is not int or not 1 <= maxiter <= _MAX_NEWTON_ITERATIONS:
+        raise ValueError("stationary search maxiter must be an integer from 1 through 10,000")
     tolerance = _call_arguments((None,), (tol,), native=True)[0]
     if not math.isfinite(tolerance) or tolerance <= 0:
         raise ValueError("stationary search tolerance must be positive, finite and real")
@@ -123,8 +139,11 @@ def _iterate_stationary(program, values, tolerance, maxiter, *, budget=None):
     return result
 
 
-def _search_stationary_box(program, candidate, precision, max_attempts, *, budget=None):
+def _search_stationary_box(program, candidate, precision, max_attempts, *, budget=None,
+                           required_kind=None):
     """Vary exact witness boxes without trusting floating convergence."""
+    if required_kind not in (None, "strict_minimum"):
+        raise ValueError("unsupported stationary receipt classification requirement")
     dimension = program.native_objective.variable_count
     try:
         candidate = _sequence(candidate, dimension, "stationary candidate")
@@ -140,6 +159,7 @@ def _search_stationary_box(program, candidate, precision, max_attempts, *, budge
     center = tuple(Fraction(*value.as_integer_ratio()) for value in candidate)
     radii = tuple((abs(value) or Fraction(1)) / (1 << 20) for value in center)
     failures = []
+    inconclusive_classification = False
     for attempt in range(max_attempts):
         # Narrow boxes reduce interval dependency/domain overestimation; wide
         # boxes can contain a stationary point outside an inaccurate proposal.
@@ -171,10 +191,32 @@ def _search_stationary_box(program, candidate, precision, max_attempts, *, budge
             failures.append(str(error))
         else:
             _check_evaluation_budget(budget)
+            if required_kind is not None:
+                if type(result) is not StationaryPointReceipt:
+                    raise RuntimeError("stationary checker returned an invalid receipt")
+                native = _STATIONARY_RECEIPT_SLOT.__get__(result, _ObjectiveReceipt)
+                if type(native) is not _NATIVE_STATIONARY_RECEIPT:
+                    raise RuntimeError("stationary checker returned an invalid native receipt")
+                kind = _NATIVE_STATIONARY_KIND.__get__(native, _NATIVE_STATIONARY_RECEIPT)
+                if kind in ("strict_maximum", "saddle"):
+                    raise StationarySearchError(
+                        "classification",
+                        f"stationary certificate classifies {kind}, not a strict local minimum",
+                        failures=(*failures, kind),
+                    )
+                if kind == "unclassified":
+                    inconclusive_classification = True
+                    failures.append("stationary curvature is unclassified")
+                    continue
+                if kind != required_kind:
+                    raise RuntimeError("stationary checker returned an unknown classification")
+            _check_evaluation_budget(budget)
             return result
+    stage = "classification" if inconclusive_classification else "certification"
+    description = "strict local minimum" if required_kind else "stationary-point"
     raise StationarySearchError(
-        "certification",
-        f"no stationary-point certificate accepted after {max_attempts} bounded trials; "
+        stage,
+        f"no {description} certificate accepted after {max_attempts} bounded trials; "
         f"last rejection: {failures[-1]}",
         failures=failures,
     )

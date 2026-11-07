@@ -1,0 +1,124 @@
+{
+  "schema": "frankensympy.bounded-feature-progress.v1",
+  "recorded_at_utc": "2026-11-07T02:34:39Z",
+  "base_main": "eb21b4ab59a80af45f77ff489634ac7abd251c2b",
+  "objective": "Consume checked scalar-objective Hessians in bounded numerical minimization and independently certify strict local minima through the public Python API.",
+  "priority_basis": [
+    "COMPREHENSIVE_PLAN_FOR_FRANKENSYMPY.md: verified differentiation, numerical consumers and optimization",
+    "docs/FIRST_IMPLEMENTATION_CAMPAIGN.md: C7/C8 numerical-consumer and independent-certification boundaries",
+    "fra-campaign-jacobian-bundle-ukp remains in_progress"
+  ],
+  "verified_session_commits": [
+    {
+      "sha": "016f37a6a88f2541b56ec4747e582753e3c20178",
+      "feature": "Native checked-Hessian minimization and independent objective-consumer regression suite",
+      "remote_fetched_after_write": true
+    }
+  ],
+  "implemented": [
+    "VerifiedObjective value, gradient and sparse Hessian feed the real pinned FrankenNumPy dense linear solver.",
+    "Coordinate scaling, numerical mixed-partial symmetrization, bounded diagonal regularization and Armijo backtracking produce approximate stationary proposals.",
+    "Every accepted point and the final published point reevaluate the original source and both derivative orders.",
+    "Immutable native and Python candidates retain exact compiled-objective ownership and typed coordinate identity.",
+    "Public minimize_certified proposes exact rational boxes, reuses the original-source stationary-point verifier and returns only a native strict_minimum classification.",
+    "Maximum and saddle classifications refuse; unclassified curvature retries only within the shared attempt cap.",
+    "One cumulative supplied or private budget spans numerical proposal and certified search; cancellation, allocation failure and exhausted work remain terminal."
+  ],
+  "scope": {
+    "numerical_dimensions": "1..16",
+    "numerical_iterations": "0..1024; default64; zero checks initial stationarity only",
+    "gradient_tolerance": "finite nonnegative infinity-norm tolerance; default1e-10",
+    "maximum_step_norm": "finite positive infinity-norm cap; default1e6",
+    "linear_system_attempts_per_iteration": 8,
+    "backtracking_trials_per_iteration": 64,
+    "certificate_attempts": "1..24; default12",
+    "certificate_precision_digits": "8..128; bounded escalation",
+    "candidate_evidence": "approximate binary64 stationarity only; an initially stationary maximum or saddle can satisfy the numerical tolerance",
+    "certificate_evidence": "independent original-source C2 domain, strict root inclusion, contraction and sufficient positive-curvature checks for one strict local minimum",
+    "not_established": [
+      "global optimality",
+      "completeness of stationary points",
+      "singular-minimum certification",
+      "sparse large-dimensional solver scaling",
+      "wall-time interruption of the synchronous donor",
+      "portable proof/profile or full campaign certification"
+    ],
+    "dependencies_added": false,
+    "unsafe_code_added": false,
+    "python_runtime_fallback_added": false
+  },
+  "dependency_pins": {
+    "rust_toolchain": "nightly-2026-08-20",
+    "rustc_observed": "1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "asupersync": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+    "frankennumpy": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+    "frankenscipy": "213a417c739025ed865a3875c89a7d86726ecb5a"
+  },
+  "validation": {
+    "new_native_test_functions": 19,
+    "new_public_test_files": [
+      "python/tests/test_objective_minimization.py",
+      "python/tests/test_certified_minimization.py"
+    ],
+    "local_runtime": "NOT COMPLETED: native test compilation was interrupted by toolchain setup exhausting workspace disk. The executor then became unavailable; no new native or extension test success is asserted.",
+    "source_reconstruction": "Final source was reconstructed through the GitHub connector after workspace loss, reviewed independently and refetched by exact blob identity. Earlier local formatting/AST checks do not establish acceptance of these reconstructed final blobs.",
+    "independent_review": [
+      "Native domain-error whitelist, cumulative meter and publication checks",
+      "Hessian scaling, finite arithmetic, independent formula fixtures and operational-error regression expectations",
+      "Python native owner/axis identity, mutable-assumption snapshots, exact-source eligibility and immutable receipt classification"
+    ],
+    "ci_first_native_commit": {
+      "head_sha": "016f37a6a88f2541b56ec4747e582753e3c20178",
+      "run_id": 42328763281,
+      "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/42328763281",
+      "observed_status": "queued; G0 has no executed steps",
+      "not_a_pass": true,
+      "observed_at_utc": "2026-11-07T02:34:39Z"
+    },
+    "ci_registration": "Both public minimization suites are added to the existing real-extension G3 selection. Native consumer tests are already included in G3 and workspace-wide G2. Existing fmt/check/Clippy and test gates are unchanged.",
+    "required_execution": [
+      "cargo fmt --check",
+      "cargo check --workspace --all-targets",
+      "cargo clippy --workspace --all-targets -- -D warnings",
+      "cargo test --workspace -- --nocapture",
+      "cargo test --locked -p fsym-numeric-consumer --tests -j1",
+      "Actual fsym-python extension with both new Python minimization suites and the existing stationary/certified suites"
+    ],
+    "runtime_acceptance_pending": true,
+    "new_public_test_functions": 34
+  },
+  "review_corrections": [
+    "ObjectiveConsumerError does not derive Clone because its nested checked-evaluation error does not support it.",
+    "Python candidates reject a different native objective and wrong length/order/typed identity of coordinate labels.",
+    "Coordinate validation reads admitted immutable native Symbol/Dummy handles, preserving captured identity after mutation of surface assumptions.",
+    "Strict-minimum acceptance reads the cached frozen native receipt descriptor, so a mutable Python kind property cannot promote a maximum or saddle.",
+    "Three native regression range assertions use equivalent Range::contains expressions for strict Clippy without loosening their bounds."
+  ],
+  "excluded_incomplete_work": "The exploratory recurrence-solver repair was incomplete at workspace loss and is deliberately absent from all committed changes.",
+  "claims": {
+    "integration_003_status": "planned",
+    "math_004_status": "implemented_uncertified",
+    "present_tense_permissions_changed": false,
+    "campaign_closed": false,
+    "profiles_promoted": false,
+    "bead_status_or_dependency_changes": false
+  },
+  "source_git_blobs": {
+    "crates/fsym-numeric-consumer/src/lib.rs": "a098c83fef0009c1971f433bbc2ff042752e3b75",
+    "crates/fsym-numeric-consumer/src/objectives.rs": "d8d37906226f8ea8692007e6d3727371648940ff",
+    "crates/fsym-numeric-consumer/tests/objective_consumers.rs": "c5ac21f4e78f9757eac1630d3e414154de6ac7fe",
+    "crates/fsym-python/src/objective.rs": "8d29c6aeb1e61b71ed6581fa74cb271ce371078b",
+    "crates/fsym-python/src/numeric.rs": "8cf7a3c0c7bf1465594dec82f06d9c99145d3d60",
+    "crates/fsym-python/src/numeric_budget.rs": "f2305f15cbe62cf3bfc573261ba2e302fc7e739a",
+    "crates/fsym-python/src/lib.rs": "792472025470d2862eab7e4806ad2610434bd814",
+    "python/sympy/utilities/objective.py": "23beed8a0564a9fbdd0e1d5b32233f825613579d",
+    "python/sympy/utilities/_stationary_search.py": "8e1607b9574fae50c923abea8c0482b9def366ba",
+    "python/sympy/utilities/_objective_minimization.py": "024ad14919f8b749e5f4b449c49363a8276e5e29",
+    "python/sympy/utilities/__init__.py": "5ce8209748f821cfc797a3d68df643d7ea1d3f2c",
+    "python/sympy/__init__.py": "25d4e35ec46745ec25cd900ad81b06bbc882b30d",
+    ".github/workflows/ci.yml": "95f4089617f3cc26de858fb2a47f15c925801011",
+    "python/tests/test_objective_minimization.py": "e802f7e2304d74810336392799545ad687c8e3eb",
+    "python/tests/test_certified_minimization.py": "c49382d6c1d40c2413d450178223a1286a162ac5",
+    "README.md": "972f804ba090899d4af0bdd144e9eb9111b4d87b"
+  }
+}
