@@ -13,6 +13,7 @@ pub mod finite_field;
 pub mod finite_field_arithmetic;
 pub mod finite_field_element_source;
 pub mod finite_field_groebner;
+pub mod finite_field_ideal;
 pub mod finite_field_multivariate;
 pub mod finite_field_multivariate_source;
 pub mod finite_field_recursive_division;
@@ -49,6 +50,7 @@ pub use finite_field_groebner::{
     checked_prime_field_groebner_basis, checked_prime_field_groebner_reduction,
     verify_prime_field_groebner_certificate,
 };
+pub use finite_field_ideal::*;
 pub use finite_field_multivariate::*;
 pub use finite_field_multivariate_source::{
     VerifiedPrimeFieldMultivariateSource, checked_prime_field_multivariate_source,

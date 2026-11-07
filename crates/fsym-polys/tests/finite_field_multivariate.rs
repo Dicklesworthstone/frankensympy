@@ -70,9 +70,48 @@ fn canonical_constructor_validates_raw_terms_before_trimming_zeros() {
     for prime in [0, 1, 4, 65522, u64::MAX] {
         assert!(Polynomial::new(&ring(), prime, &Terms::new()).is_err());
     }
-    assert!(Polynomial::new(&[], 5, &Terms::new()).is_err());
+    let constant_zero = Polynomial::new(&[], 5, &Terms::new()).unwrap();
+    assert!(constant_zero.is_zero());
+    assert!(constant_zero.generators().is_empty());
+    assert_eq!(constant_zero.prime(), 5);
     assert!(Polynomial::new(&vec![Symbol::new("x"); 9], 5, &Terms::new()).is_err());
     assert!(Polynomial::new(&[Symbol::new("x"), Symbol::new("x")], 5, &Terms::new()).is_err());
+}
+
+#[test]
+fn explicit_constant_fields_retain_canonical_units_and_checked_arithmetic() {
+    for prime in [2, 3, 5, 65521] {
+        let zero = Polynomial::new(&[], prime, &terms(&[(&[], 0)])).unwrap();
+        let one = Polynomial::new(&[], prime, &terms(&[(&[], 1)])).unwrap();
+        let minus_one = Polynomial::new(&[], prime, &terms(&[(&[], prime - 1)])).unwrap();
+        assert!(zero.terms().is_empty());
+        assert_eq!(one.terms(), &terms(&[(&[], 1)]));
+        assert!(one.generators().is_empty());
+        assert_eq!(one.prime(), prime);
+        assert_eq!(run(&Op::Add, &one, Some(&minus_one)), zero);
+        assert_eq!(run(&Op::Multiply, &minus_one, Some(&minus_one)), one);
+        assert_eq!(run(&Op::Monic(TermOrder::Lex), &minus_one, None), one);
+        let quotient = division(
+            &minus_one,
+            std::slice::from_ref(&one),
+            TermOrder::Lex,
+            &mut Unbounded,
+            &mut Unbounded,
+        )
+        .unwrap();
+        assert_eq!(quotient.quotients(), [minus_one]);
+        assert!(quotient.remainder().is_zero());
+        for invalid in [
+            terms(&[(&[0], 0)]),
+            terms(&[(&[1], 1)]),
+            terms(&[(&[], prime)]),
+        ] {
+            assert!(Polynomial::new(&[], prime, &invalid).is_err());
+        }
+    }
+    for invalid_prime in [0, 1, 4, 65522, u64::MAX] {
+        assert!(Polynomial::new(&[], invalid_prime, &Terms::new()).is_err());
+    }
 }
 
 #[test]

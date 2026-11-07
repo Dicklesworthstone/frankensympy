@@ -4,7 +4,8 @@ use fsym_budget::Unbounded;
 use fsym_core::Symbol;
 use fsym_polys::{
     PrimeFieldMultivariatePolynomial as Polynomial, PrimeFieldMultivariateTerms as Terms,
-    TermOrder, bounded_prime_field_recursive_division_certificate as candidate,
+    PrimeFieldRecursiveDivisionCertificate, TermOrder,
+    bounded_prime_field_recursive_division_certificate as candidate,
     checked_prime_field_multivariate_division as sparse_divide,
     checked_prime_field_recursive_division as divide,
     verify_prime_field_recursive_division as verify,
@@ -19,6 +20,37 @@ fn terms(values: &[(&[u32], u64)]) -> Terms {
 
 fn polynomial(generators: &[Symbol], prime: u64, values: &[(&[u32], u64)]) -> Polynomial {
     Polynomial::new(generators, prime, &terms(values)).unwrap()
+}
+
+#[test]
+fn constant_fields_use_sparse_division_and_recursive_entry_points_refuse() {
+    let divisor = polynomial(&[], 5, &[(&[], 3)]);
+    for dividend in [polynomial(&[], 5, &[]), polynomial(&[], 5, &[(&[], 2)])] {
+        assert!(candidate(&dividend, &divisor, &mut Unbounded).is_err());
+        assert!(divide(&dividend, &divisor, &mut Unbounded, &mut Unbounded).is_err());
+        let untrusted = PrimeFieldRecursiveDivisionCertificate {
+            quotient: Terms::new(),
+            remainder: dividend.terms().clone(),
+            terminal: None,
+        };
+        assert!(verify(&dividend, &divisor, &untrusted, &mut Unbounded).is_err());
+        let result = sparse_divide(
+            &dividend,
+            std::slice::from_ref(&divisor),
+            TermOrder::Lex,
+            &mut Unbounded,
+            &mut Unbounded,
+        )
+        .unwrap();
+        let expected = if dividend.is_zero() {
+            Terms::new()
+        } else {
+            terms(&[(&[], 4)])
+        };
+        assert_eq!(result.quotients()[0].terms(), &expected);
+        assert!(result.quotients()[0].generators().is_empty());
+        assert!(result.remainder().is_zero());
+    }
 }
 
 #[test]

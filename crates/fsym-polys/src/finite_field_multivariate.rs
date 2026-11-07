@@ -11,8 +11,8 @@
 #![forbid(unsafe_code)]
 
 use crate::division::{PolynomialWork, refused};
-use crate::finite_field::scalar_power;
-use crate::{PolyError, PrimeFieldPolynomial, TermOrder};
+use crate::finite_field::{admit_characteristic, scalar_power};
+use crate::{PolyError, TermOrder};
 use fsym_budget::{BudgetMeter, Unbounded};
 use fsym_core::Symbol;
 use std::cmp::Ordering;
@@ -27,6 +27,8 @@ pub(super) const MAX_BASIS: usize = 32;
 const MAX_COLUMNS: usize = 16384;
 
 /// Canonical, immutable sparse polynomial in an ordered, typed prime-field ring.
+/// An empty generator list denotes the explicit constant field F_p; it is
+/// needed when elimination removes every variable, rather than inferring one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PrimeFieldMultivariatePolynomial {
     generators: Vec<Symbol>,
@@ -162,8 +164,10 @@ pub(super) fn admit_ring(
     prime: u64,
     work: &mut PolynomialWork<'_, impl BudgetMeter>,
 ) -> Result<(), PolyError> {
-    if generators.is_empty() || generators.len() > MAX_VARIABLES {
-        return Err(refused("prime-field polynomial requires 1..=8 generators"));
+    if generators.len() > MAX_VARIABLES {
+        return Err(refused(
+            "prime-field polynomial admits at most eight generators",
+        ));
     }
     let bytes = generators.iter().try_fold(0usize, |total, generator| {
         total
@@ -179,7 +183,7 @@ pub(super) fn admit_ring(
             return Err(refused("duplicate typed generator"));
         }
     }
-    PrimeFieldPolynomial::metered_new(&generators[0], prime, &[], work)?;
+    admit_characteristic(prime, work)?;
     Ok(())
 }
 

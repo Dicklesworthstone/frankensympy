@@ -286,12 +286,14 @@ fn typed_ring_and_field_admission_cannot_be_skipped_for_zero_ideals() {
         s_pairs: vec![],
     };
     assert!(accepted(5, &[], &empty));
+    assert!(verify(&[], 5, &[], TermOrder::Lex, &empty, &mut Unbounded).is_ok());
     for prime in [0, 1, 4, 65522, u64::MAX] {
         assert!(!accepted(prime, &[], &empty));
+        assert!(verify(&[], prime, &[], TermOrder::Lex, &empty, &mut Unbounded).is_err());
     }
     let duplicate = vec![Symbol::new("x"), Symbol::new("x")];
     let too_many: Vec<_> = (0..9).map(|i| Symbol::new(format!("x{i}"))).collect();
-    for invalid in [vec![], duplicate, too_many] {
+    for invalid in [duplicate, too_many] {
         assert!(verify(&invalid, 5, &[], TermOrder::Lex, &empty, &mut Unbounded).is_err());
     }
     let zero_input = vec![poly(5, &zero())];
@@ -318,6 +320,27 @@ fn typed_ring_and_field_admission_cannot_be_skipped_for_zero_ideals() {
         );
     }
     assert!(!accepted(7, &zero_input, &certificate));
+}
+
+#[test]
+fn explicit_constant_field_unit_witness_still_requires_exact_ideal_inclusions() {
+    let scalar_one = terms(&[(&[], 1)]);
+    let input = [Polynomial::new(&[], 3, &scalar_one).unwrap()];
+    let honest = Certificate {
+        basis: vec![scalar_one.clone()],
+        basis_in_input: vec![vec![scalar_one.clone()]],
+        input_in_basis: vec![vec![scalar_one]],
+        s_pairs: vec![],
+    };
+    let accepted = verify(&[], 3, &input, TermOrder::Lex, &honest, &mut Unbounded).unwrap();
+    assert_eq!(accepted.basis(), input);
+    assert!(accepted.generators().is_empty());
+    let mut bad = honest.clone();
+    bad.basis_in_input[0][0].clear();
+    assert!(verify(&[], 3, &input, TermOrder::Lex, &bad, &mut Unbounded).is_err());
+    let mut bad = honest;
+    bad.basis[0] = terms(&[(&[0], 1)]);
+    assert!(verify(&[], 3, &input, TermOrder::Lex, &bad, &mut Unbounded).is_err());
 }
 
 #[test]

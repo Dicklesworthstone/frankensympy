@@ -141,7 +141,19 @@ fn admit_field(
     work: &mut PolynomialWork<'_, impl BudgetMeter>,
 ) -> Result<(), PolyError> {
     work.tick(1)?;
-    if variable.name.len() > 65_536 || !(2..=MAX_PRIME_FIELD_CHARACTERISTIC).contains(&prime) {
+    if variable.name.len() > 65_536 {
+        return Err(refused("prime-field generator name bound"));
+    }
+    admit_characteristic(prime, work)
+}
+
+/// Shared field admission also covers explicit zero-variable constant rings.
+pub(super) fn admit_characteristic(
+    prime: u64,
+    work: &mut PolynomialWork<'_, impl BudgetMeter>,
+) -> Result<(), PolyError> {
+    work.tick(1)?;
+    if !(2..=MAX_PRIME_FIELD_CHARACTERISTIC).contains(&prime) {
         return Err(refused(
             "prime field requires a prime in 2..65521 and a bounded symbol",
         ));

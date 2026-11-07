@@ -86,6 +86,11 @@ fn admit_request(
     work: &mut PolynomialWork<'_, impl BudgetMeter>,
 ) -> Result<(), PolyError> {
     work.tick(1)?;
+    if dividend.generators().is_empty() {
+        return Err(refused(
+            "recursive polynomial division requires a declared main variable",
+        ));
+    }
     admit_ring(dividend.generators(), dividend.prime(), work)?;
     same_ring(dividend, dividend.generators(), dividend.prime(), work)?;
     same_ring(divisor, dividend.generators(), dividend.prime(), work)?;

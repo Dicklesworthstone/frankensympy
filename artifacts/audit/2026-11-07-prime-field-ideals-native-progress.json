@@ -1,0 +1,102 @@
+{
+  "schema": "frankensympy.bounded-feature-progress.v1",
+  "recorded_at": "2026-11-07T04:15:55Z",
+  "base_main": "9f1bae9b78b3b2f155ac98339c4adc87e32a6387",
+  "workstream": "WS17",
+  "bead": "fra-546",
+  "objective": "Complete bounded elimination, intersection and principal saturation over exact prime fields, using independently checked ambient Groebner bases.",
+  "implemented": [
+    "Arbitrary distinct typed-variable elimination with exact retained-coordinate order, including elimination to the constant field.",
+    "Intersection through tI+(1-t)J and principal saturation through I+<1-tf>, with a fresh auxiliary coordinate.",
+    "Independent coefficient-level original-input binding, independent typed variable-partition validation, and complete projection of the accepted ambient Lex basis.",
+    "Explicit zero-variable native F_p polynomials, with full prime/monomial validation and guarded refusal of recursive division that requires a main variable.",
+    "Immutable accepted ambient receipts are shared through Arc; nested construction, checking and publication keep separate cumulative generator/verifier meters."
+  ],
+  "scope": {
+    "prime_range": "prime p in 2..65521",
+    "maximum_ambient_variables": 8,
+    "maximum_constructed_inputs": 32,
+    "maximum_augmented_total_degree": 64,
+    "maximum_terms_per_polynomial": 4096,
+    "phase_compute_steps": 20000000,
+    "phase_logical_memory_bytes": 134217728,
+    "intersection_and_saturation_auxiliary_counts_against_bounds": true,
+    "claim": "Complete reduced Lex ideal basis over F_p; multiplicities are retained.",
+    "not_claimed": [
+      "enumeration of F_p-rational points",
+      "portable proof-kernel certificate",
+      "full WS17 or compatibility-profile closure"
+    ]
+  },
+  "validation": {
+    "pre_outage_native": {
+      "toolchain": "nightly-2026-08-20",
+      "dependencies": "unchanged locked Cargo graph, offline",
+      "rustflags": "-D warnings",
+      "jobs": 1,
+      "debug": 0,
+      "codegen_units": 256,
+      "incremental": false,
+      "command": "cargo test --locked --offline -p fsym-polys --test finite_field_elimination --test finite_field_ideal_operations --test finite_field_multivariate --test finite_field_groebner --test finite_field_groebner_adversaries --test finite_field_recursive_division -j1",
+      "exit_code": 0,
+      "passed": 71,
+      "failed": 0,
+      "suites": {
+        "finite_field_elimination": 12,
+        "finite_field_ideal_operations": 13,
+        "finite_field_multivariate": 19,
+        "finite_field_groebner": 10,
+        "finite_field_groebner_adversaries": 10,
+        "finite_field_recursive_division": 7
+      },
+      "strict_clippy": "PASS: library and all five changed/new test targets, -- -D warnings.",
+      "formatting": "PASS on the then-current ten native source/test files before workspace loss."
+    },
+    "independent_review": "Separate implementation, test-author and root reviews cover exact coefficient/ring binding, completeness of projection, characteristic-dependent ideals, nilpotents, malformed witnesses and cumulative cancellation/budget failure.",
+    "resolved_diagnostics": [
+      "One test-only non-Copy array initializer was replaced with explicit Symbol clones.",
+      "Two old internal empty-ring refusals were replaced by positive explicit constant-ring tests while retaining malformed/composite/oversized refusals.",
+      "Borrowed one-element slices resolved test-only Clippy diagnostics.",
+      "Recursive division now rejects zero-variable input before indexed access; sparse division supports constant-field arithmetic."
+    ],
+    "recovery": {
+      "executor": "Became unavailable after the final successful native run and before root could collect the files.",
+      "implementation": "All five native source files were restored from complete retained backups. Four SHA256 values match pre-loss records; recursive division also matches the exact baseline plus the captured final guard. Root independently recomputed all five recorded hashes from fetched GitHub blobs.",
+      "tests": "Recovered from complete creation patches or exact baseline plus all recorded edits, including compiler and Clippy corrections. No pre-loss test-file hashes were retained; byte identity with the tested formatted copies is not established.",
+      "post_recovery": "Exact remote blob content was fetched and checked. Reconstructed test formatting, test execution and whole-head CI are pending; the earlier formatting pass is not asserted for recovered test blobs."
+    },
+    "public_extension": "Separate integration follows; no current public Python execution or full workspace gate is claimed."
+  },
+  "native_source_sha256": {
+    "crates/fsym-polys/src/finite_field_ideal.rs": "954dadb932088342f80f10b752b2fa6b5ea100e9625388dad7dd0c06132bbda6",
+    "crates/fsym-polys/src/finite_field.rs": "35ff3560aac5d50a8e616976291138cc7f29bfb76cdc1bd2948ffe19ccd4a0fb",
+    "crates/fsym-polys/src/finite_field_multivariate.rs": "6d809b2d2f80b1ba57ce4787b1e03b0e568360d5321bc7bfa5fc53a0ee7460d9",
+    "crates/fsym-polys/src/lib.rs": "db71d7b9f5304a550ee969f4fa5355a262a55cdb3c6221fa1e068c72d397722c",
+    "crates/fsym-polys/src/finite_field_recursive_division.rs": "da6337fdc6cf00af5a153e948364700e92aaa2a169372015e8240ac8104507ff"
+  },
+  "recovered_test_sha256": {
+    "crates/fsym-polys/tests/finite_field_groebner_adversaries.rs": "ef24d14ea73cb7892fc7f2ed2503889bb27c87ddbbca656344f7b1a65e21bf9e",
+    "crates/fsym-polys/tests/finite_field_elimination.rs": "9e9b402c06c630c2e83dc1785d962e8ff71ae833032c74cf78753c4374606ec2",
+    "crates/fsym-polys/tests/finite_field_multivariate.rs": "2087e27195834301b92869b7a5ad9a592e0d44bbfaa84b3333f08def75d7585f",
+    "crates/fsym-polys/tests/finite_field_recursive_division.rs": "8875a1848b0d9375b9d115763ee87a7f64942146a3a33bce9caad89666207573",
+    "crates/fsym-polys/tests/finite_field_ideal_operations.rs": "c73340a049abe221737434a636ded1052f22273d1b3b07047522dcd1aeb91062"
+  },
+  "source_blobs": {
+    "crates/fsym-polys/src/finite_field_ideal.rs": "48c10b4962fba767125149096394246531910191",
+    "crates/fsym-polys/src/finite_field.rs": "765f326e7a1944863e18733a03f65df0cdb17eec",
+    "crates/fsym-polys/src/finite_field_multivariate.rs": "94f4b17b6a7dd2f06c7456a33f2480a5ddd699c8",
+    "crates/fsym-polys/src/lib.rs": "8cb547c6bce80922710425b5a451fae7dfe9194d",
+    "crates/fsym-polys/src/finite_field_recursive_division.rs": "9510507ace828df70ae394c5d9e7c28dc5a78184",
+    "crates/fsym-polys/tests/finite_field_elimination.rs": "c1b3c5397d8e99ce02f3f5c215862fd16e9e6bb4",
+    "crates/fsym-polys/tests/finite_field_ideal_operations.rs": "d9cb0aa5a6839372a16909d4939bc08ee5eb5a13",
+    "crates/fsym-polys/tests/finite_field_multivariate.rs": "67e507edc50cbea3a371fe73e82270f35b577224",
+    "crates/fsym-polys/tests/finite_field_groebner_adversaries.rs": "1ef1c09292b6d8d4d1521234cf955401ff3e7136",
+    "crates/fsym-polys/tests/finite_field_recursive_division.rs": "e0fefc3a5e16687a5c84bc8d0cae42765ba89e12",
+    ".github/workflows/ci.yml": "d1a456dbdd86bada0a6d0583bbcc049508f9559c"
+  },
+  "claims": {
+    "status_or_evidence_level_changed": false,
+    "workstream_closed": false,
+    "bead_status_priority_or_dependencies_changed": false
+  }
+}
