@@ -1,0 +1,95 @@
+{
+  "schema": "frankensympy.bounded-feature-progress.v1",
+  "recorded_at": "2026-11-07T03:34:02Z",
+  "base_main": "6f18a6f3b1233634a2c6df45f1adbd36d8babc0b",
+  "workstream": "WS19",
+  "bead": "fra-7kf",
+  "objective": "Extend first-order variable-coefficient recurrence solving to checked factorial-polynomial/geometric forcing.",
+  "implemented": [
+    "Solve y(n+1)=a*(n+c)*y(n)+q(n) for nonzero exact rational a and positive literal integer c when normalized factorial forcing has an admitted closed polynomial-geometric sum.",
+    "Use H(n)=a**n*factorial(n+c-1)/factorial(c-1), normalize q(n)/H(n+1), and request the closed sum through the existing native typed summation bridge with a fresh Dummy index.",
+    "Group polynomial weights by exact factorial shift and rational geometric base before cancellation, preserving expanded forms such as n*factorial(n)+factorial(n).",
+    "Admit summation proposals before composing the candidate, then independently replay the untouched unshifted recurrence and every original initial condition.",
+    "Normalize products of proved nonzero rational powers only with exact integer affine exponents, including negative rational bases.",
+    "Check every retained factorial argument at initial indices before substitution can erase an undefined factor; retain valid negative indices when their actual shifted factorial arguments remain defined.",
+    "Bound exact rational power/product construction at its first use, normalized polynomial degree and factorial-shift distance before summation."
+  ],
+  "examples": [
+    {
+      "recurrence": "y(n+1)-(n+1)*y(n)-factorial(n+1)",
+      "initial": "y(0)=2",
+      "solution": "(n+2)*factorial(n)"
+    },
+    {
+      "recurrence": "y(n+1)-(n+1)*y(n)-n*2**n*factorial(n+1)",
+      "initial": "y(0)=0",
+      "solution": "((n-2)*2**n+2)*factorial(n)"
+    },
+    {
+      "recurrence": "y(n+1)-(n+3)*y(n)-factorial(n+3)/2",
+      "initial": "y(-1)=7",
+      "solution": "(n+15)*factorial(n+2)/2"
+    }
+  ],
+  "scope": {
+    "maximum_expanded_forcing_terms": 64,
+    "maximum_normalized_polynomial_degree": 32,
+    "maximum_factorial_shift_difference": 64,
+    "maximum_absolute_shift": 1024,
+    "maximum_rational_geometric_scalar_bits": 4096,
+    "acceptance": "Exact identity on the common defined integer lattice, plus every captured initial condition.",
+    "refusals": [
+      "unknown/inexact/nonlinear multipliers",
+      "nonpositive or nonliteral factorial offsets",
+      "normalized nonpolynomial or unevaluated sums",
+      "undefined initial factorial arguments",
+      "corrupted or unbound summation proposals",
+      "bounded-work or operational failures"
+    ],
+    "not_claimed": [
+      "singular-point extension",
+      "general recurrence completeness",
+      "portable proof-kernel certificate",
+      "certified compatibility profile"
+    ]
+  },
+  "validation": {
+    "native_summation": {
+      "command": "cargo test --locked -p fsym-calculus --test geometric_summation -j1",
+      "toolchain": "nightly-2026-08-20",
+      "rustflags": "-D warnings",
+      "exit_code": 0,
+      "passed": 12,
+      "failed": 0,
+      "ignored": 0,
+      "dependency_changes": false,
+      "source_changes": false,
+      "log_sha256": "9035b6196f8631ae28c4ddf51bccf381564c4194f96a4b5429c1f97536abc250",
+      "scope": "Executed unchanged native prerequisite, not the new public Python recurrence path."
+    },
+    "public_regression_methods": 18,
+    "static_checks": "PASS: Python AST, lexical global-name checks, whitespace checks and planning integrity.",
+    "independent_review": "Separate source reviewer checked variation-of-constants scaling, factorial cancellation, integer-lattice power normalization, typed summation identity and initial-domain admission; a separate test author supplied hand-derived original residual/IC cases.",
+    "supplementary_algebra_experiment": "15 forcing methods passed with the recurrence AST mapped to isolated SymPy1.14 mathematical operations and source-owner admission stubs. This is mathematical-model evidence only; actual shell, owner-admission and bridge execution are not established.",
+    "actual_public_execution": "NOT EXECUTED: the complete pinned extension build remains blocked by the unchanged asupersync SIGKILL recorded in the preceding integrity artifact. No alternate production dependency, feature trim or upstream fallback was introduced.",
+    "ci_registration": "The dedicated forcing suite is selected in the existing actual-extension G3 job, alongside recurrence integrity and unchanged original surface fixtures.",
+    "runtime_acceptance_pending": true
+  },
+  "source_sha256": {
+    "README.md": "6f6934663d0bff1b49888c9600ffd44315c51e29b36223ca11001b50b0538b7c",
+    ".github/workflows/ci.yml": "8c3644f82a50f74ace047e77fb1893695de2037408df8ab12fa9674da4b2d0b2",
+    "python/sympy/solvers/recurr.py": "7582f173543775e9533f50eb9d0a044ff4a7304d7ab275f3e51a3898189a4347",
+    "python/tests/test_recurrence_forcing.py": "eaf73c4d65b73630f043f725044782d65774ddc23f91b1a981c25c15995f1874"
+  },
+  "source_blobs": {
+    "python/sympy/solvers/recurr.py": "766a0068f7a299e73084fb368b64f8e8f1a01266",
+    "python/tests/test_recurrence_forcing.py": "577141d2cf556649e7fbaad512dd44add8b2123e",
+    ".github/workflows/ci.yml": "e74b1fe0c99004a83735ecaf2875f3a7c347657f",
+    "README.md": "1a1aeb24dbd705249e85d4ec20225f49bc9044a4"
+  },
+  "claims": {
+    "status_or_evidence_level_changed": false,
+    "workstream_closed": false,
+    "bead_status_priority_or_dependencies_changed": false
+  }
+}

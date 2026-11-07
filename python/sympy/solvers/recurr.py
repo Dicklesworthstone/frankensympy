@@ -10,10 +10,14 @@ Supported, exactly:
   ``m``-fold characteristic root);
 * first-order recurrences ``y(n + 1) = p(n)*y(n)`` with ``n``-dependent
   ``p``, when the bounded product evaluator supplies a checkable closed form;
+* first-order factorial-forced recurrences with ``p(n) = a*(n+c)``, exact
+  rational ``a != 0`` and positive integer ``c``: variation of constants
+  sums polynomial-geometric multiples of the nonzero factorial product;
 * initial conditions ``{y(k): value}``, solved for the constants.
 
 Shifts are exact integer literals of magnitude at most 1024. Polynomial
-forcing has degree at most 64; at most 64 exact initial conditions are admitted.
+forcing has degree at most 64. Normalized factorial forcing has degree at
+most 32 and at most 64 expanded terms; at most 64 exact ICs are admitted.
 Unsupported parameter branches and original source domains are refused.
 Every returned expression is checked against the original, unshifted
 recurrence and every initial condition. These checks establish an identity
@@ -32,6 +36,9 @@ _MAX_FORCING_DEGREE = 64
 _MAX_INITIAL_CONDITIONS = 64
 _MAX_EXPANDED_TERMS = 4096
 _MAX_EXPRESSION_NODES = 8192
+_MAX_EXACT_BITS = 4096
+_MAX_PRODUCT_FORCING_TERMS = 64
+_MAX_PRODUCT_FORCING_DEGREE = 32
 
 
 def _expansion_envelope(expression: Any) -> None:
@@ -111,7 +118,7 @@ def _admit_source(expression: Any, func: Any) -> None:
             if argument.is_integer is True and argument.is_negative is True:
                 raise NotImplementedError("rsolve: an original factorial pole cannot be discarded")
         if isinstance(node, (Integer, Rational)):
-            if max(abs(node.p).bit_length(), node.q.bit_length()) > 4096:
+            if max(abs(node.p).bit_length(), node.q.bit_length()) > _MAX_EXACT_BITS:
                 raise NotImplementedError("rsolve: exact literal exceeds 4096 bits")
         if isinstance(node, Pow) and isinstance(node.args[1], Integer):
             if abs(node.args[1].p) > _MAX_SHIFT:
@@ -249,7 +256,7 @@ def _verify_characteristic(coeffs: list, proposals: Any, func: Any, n: Any) -> t
 
 def _split_forcing(g: Any, n: Any) -> list:
     """g = sum p_b(n) * b**n  ->  [(b, p_b)]; NotImplementedError otherwise."""
-    from ..core import Add, Integer, Mul, Pow
+    from ..core import Add, Integer, Mul, Pow, Rational
     from ..functions import exp
 
     groups: dict = {}
@@ -268,8 +275,16 @@ def _split_forcing(g: Any, n: Any) -> list:
                 # base**k or base**rest, even when their source was affine.
                 _integer_offset(k)
                 _integer_offset(rest)
-                base = base * fct.args[0] ** k
-                poly_part.append(fct.args[0] ** rest)
+                if isinstance(fct.args[0], Rational):
+                    ratio = _rational_power(fct.args[0], k)
+                    constant = _rational_power(fct.args[0], rest)
+                else:
+                    ratio = fct.args[0]**k
+                    constant = fct.args[0]**rest
+                base = (_rational_product(base, ratio)
+                        if isinstance(base, Rational) and isinstance(ratio, Rational)
+                        else base*ratio)
+                poly_part.append(constant)
             elif type(fct) is exp and n in fct.args[0].free_symbols:
                 rest = _expand(fct.args[0].subs(n, 0))
                 k = _expand(fct.args[0].diff(n))
@@ -340,6 +355,116 @@ def _linear_product(p: Any, n: Any, k: Any) -> Any:
     return product(p.subs(n, k), (k, 0, n - 1))
 
 
+def _rational_power(base: Any, exponent: Any) -> Any:
+    """Bound exact rational work before materializing integer powers."""
+    from ..core import Rational
+
+    if not isinstance(base, Rational) or base == 0:
+        raise NotImplementedError("rsolve: geometric normalization requires nonzero rational bases")
+    power = _integer_offset(exponent)
+    bits = max(abs(base.p).bit_length(), base.q.bit_length())
+    if bits*abs(power) > _MAX_EXACT_BITS:
+        raise NotImplementedError("rsolve: geometric power exceeds the exact scalar envelope")
+    return base**power
+
+
+def _rational_product(left: Any, right: Any) -> Any:
+    """A conservative numerator/denominator bound before multiplication."""
+    if (abs(left.p).bit_length()+abs(right.p).bit_length() > _MAX_EXACT_BITS
+            or left.q.bit_length()+right.q.bit_length() > _MAX_EXACT_BITS):
+        raise NotImplementedError("rsolve: geometric product exceeds the exact scalar envelope")
+    return left*right
+
+
+def _first_order_forcing(p: Any, g: Any, leading: Any, n: Any, func: Any) -> tuple:
+    """Generate H(n) and an additive sum for y(n) = H(n)*(C + sum).
+
+    Each expanded forcing term must have one factorial(n+s), with bounded
+    integer s, times a polynomial and a nonzero rational geometric factor.
+    Factorial shifts are normalized by finite products before asking the
+    existing summation engine for a closed form. The caller still verifies
+    the resulting solution against the untouched original recurrence.
+    """
+    from .. import summation
+    from ..core import Add, Dummy, Integer, Mul, Rational
+    from ..core.match import preorder_traversal
+    from ..functions import factorial
+    from ..polys.polytools import Poly, cancel
+
+    a = _expand(p.diff(n))
+    b = _expand(p-a*n)
+    if not isinstance(a, Rational) or a == 0 or not isinstance(b, Rational):
+        raise NotImplementedError("rsolve: forced products require an exact rational linear multiplier")
+    c = b/a
+    if not isinstance(c, Integer) or c.p < 1:
+        raise NotImplementedError("rsolve: forced factorial products require a positive integer offset")
+    shift = _integer_offset(c)
+    scale = factorial(c-1)
+    homogeneous = a**n*factorial(n+c-1)/scale
+    _admit_candidate(homogeneous, func)
+
+    terms = Add.make_args(_expand(g))
+    if len(terms) > _MAX_PRODUCT_FORCING_TERMS:
+        raise NotImplementedError("rsolve: factorial forcing exceeds 64 expanded terms")
+    groups = {}
+    for term in terms:
+        factorial_shift = None
+        remaining = []
+        for factor in Mul.make_args(term):
+            if type(factor) is factorial and n in factor.args[0].free_symbols:
+                if factorial_shift is not None:
+                    raise NotImplementedError("rsolve: one sequence factorial is required per forcing term")
+                slope, offset = _affine_argument(factor.args[0], n)
+                if slope != 1:
+                    raise NotImplementedError("rsolve: forcing factorials require unit index slopes")
+                factorial_shift = _integer_offset(offset)
+            else:
+                if any(type(node) is factorial and n in node.args[0].free_symbols
+                       for node in preorder_traversal(factor)):
+                    raise NotImplementedError("rsolve: forcing factorials must be direct linear factors")
+                remaining.append(factor)
+        if factorial_shift is None:
+            raise NotImplementedError("rsolve: forcing must contain a shifted sequence factorial")
+        distance = abs(factorial_shift-shift)
+        if distance > _MAX_FORCING_DEGREE:
+            raise NotImplementedError("rsolve: forcing factorial shifts differ by more than 64")
+        for base, weight in _split_forcing(Mul(*remaining), n):
+            if not isinstance(base, Rational) or base == 0:
+                raise NotImplementedError("rsolve: forced geometric ratios must be nonzero rational numbers")
+            key = (factorial_shift, base)
+            groups[key] = groups.get(key, Integer(0))+weight
+
+    increment = Integer(0)
+    for (factorial_shift, base), weight in groups.items():
+        # Combine the weight before canceling a lower factorial shift. For
+        # example, the expanded terms n*n! and n! jointly contain (n+1)!.
+        weight = _expand(weight)
+        product = Integer(1)
+        for offset in range(min(factorial_shift, shift)+1, max(factorial_shift, shift)+1):
+            # Expand incrementally: an order-d linear product has d+1 terms,
+            # without an exponentially large transient distribution.
+            product = _expand(product*(n+offset))
+        if factorial_shift < shift:
+            weight = cancel(weight/product, n)
+        else:
+            weight = _expand(weight*product)
+        weight = _expand(weight*scale/leading/a)
+        if weight == 0:
+            continue
+        if not weight.is_polynomial(n):
+            raise NotImplementedError("rsolve: normalized factorial forcing must be polynomial-geometric")
+        degree = Poly(weight, n).degree() if n in weight.free_symbols else 0
+        if not 0 <= degree <= _MAX_PRODUCT_FORCING_DEGREE:
+            raise NotImplementedError("rsolve: normalized factorial forcing exceeds degree 32")
+        ratio = _rational_product(base, _rational_power(a, Integer(-1)))
+        increment += weight if ratio == 1 else weight*ratio**n
+    _admit_candidate(increment, func)
+    index = Dummy("rsolve_forcing_index", integer=True)
+    correction = summation(increment.subs(n, index), (index, 0, n-1))
+    _admit_candidate(correction, func)
+    return homogeneous, correction
+
+
 def _initial_conditions(init: Any, func: Any, n: Any) -> tuple:
     """Capture every condition without conflating another function or index."""
     from itertools import islice
@@ -378,12 +503,63 @@ def _initial_conditions(init: Any, func: Any, n: Any) -> tuple:
     return tuple(conditions)
 
 
+def _initial_value(solution: Any, n: Any, index: Any, func: Any) -> Any:
+    """Keep factorial domains before substitution can erase a zero factor."""
+    from ..core import Integer
+    from ..core.match import preorder_traversal
+    from ..functions import factorial
+
+    for node in preorder_traversal(solution):
+        if type(node) is factorial:
+            argument = node.args[0].subs(n, index)
+            _admit_candidate(argument, func)
+            if argument.is_integer is True and argument.is_negative is True:
+                raise NotImplementedError("rsolve: an initial index reaches an original factorial pole")
+            if isinstance(argument, Integer) and argument.p > _MAX_SHIFT:
+                raise NotImplementedError("rsolve: an initial factorial exceeds the bounded envelope")
+    value = solution.subs(n, index)
+    _admit_candidate(value, func)
+    return value
+
+
 def _affine_argument(expression: Any, n: Any) -> tuple:
     offset = _expand(expression.subs(n, 0))
     slope = _expand(expression.diff(n))
     if n in slope.free_symbols or _expand(expression - slope*n - offset) != 0:
         raise NotImplementedError("rsolve: residual verification requires affine sequence exponents")
     return slope, offset
+
+
+def _rational_geometric_form(expression: Any, n: Any) -> Any:
+    """Combine rational powers only on the admitted integer index lattice.
+
+    Unlike an unrestricted power rewrite, every base here is an exact,
+    proved nonzero rational and every exponent has bounded integer slope
+    and offset. Negative bases are therefore safe as well. This recognizes
+    a**n*(b/a)**n = b**n without making assumptions about symbolic bases.
+    """
+    from ..core import Add, Integer, Mul, Pow, Rational
+
+    terms = []
+    for term in Add.make_args(expression):
+        ratio = Integer(1)
+        coefficient = Integer(1)
+        factors = []
+        for factor in Mul.make_args(term):
+            if (type(factor) is Pow and isinstance(factor.args[0], Rational)
+                    and n in factor.args[1].free_symbols):
+                base, exponent = factor.args
+                slope, offset = _affine_argument(exponent, n)
+                ratio = _rational_product(ratio, _rational_power(base, slope))
+                coefficient = _rational_product(coefficient, _rational_power(base, offset))
+            else:
+                factors.append(factor)
+        if ratio != 1:
+            factors.append(ratio**n)
+        terms.append(Mul(coefficient, *factors))
+    result = Add(*terms)
+    _expansion_envelope(result)
+    return result
 
 
 def _exact_zero(expression: Any, n: Any) -> bool:
@@ -401,6 +577,9 @@ def _exact_zero(expression: Any, n: Any) -> bool:
     from ..simplify import simplify
 
     expression = _expand(expression)
+    if expression == 0:
+        return True
+    expression = _rational_geometric_form(expression, n)
     if expression == 0:
         return True
     powers = {}
@@ -476,7 +655,7 @@ def _verify_solution(original: Any, func: Any, n: Any, solution: Any,
     if not _exact_zero(residual, n):
         raise NotImplementedError("rsolve: original recurrence verification failed")
     for index, value in conditions:
-        if not _exact_zero(solution.subs(n, index)-value, n):
+        if not _exact_zero(_initial_value(solution, n, index, func)-value, n):
             raise NotImplementedError("rsolve: original initial-condition verification failed")
 
 
@@ -546,17 +725,21 @@ def rsolve(f: Any, y: Any, init: Any = None) -> Any:
             part = _particular(coeffs, g, n, rts)
             _admit_candidate(part, func)
             sol = sol + part
-    elif order == 1 and g == 0:
+    elif order == 1:
         if n in coeffs[1].free_symbols or coeffs[1].is_nonzero is not True:
             raise NotImplementedError("rsolve: singular or undecidable leading coefficient")
         k = Dummy("rsolve_product_index", integer=True)
         p = _expand(-coeffs[0] / coeffs[1])
         consts = _constants(1, sources)
-        homogeneous = _linear_product(p, n, k)
+        if g == 0:
+            homogeneous = _linear_product(p, n, k)
+            correction = Integer(0)
+        else:
+            homogeneous, correction = _first_order_forcing(p, g, coeffs[1], n, func)
         _admit_candidate(homogeneous, func)
         if homogeneous == 0:
             raise NotImplementedError("rsolve: singular homogeneous product")
-        sol = consts[0] * homogeneous
+        sol = homogeneous * (consts[0] + correction)
     else:
         raise NotImplementedError("rsolve: variable-coefficient recurrence of this form")
 
@@ -565,7 +748,7 @@ def rsolve(f: Any, y: Any, init: Any = None) -> Any:
 
         eqs = []
         for index, value in conditions:
-            equation = _expand(sol.subs(n, index)-value)
+            equation = _expand(_initial_value(sol, n, index, func)-value)
             if not _exact_zero(equation, n):
                 eqs.append(equation)
         present = [c for c in consts if c in sol.free_symbols]

@@ -520,12 +520,34 @@ form, including factorial sequences. Private helper identities and fresh
 output constants preserve user parameters, including parameters named `C0`
 and distinct symbols with the same printed name.
 
+First-order forced recurrences `y(n + 1) = a*(n + c)*y(n) + q(n)` also
+have a bounded variation-of-constants route. Here `a` is a nonzero rational,
+`c` is a positive integer, and dividing the forcing by the next homogeneous
+factor must yield an admitted polynomial/geometric sum. For example:
+
+```python
+from sympy import factorial
+
+solution = rsolve(
+    y(n + 1) - (n + 1)*y(n) - factorial(n + 1),
+    y(n),
+    {y(0): 2},
+)
+# (n + 2)*factorial(n)
+```
+
+This route uses the existing native summation engine and independently checks
+the returned expression in the original recurrence. Unsupported multipliers
+or unevaluated sums refuse; they do not become an incomplete closed answer.
+
 Sequence shifts and initial indices must be exact integers; initial-condition
 applications must belong to the solved function. Fractional/Float shifts,
 self-referential initial data, hidden original poles, undecidable parameter
 branches and failed exact residual checks refuse explicitly. Limits are order
 32, shift magnitude 1024, forcing degree 64, 64 initial conditions and a
-predictive 4096-term expansion envelope.
+predictive 4096-term expansion envelope. The factorial-forced route admits
+at most 64 forcing terms and normalized polynomial weights through degree
+32; rational geometric construction is bounded to 4096 bits.
 
 Residual acceptance uses exact integer-shift identities and original-source
 substitution. It establishes the returned identity on the common defined
