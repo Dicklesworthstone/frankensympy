@@ -499,6 +499,41 @@ resource limits, including at most 64 catalog terms. These direct integral
 identities do not constitute a general transform algorithm, certified
 compatibility profile, or portable proof-kernel certificate.
 
+## Checked linear recurrences (development API)
+
+The bounded `rsolve` interface retains the original equation and checks each
+proposed expression against it and every supplied initial condition:
+
+```python
+from sympy import Function, Symbol, rsolve
+
+n = Symbol("n", integer=True)
+y = Function("y")
+solution = rsolve(y(n + 1) - y(n) - n, y(n), {y(0): 0})
+# n*(n - 1)/2
+```
+
+Constant-coefficient recurrences support polynomial/geometric forcing and
+repeated characteristic roots. First-order homogeneous variable-coefficient
+recurrences are admitted when the product engine returns a checkable closed
+form, including factorial sequences. Private helper identities and fresh
+output constants preserve user parameters, including parameters named `C0`
+and distinct symbols with the same printed name.
+
+Sequence shifts and initial indices must be exact integers; initial-condition
+applications must belong to the solved function. Fractional/Float shifts,
+self-referential initial data, hidden original poles, undecidable parameter
+branches and failed exact residual checks refuse explicitly. Limits are order
+32, shift magnitude 1024, forcing degree 64, 64 initial conditions and a
+predictive 4096-term expansion envelope.
+
+Residual acceptance uses exact integer-shift identities and original-source
+substitution. It establishes the returned identity on the common defined
+integer lattice domain, without a completeness, singular-point extension,
+portable-certificate or compatibility-profile claim.
+
+---
+
 ## Planned algorithm program
 
 The native program includes proof- or certificate-aware portfolios for:

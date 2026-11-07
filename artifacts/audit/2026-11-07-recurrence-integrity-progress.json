@@ -1,0 +1,91 @@
+{
+  "schema": "frankensympy.bounded-feature-progress.v1",
+  "base_main": "2b169d699dc6d5d231c4051b6a66a528918d10aa",
+  "objective": "Make bounded linear-recurrence solving preserve typed source/initial data and reject invalid generated families before publishing an expression.",
+  "workstream": "WS19",
+  "bead": "fra-7kf",
+  "implemented": [
+    "Admit exact bounded integer shifts instead of truncating fractional or floating arguments.",
+    "Use private Dummy identities for recurrence coordinates, characteristic variables, product indices and undetermined coefficients.",
+    "Choose output constants whose names do not capture source, index or initial-value parameters.",
+    "Capture exact initial-condition ownership and indices; reject foreign functions, self-reference and running-index-dependent data.",
+    "Preserve original held source before equation subtraction, including reciprocal and factorial domain obligations.",
+    "Admit generated roots, particular terms, product bases and initial-fit assignments before algebra can erase inexactness or undefined components.",
+    "Validate characteristic-root multiplicities, separation and polynomial reconstruction before constructing the solution family.",
+    "Independently substitute the final expression into the original unshifted recurrence and every original initial condition; normalize integer shifts with nonnegative powers/products and require exact zero.",
+    "Bound predicted symbolic expansion before entering native expand, while preserving useful degree64 binomial inputs.",
+    "Reject oversized affine geometric exponents before constructing exact base powers; preserve original held negative-factorial poles and bounded factorial literal arguments."
+  ],
+  "scope": {
+    "maximum_order": 32,
+    "maximum_absolute_shift_or_initial_index": 1024,
+    "maximum_forcing_polynomial_degree": 64,
+    "maximum_initial_conditions": 64,
+    "maximum_predicted_expanded_terms": 4096,
+    "maximum_source_nodes": 8192,
+    "maximum_source_depth": 128,
+    "index": "Integer lattice, including ordinary unspecified Symbols; explicitly noninteger declarations refuse.",
+    "acceptance": "Exact residual identities on the common defined integer lattice domain.",
+    "not_claimed": [
+      "full recurrence-family or parameter-stratification completeness",
+      "extension through singular lattice points",
+      "portable mathematical certificate",
+      "certified SymPy compatibility profile",
+      "forced cancellation or wall-time bounds"
+    ],
+    "maximum_held_factorial_integer_argument": 1024,
+    "maximum_integer_geometric_power_slope_or_offset": 1024
+  },
+  "validation": {
+    "python_syntax": "PASS: source and dedicated regression file parsed by ast; syntax is not runtime acceptance.",
+    "independent_reviews": [
+      "Root reviewed original replay, parameter branches, root-family adequacy, component admission and expansion envelope.",
+      "Independent test author designed exact/adversarial expectations without using production verification helpers.",
+      "Separate build/review agent checked normalization soundness and caught the IC exception mismatch plus held factorial poles."
+    ],
+    "oracle_fixture_evidence": "Seven positive comparator methods passed in isolated upstream SymPy1.14.0. These establish reference fixtures, not FrankenSymPy execution.",
+    "supplementary_algebra_experiment": "Eight power/radical/repeated-root/complex/factorial/exponential and tiny-perturbation checks passed with extracted normalization helpers mapped to isolated SymPy1.14 imports/expansion. This is mathematical-model evidence only; typed admission and the actual shell are not tested by it.",
+    "actual_extension_execution": "NOT EXECUTED: two complete-graph builds were killed with SIGKILL in unchanged pinned asupersync before bridge compilation. The targeted single-thread compiler retry also failed during frontend name resolution.",
+    "build_retry": {
+      "dependency": "asupersync",
+      "commit": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+      "rust_toolchain": "nightly-2026-08-20",
+      "exit_code": 101,
+      "signal": "SIGKILL",
+      "retry_peak_child_rss_kib": 1819612,
+      "source_or_dependency_changes": false,
+      "conclusion": "Build/resource block; no recurrence compiler/test failure is inferred, and no runtime pass is asserted."
+    },
+    "ci_registration": "Dedicated recurrence integrity suite and the unchanged original eight-fixture surface test are selected in the existing actual-extension G3 job.",
+    "runtime_acceptance_pending": true,
+    "supplementary_root_factorization_experiment": "Four correct and five faulty root proposals passed the expected accept/refuse checks with extracted helpers mapped to isolated SymPy1.14.0. This does not establish actual native-shell execution.",
+    "regression_test_methods": 25
+  },
+  "oracle_discrepancy": {
+    "oracle": "SymPy1.14.0",
+    "source": "n=Symbol('n',integer=True); y=Function('y'); C0=Symbol('C0'); f=y(n+1)-2*y(n)-C0",
+    "observed_without_initial_conditions": "2**n*C0 - C0",
+    "observed_with_y0_equal_one": "None",
+    "mathematical_issue": "The source parameter C0 is reused as the arbitrary output constant, losing independent initial freedom.",
+    "correct_family": "C1*2**n-C0 with fresh C1",
+    "correct_y0_equal_one": "(C0+1)*2**n-C0",
+    "comparison_policy": "Freshness checks are exact mathematical safety invariants; the upstream capture is not copied into a new compatibility golden."
+  },
+  "claims": {
+    "status_or_evidence_level_changed": false,
+    "workstream_closed": false,
+    "bead_status_priority_or_dependencies_changed": false,
+    "portable_certificate_claimed": false
+  },
+  "recorded_at": "2026-11-07T03:18:42Z",
+  "source_sha256": {
+    "python/sympy/solvers/recurr.py": "4695fb320f9e7e801ca8c03298b0b50ce6b0af67e99a781ed572479811172335",
+    "python/tests/test_recurrence_integrity.py": "3a76e7582cc40b66ee4039dcacb3eb45d70b7828cc5737207f1e04ecc6da3daa"
+  },
+  "source_blobs": {
+    "python/sympy/solvers/recurr.py": "84459c826d7e23509270f89a73b122c42dcea510",
+    "python/tests/test_recurrence_integrity.py": "99df3a811e9e6d69c5ce283a16b23833b4888a45",
+    ".github/workflows/ci.yml": "f6c9d6b96721fa28c54e4402062df0efe4143fa7",
+    "README.md": "ff25e8a60f3bac64cb1853ea249a6929089e9614"
+  }
+}

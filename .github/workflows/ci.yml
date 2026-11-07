@@ -302,6 +302,8 @@ jobs:
               "python/tests/test_sparse_linear_algebra.py",
               "python/tests/test_opaque_matrix_surface.py",
               "python/tests/test_exact_dsolve.py",
+              "python/tests/test_recurrence_integrity.py",
+              "python/tests/test_surface.py::SurfaceTests::test_rsolve_and_complex_evalf",
               "python/tests/test_exact_ode.py",
               "python/tests/test_linear_ode_system.py",
               "python/tests/test_polynomial_ode_system.py",
