@@ -1,0 +1,110 @@
+{
+  "schema": "frankensympy.bounded-feature-progress.v1",
+  "recorded_at": "2026-11-07T05:43:36Z",
+  "base_main": "dca60730766892a44c256eba2b4d47ed92414fa4",
+  "workstream": "WS17",
+  "bead": "fra-546",
+  "objective": "Complete bounded prime-field quotient algebras and genuine FGLM monomial-order conversion.",
+  "implementation": {
+    "modules": [
+      "crates/fsym-polys/src/finite_field_quotient_algebra.rs",
+      "crates/fsym-polys/src/finite_field_fglm.rs"
+    ],
+    "entry_points": [
+      "VerifiedPrimeFieldGroebnerBasis::standard_monomials",
+      "checked_prime_field_quotient_multiplication",
+      "verify_prime_field_quotient_multiplication",
+      "checked_prime_field_fglm",
+      "VerifiedPrimeFieldGroebnerBasis::fglm_with_certificate",
+      "VerifiedPrimeFieldGroebnerBasis::fglm"
+    ],
+    "quotient_algebra": "Enumerate the complete standard-monomial staircase; compute the multiplication operator of an arbitrary admitted quotient element, with row-major residue matrices whose columns are reduced products.",
+    "quotient_verifier": "Bind the immutable accepted source receipt to every original coefficient, typed ring, prime and order. Independently require one, standardness, unique ordered entries and complete unblocked coordinate closure; check each matrix column by signed coefficient convolution without generator division or rank search.",
+    "fglm": "Use source normal-form coordinates, a bounded deterministic target-order heap and incremental exact modular elimination. Only independent monomials extend the frontier. Dependencies generate monic target relations; no target-order Buchberger search, rational retry or point enumeration is used.",
+    "fglm_verifier": "Reuse the complete independent prime-field Groebner verifier: both ideal inclusions, monicity, reducedness and all strict S-pair identities. Target receipt inputs name the accepted source basis, establishing ideal equality transitively with the original source receipt.",
+    "special_cases": "Repeated-root and nilpotent directions are retained. The unit ideal has a zero-dimensional vector quotient; the explicit constant field has basis one. Different-order positive-dimensional requests refuse; same-order requests still admit their source and verify a complete target witness without staircase enumeration.",
+    "ownership": "Immutable accepted source receipts are shared through Arc for multiplication. Accepted witnesses are copied under the verifier meter. A single complete_candidate helper is now crate-visible for FGLM certificate completion.",
+    "not_claimed": [
+      "portable proof-kernel certificate",
+      "whole WS17 closure",
+      "certified compatibility profile",
+      "performance superiority"
+    ]
+  },
+  "bounds": {
+    "maximum_prime": 65521,
+    "maximum_variables": 8,
+    "maximum_inputs_or_basis_elements": 32,
+    "maximum_quotient_dimension": 64,
+    "maximum_total_degree": 64,
+    "maximum_terms_per_polynomial": 4096,
+    "temporary_product_degree": 128,
+    "maximum_fglm_monomial_states": 513,
+    "cumulative_compute_steps_per_phase": 20000000,
+    "cumulative_logical_allocation_bytes_per_phase": 134217728,
+    "source_admission_precedes_shortcuts": true,
+    "cumulative_budgets_survive_nested_calls": true
+  },
+  "validation": {
+    "toolchain": "nightly-2026-08-20",
+    "dependencies": "unchanged locked Cargo graph, offline",
+    "environment": {
+      "jobs": 1,
+      "debug": 0,
+      "codegen_units": 256,
+      "incremental": false,
+      "rustflags": "-D warnings"
+    },
+    "focused_command": "cargo test --locked --offline -p fsym-polys --test finite_field_fglm --test finite_field_quotient_algebra --test finite_field_groebner --test finite_field_groebner_adversaries -j1",
+    "focused_result": {
+      "status": "incomplete_executor_unavailable",
+      "exit_code": null,
+      "tests_executed": null,
+      "detail": "Executor transport disconnected during dependency compilation. Last observed output included fsym-core, fsym-proof-kernel, fsym-evidence and regex-syntax; no fsym-polys compilation, Finished message, test execution or terminal Cargo status was observed."
+    },
+    "authored_test_functions": {
+      "fglm": 15,
+      "quotient_algebra": 17
+    },
+    "coverage": [
+      "all nine order pairs over four primes",
+      "complete hand-derived target bases and three-variable graded-order differences",
+      "characteristic-dependent rank, repeated roots and proper ideals without rational points",
+      "unit, zero and explicit constant rings",
+      "dimension 64 and larger quotient refusals",
+      "typed source/order/prime binding",
+      "omitted staircase tail and missing-one socle despite valid supplied column identities",
+      "forged coefficients, cofactors and source receipts",
+      "omitted or malformed complete FGLM witnesses",
+      "separate phase compute/allocation limits and cancellation"
+    ],
+    "formatting": "New native modules, both exports and tests were parsed/formatted with pinned rustfmt before the outage; diff whitespace checks passed. The only later source edit changes sort_by to sort_unstable_by for the unique staircase entries to avoid uncharged stable-sort scratch. That exact one-token edit has source review and full GitHub blob readback, but no post-outage rustfmt run.",
+    "independent_review": "Separate module author, independent test/build owner and root reviewed dependency-row orientation, frontier completeness, staircase closure, exact source binding, allocation bounds and cumulative publication checks; no concrete blocker remained.",
+    "scoped_clippy": "Not started before executor loss; pending.",
+    "full_workspace_gates": "Not completed in this session; pending.",
+    "public_extension": "Public integration follows separately. No public runtime pass is claimed.",
+    "source_preservation": "All six native source/test files were captured byte-exactly with SHA256 and Git blob IDs before compilation. GitHub blob readback was independently compared to every captured file. The final staircase sort correction is recorded explicitly above.",
+    "incomplete_log_path": "/tmp/frankensympy-fp-fglm-focused-tests-20261107.log"
+  },
+  "source_sha256": {
+    "crates/fsym-polys/src/finite_field_fglm.rs": "e9696a4f45c61b98352a97353622edcac80870f77e4053264dac55661395e84c",
+    "crates/fsym-polys/src/finite_field_quotient_algebra.rs": "a7f9a238402d39ca933e6c89f12cce70a67554ea6f23882b4b70a562c9b14a6e",
+    "crates/fsym-polys/src/finite_field_groebner.rs": "9b1a7c6795bea04f9bb004aaef2a570a57c070014b9f05bc40eecded96d2f2e8",
+    "crates/fsym-polys/src/lib.rs": "22c1a0bafa1dc5aad3de7984d0e8b6cce2c6d5e5346370e077bf0177d8197357",
+    "crates/fsym-polys/tests/finite_field_fglm.rs": "24d738524d8c453c8f92253ffd3cf6e1892284a29d50464210ed3c00277dc627",
+    "crates/fsym-polys/tests/finite_field_quotient_algebra.rs": "17fc0af26b024e8827ea68466bba0ca38ca0fa017e27e55f4f3fa2860c4a0c09"
+  },
+  "source_blobs": {
+    "crates/fsym-polys/src/finite_field_fglm.rs": "9158c4d4017a9a1abb366dd77a2a5aae66501252",
+    "crates/fsym-polys/src/finite_field_quotient_algebra.rs": "c05c9231c12e5c41d18efe8dad65dadb0f52624e",
+    "crates/fsym-polys/src/finite_field_groebner.rs": "e9fe2185e5798ac303680b651450b10feb732851",
+    "crates/fsym-polys/src/lib.rs": "a1f4d0d0c49507de18f49e594b537d0959092504",
+    "crates/fsym-polys/tests/finite_field_fglm.rs": "655d3c0852917462f75db9b9f78ed0d96cdb50ad",
+    "crates/fsym-polys/tests/finite_field_quotient_algebra.rs": "2abbaf9fec27a81dafa4f8a146e1eaed4bd4ff59"
+  },
+  "claims": {
+    "bead_status_priority_dependencies_changed": false,
+    "workstream_closed": false,
+    "compatibility_profile_promoted": false
+  }
+}

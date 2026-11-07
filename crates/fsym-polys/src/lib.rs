@@ -12,11 +12,13 @@ pub mod fglm;
 pub mod finite_field;
 pub mod finite_field_arithmetic;
 pub mod finite_field_element_source;
+pub mod finite_field_fglm;
 pub mod finite_field_groebner;
 pub mod finite_field_ideal;
 pub mod finite_field_ideal_quotient;
 pub mod finite_field_multivariate;
 pub mod finite_field_multivariate_source;
+pub mod finite_field_quotient_algebra;
 pub mod finite_field_recursive_division;
 mod finite_field_resultant;
 pub mod finite_field_source;
@@ -45,6 +47,7 @@ pub use finite_field_element_source::{
     PrimeFieldElementSourceError, VerifiedPrimeFieldElementSource,
     checked_prime_field_element_source, verify_prime_field_element_source,
 };
+pub use finite_field_fglm::*;
 pub use finite_field_groebner::{
     PrimeFieldGroebnerCertificate, PrimeFieldGroebnerSPairCertificate,
     VerifiedPrimeFieldGroebnerBasis, bounded_prime_field_groebner_certificate,
@@ -58,6 +61,7 @@ pub use finite_field_multivariate_source::{
     VerifiedPrimeFieldMultivariateSource, checked_prime_field_multivariate_source,
     verify_prime_field_multivariate_source,
 };
+pub use finite_field_quotient_algebra::*;
 pub use finite_field_recursive_division::{
     PrimeFieldRecursiveDivisionCertificate, VerifiedPrimeFieldRecursiveDivision,
     bounded_prime_field_recursive_division_certificate, checked_prime_field_recursive_division,

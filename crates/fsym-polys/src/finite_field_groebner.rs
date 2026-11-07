@@ -352,7 +352,7 @@ fn reduced_basis(
     Ok(sorted.into_iter().map(|(_, item)| item).collect())
 }
 
-fn complete_candidate(
+pub(crate) fn complete_candidate(
     initial: &[Polynomial],
     basis: Vec<Terms>,
     basis_in_input: Vec<Vec<Terms>>,
