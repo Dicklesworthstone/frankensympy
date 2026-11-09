@@ -456,6 +456,33 @@ def multiplication_matrix(basis, element):
     return result
 
 
+def syzygies(basis):
+    """Return complete relations on the retained ordered source coordinates."""
+    state = _BasisState(basis)
+    request, retained = state.request()
+    try:
+        raw = _native.prime_field_polynomial_syzygies_native(
+            request.raw, request.bindings, state.prime, state.order,
+            state.symmetric, request.source_bindings)
+    except _native.PrimeFieldCoefficientError as error:
+        from .polyerrors import CoercionFailed
+        raise CoercionFailed("prime-field relation coefficients must be integers") from error
+    _unchanged(state, request, retained)
+    width = len(state.expressions)
+    if (len(raw) > 16_384 or len(raw)*width > 16_384
+            or (width == 0 and raw) or any(len(row) != width for row in raw)):
+        raise ValueError("checked prime-field relations have an invalid or oversized dimension")
+    result = []
+    for row in raw:
+        values = []
+        for value in row:
+            values.append(_lift_native_result(value, *request.context))
+            _unchanged(state, request, retained)
+        result.append(tuple(values))
+    _unchanged(state, request, retained)
+    return result
+
+
 def invert(basis, element):
     """Return a checked inverse, including in positive-dimensional quotients."""
     state = _BasisState(basis)

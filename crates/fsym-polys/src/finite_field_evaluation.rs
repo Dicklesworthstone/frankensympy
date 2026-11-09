@@ -22,7 +22,6 @@ use crate::finite_field_multivariate::{
 };
 use crate::{PolyError, PrimeFieldMultivariatePolynomial as Polynomial};
 use fsym_budget::BudgetMeter;
-use fsym_core::Symbol;
 use std::collections::BTreeMap;
 
 /// Untrusted proposed value, including its output characteristic and typed ring.
@@ -87,7 +86,7 @@ fn generated_value(
 ) -> Result<Polynomial, PolyError> {
     let bytes: usize = source.generators().iter().map(|g| g.name.len()).sum();
     work.tick(bytes + values.len())?;
-    work.allocate(bytes + source.generators().len() * std::mem::size_of::<Symbol>())?;
+    work.allocate(bytes + std::mem::size_of_val(source.generators()))?;
     let remaining: Vec<_> = source
         .generators()
         .iter()

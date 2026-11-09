@@ -17,7 +17,8 @@ use fsym_polys::{
     PrimeFieldMultivariatePolynomial as Polynomial, checked_prime_field_fglm,
     checked_prime_field_groebner_basis, checked_prime_field_groebner_reduction,
     checked_prime_field_ideal_inverse, checked_prime_field_multivariate_source,
-    checked_prime_field_quotient_minimal_polynomial, checked_prime_field_quotient_multiplication,
+    checked_prime_field_polynomial_syzygies, checked_prime_field_quotient_minimal_polynomial,
+    checked_prime_field_quotient_multiplication,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -389,6 +390,78 @@ pub fn prime_field_quotient_multiplication_native(
     Ok((monomials, matrix))
 }
 
+/// Return complete relations on the original ordered source polynomials.
+/// Zeros, repetitions and scalings retain their coordinate positions. Every
+/// source, complete certificate and output cell shares the same phase ledgers.
+#[pyfunction]
+#[pyo3(signature = (sources, variables, prime, order="lex", symmetric=true, source_variables=None))]
+pub fn prime_field_polynomial_syzygies_native(
+    sources: &Bound<'_, PyList>,
+    variables: &Bound<'_, PyList>,
+    prime: u64,
+    order: &str,
+    symmetric: bool,
+    source_variables: Option<&Bound<'_, PyList>>,
+) -> PyResult<Vec<Vec<PyExpr>>> {
+    if sources.len() > 32 {
+        return Err(PyValueError::new_err(
+            "prime-field relations support at most 32 source polynomials",
+        ));
+    }
+    let term_order = self::order(order)?;
+    let (mut generator, mut verifier) = (budget(), budget());
+    let variables = symbols(variables, &mut generator)?;
+    Polynomial::metered_new(&variables, prime, &BTreeMap::new(), &mut generator)
+        .map_err(polynomial_error)?;
+    let polynomials = admit_sources(
+        sources,
+        &variables,
+        prime,
+        source_variables,
+        &mut generator,
+        &mut verifier,
+    )?;
+    let accepted = checked_prime_field_polynomial_syzygies(
+        &variables,
+        prime,
+        &polynomials,
+        term_order,
+        &mut generator,
+        &mut verifier,
+    )
+    .map_err(polynomial_error)?;
+    let rows = accepted.syzygies();
+    let row_count = rows.len();
+    let width = polynomials.len();
+    let cells = row_count
+        .checked_mul(width)
+        .filter(|&cells| cells <= 16_384 && row_count <= 16_384)
+        .ok_or_else(|| PyValueError::new_err("prime-field relation output exceeds 16384 cells"))?;
+    if (width == 0 && row_count != 0) || rows.iter().any(|row| row.len() != width) {
+        return Err(PyValueError::new_err(
+            "checked prime-field relations have an inconsistent input dimension",
+        ));
+    }
+    charge(
+        &mut generator,
+        cells + row_count + 1,
+        cells * (std::mem::size_of::<PyExpr>() + 128)
+            + row_count * (std::mem::size_of::<Vec<PyExpr>>() + 64),
+    )?;
+    let mut output = Vec::with_capacity(row_count);
+    for row in rows {
+        generator.checkpoint().map_err(to_value_error)?;
+        let mut values = Vec::with_capacity(width);
+        for coefficient in row {
+            values.push(lift(coefficient, symmetric, &mut generator)?);
+        }
+        output.push(values);
+    }
+    generator.checkpoint().map_err(to_value_error)?;
+    verifier.checkpoint().map_err(to_value_error)?;
+    Ok(output)
+}
+
 /// Return a verified reduced inverse or a proved nonunit in the full quotient.
 /// Sources are the element followed by every original ideal generator; current
 /// sources need not already be a Groebner basis or define a finite quotient.
@@ -534,6 +607,10 @@ pub fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(prime_field_groebner_fglm_native, module)?)?;
     module.add_function(wrap_pyfunction!(
         prime_field_quotient_multiplication_native,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        prime_field_polynomial_syzygies_native,
         module
     )?)?;
     module.add_function(wrap_pyfunction!(prime_field_ideal_inverse_native, module)?)?;

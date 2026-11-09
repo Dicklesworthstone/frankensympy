@@ -590,6 +590,24 @@ variable. The element in a minimal-polynomial request has at most 4095 terms
 to leave room for `gen - element`. Degree and intermediate sparse-work bounds
 still apply; there is no finite-point sampling or rational-domain retry.
 
+`syzygies()` returns a complete generating set of polynomial relations on the
+current ordered expressions. Each tuple `(a_1, ..., a_m)` satisfies
+`sum(a_i * exprs[i]) == 0` over the retained field. Zero, duplicate and scaled
+input positions remain distinct coordinates. For example:
+
+```python
+coordinate_ideal = groebner([x, y], x, y, modulus=5)
+assert coordinate_ideal.syzygies() == [(y, -x)]
+```
+
+The implementation composes the complete checked Groebner transformation
+matrices and every strict S-pair relation. A separate coefficient checker
+requires all resulting nonzero rows in order and independently checks their
+zero dot products. A handful of valid relations is insufficient evidence of
+completeness. The result need not be a minimal generating set or a reduced
+module basis. There are at most 32 original polynomials and 16384 output
+polynomial cells; cumulative work bounds cover the entire request and lift.
+
 Intersection and saturation introduce one auxiliary variable, which counts
 toward the eight-variable bound. Their constructed inputs count toward the
 32-polynomial limit, so intersection admits at most 32 combined generators
@@ -599,7 +617,7 @@ original variables and 31 numerator generators. An empty or all-zero divisor
 ideal yields the unit ideal after both original source lists pass admission,
 including unused declared polynomial coordinates. Intermediate intersections
 remain bounded by 32 combined generators. The degree bound applies after the
-auxiliary construction. Syzygies over prime fields remain unsupported.
+auxiliary construction.
 
 The lane admits primes through 65521, total degree at most 64, up to 4096 sparse
 terms, and at most 32 basis polynomials or ordered divisors. Original source expressions and

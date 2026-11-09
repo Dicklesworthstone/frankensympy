@@ -1850,17 +1850,22 @@ class GroebnerBasis:
     def syzygies(self) -> list:
         """Return generators of all polynomial relations on the current exprs.
 
-        This FrankenSymPy extension returns a list of tuples over QQ. A tuple
+        This FrankenSymPy extension returns a list of expression tuples. A tuple
         ``(a_1, ..., a_m)`` means ``sum(a_i*exprs[i]) == 0`` for this basis's
         current ordered expression list, retaining duplicate and zero entries.
         The tuples generate the complete relation module; they are not promised
-        to form a minimal or reduced module basis. ZZ coefficients extend to QQ.
+        to form a minimal or reduced module basis. ZZ coefficients extend to QQ;
+        retained GF(p) bases keep their prime field and signed residue policy.
 
         Generation and independent verification use the declared lex, grlex or
         grevlex order. The bounded lane supports eight variables, 64 input
-        polynomials and 16384 output polynomial cells. Unsupported sources or
+        polynomials (32 over GF(p)) and 16384 output polynomial cells. Unsupported sources or
         exhausted work raise without publishing a partial relation module.
         """
+        from . import _finitefield_groebner as finite
+
+        if finite.has_field_marker(self):
+            return finite.syzygies(self)
         snapshot = _IdealQuotientSnapshot(self)
         (source_data,) = snapshot.inputs()
         sources, gens, equations, bindings = source_data

@@ -25,6 +25,7 @@ pub mod finite_field_quotient_minpoly;
 pub mod finite_field_recursive_division;
 mod finite_field_resultant;
 pub mod finite_field_source;
+pub mod finite_field_syzygy;
 pub mod gcd;
 pub mod groebner;
 pub mod ideal;
@@ -74,6 +75,7 @@ pub use finite_field_recursive_division::{
     verify_prime_field_recursive_division,
 };
 pub use finite_field_source::*;
+pub use finite_field_syzygy::*;
 pub use gcd::*;
 pub use groebner::*;
 pub use ideal::*;

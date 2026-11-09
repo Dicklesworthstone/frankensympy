@@ -99,7 +99,7 @@ fn zero_and_absent_coordinates_still_keep_unassigned_typed_generators() {
     let other_x = Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([2; 32]));
     let zero = Polynomial::new(&[x.clone(), other_x.clone()], 3, &Terms::new()).unwrap();
     let result = run(&zero, &[Some(0), None]);
-    assert_eq!(result.generators(), &[other_x.clone()]);
+    assert_eq!(result.generators(), std::slice::from_ref(&other_x));
     assert!(result.is_zero());
     let constant = Polynomial::new(&[x, other_x.clone()], 3, &terms(&[(&[0, 0], 2)])).unwrap();
     assert_eq!(run(&constant, &[Some(0), None]).generators(), &[other_x]);

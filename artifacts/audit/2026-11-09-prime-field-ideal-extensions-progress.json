@@ -1,0 +1,165 @@
+{
+  "schema": "frankensympy.bounded-feature-progress.v1",
+  "recorded_at": "2026-11-09T03:24:52Z",
+  "base_main": "ed1b0498d540f1901b766b0f3cffa17fa9509a06",
+  "preceding_feature_commits": [
+    "490d628cb34745e8146d091fa059ae9ec35f9853",
+    "753d46eee2b49685af6ecee4c9bb904bb391ec43"
+  ],
+  "syzygy_checkpoint": "The commit containing this artifact includes the complete native and public syzygy implementation, tests and CI selection.",
+  "workstreams": [
+    "WS08",
+    "WS17"
+  ],
+  "beads": [
+    "fra-o4g",
+    "fra-546"
+  ],
+  "objective": "Implement general prime-field quotient inversion, complete minimal polynomials and complete polynomial relation modules through independently checked native operations and retained-source Python boundaries.",
+  "implementation": {
+    "inverse": "The complete augmented ideal I+<f> determines invertibility, including positive-dimensional quotients. Checked Bezout cofactors supply an inverse reduced in the declared order; a separate signed convolution checks the original identity and reduced remainder. A proved proper augmented ideal establishes noninvertibility.",
+    "minimal_polynomial": "Complete elimination of the original variables from <I,t-f> yields the annihilator ideal in GF(p)[t]. Independent exact source binding and coefficient checks establish its monic generator, including inseparable and nilpotent multiplicities. An empty elimination ideal proves transcendence; the unit ideal returns one.",
+    "syzygies": "A complete Groebner certificate supplies G=A*F, F=B*G and strict standard representations of every S-pair. All nonzero rows of I-B*A and S*A generate the complete relation module on the original ordered inputs. A separate signed coefficient checker requires every row and checks each zero dot product. Zero, duplicate and scaled coordinates remain distinct.",
+    "performance_structure": "Syzygy composition accumulates products into existing sparse rows without repeatedly cloning the target. All operations reuse the established bounded ideal/elimination kernels and reference arithmetic; no new dependency or rational fallback was added.",
+    "python": "GroebnerBasis.invert, minimal_polynomial/minpoly and syzygies retain exact typed sources, original field, coefficient policies and container/held-node snapshots through admission, native checking and lifting. Only a verified nonunit becomes NotInvertible and only a verified zero annihilator ideal becomes None.",
+    "boundary_repair": "Original sources are snapshotted before implicit Dummy creation in both GF(p) and QQ minimal-polynomial requests, preventing a mutation during parameter construction from becoming the accepted original input."
+  },
+  "bounds": {
+    "maximum_prime": 65521,
+    "maximum_variables_inverse_and_syzygies": 8,
+    "maximum_variables_minimal_polynomial": 7,
+    "maximum_ideal_inputs_inverse_and_minimal_polynomial": 31,
+    "maximum_inputs_syzygies": 32,
+    "maximum_total_degree": 64,
+    "maximum_syzygy_verification_product_degree": 128,
+    "maximum_terms_per_polynomial": 4096,
+    "maximum_element_terms_minimal_polynomial": 4095,
+    "maximum_source_integer_bits": 4096,
+    "maximum_syzygy_output_polynomial_cells": 16384,
+    "maximum_cumulative_steps_per_phase": 20000000,
+    "maximum_cumulative_logical_allocation_bytes_per_phase": 134217728
+  },
+  "validation": {
+    "toolchain": "nightly-2026-08-20; rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "dependencies": "Registered donor revisions and locked Cargo graph preserved. Cargo manifests, Cargo.lock, features and proof/compatibility gates were not weakened.",
+    "focused_native": {
+      "status": "passed",
+      "distinct_test_functions": 120,
+      "suites": {
+        "finite_field_evaluation": 14,
+        "finite_field_fglm": 15,
+        "finite_field_multivariate_source": 20,
+        "finite_field_quotient_algebra": 17,
+        "finite_field_ideal_inverse": 14,
+        "finite_field_quotient_minpoly": 19,
+        "finite_field_syzygy": 21
+      },
+      "commands": [
+        "cargo test --locked --offline -p fsym-polys --test finite_field_evaluation --test finite_field_fglm --test finite_field_multivariate_source --test finite_field_quotient_algebra",
+        "cargo test --locked --offline -p fsym-polys --test finite_field_ideal_inverse --test finite_field_quotient_minpoly",
+        "cargo test --locked --offline -p fsym-polys --test finite_field_syzygy"
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0
+      ],
+      "independent_campaigns": "Inverse tests include 722 exhaustive quadratic-quotient/linear-element cases using independently derived multiplication determinants. Minimal-polynomial tests include 62 independently derived affine/quadratic cases. Syzygy tests check complete known spans, hand-written evidence and an adversarial non-strict S-pair identity that would otherwise erase all relations.",
+      "scope": "The first four suites recover actual native execution that was still pending in the preceding evaluation/quotient progress artifact. Counts describe test functions; exhaustive loop cases are not added to that count."
+    },
+    "polynomial_clippy": {
+      "command": "cargo clippy --locked --offline --keep-going -p fsym-polys --all-targets -- -D warnings",
+      "exit_code": 0,
+      "detail": "All native library and test targets pass after equivalent allocation-size, iteration and borrowed-slice fixes. No lint was suppressed."
+    },
+    "polynomial_full_suite": {
+      "command": "cargo test --locked --offline -p fsym-polys",
+      "status": "passed",
+      "exit_code": 0,
+      "passed": 517,
+      "failed": 0,
+      "ignored": 0,
+      "filtered_out": 0,
+      "library_tests": 76,
+      "integration_tests": 441,
+      "integration_targets": 32,
+      "doc_tests": 0,
+      "elapsed_seconds": 87.8,
+      "environment": "Pinned nightly; RUSTFLAGS=-D warnings; one Cargo job and one test thread; debug information and incremental compilation disabled.",
+      "scope": "Final evaluation and syzygy lint corrections are included. The 120 focused test functions above are a subset of these 517, not additional tests."
+    },
+    "formatting": {
+      "command": "cargo fmt --check",
+      "exit_code": 0
+    },
+    "python_syntax": "Nine modified, new or directly relevant Python implementation and regression files parse successfully. Source-only API/constructor/registration audit found no additional concrete issue.",
+    "public_regressions": {
+      "inverse_and_minimal_polynomial_cases_authored": 79,
+      "syzygy_cases_authored": 59,
+      "coverage": "Characteristic-sensitive units/nonunits; positive dimension; inseparability/nilpotence; complete module spans using unit-ideal/maximal-minor criteria rather than rational rank; typed ownership and output policies; malformed output; source/control/container mutation and terminal failures.",
+      "execution_status": "Actual full-extension runtime execution remains uncompleted."
+    },
+    "oracle": {
+      "version": "SymPy 1.14.0",
+      "checks": "Ten elimination fixtures, three univariate inverses and fifteen AGCA reference modules over GF(2), GF(3) and GF(5).",
+      "scope": "Isolated reference calculations only; not execution of the FrankenSymPy public methods."
+    },
+    "independent_review": "Separate native authors, Python boundary author, build owner and root reviewed complete-ideal claims, verifier separation, exact original-source binding, cumulative accounting and publication. The implicit-Dummy mutation gap and repeated syzygy target copies were corrected before publication.",
+    "full_extension": {
+      "command": "cargo build --locked --offline -p fsym-python --lib --features extension-module -j1",
+      "status": "blocked_dependency_compiler_sigkill",
+      "exit_code": 101,
+      "detail": "Both the ordinary and controlled compiler-thread/codegen retries ended with rustc killed by SIGKILL while compiling unchanged pinned asupersync. No extension binary or public test result was produced. The controlled retry lasted 368.4 seconds; this is resource-diagnostic data, not a performance claim."
+    },
+    "workspace_check": {
+      "command": "cargo check --locked --offline --workspace --all-targets",
+      "status": "blocked_dependency_compiler_sigkill",
+      "exit_code": 101,
+      "detail": "Unchanged asupersync compilation was killed after 225.3 seconds. Observed peak child RSS was 4516372 KiB; the environment exposes no cgroup memory limit or OOM event, so no fixed memory limit or specific kill cause is asserted."
+    },
+    "workspace_clippy": {
+      "command": "cargo clippy --locked --offline --keep-going --workspace --all-targets -- -D warnings",
+      "status": "blocked_dependency_compiler_sigkill",
+      "resource_controls": "One Cargo job, one frontend/backend compiler job, 512 codegen units, no debug/incremental, and confirmed active jemalloc narenas=1 with immediate dirty/muzzy page release. Source, features and pinned dependencies unchanged.",
+      "exit_code": 101,
+      "elapsed_seconds": 168.9,
+      "maximum_child_rss_kib": 1321920,
+      "detail": "Unchanged pinned asupersync rustc was terminated by SIGKILL. Independent remaining workspace targets completed under --keep-going without another source diagnostic. No exposed cgroup limit or OOM event establishes a specific kill cause."
+    },
+    "workspace_tests": "Not reached because required asupersync compilation cannot complete in this environment; the 517 passing native polynomial tests do not substitute for the full-workspace gate.",
+    "remote_verification": "The two preceding feature commits were independently fetched through GitHub; exact SHAs, messages, changed paths and feature diffs were checked. The containing syzygy commit must receive the same follow-up verification.",
+    "planning_integrity": {
+      "command": "python3 tools/validate_planning.py",
+      "exit_code": 0,
+      "detail": "24 required artifacts, 101 Markdown files, 151 relative links, 2 profiles, 7 evidence classes, 24 workstreams, 9 milestones and 27 claims checked."
+    }
+  },
+  "limitations": [
+    "A syzygy result is a complete generating set, not necessarily a minimal set or a reduced module Groebner basis.",
+    "Resource, degree, source and output bounds can refuse otherwise valid mathematical requests; failures remain terminal and are not reported as noninvertibility or transcendence.",
+    "Extension fields, multivariate factorization/GCD/resultants/composition and broader compatibility remain outside this slice.",
+    "These are scoped in-process independently checked receipts, not portable proof-kernel certificates or a certified compatibility profile."
+  ],
+  "claims": {
+    "bead_status_priority_dependencies_changed": false,
+    "claim_tiers_changed": false,
+    "workstream_closed": false,
+    "compatibility_profile_promoted": false,
+    "performance_claimed": false
+  },
+  "source_sha256": {
+    "crates/fsym-polys/src/finite_field_ideal_inverse.rs": "811481e1890c66b3b85aa2f0e727b0bee3a543dd6949ef95df1ed85bb2f7a774",
+    "crates/fsym-polys/tests/finite_field_ideal_inverse.rs": "e81b0cdd6bdb9933b253cc2695f851262ba20380a3ae71de32d86a13c19b2b79",
+    "crates/fsym-polys/src/finite_field_quotient_minpoly.rs": "2bdb0fba276b80f4acedf6093c6a6d7f16e4b145e66c671dccea8f33006ae132",
+    "crates/fsym-polys/tests/finite_field_quotient_minpoly.rs": "daa45982f9f77574f02abbc34652cea277188529ec09649169405fd6f459eec4",
+    "crates/fsym-polys/src/finite_field_syzygy.rs": "ca47f5b9dbb798f1e93c0546ce25052414ced769c40bd5f6acf48c16fb46633a",
+    "crates/fsym-polys/tests/finite_field_syzygy.rs": "c948443a961d0649f32d602ee48790108bba5b4c6dface0868b8c03fd042e761",
+    "crates/fsym-polys/src/finite_field_evaluation.rs": "1b2c2e20c5c206c2818b3bf8e12d9f6b482952f908fb3c71603f91091662cc2a",
+    "crates/fsym-polys/tests/finite_field_evaluation.rs": "feac3c37d4899447b9398e132d38155454e8a94f9c67d814b26548a8bc94e252",
+    "crates/fsym-python/src/finite_field_groebner.rs": "1133459099121b45705d01edd0280577d838de521252776c250fa5d0829ac8b4",
+    "python/sympy/polys/_finitefield_groebner.py": "2869eea17b9e7c2a32bd075b00e8bd1e07046f309673f27a194e2b6a66621939",
+    "python/sympy/polys/polytools.py": "aab48a296e363723dd0faba437df512bf941c2cefdfb3dab5a1b5e41ca171182",
+    "python/tests/test_finite_field_quotient_functions.py": "636fa7d0738c40a4d40a5a6ab8c0c8977530afb6902b2c8ee08156d7d600a5fd",
+    "python/tests/test_finite_field_syzygies.py": "f1f1f78a2d8e63ab26af6084855c6290f69bd3c290767b8fc64ba8a8a933fdfe"
+  }
+}
