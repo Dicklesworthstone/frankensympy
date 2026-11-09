@@ -1,0 +1,83 @@
+{
+  "schema": "frankensympy.bounded-feature-progress.v1",
+  "recorded_at": "2026-11-09T01:50:23Z",
+  "base_main": "9794221ed65689646ce39a185e46758c23356bb7",
+  "feature_commits": [
+    "df7886919576aed2fbe4dc68a5af4f0e7e11da27",
+    "74e3689bf84045e8ba16325e958912c1e2a7482f"
+  ],
+  "workstreams": [
+    "WS08",
+    "WS17"
+  ],
+  "beads": [
+    "fra-o4g",
+    "fra-546"
+  ],
+  "objective": "Expose checked finite-field quotient/FGLM operations in Python and support independently verified partial/full polynomial specialization.",
+  "implementation": {
+    "quotient": "Public GroebnerBasis.fglm, quotient_basis and multiplication_matrix use the existing checked GF(p) kernels. Complete quotient directions, nilpotents, original ideal, typed generators and coefficient/output policies remain bound.",
+    "evaluation": "Sparse contraction uses binary modular powers; a separate verifier reconstructs every coefficient by repeated multiplication and signed column sums. Output characteristic and exact remaining typed generator order are checked.",
+    "python": "Poly/PurePoly scalar, explicit generator/index, leading sequence and ordered mapping evaluation uses one cumulative native request. Scalar results and checked empty-assignment identity preserve public conventions.",
+    "regressions": "Native forged-candidate/ring/assignment and resource-limit tests; public source/control/container mutation and terminal-failure tests; evaluation-to-inferred-field-Groebner/FGLM/operator integration over both nilpotent GF(3) fibers.",
+    "baseline_repair": "Replace the stale empty-generator-ring refusal expectation with stronger constant-field admission, residue and forged-certificate tests. Existing constructor contract explicitly permits F_p as a constant field."
+  },
+  "bounds": {
+    "maximum_prime": 65521,
+    "maximum_variables": 8,
+    "maximum_total_degree": 64,
+    "maximum_terms": 4096,
+    "maximum_integer_bits": 4096,
+    "maximum_quotient_dimension": 64,
+    "maximum_groebner_inputs_or_basis_elements": 32
+  },
+  "validation": {
+    "toolchain": "nightly-2026-08-20; rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "dependencies": "Exact registered donor revisions and locked Cargo graph; manifests and lockfile unchanged.",
+    "formatting": {
+      "command": "cargo fmt --check",
+      "exit_code": 0
+    },
+    "python_syntax": "Affected Python sources and regression files parsed successfully.",
+    "independent_review": "Separate implementation, test/build and root review of source binding, verifier independence, bounds, output metadata and mutation checks; the mapping length check was moved before copying a mutated mapping.",
+    "oracle": {
+      "version": "SymPy 1.14.0",
+      "quotient_fglm_fixture_checks": 50,
+      "evaluation": "Public selector/container, field representative, PurePoly and empty-assignment conventions checked in isolation. Both GF(3) integration bases and all multiplication-operator columns checked by exact reduction.",
+      "scope": "Oracle fixtures only; not execution of the FrankenSymPy extension."
+    },
+    "focused_native": {
+      "command": "cargo test --locked -p fsym-polys --test finite_field_multivariate_source --test finite_field_fglm --test finite_field_quotient_algebra",
+      "status": "incomplete_executor_unavailable",
+      "terminal_exit": null,
+      "last_observed_at": "2026-11-09T01:46:42Z",
+      "last_observed_phase": "Compiling libc v0.2.189; rustc child was active; no compiler error or test execution observed.",
+      "detail": "Earlier attempts were interrupted during severe block-device I/O stalls. A retry with the exact compiler hot files and target cache in tmpfs resumed compilation before executor transport was lost."
+    },
+    "evaluation_native_suite": "Not executed before environment loss.",
+    "full_extension_and_public_tests": "Full extension build and public test execution not reached.",
+    "workspace_check_clippy_tests": "Not completed; no pass claimed.",
+    "ci_at_checkpoint": {
+      "head": "74e3689bf84045e8ba16325e958912c1e2a7482f",
+      "gate_run": 42547344362,
+      "status": "queued",
+      "remote_verification_run": 42547344365,
+      "remote_verification_status": "queued",
+      "prior_commit_remote_verification": "df7886919576aed2fbe4dc68a5af4f0e7e11da27 completed successfully."
+    },
+    "remote_verification": "Both feature commits fetched independently through GitHub; exact SHAs, messages, changed paths and feature diff checked."
+  },
+  "limitations": [
+    "Ordinary multiplication-matrix entries are integer residue representatives; later matrix operations require reduction modulo p.",
+    "Noninteger or approximate evaluation and extension fields remain unsupported.",
+    "Prime-field quotient minimal_polynomial, invert and syzygies remain unsupported.",
+    "In-process independently checked receipts are not portable proof-kernel certificates."
+  ],
+  "claims": {
+    "bead_status_priority_dependencies_changed": false,
+    "claim_tiers_changed": false,
+    "workstream_closed": false,
+    "compatibility_profile_promoted": false,
+    "performance_claimed": false
+  }
+}
