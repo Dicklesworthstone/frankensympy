@@ -301,6 +301,11 @@ pub enum CompiledOp {
     Sin,
     Cos,
     Tan,
+    /// Principal real inverse circular functions. Finite evaluation rejects
+    /// asin/acos outside [-1, 1] before any later arithmetic can hide NaN.
+    Asin,
+    Acos,
+    Atan,
     Sinh,
     Cosh,
     Tanh,
@@ -559,6 +564,9 @@ impl CompiledExpr {
             | CompiledOp::Sin
             | CompiledOp::Cos
             | CompiledOp::Tan
+            | CompiledOp::Asin
+            | CompiledOp::Acos
+            | CompiledOp::Atan
             | CompiledOp::Sinh
             | CompiledOp::Cosh
             | CompiledOp::Tanh
@@ -868,6 +876,9 @@ impl CompiledExpr {
                     "sin" => Self::push_op(ops, CompiledOp::Sin, meter)?,
                     "cos" => Self::push_op(ops, CompiledOp::Cos, meter)?,
                     "tan" => Self::push_op(ops, CompiledOp::Tan, meter)?,
+                    "asin" => Self::push_op(ops, CompiledOp::Asin, meter)?,
+                    "acos" => Self::push_op(ops, CompiledOp::Acos, meter)?,
+                    "atan" => Self::push_op(ops, CompiledOp::Atan, meter)?,
                     "sinh" => Self::push_op(ops, CompiledOp::Sinh, meter)?,
                     "cosh" => Self::push_op(ops, CompiledOp::Cosh, meter)?,
                     "tanh" => Self::push_op(ops, CompiledOp::Tanh, meter)?,
@@ -1208,6 +1219,18 @@ impl CompiledExpr {
                 CompiledOp::Tan => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
                     stack.push(v.tan());
+                }
+                CompiledOp::Asin => {
+                    let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    stack.push(v.asin());
+                }
+                CompiledOp::Acos => {
+                    let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    stack.push(v.acos());
+                }
+                CompiledOp::Atan => {
+                    let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    stack.push(v.atan());
                 }
                 CompiledOp::Sinh => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
