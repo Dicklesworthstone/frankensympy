@@ -98,6 +98,8 @@ def enclose_residual_system(residuals, args, box, *, precision=32, budget=None):
     is evaluated. Ambiguous guards, branch seams, missing matching branches and
     unsupported source forms refuse; no global Piecewise derivative is claimed.
     Every evaluated source operation must be C1, including held operations.
+    Principal asin and acos require their complete argument intervals strictly
+    inside (-1, 1); atan accepts every bounded real argument interval.
 
     The returned ``ResidualJacobianEnclosure`` retains the original source,
     typed coordinates and box. It makes no root-existence claim. Source
@@ -156,6 +158,9 @@ def enclose_objective(objective, args, box, *, precision=32, budget=None):
     Ordered Piecewise branches require stable visited guards on a neighborhood
     of the complete box. Only selected values are evaluated, with the existing
     C2 requirements on logarithms, square roots, powers and held operations.
+    Principal asin and acos require their whole argument intervals strictly
+    inside (-1, 1), even under held zero factors or powers. Atan is supported
+    on every bounded real argument interval.
     Crossing or touching an unresolved seam, a missing branch, Float source,
     incompatible assumptions or unsupported source grammar refuses explicitly.
 

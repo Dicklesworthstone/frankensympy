@@ -823,6 +823,39 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
         self.elementary(a)?;
         interval_exp(a, self.precision)
     }
+    /// Principal real inverse circular value and first derivative. Scalar
+    /// values at +/-1 exist, but no C1/C2 neighborhood does. This whole-box
+    /// obligation survives even when a caller's chain multiplier is zero.
+    fn inverse_circular(
+        &mut self,
+        argument: &RealBall,
+        cosine: bool,
+    ) -> Result<(RealBall, RealBall), RootBoxError> {
+        let square = self.power(argument, 2)?;
+        let complement = self.sub(&RealBall::from_i64(1), &square)?;
+        if !complement.is_positive() {
+            return Err(RootBoxError::Domain(
+                "inverse circular argument is not strictly inside (-1, 1)",
+            ));
+        }
+        // Two endpoint square roots/arctangents, their possible pi reductions,
+        // and the enclosing compositions are bounded elementary kernels. Charge
+        // all eight allowances before entering the convenience value routine.
+        for _ in 0..8 {
+            self.elementary(argument)?;
+        }
+        let value = checked(if cosine {
+            argument.acos(self.precision)?
+        } else {
+            argument.asin(self.precision)?
+        })?;
+        self.elementary(&complement)?;
+        let root = checked(complement.sqrt(self.precision.saturating_mul(4).saturating_add(64))?)?;
+        let inverse = self.inv(&root)?;
+        let slope = if cosine { inverse.neg() } else { inverse };
+        Ok((value, slope))
+    }
+
     fn jet_add(&mut self, a: Jet, b: Jet) -> Result<Jet, RootBoxError> {
         let value = self.add(&a.value, &b.value)?;
         let mut gradient = Vec::with_capacity(a.gradient.len());
@@ -1001,6 +1034,7 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
                         let slope = self.inv(&twice)?;
                         (value, slope)
                     }
+                    "asin" | "acos" => self.inverse_circular(&a.value, name == "acos")?,
                     "atan" => {
                         let square = self.power(&a.value, 2)?;
                         let denominator = self.add(&RealBall::from_i64(1), &square)?;

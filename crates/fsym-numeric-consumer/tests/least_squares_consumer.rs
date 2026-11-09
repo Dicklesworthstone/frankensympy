@@ -483,7 +483,7 @@ fn meter_cause(error: &SystemConsumerError) -> Option<MeterError> {
         | SystemConsumerError::Evaluation(EvalError::Meter(error))
         | SystemConsumerError::SparseEvaluation(ResidualEvaluationError::Evaluation(
             EvalError::Meter(error),
-        )) => Some(error.clone()),
+        )) => Some(*error),
         _ => None,
     }
 }

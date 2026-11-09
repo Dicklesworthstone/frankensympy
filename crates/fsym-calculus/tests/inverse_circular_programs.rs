@@ -8,6 +8,8 @@ use fsym_calculus::verified::VerifiedResidualSystem;
 use fsym_core::{Expr, Symbol, parse};
 use std::collections::HashMap;
 
+type UnaryReference = fn(f64) -> f64;
+
 fn scalar(name: &str) -> CompiledExpr {
     CompiledExpr::try_compile(
         &Expr::Function(name.into(), vec![Expr::symbol("x")]),
@@ -25,8 +27,11 @@ fn close(actual: f64, expected: f64) {
 
 #[test]
 fn principal_values_and_closed_value_endpoints_compile() {
-    let functions: [(&str, fn(f64) -> f64); 3] =
-        [("asin", f64::asin), ("acos", f64::acos), ("atan", f64::atan)];
+    let functions: [(&str, UnaryReference); 3] = [
+        ("asin", f64::asin),
+        ("acos", f64::acos),
+        ("atan", f64::atan),
+    ];
     for (name, reference) in functions {
         let program = scalar(name);
         for point in [-1.0, -0.6, 0.0, 0.6, 1.0] {
@@ -34,7 +39,10 @@ fn principal_values_and_closed_value_endpoints_compile() {
         }
     }
     for point in [-1e100, -2.0, 2.0, 1e100] {
-        close(scalar("atan").try_eval_finite(&[point]).unwrap(), point.atan());
+        close(
+            scalar("atan").try_eval_finite(&[point]).unwrap(),
+            point.atan(),
+        );
     }
 }
 
@@ -52,8 +60,7 @@ fn finite_domain_errors_cannot_be_hidden_by_zero_or_later_arithmetic() {
             Expr::from_i64(0),
             Expr::Function(name.into(), vec![Expr::symbol("x")]),
         ]);
-        let system = VerifiedResidualSystem::try_compile(&[source], &[Symbol::new("x")])
-            .unwrap();
+        let system = VerifiedResidualSystem::try_compile(&[source], &[Symbol::new("x")]).unwrap();
         assert!(system.evaluate_sparse(&[2.0]).is_err());
         assert!(system.jacobian_vector_product(&[2.0], &[0.0]).is_err());
     }
@@ -89,8 +96,7 @@ fn source_checker_rejects_another_well_formed_inverse_function() {
     ] {
         let source = Expr::Function(name.into(), vec![Expr::symbol("x")]);
         assert!(compiled_expression_matches(&source, &mapping, &scalar(name)).unwrap());
-        let forged = CompiledExpr::try_from_ops(vec![CompiledOp::LoadVar(0), other])
-            .unwrap();
+        let forged = CompiledExpr::try_from_ops(vec![CompiledOp::LoadVar(0), other]).unwrap();
         assert!(!compiled_expression_matches(&source, &mapping, &forged).unwrap());
     }
 }
@@ -105,11 +111,8 @@ fn verified_jacobians_hessians_and_products_keep_all_chain_factors() {
         ("atan", u.atan(), 25.0 / 34.0, -375.0 / 578.0),
     ] {
         let source = parse(&format!("{name}(2*x+y)")).unwrap();
-        let system = VerifiedResidualSystem::try_compile(
-            std::slice::from_ref(&source),
-            &variables,
-        )
-        .unwrap();
+        let system =
+            VerifiedResidualSystem::try_compile(std::slice::from_ref(&source), &variables).unwrap();
         let result = system.evaluate_sparse(&[0.2, 0.2]).unwrap();
         close(result.residuals[0], value);
         close(result.jacobian[0], 2.0 * slope);
@@ -121,7 +124,10 @@ fn verified_jacobians_hessians_and_products_keep_all_chain_factors() {
             7.0 * slope,
         );
         let objective = VerifiedObjective::try_compile(&source, &variables).unwrap();
-        assert_eq!(objective.hessian_pattern(), &[(0, 0), (0, 1), (1, 0), (1, 1)]);
+        assert_eq!(
+            objective.hessian_pattern(),
+            &[(0, 0), (0, 1), (1, 0), (1, 1)]
+        );
         let result = objective.evaluate(&[0.2, 0.2]).unwrap();
         close(result.value, value);
         close(result.gradient[0], 2.0 * slope);
@@ -134,10 +140,8 @@ fn verified_jacobians_hessians_and_products_keep_all_chain_factors() {
             .unwrap();
         close(product[0], 14.0 * curvature);
         close(product[1], 7.0 * curvature);
-        let restored = VerifiedResidualSystem::from_json_bytes(
-            &system.to_json_bytes().unwrap(),
-        )
-        .unwrap();
+        let restored =
+            VerifiedResidualSystem::from_json_bytes(&system.to_json_bytes().unwrap()).unwrap();
         assert_eq!(
             restored.evaluate_sparse(&[0.2, 0.2]).unwrap(),
             system.evaluate_sparse(&[0.2, 0.2]).unwrap()
@@ -149,8 +153,7 @@ fn verified_jacobians_hessians_and_products_keep_all_chain_factors() {
 fn singular_endpoint_derivatives_do_not_publish_partial_outputs() {
     for name in ["asin", "acos"] {
         let source = Expr::Function(name.into(), vec![Expr::symbol("x")]);
-        let system = VerifiedResidualSystem::try_compile(&[source], &[Symbol::new("x")])
-            .unwrap();
+        let system = VerifiedResidualSystem::try_compile(&[source], &[Symbol::new("x")]).unwrap();
         for point in [-1.0, 1.0] {
             assert!(scalar(name).try_eval_finite(&[point]).is_ok());
             let mut values = [71.0];
@@ -222,7 +225,9 @@ fn inverse_functions_keep_cancellation_and_cumulative_resource_accounting() {
             checkpoints: 0,
             interrupt: None,
         };
-        program.try_eval_finite_with_meter(&[0.5], &mut meter).unwrap();
+        program
+            .try_eval_finite_with_meter(&[0.5], &mut meter)
+            .unwrap();
         for interrupt in 1..=meter.checkpoints {
             let mut cancelled = InterruptAt {
                 budget: Budget::new(limits),
@@ -239,13 +244,14 @@ fn inverse_functions_keep_cancellation_and_cumulative_resource_accounting() {
             Dimension::MemoryBytes,
             Dimension::AllocationCount,
         ] {
-            let consumed = limits.dimensions[dimension.index()]
-                - meter.budget.remaining(dimension);
+            let consumed = limits.dimensions[dimension.index()] - meter.budget.remaining(dimension);
             assert!(consumed > 0);
             let mut exact_limits = limits;
             exact_limits.dimensions[dimension.index()] = consumed;
             let mut exact = Budget::new(exact_limits);
-            program.try_eval_finite_with_meter(&[0.5], &mut exact).unwrap();
+            program
+                .try_eval_finite_with_meter(&[0.5], &mut exact)
+                .unwrap();
             assert_eq!(exact.remaining(dimension), 0);
             assert!(matches!(
                 program.try_eval_finite_with_meter(&[0.5], &mut exact),

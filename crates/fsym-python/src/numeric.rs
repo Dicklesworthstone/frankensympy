@@ -954,6 +954,8 @@ pub(crate) fn check_certified_sources(sources: &[Expr], variables: &[Symbol]) ->
                         | "log"
                         | "ln"
                         | "sqrt"
+                        | "asin"
+                        | "acos"
                         | "atan"
                         | "sinh"
                         | "cosh"

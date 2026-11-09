@@ -5,6 +5,8 @@
 
 #![forbid(unsafe_code)]
 
+mod inverse_circular;
+
 use crate::arith::RationalArithmeticError;
 use crate::{BigInt, BigRational};
 use fsym_budget::BudgetMeter;

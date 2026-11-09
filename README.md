@@ -371,6 +371,41 @@ partial receipt, and one budget spans both numerical search and verification.
 
 ---
 
+## Principal inverse circular functions (development API)
+
+Native scalar programs, checked residual/Jacobian programs and checked
+objective/Hessian programs support `asin`, `acos` and `atan`, including sparse
+products and saved-program replay. The independent original-source interval
+checker also supports all three functions through its first- and second-order
+rules, so they compose into root-box and stationary-point certificates:
+
+```python
+from sympy import Rational, Symbol, asin, enclose_objective, certify_stationary_point
+
+x = Symbol("x")
+source = asin(Rational(3, 5) + 2*x + 3*x**2)
+enclosure = enclose_objective(source, x, [(0, 0)])
+# The gradient contains 5/2 and the Hessian contains 195/16.
+
+minimum = certify_stationary_point(
+    asin(x)**2, x, [(Rational(-1, 20), Rational(1, 20))],
+)
+assert minimum.kind == "strict_minimum"
+```
+
+The Rust `RealBall::asin` and `RealBall::acos` value operations enclose the
+principal real functions on the complete closed domain `[-1, 1]`. They evaluate
+monotone endpoints with exact rational interval operations, certified square
+roots and arctangents; floating approximations do not supply interval bounds.
+The value APIs admit endpoints, while residual and objective certification
+require the complete argument interval strictly inside `(-1, 1)` to establish
+C1/C2 regularity. Held zero products and powers retain those obligations.
+No outside point is rounded or clipped into the domain. Stable Piecewise
+selection remains lazy for inactive values, and exact work shares the caller's
+cumulative resource and cancellation budget.
+
+---
+
 ## Custom functions in residual systems (development API)
 
 Ordinary arithmetic retains the actual Python function applications, including

@@ -404,6 +404,15 @@ fn evaluate_inner(
                     let curvature = work.inv(&four_cubes)?.neg();
                     (value, slope, curvature)
                 }
+                "asin" | "acos" => {
+                    let (value, slope) = work.inverse_circular(&argument.value, name == "acos")?;
+                    // asin''(u) = u * asin'(u)^3; acos negates both derivatives.
+                    // Keeping the signed slope also keeps the acos curvature
+                    // sign, before chain_jet adds both second-order terms.
+                    let cube = work.power(&slope, 3)?;
+                    let curvature = work.mul(&argument.value, &cube)?;
+                    (value, slope, curvature)
+                }
                 "atan" => {
                     let square = work.power(&argument.value, 2)?;
                     let denominator = work.add(&RealBall::from_i64(1), &square)?;
