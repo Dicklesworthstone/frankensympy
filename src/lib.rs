@@ -35,7 +35,10 @@ pub use certification_session::{
     MAX_SESSION_ARTIFACT_TRANSFERS, ResidualSystemId, RootCertificateId, RootIsolationId,
 };
 pub use fsym_budget::{Budget, BudgetLimits, BudgetMeter, BudgetSnapshot, Dimension, MeterError};
-pub use fsym_calculus::root_isolation::RootIsolationOptions;
+pub use fsym_calculus::root_isolation::{
+    MAX_ROOT_ISOLATION_ADVANCE_CELLS, RootIsolationOptions, RootIsolationProgress,
+    RootIsolationSearch,
+};
 pub use fsym_core::{
     BigInt, BigRational, Expr, RealBall, ResidualJacobianEnclosure, RootBoxReceipt, RootBoxWitness,
     RootIsolationError, RootIsolationReceipt, RootIsolationStep, RootIsolationWitness, Symbol,

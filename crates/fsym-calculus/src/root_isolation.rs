@@ -9,10 +9,12 @@
 use fsym_budget::BudgetMeter;
 use fsym_core::{
     BallError, BigRational, Expr, MAX_ROOT_ISOLATION_DEPTH, MAX_ROOT_ISOLATION_LEAVES,
-    MAX_ROOT_ISOLATION_ROOTS, RealBall, RootBoxError, RootBoxWitness, RootIsolationError,
-    RootIsolationStep, RootIsolationWitness, RootIsolationWorkspace, Symbol,
+    MAX_ROOT_ISOLATION_NODES, MAX_ROOT_ISOLATION_ROOTS, RealBall, RootBoxError, RootBoxWitness,
+    RootIsolationError, RootIsolationPrepared, RootIsolationStep, RootIsolationWitness,
+    RootIsolationWorkspace, Symbol,
 };
 use num_traits::{One, Zero};
+use serde::Serialize;
 
 type Result<T> = std::result::Result<T, RootIsolationError>;
 
@@ -32,9 +34,287 @@ impl Default for RootIsolationOptions {
     }
 }
 
+/// One advance can request at most the complete bounded traversal.
+pub const MAX_ROOT_ISOLATION_ADVANCE_CELLS: usize = MAX_ROOT_ISOLATION_NODES;
+
+/// Candidate search progress, never an accepted root count or completeness
+/// receipt. `ready_for_verification` means only that no search cells remain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct RootIsolationProgress {
+    pub processed_cells: usize,
+    pub pending_cells: usize,
+    pub candidate_root_count: usize,
+    pub excluded_cells: usize,
+    pub leaf_count: usize,
+    pub ready_for_verification: bool,
+}
+
 struct Cell {
     domain: Vec<RealBall>,
     depth: usize,
+}
+
+struct SearchFrontier {
+    witness: RootIsolationWitness,
+    pending: Vec<Cell>,
+    leaves: usize,
+    excluded: usize,
+}
+
+enum CellAction {
+    Covered {
+        index: usize,
+    },
+    Excluded,
+    Root(RootBoxWitness),
+    Split {
+        axis: usize,
+        left: Vec<RealBall>,
+        right: Vec<RealBall>,
+    },
+}
+
+fn check_options(options: RootIsolationOptions) -> Result<()> {
+    if !(1..=MAX_ROOT_ISOLATION_LEAVES).contains(&options.max_leaves) {
+        return Err(RootBoxError::ResourceLimit(
+            "requested root-isolation leaf count must be 1 through 1024",
+        )
+        .into());
+    }
+    Ok(())
+}
+
+impl SearchFrontier {
+    fn new(
+        workspace: &mut RootIsolationWorkspace<'_, impl BudgetMeter>,
+        domain: &[RealBall],
+        options: RootIsolationOptions,
+    ) -> Result<Self> {
+        let node_count = 2 * options.max_leaves - 1;
+        workspace.account(
+            1,
+            (node_count * std::mem::size_of::<RootIsolationStep>()
+                + MAX_ROOT_ISOLATION_ROOTS * std::mem::size_of::<RootBoxWitness>()
+                + (MAX_ROOT_ISOLATION_DEPTH + 1) * std::mem::size_of::<Cell>()) as u64,
+            3,
+        )?;
+        let partition = reserve(node_count, "root-isolation partition allocation")?;
+        let roots = reserve(MAX_ROOT_ISOLATION_ROOTS, "root-isolation roots allocation")?;
+        let mut pending = reserve(
+            MAX_ROOT_ISOLATION_DEPTH + 1,
+            "root-isolation traversal allocation",
+        )?;
+        pending.push(Cell {
+            domain: copy_domain(workspace, domain)?,
+            depth: 0,
+        });
+        Ok(Self {
+            witness: RootIsolationWitness {
+                roots,
+                partition,
+                precision_digits: options.precision_digits,
+            },
+            pending,
+            leaves: 1,
+            excluded: 0,
+        })
+    }
+
+    fn progress(&self) -> RootIsolationProgress {
+        RootIsolationProgress {
+            processed_cells: self.witness.partition.len(),
+            pending_cells: self.pending.len(),
+            candidate_root_count: self.witness.roots.len(),
+            excluded_cells: self.excluded,
+            leaf_count: self.leaves,
+            ready_for_verification: self.pending.is_empty(),
+        }
+    }
+
+    fn prepare_cell(
+        &self,
+        cell: &Cell,
+        options: RootIsolationOptions,
+        workspace: &mut RootIsolationWorkspace<'_, impl BudgetMeter>,
+    ) -> Result<CellAction> {
+        workspace.account(1, 0, 0)?;
+        if let Some(index) = covered_by(workspace, &cell.domain, &self.witness.roots)? {
+            return Ok(CellAction::Covered { index });
+        }
+        let domain_failure = match workspace.enclose_cell(&cell.domain) {
+            Ok(enclosure) => {
+                if excluded(workspace, enclosure.residual_values())? {
+                    return Ok(CellAction::Excluded);
+                }
+                if let Some(witness) = candidate_root(
+                    workspace,
+                    &cell.domain,
+                    &self.witness.roots,
+                    options.precision_digits,
+                )? {
+                    if self.witness.roots.len() == MAX_ROOT_ISOLATION_ROOTS {
+                        return Err(RootIsolationError::Incomplete("root count limit"));
+                    }
+                    return Ok(CellAction::Root(witness));
+                }
+                None
+            }
+            Err(error) if subdivision_can_resolve(&error) => Some(error),
+            Err(error) => return Err(error),
+        };
+        if self.leaves >= options.max_leaves || cell.depth >= MAX_ROOT_ISOLATION_DEPTH {
+            return Err(domain_failure.unwrap_or(RootIsolationError::Incomplete(
+                "unresolved cell at the subdivision limit",
+            )));
+        }
+        let axis = widest_axis(workspace, &cell.domain)?;
+        let (left, right) = workspace.bisect(&cell.domain, axis)?;
+        Ok(CellAction::Split { axis, left, right })
+    }
+
+    fn advance(
+        &mut self,
+        workspace: &mut RootIsolationWorkspace<'_, impl BudgetMeter>,
+        options: RootIsolationOptions,
+        max_cells: usize,
+    ) -> Result<RootIsolationProgress> {
+        for _ in 0..max_cells {
+            // Peek until every fallible operation is finished. A refusal
+            // retains this cell and all previously completed cover work.
+            let Some(cell) = self.pending.last() else {
+                break;
+            };
+            let action = self.prepare_cell(cell, options, workspace)?;
+            let depth = cell.depth;
+            workspace.account(1, 0, 0)?;
+            // Capacities were reserved for the maximum bounded traversal.
+            // No allocation, fallible work or cancelling safe point follows
+            // until this complete cell transition has been published.
+            self.pending.pop();
+            match action {
+                CellAction::Covered { index } => {
+                    self.witness
+                        .partition
+                        .push(RootIsolationStep::Root { index });
+                }
+                CellAction::Excluded => {
+                    self.witness.partition.push(RootIsolationStep::Exclude);
+                    self.excluded += 1;
+                }
+                CellAction::Root(witness) => {
+                    self.witness.partition.push(RootIsolationStep::Root {
+                        index: self.witness.roots.len(),
+                    });
+                    self.witness.roots.push(witness);
+                }
+                CellAction::Split { axis, left, right } => {
+                    self.witness
+                        .partition
+                        .push(RootIsolationStep::Split { axis });
+                    // LIFO traversal retains canonical preorder: left, right.
+                    self.pending.push(Cell {
+                        domain: right,
+                        depth: depth + 1,
+                    });
+                    self.pending.push(Cell {
+                        domain: left,
+                        depth: depth + 1,
+                    });
+                    self.leaves += 1;
+                }
+            }
+        }
+        Ok(self.progress())
+    }
+}
+
+/// An owned, bounded candidate search that can yield between cell batches.
+///
+/// Source, coordinates, exact domain and options are frozen at construction.
+/// Partial progress contains no accepted root handles. Only the independent
+/// core complete-cover checker can turn the completed witness into a receipt.
+/// Every call uses the caller's same cumulative ledger; intrinsic arithmetic,
+/// allocation and evaluation limits also persist across calls and refusals.
+pub struct RootIsolationSearch {
+    prepared: RootIsolationPrepared,
+    frontier: SearchFrontier,
+    options: RootIsolationOptions,
+}
+
+impl RootIsolationSearch {
+    pub fn new(
+        residuals: &[Expr],
+        variables: &[Symbol],
+        domain: &[RealBall],
+        options: RootIsolationOptions,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<Self> {
+        meter.checkpoint().map_err(RootBoxError::from)?;
+        check_options(options)?;
+        let mut prepared = RootIsolationPrepared::new(
+            residuals,
+            variables,
+            domain,
+            options.precision_digits,
+            meter,
+        )?;
+        let frontier = prepared.with_workspace(meter, |workspace| {
+            SearchFrontier::new(workspace, domain, options)
+        })?;
+        Ok(Self {
+            prepared,
+            frontier,
+            options,
+        })
+    }
+
+    /// Attempt at most `max_cells` complete cell transitions. On refusal, the
+    /// current cell stays pending and earlier transitions remain available.
+    pub fn advance(
+        &mut self,
+        max_cells: usize,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<RootIsolationProgress> {
+        meter.checkpoint().map_err(RootBoxError::from)?;
+        if !(1..=MAX_ROOT_ISOLATION_ADVANCE_CELLS).contains(&max_cells) {
+            return Err(RootBoxError::ResourceLimit(
+                "requested root-isolation batch must be 1 through 2047 cells",
+            )
+            .into());
+        }
+        self.prepared.with_workspace(meter, |workspace| {
+            self.frontier.advance(workspace, self.options, max_cells)
+        })
+    }
+
+    pub fn progress(&self) -> RootIsolationProgress {
+        self.frontier.progress()
+    }
+
+    /// Borrow the candidate only when every search cell has been discharged.
+    /// This neither verifies it nor consumes the search or its ledger.
+    pub fn completed_witness(&self) -> Option<&RootIsolationWitness> {
+        self.frontier
+            .pending
+            .is_empty()
+            .then_some(&self.frontier.witness)
+    }
+
+    pub fn residuals(&self) -> &[Expr] {
+        self.prepared.residuals()
+    }
+
+    pub fn variables(&self) -> &[Symbol] {
+        self.prepared.variables()
+    }
+
+    pub fn domain(&self) -> &[RealBall] {
+        self.prepared.domain()
+    }
+
+    pub fn options(&self) -> RootIsolationOptions {
+        self.options
+    }
 }
 
 fn reserve<T>(capacity: usize, label: &'static str) -> Result<Vec<T>> {
@@ -323,12 +603,7 @@ pub fn propose_root_isolation(
     meter: &mut impl BudgetMeter,
 ) -> Result<RootIsolationWitness> {
     meter.checkpoint().map_err(RootBoxError::from)?;
-    if !(1..=MAX_ROOT_ISOLATION_LEAVES).contains(&options.max_leaves) {
-        return Err(RootBoxError::ResourceLimit(
-            "requested root-isolation leaf count must be 1 through 1024",
-        )
-        .into());
-    }
+    check_options(options)?;
     let mut workspace = RootIsolationWorkspace::new(
         residuals,
         variables,
@@ -336,79 +611,8 @@ pub fn propose_root_isolation(
         options.precision_digits,
         meter,
     )?;
-    let node_count = 2 * options.max_leaves - 1;
-    workspace.account(
-        1,
-        (node_count * std::mem::size_of::<RootIsolationStep>()
-            + MAX_ROOT_ISOLATION_ROOTS * std::mem::size_of::<RootBoxWitness>()
-            + (MAX_ROOT_ISOLATION_DEPTH + 1) * std::mem::size_of::<Cell>()) as u64,
-        3,
-    )?;
-    let mut partition = reserve(node_count, "root-isolation partition allocation")?;
-    let mut roots = reserve(MAX_ROOT_ISOLATION_ROOTS, "root-isolation roots allocation")?;
-    let mut pending = reserve(
-        MAX_ROOT_ISOLATION_DEPTH + 1,
-        "root-isolation traversal allocation",
-    )?;
-    pending.push(Cell {
-        domain: copy_domain(&mut workspace, domain)?,
-        depth: 0,
-    });
-    let mut leaves = 1;
-    while let Some(cell) = pending.pop() {
-        workspace.account(1, 0, 0)?;
-        if let Some(index) = covered_by(&mut workspace, &cell.domain, &roots)? {
-            partition.push(RootIsolationStep::Root { index });
-            continue;
-        }
-        let domain_failure = match workspace.enclose_cell(&cell.domain) {
-            Ok(enclosure) => {
-                if excluded(&mut workspace, enclosure.residual_values())? {
-                    partition.push(RootIsolationStep::Exclude);
-                    continue;
-                }
-                if let Some(witness) = candidate_root(
-                    &mut workspace,
-                    &cell.domain,
-                    &roots,
-                    options.precision_digits,
-                )? {
-                    if roots.len() == MAX_ROOT_ISOLATION_ROOTS {
-                        return Err(RootIsolationError::Incomplete("root count limit"));
-                    }
-                    partition.push(RootIsolationStep::Root { index: roots.len() });
-                    roots.push(witness);
-                    continue;
-                }
-                None
-            }
-            Err(error) if subdivision_can_resolve(&error) => Some(error),
-            Err(error) => return Err(error),
-        };
-        if leaves >= options.max_leaves || cell.depth >= MAX_ROOT_ISOLATION_DEPTH {
-            return Err(domain_failure.unwrap_or(RootIsolationError::Incomplete(
-                "unresolved cell at the subdivision limit",
-            )));
-        }
-        let axis = widest_axis(&mut workspace, &cell.domain)?;
-        let (left, right) = workspace.bisect(&cell.domain, axis)?;
-        partition.push(RootIsolationStep::Split { axis });
-        // LIFO traversal writes canonical preorder: parent, left, right.
-        pending.push(Cell {
-            domain: right,
-            depth: cell.depth + 1,
-        });
-        pending.push(Cell {
-            domain: left,
-            depth: cell.depth + 1,
-        });
-        leaves += 1;
-    }
-    let witness = RootIsolationWitness {
-        roots,
-        partition,
-        precision_digits: options.precision_digits,
-    };
+    let mut frontier = SearchFrontier::new(&mut workspace, domain, options)?;
+    frontier.advance(&mut workspace, options, MAX_ROOT_ISOLATION_ADVANCE_CELLS)?;
     workspace.account(1, 0, 0)?;
-    Ok(witness)
+    Ok(frontier.witness)
 }

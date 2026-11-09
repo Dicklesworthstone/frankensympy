@@ -18,7 +18,7 @@ use super::{
 use crate::{BigRational, Expr, RealBall, Symbol};
 use fsym_budget::{BudgetMeter, Unbounded};
 use num_traits::Zero;
-use std::cmp::Ordering;
+use std::{cmp::Ordering, mem::size_of, sync::Arc};
 use thiserror::Error;
 
 pub const MAX_ROOT_ISOLATION_LEAVES: usize = 1024;
@@ -370,6 +370,194 @@ impl<'a, M: BudgetMeter> RootIsolationWorkspace<'a, M> {
         }
         Ok(false)
     }
+}
+
+/// Owned, preflighted input and cumulative work for a paused root search.
+///
+/// This object retains the original source and the elementary scratch
+/// admission across meter borrows. Its arithmetic, allocation and evaluation
+/// counters are never restarted, including when an operation refuses. It is
+/// neither serializable nor cloneable, and grants no completeness receipt.
+/// Callers continue supplying their same cumulative resource ledger; this
+/// object does not manufacture or restore budget allowances.
+pub struct RootIsolationPrepared {
+    residuals: Vec<Expr>,
+    variables: Vec<Symbol>,
+    domain: Vec<RealBall>,
+    precision_digits: u32,
+    counters: RootIsolationCounters,
+}
+
+struct RootIsolationCounters {
+    steps: u64,
+    allocation_bytes: u64,
+    source_bytes: u64,
+    evaluations: usize,
+}
+
+struct PreparedWorkspace<'a, 'state, M> {
+    workspace: RootIsolationWorkspace<'a, M>,
+    counters: &'state mut RootIsolationCounters,
+}
+
+impl<M> Drop for PreparedWorkspace<'_, '_, M> {
+    fn drop(&mut self) {
+        self.counters.steps = self.workspace.work.steps;
+        self.counters.allocation_bytes = self.workspace.work.allocation_bytes;
+        self.counters.source_bytes = self.workspace.work.source_bytes;
+        self.counters.evaluations = self.workspace.evaluations;
+    }
+}
+
+impl RootIsolationPrepared {
+    /// Freeze already bounded syntax without sharing caller-owned expression
+    /// buffers. Raw operand order, powers and typed symbol identities survive.
+    pub fn new(
+        residuals: &[Expr],
+        variables: &[Symbol],
+        domain: &[RealBall],
+        precision_digits: u32,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<Self> {
+        let mut workspace =
+            RootIsolationWorkspace::new(residuals, variables, domain, precision_digits, meter)?;
+        let copied_residuals = copy_sources(residuals, &mut workspace.work)?;
+        workspace.work.charge(
+            variables.len() as u64 + domain.len() as u64 + 1,
+            binding_bytes(variables, domain)
+                + (std::mem::size_of_val(variables) + std::mem::size_of_val(domain)) as u64,
+            2 + variables.len() as u64 + 4 * domain.len() as u64,
+        )?;
+        let mut copied_variables = Vec::new();
+        copied_variables
+            .try_reserve_exact(variables.len())
+            .map_err(|_| RootBoxError::ResourceLimit("root-search variable allocation"))?;
+        copied_variables.extend(variables.iter().cloned());
+        let mut copied_domain = Vec::new();
+        copied_domain
+            .try_reserve_exact(domain.len())
+            .map_err(|_| RootBoxError::ResourceLimit("root-search domain allocation"))?;
+        copied_domain.extend(domain.iter().cloned());
+        workspace.account(1, 0, 0)?;
+        Ok(Self {
+            residuals: copied_residuals,
+            variables: copied_variables,
+            domain: copied_domain,
+            precision_digits,
+            counters: RootIsolationCounters {
+                steps: workspace.work.steps,
+                allocation_bytes: workspace.work.allocation_bytes,
+                source_bytes: workspace.work.source_bytes,
+                evaluations: workspace.evaluations,
+            },
+        })
+    }
+
+    pub fn residuals(&self) -> &[Expr] {
+        &self.residuals
+    }
+
+    pub fn variables(&self) -> &[Symbol] {
+        &self.variables
+    }
+
+    pub fn domain(&self) -> &[RealBall] {
+        &self.domain
+    }
+
+    pub fn precision_digits(&self) -> u32 {
+        self.precision_digits
+    }
+
+    /// All attempted interval traversals, including attempts that refused.
+    pub fn evaluation_count(&self) -> usize {
+        self.counters.evaluations
+    }
+
+    /// Borrow the frozen input and all previously admitted work with a caller's
+    /// meter. Every updated intrinsic counter is retained before returning
+    /// success, refusal or unwinding. Source preflight and scratch admission are
+    /// reused only for this object's private immutable source, never for a
+    /// replacement source supplied by the caller.
+    pub fn with_workspace<M: BudgetMeter, T>(
+        &mut self,
+        meter: &mut M,
+        operation: impl FnOnce(&mut RootIsolationWorkspace<'_, M>) -> Result<T>,
+    ) -> Result<T> {
+        let workspace = RootIsolationWorkspace {
+            residuals: &self.residuals,
+            variables: &self.variables,
+            domain: &self.domain,
+            work: Work {
+                meter,
+                nodes: 0,
+                precision: self.precision_digits,
+                steps: self.counters.steps,
+                allocation_bytes: self.counters.allocation_bytes,
+                source_bytes: self.counters.source_bytes,
+            },
+            evaluations: self.counters.evaluations,
+        };
+        let mut borrowed = PreparedWorkspace {
+            workspace,
+            counters: &mut self.counters,
+        };
+        borrowed
+            .workspace
+            .account(1, 0, 0)
+            .and_then(|()| operation(&mut borrowed.workspace))
+    }
+}
+
+// The source envelope was checked iteratively by validate_inputs before this
+// bounded-depth copy. A plain Expr::clone would retain Arc children and their
+// arbitrary spare capacities. Rebuild those children as raw syntax instead.
+fn copy_sources(sources: &[Expr], work: &mut Work<'_, impl BudgetMeter>) -> Result<Vec<Expr>> {
+    work.charge(1, std::mem::size_of_val(sources) as u64, 1)?;
+    let mut copied = Vec::new();
+    copied
+        .try_reserve_exact(sources.len())
+        .map_err(|_| RootBoxError::ResourceLimit("root-search source allocation"))?;
+    for source in sources {
+        copied.push(copy_source(source, work)?);
+    }
+    Ok(copied)
+}
+
+fn copy_source(source: &Expr, work: &mut Work<'_, impl BudgetMeter>) -> Result<Expr> {
+    work.charge(1, size_of::<Expr>() as u64, 1)?;
+    Ok(match source {
+        Expr::Sym(symbol) => {
+            work.charge(1, symbol.name.len() as u64, 1)?;
+            Expr::Sym(symbol.clone())
+        }
+        Expr::Integer(value) => {
+            work.charge(1, 16 * value.limb_count(), 1)?;
+            Expr::Integer(value.clone())
+        }
+        Expr::Rational(value) => {
+            work.charge(1, 16 * rational_limbs(value), 2)?;
+            Expr::Rational(value.clone())
+        }
+        Expr::Const(value) => Expr::Const(*value),
+        Expr::Add(children) => Expr::Add(copy_sources(children, work)?),
+        Expr::Mul(children) => Expr::Mul(copy_sources(children, work)?),
+        Expr::Pow(base, exponent) => {
+            work.charge(
+                1,
+                2 * (size_of::<Expr>() + 2 * size_of::<usize>()) as u64,
+                2,
+            )?;
+            Expr::Pow(
+                Arc::new(copy_source(base, work)?),
+                Arc::new(copy_source(exponent, work)?),
+            )
+        }
+        Expr::Function(name, children) => {
+            work.charge(1, name.len() as u64, 1)?;
+            Expr::Function(name.clone(), copy_sources(children, work)?)
+        }
+    })
 }
 
 /// Verify a complete cover independently of any candidate generator.
