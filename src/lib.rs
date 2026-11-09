@@ -14,10 +14,23 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Machine-readable implementation status for the current crate.
 pub const IMPLEMENTATION_STATUS: &str = "implemented_uncertified";
 
+pub mod certification;
+pub mod certification_session;
 pub mod session;
 
-pub use fsym_budget::{Budget, BudgetLimits};
-pub use fsym_core::{Expr, Symbol};
+pub use certification::{
+    CertificationError, ResidualProblem, export_root_certificate, replay_root_certificate,
+};
+pub use certification_session::{
+    CERTIFICATION_REQUEST_SCHEMA, CertificationRequest, CertificationResponse,
+    CertificationSessionError, ExactInterval, ExactRootWitness, ResidualSystemId,
+    RootCertificateId,
+};
+pub use fsym_budget::{Budget, BudgetLimits, BudgetMeter, BudgetSnapshot, Dimension, MeterError};
+pub use fsym_core::{
+    BigInt, BigRational, Expr, RealBall, ResidualJacobianEnclosure, RootBoxReceipt, RootBoxWitness,
+    Symbol, SymbolIdentity,
+};
 pub use fsym_proof_kernel::{
     MergeCertError, MergePolicy, SemanticMergeCertificate, WitnessKind, verify_merge_certificate,
 };

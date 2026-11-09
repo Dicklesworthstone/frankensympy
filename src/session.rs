@@ -10,6 +10,10 @@
 
 #![forbid(unsafe_code)]
 
+use crate::certification_session::{
+    CertificationRequest, CertificationResponse, CertificationSessionError, CertificationState,
+    ResidualSystemId, RootCertificateId,
+};
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_budget::{Budget, BudgetLimits, Dimension, VerifierLease};
 use fsym_core::{Expr, Symbol};
@@ -409,9 +413,10 @@ pub struct Session {
     context: Arc<ImmutableAssumptionsSnapshot>,
     budget: Budget,
     verifier_lease: Option<VerifierLease>,
-    budgets: SessionBudgets,
+    verify_step_budget: usize,
     claims: Vec<ClaimRecord>,
     derivations: Vec<DerivationTree>,
+    certification: CertificationState,
 }
 
 impl Session {
@@ -427,16 +432,40 @@ impl Session {
         context: Arc<ImmutableAssumptionsSnapshot>,
         budgets: SessionBudgets,
     ) -> Self {
+        Self::with_context_and_budget_limits(
+            context,
+            BudgetLimits::uniform(
+                budgets.uniform_dimension_budget,
+                budgets.uniform_dimension_budget,
+            ),
+            budgets.verify_step_budget,
+        )
+    }
+
+    /// Creates an empty-universe session with separate compute, memory and
+    /// protected-verifier allowances. Counters persist across all requests.
+    pub fn with_budget_limits(limits: BudgetLimits, verify_step_budget: usize) -> Self {
+        Self::with_context_and_budget_limits(
+            ImmutableAssumptionsSnapshot::empty(),
+            limits,
+            verify_step_budget,
+        )
+    }
+
+    /// Context-bound counterpart of [`Self::with_budget_limits`]. Exact numeric
+    /// source checks never treat workspace substitutions as assumptions.
+    pub fn with_context_and_budget_limits(
+        context: Arc<ImmutableAssumptionsSnapshot>,
+        limits: BudgetLimits,
+        verify_step_budget: usize,
+    ) -> Self {
         let context = Arc::new(ImmutableAssumptionsSnapshot::clone(&context));
         let kernel = ProofKernel::new((*context).clone());
         let mut workspace = fsym_runtime::workspace::SemanticWorkspace::new("session");
         workspace.assumptions = Arc::clone(&context);
         let mut branches = BTreeMap::new();
         branches.insert("session".to_string(), workspace.clone());
-        let mut budget = Budget::new(BudgetLimits::uniform(
-            budgets.uniform_dimension_budget,
-            budgets.uniform_dimension_budget,
-        ));
+        let mut budget = Budget::new(limits);
         let verifier_lease = budget.verifier_lease();
         Self {
             workspace,
@@ -445,10 +474,41 @@ impl Session {
             context,
             budget,
             verifier_lease,
-            budgets,
+            verify_step_budget,
             claims: Vec::new(),
             derivations: Vec::new(),
+            certification: CertificationState::default(),
         }
+    }
+
+    /// Remaining cumulative resources, including protected verification fuel.
+    pub fn budget_snapshot(&self) -> fsym_budget::BudgetSnapshot {
+        self.budget.snapshot()
+    }
+
+    /// Runs a bounded, typed original-source certification operation.
+    /// Registration and output use ordinary resources; mathematical checking
+    /// uses the independently protected verifier pool. Failure never publishes
+    /// a resident certificate or partially registered source.
+    pub fn certification_request(
+        &mut self,
+        request: CertificationRequest,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        let context = self.context_digest();
+        self.certification.handle(
+            request,
+            context,
+            &mut self.budget,
+            self.verifier_lease.as_ref(),
+        )
+    }
+
+    pub fn residual_problem(&self, id: &ResidualSystemId) -> Option<&crate::ResidualProblem> {
+        self.certification.problem(id)
+    }
+
+    pub fn root_certificate(&self, id: &RootCertificateId) -> Option<&fsym_core::RootBoxReceipt> {
+        self.certification.certificate(id)
     }
 
     /// The assumption-universe digest this session is bound to.
@@ -623,7 +683,7 @@ impl Session {
         }
         let substitution: HashMap<_, _> = bindings.iter().cloned().collect();
         let (lhs, rhs) = bounded_substitution(&lhs, &rhs, &substitution)?;
-        if self.claims.len() >= self.budgets.verify_step_budget {
+        if self.claims.len() >= self.verify_step_budget {
             return Err(SessionError::BudgetExhausted { charged: 0 });
         }
         fsym_budget::BudgetMeter::charge(&mut self.budget, Dimension::ComputeSteps, 1)
@@ -661,7 +721,7 @@ impl Session {
         let Claim::Equality { lhs, rhs } = checked_statement(claim)?.clone() else {
             return Err(SessionError::ClaimMismatch);
         };
-        if self.derivations.len() >= self.budgets.verify_step_budget {
+        if self.derivations.len() >= self.verify_step_budget {
             return Err(SessionError::BudgetExhausted { charged: 0 });
         }
         let meter = &mut self.budget;
@@ -733,7 +793,7 @@ impl Session {
     }
 
     fn charge_verification(&mut self, derivation: &DerivationTree) -> Result<(), SessionError> {
-        if derivation.steps.is_empty() || derivation.steps.len() > self.budgets.verify_step_budget {
+        if derivation.steps.is_empty() || derivation.steps.len() > self.verify_step_budget {
             return Err(SessionError::BudgetExhausted { charged: 0 });
         }
         let units = fsym_proof_kernel::derivation_verification_units(derivation)
@@ -827,7 +887,7 @@ impl Session {
         pages: &[ClaimExportPage],
     ) -> Result<[u8; 32], SessionError> {
         let first = pages.first().ok_or(SessionError::InvalidPages)?;
-        if pages.len() > self.budgets.verify_step_budget
+        if pages.len() > self.verify_step_budget
             || first.total_pages as usize != pages.len()
             || first.schema_version != CLAIM_EXPORT_SCHEMA
         {
@@ -865,7 +925,7 @@ impl Session {
             count = count
                 .checked_add(page.steps.len())
                 .ok_or(SessionError::ExportLimit)?;
-            if count > self.budgets.verify_step_budget {
+            if count > self.verify_step_budget {
                 return Err(SessionError::BudgetExhausted { charged: 0 });
             }
             // Validate expressions before cloning or serializing their payloads.
@@ -945,6 +1005,63 @@ impl Session {
         };
         let id = value.get("id").cloned();
         let _ = value.as_object_mut().map(|map| map.remove("id"));
+        if matches!(
+            value.get("type").and_then(serde_json::Value::as_str),
+            Some(
+                "RegisterResidualSystem"
+                    | "EncloseResidualJacobian"
+                    | "CertifyRootBox"
+                    | "ExportRootCertificate"
+                    | "ReplayRootCertificate"
+            )
+        ) {
+            // Bound envelope metadata before the request can publish anything.
+            // The certification response reserves 4096 bytes for this wrapper.
+            let valid_id = id.as_ref().is_none_or(|id| match id {
+                serde_json::Value::String(id) => id.len() <= 256,
+                serde_json::Value::Number(id) => id.is_u64(),
+                _ => false,
+            });
+            if !valid_id {
+                return serde_json::json!({
+                    "status": "error", "code": "invalid_request_id",
+                    "error": "certification id must be a string of at most 256 bytes or an unsigned integer",
+                }).to_string();
+            }
+            if self
+                .budget
+                .try_charge_batch(&[
+                    (Dimension::ComputeSteps, line.len().max(1) as u64),
+                    (
+                        Dimension::MemoryBytes,
+                        (line.len().saturating_mul(8) + 8192) as u64,
+                    ),
+                    (Dimension::AllocationCount, 2),
+                ])
+                .is_err()
+            {
+                let mut response = serde_json::json!({
+                    "status": "error", "code": "budget_exhausted",
+                    "error": "session cannot admit certification envelope resources",
+                });
+                if let Some(id) = id {
+                    response["id"] = id;
+                }
+                return response.to_string();
+            }
+            let result = crate::certification_session::decode_request(line)
+                .and_then(|request| self.certification_request(request));
+            let mut response = match result {
+                Ok(result) => serde_json::json!({ "status": "success", "result": result }),
+                Err(error) => serde_json::json!({
+                    "status": "error", "code": error.code(), "error": error.to_string(),
+                }),
+            };
+            if let Some(id) = id {
+                response["id"] = id;
+            }
+            return response.to_string();
+        }
         if matches!(
             value.get("type").and_then(serde_json::Value::as_str),
             Some("ConstructClaim" | "VerifyClaim" | "ExportClaim" | "ReplayClaim")

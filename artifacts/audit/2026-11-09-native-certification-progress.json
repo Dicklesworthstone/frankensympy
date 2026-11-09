@@ -1,0 +1,169 @@
+{
+  "schema": "frankensympy.bounded-feature-progress.v1",
+  "date": "2026-11-09",
+  "status": "progress_only",
+  "objective": "Expose original-source exact residual/Jacobian enclosures, checked root boxes, and portable independent replay through the native Session and NDJSON CLI with cumulative protected verification budgets.",
+  "source_commit_anchors": {
+    "protected_verifier_meter": "ffe0961e34b44ce13a04461a21df90799cbd7454",
+    "domain_preserving_parser": "995c7d90ac0ef71f61b14e81dc1de6935a5ac0ab"
+  },
+  "implementation_source_tree": "cc34bc30d65ab36b045f1ba3111cb2fbef330035",
+  "implementation_base_commit": "6a94a00d2f6beb01de9e734b039fa20013db5817",
+  "implementation_files_git_blobs": {
+    "Cargo.toml": "56280dc6bf6fdbd3130a1d9770642e30feebdc63",
+    "README.md": "dcc1e1026bd7d682d3918a41be140921e243b67f",
+    "src/lib.rs": "9fa47499b2a3f3c6cd54cb0b5bf41b4c40c01624",
+    "src/session.rs": "27ceb6af64b24fe11e446efb49a4982b4e27cc45",
+    "src/bin/frankensympy.rs": "cc21ef6589115d50f0fd2b3a16ab105fecdcd158",
+    "src/certification.rs": "7595c7a45a315dce76635d61e0e7fb3025de5c0e",
+    "src/certification_session.rs": "073a8178ee0cf9d66703628c2705c4ca11560e22",
+    "tests/certification.rs": "d5001d0fcaf1e95c473f8f1ec81c710090bfbb73",
+    "tests/certification_session.rs": "84c9803d167f960d0eee541b38c18dded438f586",
+    "docs/NATIVE_CERTIFICATION_SESSION.md": "b1c3505fa721e4a67bea0c27e96f38112ad6eba3",
+    "registries/claims.toml": "1dcc49e3612018edb5b83cdcee2b3aebd1e9e2fc",
+    ".beads/issues.jsonl": "2ebeb608b0ab2c04188dd9ab1e69c21047fe40f5"
+  },
+  "independent_review": {
+    "scope": [
+      "protected verifier BudgetMeter",
+      "parse_raw source domains and structural bounds",
+      "native source admission and canonical artifact transport",
+      "Session exact conversion, source/context binding and publication atomicity"
+    ],
+    "result": "No remaining acceptance bypass found in bounded source review. This is not a completeness or whole-runtime claim.",
+    "resolved_findings": [
+      "Flatten raw division chains to avoid unbounded recursive source trees.",
+      "Bound request IDs and reserve outer-envelope space before publication."
+    ],
+    "checked_boundaries": [
+      "Original domains survive zero products, cancelled logarithms and undefined reciprocals.",
+      "Exact wire conversion uses integers/rationals.",
+      "Replay matches complete receiving typed sources, ordered symbol identities and context before decoding untrusted witnesses; untrusted Expr is never decoded.",
+      "Bounded witness decoding and canonical whole-artifact comparison precede independent core verification.",
+      "Protected compute cannot borrow ordinary compute; mixed resource charges are atomic and cumulative.",
+      "Verification or response admission failure leaves no accepted certificate; custom cancellation-aware meter tests cover every observed successful-path checkpoint."
+    ],
+    "serializer_review": "Pinned num-bigint 0.4.8 streams or borrows limbs. No extra replay preflight was added for hypothetical temporary digit allocation."
+  },
+  "validation": {
+    "toolchain": "nightly-2026-08-20",
+    "budget": {
+      "test_command": "cargo +nightly-2026-08-20 test --locked -p fsym-budget",
+      "tests_passed": 26,
+      "test_exit_code": 0,
+      "clippy_command": "cargo +nightly-2026-08-20 clippy --locked -p fsym-budget --all-targets -- -D warnings",
+      "clippy_exit_code": 0,
+      "scope": "Actual fsym-budget crate; isolated cargo home and target, one build job, debug info disabled."
+    },
+    "parser": {
+      "command": "cargo +nightly-2026-08-20 test --locked --offline -p fsym-core --lib parser::tests",
+      "tests_passed": 11,
+      "tests_filtered_out": 116,
+      "exit_code": 0,
+      "scope": "Actual workspace fsym-core parser tests, including both new raw parser regressions and nine existing cases."
+    },
+    "scoped_native_session": {
+      "test_command": "cargo +nightly-2026-08-20 test --locked --offline --manifest-path /workspace/scratch/03d77ea3bfad/root-session-validation/Cargo.toml",
+      "clippy_command": "cargo +nightly-2026-08-20 clippy --all-targets --locked --offline --manifest-path /workspace/scratch/03d77ea3bfad/root-session-validation/Cargo.toml -- -D warnings",
+      "test_exit_code": 0,
+      "clippy_exit_code": 0,
+      "tests_passed": {
+        "certification": 13,
+        "certification_session_and_real_cli": 12,
+        "claim_replay": 11,
+        "existing_cli_protocol": 12,
+        "total": 48
+      },
+      "scope": "Validation-only manifest referenced actual root library, CLI, four integration-test files and native math crates. A separately named runtime facade referenced unchanged production workspace, protocol, publication, fmap and replay modules. It did not build complete production fsym-runtime. No mocked functions or substituted mathematical implementations were used.",
+      "important_observed_cases": [
+        "Hand-derived rational residual/Jacobian and root-enclosure expectations",
+        "Fresh-process CLI export and independent replay",
+        "Source, symbol identity/order and assumption-context substitution refusal",
+        "Forged/noncanonical/oversized artifacts and original-domain refusal",
+        "Cancellation at every successful-path safe point",
+        "Cumulative protected fuel and failed-witness spending",
+        "Response-budget failure after successful verification leaves no certificate",
+        "Duplicate transport keys rejected before source publication"
+      ],
+      "environment": {
+        "CARGO_HOME": "/workspace/scratch/03d77ea3bfad/cargo-home",
+        "CARGO_TARGET_DIR": "/workspace/scratch/03d77ea3bfad/frankensympy/target",
+        "CARGO_BUILD_JOBS": "1",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "custom_RUSTFLAGS": false
+      },
+      "provenance_sha256": "bc7eb6df29e4be1f1cd1b9bb987268c1a50af1d04ae37591af86677e42e362d0",
+      "original_Cargo_lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2",
+      "scoped_Cargo_lock_sha256": "572dc8a977b9516aba1c1a59aee0802f0156cd48ebf9bc3678a2daf8df79cbb6",
+      "dependency_comparison": "All 28 scoped external packages matched the original lock by name, version, source and checksum. No production source, dependency pin or gate was weakened.",
+      "tested_sources_sha256": {
+        "src/lib.rs": "061bc2c446e7c70f51436cf34791ff5680b3e34d0ac1d9c8e760f5e562ce5660",
+        "src/session.rs": "f68610662e434d3dc673041bed01497a6f4d4446e8a5b643b825742bd580e55c",
+        "src/certification.rs": "30ca85b9f8909cf48ca6b45cfcf89ee19ea3a6e88ed6670f18e79a3118fd5947",
+        "src/certification_session.rs": "6107ca534b2f140434805027a62b24f47a0c4984449cd5cad18b80ccbec05b82",
+        "src/bin/frankensympy.rs": "c60ae50928aa2b041a719746d80485002a1de93f6be4635be73e13dfdcb363a5",
+        "tests/certification.rs": "cb8d5ea8e9c37fa0c1f40d11896e07f3df99c4e2c4ed5b0f32438ffbec6b17f9",
+        "tests/certification_session.rs": "4a6b5d1bdb382b9ce882f2417b003dbf18490f5db53c0fcd798cb2bd5ed5c864",
+        "tests/claim_replay.rs": "e9d9310bd2ce5e0b2410890c8ff24178f4e5c567be757a4ffcf0a50960b0d119",
+        "tests/cli_protocol_gate.rs": "5456ba3f07d248795332ece9ca86b4db926c5f52d6c90a41267f80baf8ad546b",
+        "crates/fsym-runtime/src/workspace.rs": "e6c81172935e23c0dadf28488e55f130f85acdd2be9ce8e847bc39ed8377fe09",
+        "crates/fsym-runtime/src/protocol.rs": "6608ab6b84ecbbf926886c8580d34f28bcb78fe96cb7826681cbad1ca6514579",
+        "crates/fsym-runtime/src/publication.rs": "a5ecb9fd9d7b44011699e12d220b8745de6af83a15e7e16353cbe79b562b5280",
+        "crates/fsym-runtime/src/fmap.rs": "549e1bc052ffbe09dd246604053c5ab2ceb4b1bbe9b1082b5f4d224f147d8d75",
+        "crates/fsym-runtime/src/replay.rs": "34179a2f3545a0b0687797f3d69213f260a452173ac8bda9c4e89dfa533016e8"
+      },
+      "post_validation_delta": {
+        "path": "src/certification.rs",
+        "final_sha256": "599e1b5d1e6414ccfc307252196b97f600de81c8bf06d7c366a3f5060da116a2",
+        "change": "Only four comment lines corrected the description of conservative serialization accounting. No executable statement changed.",
+        "verification": "Replacing exactly those comment lines reproduced the tested SHA256; the other 13 direct source hashes matched.",
+        "rerun_on_final_comment_hash": false
+      }
+    },
+    "workspace_format": {
+      "command": "cargo +nightly-2026-08-20 fmt --check",
+      "exit_code": 0
+    },
+    "workspace_gates": {
+      "check_command": "cargo +nightly-2026-08-20 check --workspace --all-targets --locked",
+      "observed_check_attempts": [
+        {
+          "build_jobs": 2,
+          "exit_code": 101
+        },
+        {
+          "build_jobs": 1,
+          "incremental": false,
+          "exit_code": 101
+        }
+      ],
+      "observed_failure": "Pinned asupersync's rustc process received SIGKILL in both attempts. The 8 GiB cgroup was saturated and OOM kills were observed. No source diagnostic was reported; downstream workspace compilation remains unverified.",
+      "final_check_retry": {
+        "status": "terminal_exit_not_observed",
+        "detail": "A locked/offline check with frontend/backend/linker concurrency capped at one ran, but ENOSPC prevented its recorder from preserving the result."
+      },
+      "final_full_clippy_and_tests": {
+        "status": "not_run",
+        "detail": "The direct-output runner could not launch after executor transport disconnected; recovery timed out and the environment became unavailable."
+      },
+      "final_staged_planning_and_diff_check": {
+        "status": "not_run_after_staging",
+        "detail": "Environment loss prevented final validation. Staged TOML/JSONL were parsed and compared beforehand; only designated evidence references and note suffixes changed. Remote concurrent bead changes were then preserved by record-level three-way merge."
+      }
+    }
+  },
+  "limitations": [
+    "Complete production runtime, asupersync lifecycle, Cx/region cancellation, concurrent portfolios, persistence and repair remain unverified.",
+    "No Python extension or compatibility-profile execution is claimed by this record.",
+    "Witness checking does not provide automatic root search or close the complete certified Jacobian campaign."
+  ],
+  "claims": {
+    "bead_status_priority_dependencies_changed": false,
+    "claim_tiers_changed": false,
+    "workstream_closed": false,
+    "compatibility_profile_promoted": false,
+    "performance_claimed": false
+  }
+}

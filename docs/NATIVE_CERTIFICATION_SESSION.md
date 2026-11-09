@@ -1,0 +1,149 @@
+# Native residual certification sessions
+
+This development interface connects the root Rust library and the `frankensympy`
+NDJSON command to the existing original-source interval checker. Its scope is
+exact real residual/Jacobian enclosures and one unique nonsingular root in a
+specified box. It does not close the complete Certified Jacobian campaign or
+certify a SymPy compatibility profile.
+
+## Run an exact root check
+
+Build and start the command with the repository's pinned toolchain and donor
+checkouts:
+
+```sh
+python3 scripts/fetch_workspace_donors.py
+cargo run --locked --bin frankensympy
+```
+
+Send these four lines to the same process. Each line receives one JSON response
+immediately, while stdin remains open:
+
+```json
+{"id":"register","type":"RegisterResidualSystem","payload":{"schema_version":1,"system":"system:sqrt2","residuals":["x^2-2"],"variables":["x"]}}
+{"id":"bounds","type":"EncloseResidualJacobian","payload":{"schema_version":1,"system":"system:sqrt2","domain":[{"lower":"1.4","upper":"1.5"}],"precision_digits":24}}
+{"id":"root","type":"CertifyRootBox","payload":{"schema_version":1,"system":"system:sqrt2","certificate":"certificate:sqrt2","witness":{"domain":[{"lower":"1.4","upper":"1.5"}],"center":["1.45"],"preconditioner":[["1/3"]],"precision_digits":24}}}
+{"id":"export","type":"ExportRootCertificate","payload":{"schema_version":1,"certificate":"certificate:sqrt2"}}
+```
+
+The enclosure response contains exact rational lower and upper endpoints for
+the residual and every Jacobian entry over the entire box. This claim does not
+assert a root exists. The root response is accepted only after the independent
+checker verifies original-source C1 domains, strict Krawczyk inclusion and an
+exact contraction bound. Its claim is
+`unique_nonsingular_real_root_in_box`; it makes no assertion about other roots
+outside that box. For this example the contraction bound is `1/15`.
+
+The rational matrix is an untrusted preconditioner proposal. Its entries, a
+small residual, a solver convergence flag or a previously stored acceptance
+flag cannot authorize a root certificate.
+
+## Replay in another process
+
+The export response's `result.artifact` is a JSON **string** containing canonical
+typed sources, the ordered typed variables, the assumption-context digest and
+the root witness. Keep that string unchanged. It contains no accepted flag,
+claimed contraction bound or claimed root enclosure.
+
+In a fresh process, register the expected system independently, then send:
+
+```json
+{"id":"replay","type":"ReplayRootCertificate","payload":{"schema_version":1,"system":"system:sqrt2","certificate":"certificate:received","artifact":"<the exact result.artifact string, JSON-escaped by your client>"}}
+```
+
+The receiver compares the complete typed source and ordered symbol identities
+with its own registered problem, checks its own assumption-context digest,
+validates the canonical transport and independently recomputes the root claim.
+Changing the equations, axis order, universe, schema, witness or nested fields
+cannot reuse the sender's acceptance. Unknown fields and duplicate request
+keys refuse. Native artifact replay also rejects noncanonical JSON, including
+pretty-printing or changed field order; clients should pass the exported
+string through their JSON encoder without parsing and rewriting its contents.
+
+## Source and object semantics
+
+`RegisterResidualSystem` converts source text into native `Expr` objects once
+and freezes those objects and their coordinate order. Text is input syntax;
+typed expressions are the retained mathematical state. Later `Bind`, patch,
+fork or checkout requests do not substitute into a registered problem.
+
+The `parse_raw` core entry point retains terms and factors that ordinary
+construction can simplify away. Thus `0*(1/x)`, `log(x)-log(x)` and
+`0/(x-x)` still undergo their original domain checks. Finite decimal literals
+are exact rational numbers. No binary64 conversion enters this interface.
+
+Session labels have distinct kinds: `system:<identifier>` and
+`certificate:<identifier>`. They are local references, not stable content IDs.
+The identifier uses ASCII letters, digits, underscores, hyphens or dots; the
+complete label is at most 128 bytes. Existing labels cannot be overwritten.
+Only a successful independent check and successful response admission insert
+a certificate into the resident store. A failed attempt leaves its label
+available for a corrected request.
+
+## Resources and limits
+
+Every operation uses the session's cumulative ledger. Registration, initial
+exact input preparation, certificate export and response preparation consume
+ordinary resources. Mathematical checking, including receiving-session
+artifact validation and replay, consumes the protected verifier compute pool
+through `Budget::verifier_meter`; memory and allocation limits remain shared.
+Failure retains performed work. Reacquiring a meter or retrying a request never
+replenishes either pool.
+
+The CLI accepts explicit startup limits:
+
+```sh
+cargo run --locked --bin frankensympy -- \
+  --compute-steps 2000000 \
+  --memory-bytes 1073741824 \
+  --allocations 1000000 \
+  --verifier-steps 100000000
+```
+
+These are also the defaults. Memory is conservative logical accounting, not a
+measurement of the process's live heap. Each original-source checker reserves
+a bounded scratch allowance, so repeated checks can exhaust memory accounting
+even after earlier temporary buffers have been released. Requests have no
+budget-reset operation. The Rust `Session::new(SessionBudgets)` interface keeps
+its existing small defaults; numerical callers should use
+`Session::with_budget_limits` or `with_context_and_budget_limits`.
+
+| Boundary | Limit |
+| --- | --- |
+| Input NDJSON frame | 64 KiB |
+| Request ID | Optional string of at most 256 bytes, or unsigned integer |
+| Resident systems / certificates | 32 / 128 |
+| Residuals / variables | 1–64 / 1–16 |
+| Residual × variable entries | At most 1,024 |
+| Source text per residual | 4 KiB, also subject to cumulative admission cost |
+| Typed source depth / total nodes | 32 / 16,384 |
+| Exact scalar input | At most 512 bytes: integer, decimal such as `0.5`, or integer fraction such as `1/3` |
+| Precision request | 8–128 decimal digits |
+| Session root artifact | 24 KiB before outer JSON escaping |
+| Native root artifact | 1 MiB, JSON depth at most 96 |
+| Certification response | 1 MiB including bounded envelope metadata |
+
+The session transport deliberately exposes a single-frame artifact subset. A
+larger native artifact receives a typed resource refusal instead of an export
+that cannot be replayed through the same framing contract.
+
+Typical error codes distinguish `budget_exhausted`, `domain_not_certified`,
+`unsupported_operation`, `source_mismatch`, `universe_mismatch`,
+`invalid_artifact`, `unsupported_schema` and a mathematical `refused` outcome.
+An error never contains an accepted root value.
+
+## In-process Rust API
+
+The root crate exposes `ResidualProblem`, exact scalar/ball types, checker
+receipts, typed session requests and the portable export/replay functions.
+`ResidualProblem::new` accepts typed expressions and symbol identities;
+`parse_sources` is the bounded plain-symbol convenience lane. The direct
+enclosure, root verification and transport functions accept a caller-owned
+`BudgetMeter`, including a region's cancellation-aware adapter. Their tests
+exercise cancellation at every observed safe point and cumulative refusal.
+
+The synchronous NDJSON session itself does not start background tasks or expose
+an asynchronous cancellation request. A pure `Budget`/`VerifierMeter` has no
+cancellation source. This interface does not imply completion of the wider
+asupersync lifecycle, compiled-program admission, hybrid callback, durable
+checkpoint, repair or performance gates.

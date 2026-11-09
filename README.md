@@ -165,6 +165,21 @@ See [`docs/EVIDENCE_PROOFS_AND_REWRITES.md`](docs/EVIDENCE_PROOFS_AND_REWRITES.m
 
 ---
 
+## Exact residual certification through the native session
+
+The root Rust library and `frankensympy` NDJSON command expose immutable
+residual-system registration, exact residual/Jacobian box enclosures,
+independently checked local root boxes, and portable root-witness export/replay.
+The receiver checks its own typed sources, ordered variables and context before
+recomputing a transported claim. Verification draws from a protected cumulative
+budget, and source parsing retains original domain obligations such as
+`0*(1/x)`.
+
+See [Native certification sessions](docs/NATIVE_CERTIFICATION_SESSION.md) for a
+complete CLI example, typed Rust APIs, budget controls and precise limits.
+This is a bounded development interface; complete campaign and profile gates
+remain open.
+
 ## Compiled sparse residuals (development API)
 
 `compile_residual_system` exposes the checked sparse Jacobian and products with
