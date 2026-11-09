@@ -8,6 +8,7 @@ missing: importing an unusable symbolic shell would make capability checks lie.
 from __future__ import annotations
 
 import contextlib
+import copyreg
 import decimal
 import math
 import re
@@ -1581,7 +1582,10 @@ class Basic:
                 self.name, self._dummy_number, tuple(self._assumptions.items())
             )
         if isinstance(self, AppliedUndef):
-            return _restore_applied_undef, (type(self).__name__, self.args)
+            # Arity and assumptions belong to the defining class. Rebuilding
+            # from its printed name alone can silently select another function.
+            _undefined_function_semantic_identity(type(self), require_hashable=True)
+            return type(self), self.args
         if isinstance(self, Function):
             # Custom applied Function subclasses pickle by class reference
             # plus structural args (upstream SymPy parity: the defining
@@ -4858,17 +4862,19 @@ class Function(Application, metaclass=FunctionClass):
         if cls is Function:
             if not args or not isinstance(args[0], str):
                 raise TypeError("Function name must be a string")
-            if not args[0]:
+            if len(args) != 1:
+                raise TypeError("Function takes exactly one function name")
+            name = str.__str__(args[0])
+            if not name:
                 raise ValueError("Function name must be non-empty")
-            name = args[0]
-            existing = _lookup_known_function(name)
-            if existing is not None:
-                return existing
             if name == _FLOAT_INTERN or name.startswith(_DUMMY_PREFIX):
                 raise ValueError("Function name collides with native intern encoding")
-            return UndefinedFunction(name)
+            # Native tag lookup is a lifting operation. Defining a Python
+            # function never acquires intrinsic behavior from its spelling.
+            return UndefinedFunction(name, **options)
 
-        nargs_spec = getattr(cls, "nargs", None)
+        nargs_spec = (getattr(cls, "_nargs", None) if issubclass(type(cls), UndefinedFunction)
+                      else getattr(cls, "nargs", None))
         if nargs_spec is not None:
             allowed_arities = {nargs_spec} if isinstance(nargs_spec, int) else set(nargs_spec)
             if len(args) not in allowed_arities:
@@ -4953,6 +4959,10 @@ class AppliedUndef(Function):
             return fn(*args[1:])
         return super().__new__(cls, *args, **options)
 
+    @property
+    def nargs(self):
+        return type(self).nargs
+
 
 
 class _NativeFunction(Function):
@@ -4992,30 +5002,321 @@ class _NativeFunction(Function):
         return None
 
 
-_undefined_functions: dict[str, Any] = {}
+_undefined_functions: dict[tuple, Any] = {}
+_undefined_function_records: dict[int, tuple] = {}
+_FUNCTION_ASSUMPTIONS = frozenset({
+    "algebraic", "antihermitian", "commutative", "complex", "composite",
+    "even", "extended_negative", "extended_nonnegative", "extended_nonpositive",
+    "extended_nonzero", "extended_positive", "extended_real", "finite",
+    "hermitian", "imaginary", "infinite", "integer", "irrational", "negative",
+    "noninteger", "nonnegative", "nonpositive", "nonzero", "odd", "polar", "positive",
+    "prime", "rational", "real", "transcendental", "zero",
+})
+
+
+def _function_assumption_closure(declarations):
+    """Close scalar function facts without consulting global assumptions.
+
+    Reuse the signed native-to-Python predicate adaptation. Additional rules
+    express the Python finite/extended-real and parity partitions. Missing
+    facts remain unknown; contradictions fail before publication or caching.
+    These are shell declarations, never native mathematical proof receipts.
+    """
+    if not declarations:
+        return {}
+    from ..assumptions._query import NATIVE_PREDICATES, _consequences
+
+    facts = dict(declarations)
+    rules = []
+
+    def implies(premises, conclusion):
+        rules.append((premises, conclusion))
+        if len(premises) == 1:
+            name, truth = premises[0]
+            other, value = conclusion
+            rules.append((((other, not value),), (name, not truth)))
+
+    def conjunction(name, *parts):
+        for part in parts:
+            implies(((name, True),), part)
+        if len(parts) == 1:
+            implies(parts, (name, True))
+
+    for name in sorted(NATIVE_PREDICATES):
+        positive, negative = _consequences(name)
+        if name == "odd":
+            # Python's constructor lattice obtains nonzero via integer parity
+            # and realness. Keeping it as a primitive implication would also
+            # infer odd=False from nonzero=False without the required domain.
+            positive, negative = positive - {"nonzero"}, negative - {"zero"}
+        for truth, consequences in ((True, positive), (False, negative)):
+            for consequence in sorted(consequences):
+                if consequence != name or not truth:
+                    implies(((name, True),), (consequence, truth))
+    for first, second in (
+        ("complex", "commutative"), ("extended_real", "commutative"),
+        ("real", "hermitian"), ("imaginary", "antihermitian"),
+        ("imaginary", "complex"), ("composite", "integer"),
+        ("composite", "positive"),
+    ):
+        implies(((first, True),), (second, True))
+    for first, second in (("imaginary", "extended_real"), ("prime", "composite")):
+        implies(((first, True),), (second, False))
+    conjunction("finite", ("infinite", False))
+    conjunction("real", ("extended_real", True), ("finite", True))
+    conjunction("irrational", ("real", True), ("rational", False))
+    conjunction("transcendental", ("complex", True), ("algebraic", False))
+    conjunction("noninteger", ("extended_real", True), ("integer", False))
+    conjunction("nonzero", ("real", True), ("zero", False))
+    conjunction("nonnegative", ("real", True), ("negative", False))
+    conjunction("nonpositive", ("real", True), ("positive", False))
+    conjunction("positive", ("nonnegative", True), ("nonzero", True))
+    conjunction("negative", ("nonpositive", True), ("nonzero", True))
+    conjunction("extended_nonzero", ("extended_real", True), ("zero", False))
+    conjunction("extended_nonnegative", ("extended_real", True), ("extended_negative", False))
+    conjunction("extended_nonpositive", ("extended_real", True), ("extended_positive", False))
+    conjunction("extended_positive", ("extended_nonnegative", True), ("extended_nonzero", True))
+    conjunction("extended_negative", ("extended_nonpositive", True), ("extended_nonzero", True))
+    for name in ("positive", "negative", "nonpositive", "nonnegative", "nonzero"):
+        conjunction(name, ("extended_" + name, True), ("finite", True))
+    # Constructor deduction is forward inference, not a SAT closure. A
+    # missing domain may not be disproved merely by contraposing a multi-fact
+    # rule: finite=True and positive=False do not set extended_positive=False
+    # in the pinned constructor's declaration. These finite domain partitions
+    # are the directed constructor rules from SymPy 1.14's old assumptions;
+    # they intentionally do not implement arbitrary propositional inference.
+    domain_rules = (
+        ((("even", True), ("positive", True), ("prime", False)), ("composite", True)),
+        ((("composite", False), ("positive", True), ("prime", False)), ("even", False)),
+        ((("integer", True), ("odd", False)), ("even", True)),
+        ((("extended_positive", False), ("extended_real", True), ("zero", False)), ("extended_negative", True)),
+        ((("extended_nonpositive", True), ("extended_nonzero", True)), ("extended_negative", True)),
+        ((("extended_negative", False), ("extended_real", True)), ("extended_nonnegative", True)),
+        ((("extended_positive", False), ("extended_real", True)), ("extended_nonpositive", True)),
+        ((("extended_real", True), ("zero", False)), ("extended_nonzero", True)),
+        ((("extended_negative", False), ("extended_real", True), ("zero", False)), ("extended_positive", True)),
+        ((("extended_nonnegative", True), ("extended_nonzero", True)), ("extended_positive", True)),
+        ((("infinite", False), ("real", False)), ("extended_real", False)),
+        ((("extended_negative", False), ("extended_positive", False), ("zero", False)), ("extended_real", False)),
+        ((("extended_real", True), ("real", False)), ("infinite", True)),
+        ((("rational", False), ("real", True)), ("irrational", True)),
+        ((("positive", False), ("real", True), ("zero", False)), ("negative", True)),
+        ((("nonpositive", True), ("nonzero", True)), ("negative", True)),
+        ((("extended_negative", True), ("finite", True)), ("negative", True)),
+        ((("extended_real", True), ("integer", False)), ("noninteger", True)),
+        ((("negative", False), ("real", True)), ("nonnegative", True)),
+        ((("extended_nonnegative", True), ("finite", True)), ("nonnegative", True)),
+        ((("positive", False), ("real", True)), ("nonpositive", True)),
+        ((("extended_nonpositive", True), ("finite", True)), ("nonpositive", True)),
+        ((("extended_nonzero", True), ("finite", True)), ("nonzero", True)),
+        ((("even", False), ("integer", True)), ("odd", True)),
+        ((("composite", False), ("even", True), ("prime", False)), ("positive", False)),
+        ((("negative", False), ("real", True), ("zero", False)), ("positive", True)),
+        ((("nonnegative", True), ("nonzero", True)), ("positive", True)),
+        ((("extended_positive", True), ("finite", True)), ("positive", True)),
+        ((("composite", False), ("even", True), ("positive", True)), ("prime", True)),
+        ((("negative", False), ("positive", False), ("zero", False)), ("real", False)),
+        ((("extended_real", True), ("infinite", False)), ("real", True)),
+        ((("extended_real", True), ("finite", True)), ("real", True)),
+        ((("algebraic", False), ("complex", True)), ("transcendental", True)),
+        ((("extended_negative", False), ("extended_positive", False), ("extended_real", True)), ("zero", True)),
+        ((("negative", False), ("positive", False), ("real", True)), ("zero", True)),
+        ((("extended_nonnegative", True), ("extended_nonpositive", True)), ("zero", True)),
+        ((("nonnegative", True), ("nonpositive", True)), ("zero", True)),
+    )
+    rules.extend(domain_rules)
+    changed = True
+    while changed:
+        changed = False
+        _charge_nested_if_active(len(rules))
+        for premises, (name, truth) in rules:
+            if not all(facts.get(key) is value for key, value in premises):
+                continue
+            if name in facts and facts[name] is not truth:
+                raise ValueError("inconsistent undefined-function assumptions")
+            if name not in facts:
+                facts[name] = truth
+                changed = True
+    return facts
+
+
+def _freeze_function_option(value, depth=0, remaining=None):
+    """Bounded immutable metadata identity, without invoking user hooks."""
+    if remaining is None:
+        remaining = [4096]
+    remaining[0] -= 1
+    if depth > 8 or remaining[0] < 0:
+        raise ValueError("undefined-function metadata exceeds its work/depth limit")
+    if type(value) in (type(None), bool, int, str, bytes):
+        if (type(value) in (str, bytes) and len(value) > 4096
+                or type(value) is int and value.bit_length() > 4096):
+            raise ValueError("undefined-function metadata exceeds its size limit")
+        return (type(value).__name__, value)
+    if type(value) is tuple and len(value) <= 64:
+        return ("tuple", tuple(_freeze_function_option(item, depth + 1, remaining) for item in value))
+    raise NotImplementedError("undefined-function metadata requires bounded immutable built-in values")
+
+
+def _undefined_function_options(options):
+    if len(options) > 64:
+        raise ValueError("undefined-function declaration exceeds its option limit")
+    assumptions, metadata, original = {}, {}, {}
+    arities = None
+    arity_list = False
+    for key, value in options.items():
+        # A str subclass can override hashing/equality. Declaration tokens
+        # must retain plain strings so later structural operations run no
+        # callbacks from names supplied during construction.
+        key = str.__str__(key)
+        if len(key) > 256:
+            raise ValueError("undefined-function option name exceeds its length limit")
+        if key in _FUNCTION_ASSUMPTIONS:
+            if key == "commutative" and value is None:
+                raise ValueError("commutativity must be True or False")
+            if value is not None:
+                if type(value) not in (bool, int, float, str, bytes, tuple, list, dict, set, frozenset):
+                    raise TypeError("undefined-function assumptions require built-in truth flags")
+                assumptions[key] = _canonical_assumption_value(value)
+            original[key] = None if value is None else assumptions[key]
+        elif key == "nargs":
+            if value is None:
+                metadata[key] = None
+                original[key] = None
+                continue
+            sequence = value if type(value) in (tuple, list) else (value,)
+            if not sequence or len(sequence) > 64:
+                raise ValueError("nargs requires one through 64 declared arities; use 0 for no arguments")
+            numbers = []
+            for item in sequence:
+                if type(item) is int:
+                    numbers.append(item)
+                elif type(item) in (Integer, Zero, One, NegativeOne):
+                    numbers.append(item.p)
+                else:
+                    raise ValueError("nargs requires exact integer arities")
+            # Arity-set normalization must not erase the declaration: 2,
+            # (2,), (2, 2) and [2] define different functions in SymPy 1.14.
+            metadata[key] = tuple(numbers) if type(value) in (tuple, list) else numbers[0]
+            arity_list = type(value) is list
+            arities = tuple(sorted(set(numbers)))
+            original[key] = metadata[key]
+        else:
+            if (key.startswith("_") or key.startswith("is_")
+                    or any(key in base.__dict__ for base in Function.__mro__)):
+                raise NotImplementedError("undefined-function options cannot replace implementation attributes")
+            _freeze_function_option(value)
+            metadata[key] = value
+            original[key] = value
+    facts = _function_assumption_closure(assumptions)
+    # Implied commutativity is a class property, not a defining option;
+    # an explicitly supplied commutative declaration remains observable.
+    declared = {name: truth for name, truth in facts.items()
+                if name != "commutative" or name in assumptions}
+    normalized = tuple(sorted({**metadata, **declared}.items()))
+    identity = tuple((name, ("list", _freeze_function_option(value))
+                      if name == "nargs" and arity_list else _freeze_function_option(value))
+                     for name, value in normalized)
+    original = tuple(sorted(original.items()))
+    cache_identity = tuple((name, ("list", _freeze_function_option(value))
+                            if name == "nargs" and arity_list else _freeze_function_option(value))
+                           for name, value in original)
+    return arities, facts, normalized, identity, arity_list, original, cache_identity
+
+
+def _undefined_function_semantic_identity(cls, *, require_hashable=False):
+    """Immutable shell equality token for a genuine factory declaration.
+
+    This never identifies a native term or grants native admission. Arbitrary
+    class bodies cannot acquire it by copying names or private attributes.
+    """
+    record = _undefined_function_records.get(id(cls))
+    if record is None or record[0] is not cls:
+        return None
+    if require_hashable and record[4]:
+        raise TypeError("unhashable type: 'list'")
+    return record[1], record[2]
 
 
 class UndefinedFunction(FunctionClass):
     """Metaclass/callable for undefined functions like Function('f')."""
 
-    def __new__(mcls, name: str, bases=(AppliedUndef,), namespace=None):
-        if name in _undefined_functions:
-            return _undefined_functions[name]
-        if namespace is None:
-            namespace = {}
+    def __new__(mcls, name: str, bases=(AppliedUndef,), namespace=None, **options):
+        if namespace is not None or bases != (AppliedUndef,) or mcls is not UndefinedFunction:
+            # A Python class body is never an undefined-function factory cache
+            # hit, even if its name matches an earlier factory declaration.
+            namespace = {} if namespace is None else dict(namespace)
+            if "nargs" in namespace:
+                namespace["_nargs"] = _undefined_function_options({"nargs": namespace.pop("nargs")})[0]
+            return super().__new__(mcls, name, bases, namespace, **options)
+        if not isinstance(name, str):
+            raise TypeError("Function name must be a string")
+        name = str.__str__(name)
+        arities, facts, normalized, identity, arity_list, original, cache_identity = _undefined_function_options(options)
+        key = (name, cache_identity)
+        cached = _undefined_functions.get(key)
+        if cached is not None:
+            return cached
+        namespace = {key: value for key, value in normalized if key not in _FUNCTION_ASSUMPTIONS}
+        namespace.pop("nargs", None)
+        kwargs = dict(normalized)
+        if arity_list:
+            kwargs["nargs"] = list(kwargs["nargs"])
+        namespace.update({"is_" + key: value for key, value in facts.items()})
+        namespace.update({
+            "_nargs": arities, "_kwargs": kwargs,
+            "_undefined_function_options": normalized,
+            "_undefined_function_identity": identity,
+            "_undefined_function_arity_list": arity_list,
+        })
         cls = super().__new__(mcls, name, bases, namespace)
         cls.__module__ = "sympy.core.function"
-        _undefined_functions[name] = cls
+        _undefined_functions[key] = cls
+        _undefined_function_records[id(cls)] = (cls, name, identity, normalized, arity_list)
         return cls
+
+    @property
+    def nargs(cls):
+        arities = getattr(cls, "_nargs", None)
+        if arities is None:
+            return S.Naturals0
+        from ..sets.sets import FiniteSet
+
+        return FiniteSet(*arities)
 
     def __repr__(cls) -> str:
         return cls.__name__
 
     def __eq__(cls, other: object) -> bool:
-        return type(other) is UndefinedFunction and cls.__name__ == other.__name__
+        return (type(other) is UndefinedFunction and cls.__name__ == other.__name__
+                and getattr(cls, "_undefined_function_identity", ())
+                == getattr(other, "_undefined_function_identity", ()))
 
     def __hash__(cls) -> int:
-        return hash(("UndefinedFunction", cls.__name__))
+        if getattr(cls, "_undefined_function_arity_list", False):
+            raise TypeError("unhashable type: 'list'")
+        return hash(("UndefinedFunction", cls.__name__,
+                     getattr(cls, "_undefined_function_identity", ())))
+
+
+def _restore_undefined_function(name, options, arity_list=False):
+    kwargs = dict(options)
+    if arity_list:
+        kwargs["nargs"] = list(kwargs["nargs"])
+    return Function(name, **kwargs)
+
+
+def _reduce_undefined_function(cls):
+    record = _undefined_function_records.get(id(cls))
+    if record is None or record[0] is not cls:
+        # Preserve standard global-reference pickling for user subclasses.
+        # Local classes still produce the ordinary pickle lookup failure.
+        return cls.__qualname__
+    return _restore_undefined_function, (
+        record[1], record[3], record[4],
+    )
+
+
+copyreg.pickle(UndefinedFunction, _reduce_undefined_function)
 
 
 def _restore_applied_undef(name: str, args: tuple[Any, ...]) -> AppliedUndef:

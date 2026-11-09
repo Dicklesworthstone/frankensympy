@@ -281,6 +281,15 @@ def _key(value, *, names=False):
             raise ValueError("opaque arithmetic structural work exceeds its limit")
 
     def label(cls):
+        from . import _undefined_function_semantic_identity
+
+        declaration = _undefined_function_semantic_identity(cls)
+        if declaration is not None:
+            # Distinct factory calls may define equal undefined functions
+            # (e.g. real=True with an explicitly redundant finite=True).
+            # Preserve both Python classes while comparing their immutable
+            # declarations. This does not change exact-class native admission.
+            return ("undefined", declaration)
         # Class addresses are local equality keys only. They never cross into
         # native storage, serialization, receipts, or stable term identities.
         return _NAME.__get__(cls) if names else id(cls)
@@ -354,7 +363,11 @@ def _key(value, *, names=False):
 
 def surface_equal(left, right):
     if type(left) is not type(right):
-        return False
+        from . import _undefined_function_semantic_identity
+
+        declaration = _undefined_function_semantic_identity(type(left))
+        if declaration is None or declaration != _undefined_function_semantic_identity(type(right)):
+            return False
     contains_opaque(left)
     contains_opaque(right)
     _admit_source((left, right), check_identity=True)

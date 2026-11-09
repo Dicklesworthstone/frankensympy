@@ -1549,7 +1549,11 @@ print(json.dumps({
         self.assertEqual(sympy.cos(0), sympy.Integer(1))
         self.assertEqual(sympy.exp(0), sympy.Integer(1))
         self.assertEqual(sympy.log(1), sympy.Integer(0))
-        self.assertEqual(sympy.sin(x).func, sympy.Function("sin"))
+        # SymPy 1.14 distinguishes an intrinsic from a same-named undefined
+        # function: Function("sin")(0) remains an unevaluated application.
+        self.assertIs(sympy.sin(x).func, sympy.sin)
+        self.assertIsNot(sympy.Function("sin"), sympy.sin)
+        self.assertEqual(sympy.Function("sin")(0).args, (sympy.Integer(0),))
         self.assertEqual(sympy.sin(x).args, (x,))
 
     def test_matrix_surface_operations(self):
