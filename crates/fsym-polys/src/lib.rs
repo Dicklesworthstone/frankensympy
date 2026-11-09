@@ -16,10 +16,12 @@ pub mod finite_field_evaluation;
 pub mod finite_field_fglm;
 pub mod finite_field_groebner;
 pub mod finite_field_ideal;
+pub mod finite_field_ideal_inverse;
 pub mod finite_field_ideal_quotient;
 pub mod finite_field_multivariate;
 pub mod finite_field_multivariate_source;
 pub mod finite_field_quotient_algebra;
+pub mod finite_field_quotient_minpoly;
 pub mod finite_field_recursive_division;
 mod finite_field_resultant;
 pub mod finite_field_source;
@@ -57,6 +59,7 @@ pub use finite_field_groebner::{
     verify_prime_field_groebner_certificate,
 };
 pub use finite_field_ideal::*;
+pub use finite_field_ideal_inverse::*;
 pub use finite_field_ideal_quotient::*;
 pub use finite_field_multivariate::*;
 pub use finite_field_multivariate_source::{
@@ -64,6 +67,7 @@ pub use finite_field_multivariate_source::{
     verify_prime_field_multivariate_source,
 };
 pub use finite_field_quotient_algebra::*;
+pub use finite_field_quotient_minpoly::*;
 pub use finite_field_recursive_division::{
     PrimeFieldRecursiveDivisionCertificate, VerifiedPrimeFieldRecursiveDivision,
     bounded_prime_field_recursive_division_certificate, checked_prime_field_recursive_division,
