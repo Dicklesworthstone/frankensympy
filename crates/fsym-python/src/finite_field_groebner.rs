@@ -11,15 +11,18 @@ use crate::finite_field_multivariate::{lift, monomial_cmp, order, symbols};
 use crate::finite_field_polynomial::{budget, charge, polynomial_error, source_error};
 use crate::to_value_error;
 use fsym_budget::{Budget, BudgetMeter};
-use fsym_core::Symbol;
+use fsym_core::{Expr, Symbol};
 use fsym_polys::{
-    PrimeFieldMultivariatePolynomial as Polynomial, checked_prime_field_groebner_basis,
-    checked_prime_field_groebner_reduction, checked_prime_field_multivariate_source,
+    PrimeFieldMultivariatePolynomial as Polynomial, checked_prime_field_fglm,
+    checked_prime_field_groebner_basis, checked_prime_field_groebner_reduction,
+    checked_prime_field_multivariate_source, checked_prime_field_quotient_multiplication,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use std::collections::BTreeMap;
+
+type QuotientMultiplicationParts = (Vec<PyExpr>, Vec<Vec<PyExpr>>);
 
 pub(crate) fn admit_sources(
     sources: &Bound<'_, PyList>,
@@ -225,10 +228,174 @@ pub fn prime_field_groebner_zero_dimensional_native(
     Ok(result)
 }
 
+/// Convert a checked original ideal through its finite quotient in F_p.
+/// A same-order call still verifies that the current source is a complete
+/// reduced basis before the shell may return the original public object.
+#[pyfunction]
+#[pyo3(signature = (sources, variables, prime, source_order, target_order, symmetric=true, source_variables=None))]
+pub fn prime_field_groebner_fglm_native(
+    sources: &Bound<'_, PyList>,
+    variables: &Bound<'_, PyList>,
+    prime: u64,
+    source_order: &str,
+    target_order: &str,
+    symmetric: bool,
+    source_variables: Option<&Bound<'_, PyList>>,
+) -> PyResult<Vec<PyExpr>> {
+    if sources.len() > 32 {
+        return Err(PyValueError::new_err(
+            "prime-field FGLM requires at most 32 source polynomials",
+        ));
+    }
+    let source_order = order(source_order)?;
+    let target_order = order(target_order)?;
+    let (mut generator, mut verifier) = (budget(), budget());
+    let variables = symbols(variables, &mut generator)?;
+    let zero = Polynomial::metered_new(&variables, prime, &BTreeMap::new(), &mut generator)
+        .map_err(polynomial_error)?;
+    let polynomials = admit_sources(
+        sources,
+        &variables,
+        prime,
+        source_variables,
+        &mut generator,
+        &mut verifier,
+    )?;
+    let output = if source_order == target_order {
+        checked_prime_field_groebner_reduction(
+            &zero,
+            &polynomials,
+            source_order,
+            &mut generator,
+            &mut verifier,
+        )
+        .map_err(polynomial_error)?;
+        polynomials
+    } else {
+        checked_prime_field_fglm(
+            &variables,
+            prime,
+            &polynomials,
+            source_order,
+            target_order,
+            &mut generator,
+            &mut verifier,
+        )
+        .map_err(polynomial_error)?
+        .into_basis()
+    };
+    charge(
+        &mut generator,
+        output.len() + 1,
+        (output.len() + 1) * std::mem::size_of::<PyExpr>(),
+    )?;
+    let mut lifted = Vec::with_capacity(output.len());
+    for polynomial in &output {
+        lifted.push(lift(polynomial, symmetric, &mut generator)?);
+    }
+    generator.checkpoint().map_err(to_value_error)?;
+    verifier.checkpoint().map_err(to_value_error)?;
+    Ok(lifted)
+}
+
+/// Return a complete quotient staircase and its multiplication operator.
+/// Sources are the element followed by every original ideal generator. Matrix
+/// entries are integer representatives of residues, never rational arithmetic.
+#[pyfunction]
+#[pyo3(signature = (sources, variables, prime, order="lex", symmetric=true, source_variables=None))]
+pub fn prime_field_quotient_multiplication_native(
+    sources: &Bound<'_, PyList>,
+    variables: &Bound<'_, PyList>,
+    prime: u64,
+    order: &str,
+    symmetric: bool,
+    source_variables: Option<&Bound<'_, PyList>>,
+) -> PyResult<QuotientMultiplicationParts> {
+    if !(1..=33).contains(&sources.len()) {
+        return Err(PyValueError::new_err(
+            "prime-field quotient multiplication requires one element and at most 32 ideal polynomials",
+        ));
+    }
+    let term_order = self::order(order)?;
+    let (mut generator, mut verifier) = (budget(), budget());
+    let variables = symbols(variables, &mut generator)?;
+    Polynomial::metered_new(&variables, prime, &BTreeMap::new(), &mut generator)
+        .map_err(polynomial_error)?;
+    let polynomials = admit_sources(
+        sources,
+        &variables,
+        prime,
+        source_variables,
+        &mut generator,
+        &mut verifier,
+    )?;
+    let accepted = checked_prime_field_quotient_multiplication(
+        &variables,
+        prime,
+        &polynomials[1..],
+        &polynomials[0],
+        term_order,
+        &mut generator,
+        &mut verifier,
+    )
+    .map_err(polynomial_error)?;
+    let dimension = accepted.standard_monomials().len();
+    if dimension > 64
+        || accepted.matrix().len() != dimension
+        || accepted.matrix().iter().any(|row| row.len() != dimension)
+    {
+        return Err(PyValueError::new_err(
+            "checked prime-field quotient multiplication has an invalid dimension",
+        ));
+    }
+    // Reserve every lifted row/cell before creating expression owners. All
+    // source, kernel, verifier and output work stays on the same phase meters.
+    charge(
+        &mut generator,
+        dimension * (variables.len() + dimension + 1) + 1,
+        dimension * (std::mem::size_of::<PyExpr>() + std::mem::size_of::<Vec<PyExpr>>())
+            + dimension * dimension * (std::mem::size_of::<PyExpr>() + 512),
+    )?;
+    let mut monomials = Vec::with_capacity(dimension);
+    for powers in accepted.standard_monomials() {
+        charge(
+            &mut generator,
+            variables.len() + 1,
+            powers.len() * std::mem::size_of::<u32>() + 128,
+        )?;
+        let terms = BTreeMap::from([(powers.clone(), 1)]);
+        let polynomial = Polynomial::metered_new(&variables, prime, &terms, &mut generator)
+            .map_err(polynomial_error)?;
+        monomials.push(lift(&polynomial, symmetric, &mut generator)?);
+    }
+    let mut matrix = Vec::with_capacity(dimension);
+    for row in accepted.matrix() {
+        generator.checkpoint().map_err(to_value_error)?;
+        let mut values = Vec::with_capacity(dimension);
+        for &value in row {
+            let value = if symmetric && value > prime / 2 {
+                value as i64 - prime as i64
+            } else {
+                value as i64
+            };
+            values.push(PyExpr::from_expr(Expr::from_i64(value)));
+        }
+        matrix.push(values);
+    }
+    generator.checkpoint().map_err(to_value_error)?;
+    verifier.checkpoint().map_err(to_value_error)?;
+    Ok((monomials, matrix))
+}
+
 pub fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(prime_field_groebner_native, module)?)?;
     module.add_function(wrap_pyfunction!(
         prime_field_groebner_zero_dimensional_native,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(prime_field_groebner_fglm_native, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        prime_field_quotient_multiplication_native,
         module
     )?)?;
     Ok(())

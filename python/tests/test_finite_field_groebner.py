@@ -462,12 +462,22 @@ def test_effectful_poly_storage_is_refused_before_retained_field_dispatch(monkey
     assert calls == []
 
 
-def test_unsupported_ideal_operations_do_not_reinterpret_a_prime_field_as_rationals():
+def test_ideal_operations_do_not_reinterpret_a_prime_field_as_rationals(monkeypatch):
+    from sympy.core import _native
+
     x, y = sp.symbols("x y")
     basis = sp.groebner([x + y, y**2 - 1], x, y, modulus=5)
-    for operation in (lambda: basis.fglm("grlex"),
-                      lambda: basis.invert(y), lambda: basis.multiplication_matrix(y),
-                      lambda: basis.minpoly(y)):
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("prime-field ideal operation entered the rational kernel")
+
+    for name in ("groebner_fglm_native", "quotient_multiplication_native",
+                 "ideal_inverse_native", "quotient_minimal_polynomial_native"):
+        monkeypatch.setattr(_native, name, forbidden)
+    assert basis.fglm("grlex").exprs == [y**2-1, x+y]
+    assert basis.quotient_basis() == (1, y)
+    assert basis.multiplication_matrix(y) == sp.Matrix([[0, 1], [1, 0]])
+    for operation in (lambda: basis.invert(y), lambda: basis.minpoly(y)):
         with pytest.raises(NotImplementedError):
             operation()
 

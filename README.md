@@ -503,6 +503,38 @@ constant-field basis with `gens == ()`: for example,
 the original polynomial has no roots in GF(3). Constant-field results support
 membership, reduction and further ideal operations.
 
+Finite-dimensional prime-field quotients also support `fglm(order)`,
+`quotient_basis()`, and `multiplication_matrix(element)`. FGLM converts among
+`lex`, `grlex`, and `grevlex` through exact modular linear algebra; both ideal
+inclusions and every target S-pair are checked before publication. The complete
+standard-monomial basis and every multiplication-matrix column are checked
+independently. Repeated roots and nilpotent directions remain present:
+
+```python
+from sympy import Matrix
+
+graded = groebner([x*y - 1, y**2 - x], x, y, modulus=3, order="grevlex")
+lex = graded.fglm("lex")
+assert lex.exprs == [x - y**2, y**3 - 1]
+assert lex.quotient_basis() == (1, y, y**2)
+assert lex.multiplication_matrix(y) == Matrix([
+    [0, 0, 1],
+    [1, 0, 0],
+    [0, 1, 0],
+])
+```
+
+Here `y**3 - 1 == (y - 1)**3` in characteristic three: the quotient has
+dimension three even though there is only one distinct root. Matrices use
+integer residue representatives under the basis's `symmetric` policy; ordinary
+`Matrix` arithmetic must subsequently be reduced modulo `p` to retain that
+field interpretation. Quotient dimension is bounded by 64. The unit ideal
+returns an empty monomial basis and a 0-by-0 matrix; the explicit constant
+field's zero ideal returns `(1,)`. Positive-dimensional quotients refuse
+order changes or finite operator construction. A same-order `fglm` request
+checks the current source and returns the original object, including for
+positive-dimensional ideals.
+
 Intersection and saturation introduce one auxiliary variable, which counts
 toward the eight-variable bound. Their constructed inputs count toward the
 32-polynomial limit, so intersection admits at most 32 combined generators
@@ -512,7 +544,7 @@ original variables and 31 numerator generators. An empty or all-zero divisor
 ideal yields the unit ideal after both original source lists pass admission,
 including unused declared polynomial coordinates. Intermediate intersections
 remain bounded by 32 combined generators. The degree bound applies after the
-auxiliary construction. FGLM and syzygies over prime fields remain unsupported.
+auxiliary construction. Syzygies over prime fields remain unsupported.
 
 The lane admits primes through 65521, total degree at most 64, up to 4096 sparse
 terms, and at most 32 basis polynomials or ordered divisors. Original source expressions and

@@ -388,7 +388,6 @@ fn ring_and_characteristic_validation_precede_constant_shortcuts() {
     }
     let many: Vec<_> = (0..9).map(|i| Symbol::new(format!("x{i}"))).collect();
     for ring in [
-        Vec::new(),
         vec![generators[0].clone(), generators[0].clone()],
         many,
         vec![Symbol::new("x".repeat(65_537))],
@@ -399,6 +398,112 @@ fn ring_and_characteristic_validation_precede_constant_shortcuts() {
                 &ring,
                 5,
                 &mut Unbounded,
+                &mut Unbounded,
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
+fn explicit_constant_fields_preserve_original_sources_and_exact_residues() {
+    // An empty ordered generator list denotes F_p, rather than an invalid
+    // polynomial ring. Elimination and complete evaluation both reach it.
+    for prime in [2, 3, 5, 7, 65_521] {
+        for value in [0i64, 1, -1, 13, -13, 65_521] {
+            let source = integer(value);
+            let residue = value.rem_euclid(prime as i64) as u64;
+            let expected = if residue == 0 {
+                PrimeFieldMultivariateTerms::new()
+            } else {
+                PrimeFieldMultivariateTerms::from([(Vec::new(), residue)])
+            };
+            let accepted = checked_prime_field_multivariate_source(
+                &source,
+                &[],
+                prime,
+                &mut Unbounded,
+                &mut Unbounded,
+            )
+            .unwrap();
+            assert_eq!(accepted.source(), &source);
+            assert!(accepted.polynomial().generators().is_empty());
+            assert_eq!(accepted.polynomial().prime(), prime);
+            assert_eq!(accepted.polynomial().terms(), &expected);
+            // Independently supplied coefficient data, not generator output.
+            let witness = candidate(&[], prime, &expected);
+            assert!(
+                verify_prime_field_multivariate_source(
+                    &source,
+                    &[],
+                    prime,
+                    &witness,
+                    &mut Unbounded,
+                )
+                .is_ok()
+            );
+        }
+    }
+    let cancelled_denominator = Expr::Mul(vec![integer(5), power(integer(5), -1)]);
+    assert_eq!(
+        reduce(&cancelled_denominator, &[], 5),
+        PrimeFieldMultivariateTerms::from([(Vec::new(), 1)]),
+    );
+}
+
+#[test]
+fn constant_field_admission_checks_hidden_children_and_nonintegral_coefficients() {
+    let undeclared = Expr::Sym(Symbol::new("x"));
+    for source in [
+        undeclared.clone(),
+        Expr::Mul(vec![integer(0), undeclared.clone()]),
+        power(undeclared, 0),
+        power(integer(0), -1),
+        Expr::Mul(vec![integer(0), power(integer(0), -1)]),
+        Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2))),
+    ] {
+        refused(&source, &[]);
+    }
+    let zero = candidate(&[], 5, &PrimeFieldMultivariateTerms::new());
+    for prime in [0, 1, 4, 9, 65_523, u64::MAX] {
+        assert!(
+            checked_prime_field_multivariate_source(
+                &integer(0),
+                &[],
+                prime,
+                &mut Unbounded,
+                &mut Unbounded,
+            )
+            .is_err()
+        );
+        assert!(
+            verify_prime_field_multivariate_source(
+                &integer(0),
+                &[],
+                prime,
+                &zero,
+                &mut Unbounded,
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
+fn constant_field_verification_binds_every_coefficient_and_the_complete_ring() {
+    let source = integer(7);
+    for witness in [
+        candidate(&[], 5, &PrimeFieldMultivariateTerms::new()),
+        candidate(&[], 5, &PrimeFieldMultivariateTerms::from([(vec![], 3)])),
+        candidate(&[], 7, &PrimeFieldMultivariateTerms::new()),
+        candidate(&xy(), 5, &PrimeFieldMultivariateTerms::from([(vec![0, 0], 2)])),
+    ] {
+        assert!(
+            verify_prime_field_multivariate_source(
+                &source,
+                &[],
+                5,
+                &witness,
                 &mut Unbounded,
             )
             .is_err()

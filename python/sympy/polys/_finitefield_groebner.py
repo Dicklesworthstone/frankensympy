@@ -376,6 +376,86 @@ def contains(basis, expression):
     return _reduction(basis, expression, False)[1] == Integer(0)
 
 
+def _unchanged(state, request, retained):
+    state.unchanged()
+    request.unchanged()
+    retained.unchanged()
+
+
+def fglm(basis, order):
+    """Convert over the retained field without reinterpreting it over QQ."""
+    state = _BasisState(basis)
+    if type(order) is not str or order not in ("lex", "grlex", "grevlex"):
+        raise ValueError("prime-field monomial order must be lex, grlex, or grevlex")
+    request, retained = state.request()
+    try:
+        raw = _native.prime_field_groebner_fglm_native(
+            request.raw, request.bindings, state.prime, state.order, order,
+            state.symmetric, request.source_bindings)
+    except _native.PrimeFieldCoefficientError as error:
+        from .polyerrors import CoercionFailed
+        raise CoercionFailed("prime-field Groebner coefficients must be integers") from error
+    _unchanged(state, request, retained)
+    if order == state.order:
+        # Upstream returns the original object in this case. Admission and
+        # current-basis verification above remain mandatory, including for
+        # positive-dimensional ideals and sources modified after construction.
+        return basis
+    values = []
+    for value in raw:
+        values.append(_lift_native_result(value, *request.context))
+        _unchanged(state, request, retained)
+    result = GroebnerBasis(values, state.gens, "GF(%d)" % state.prime, order)
+    result._modulus = state.prime
+    result._symmetric = state.symmetric
+    result._polys = state.polynomial_output
+    _unchanged(state, request, retained)
+    return result
+
+
+def _quotient_operator_data(basis, element):
+    state = _BasisState(basis)
+    request, retained = state.request((element,))
+    try:
+        monomials, rows = _native.prime_field_quotient_multiplication_native(
+            request.raw, request.bindings, state.prime, state.order,
+            state.symmetric, request.source_bindings)
+    except _native.PrimeFieldCoefficientError as error:
+        from .polyerrors import CoercionFailed
+        raise CoercionFailed("prime-field quotient coefficients must be integers") from error
+    _unchanged(state, request, retained)
+    dimension = len(monomials)
+    if (dimension > 64 or len(rows) != dimension
+            or any(len(row) != dimension for row in rows)):
+        raise ValueError("checked prime-field quotient multiplication has an invalid dimension")
+    return state, request, retained, monomials, rows
+
+
+def quotient_basis(basis):
+    """Return every standard monomial, retaining all nilpotent directions."""
+    state, request, retained, monomials, _ = _quotient_operator_data(basis, Integer(0))
+    result = []
+    for value in monomials:
+        result.append(_lift_native_result(value, *request.context))
+        _unchanged(state, request, retained)
+    return tuple(result)
+
+
+def multiplication_matrix(basis, element):
+    """Lift the verified operator's residues using the basis's signed policy."""
+    from ..matrices import Matrix
+
+    state, request, retained, monomials, rows = _quotient_operator_data(basis, element)
+    entries = []
+    for row in rows:
+        for value in row:
+            entries.append(_lift_native_result(value, *request.context))
+            _unchanged(state, request, retained)
+    result = Matrix(len(monomials), len(monomials), entries)
+    _unchanged(state, request, retained)
+    return result
+
+
 def unsupported(basis, *args, **kwargs):
     raise NotImplementedError(
         "this ideal operation is not implemented over prime fields")
