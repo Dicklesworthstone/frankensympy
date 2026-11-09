@@ -99,7 +99,8 @@ pub struct NewtonGuards {
     pub max_iterations: usize,
     /// Converge when the residual infinity-norm drops below this bound.
     pub residual_tolerance: f64,
-    /// Refuse when the step infinity-norm exceeds this (divergence guard).
+    /// Maximum step infinity norm. Dense Newton refuses a larger direction;
+    /// the explicit sparse backend clips it before bounded line search.
     pub max_step_norm: f64,
 }
 
