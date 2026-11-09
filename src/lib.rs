@@ -14,11 +14,18 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Machine-readable implementation status for the current crate.
 pub const IMPLEMENTATION_STATUS: &str = "implemented_uncertified";
 
+pub mod artifact_stream;
 pub mod certification;
 pub mod certification_session;
 pub mod isolation_transport;
 pub mod session;
 
+pub use artifact_stream::{
+    ARTIFACT_CHUNK_BYTES, ARTIFACT_STREAM_SCHEMA_VERSION, ArtifactChunk, ArtifactContentId,
+    ArtifactExport, ArtifactImport, ArtifactKind, ArtifactManifest, ArtifactProgress,
+    ArtifactTransferError, ArtifactTransferId, MAX_ARTIFACT_BYTES, artifact_chunk_digest,
+    artifact_content_id,
+};
 pub use certification::{
     CertificationError, ResidualProblem, export_root_certificate, replay_root_certificate,
 };
