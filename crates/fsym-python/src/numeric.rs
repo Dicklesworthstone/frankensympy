@@ -19,8 +19,10 @@ use fsym_calculus::VerifiedResidualSystem;
 use fsym_calculus::compile::{CompiledExpr, EvalError, MAX_COMPILE_DEPTH, MAX_COMPILE_NAME_BYTES};
 use fsym_calculus::parametric_cover::{ParametricRootCoverOptions, propose_parametric_root_cover};
 use fsym_calculus::root_isolation::{RootIsolationOptions, propose_root_isolation};
-use fsym_calculus::sparse_jacobian::compiled_expression_matches;
-use fsym_calculus::verified::{MAX_VERIFIED_ARTIFACT_BYTES, VerifiedArtifactError};
+use fsym_calculus::sparse_jacobian::{compiled_expression_matches, plan_sparse_sources};
+use fsym_calculus::verified::{
+    MAX_VERIFIED_ARTIFACT_BYTES, ResidualEvaluationError, VerifiedArtifactError,
+};
 use fsym_core::{
     BigRational, Expr, ParametricRootBoxReceipt, ParametricRootBoxWitness,
     ParametricRootCoverReceipt, ParametricSensitivityReceipt, RealBall, ResidualJacobianEnclosure,
@@ -1424,7 +1426,11 @@ impl PyVerifiedResidualSystem {
         for residual in residuals {
             check_source(residual, &mut source_nodes)?;
         }
-        if source_nodes.saturating_mul(variables.len().max(1)) > MAX_TOTAL_OPS {
+        let source_plan =
+            plan_sparse_sources(residuals, variables).map_err(crate::to_value_error)?;
+        if source_plan.source_nodes > MAX_SOURCE_NODES
+            || source_plan.differentiation_units > MAX_TOTAL_OPS
+        {
             return Err(PyValueError::new_err(
                 "verified system exceeds the differentiation work limit",
             ));
@@ -1433,14 +1439,7 @@ impl PyVerifiedResidualSystem {
     }
 
     fn admit(system: VerifiedResidualSystem) -> PyResult<Self> {
-        let compiled = system.compiled();
-        let operations: usize = compiled
-            .compiled_residuals
-            .iter()
-            .chain(&compiled.compiled_jacobian)
-            .map(|program| program.ops().len())
-            .sum();
-        if operations > MAX_TOTAL_OPS {
+        if system.stored_operation_count() > MAX_TOTAL_OPS {
             return Err(PyValueError::new_err(
                 "verified numeric system exceeds the total operation limit",
             ));
@@ -1459,12 +1458,15 @@ impl PyVerifiedResidualSystem {
         &self,
         inputs: &[f64],
         meter: &mut impl BudgetMeter,
-    ) -> Result<ResidualValues, EvalError> {
-        let compiled = self.system.compiled();
-        let residuals = evaluate_programs(&compiled.compiled_residuals, inputs, meter)?;
-        let jacobian = evaluate_programs(&compiled.compiled_jacobian, inputs, meter)?;
-        let rows = jacobian_rows(&jacobian, compiled.num_residuals, compiled.num_vars, meter)?;
-        Ok((residuals, rows))
+    ) -> Result<ResidualValues, ResidualEvaluationError> {
+        let result = self.system.try_eval_dense_with_meter(inputs, meter)?;
+        let rows = jacobian_rows(
+            &result.jacobian,
+            self.system.num_residuals(),
+            self.system.num_vars(),
+            meter,
+        )?;
+        Ok((result.residuals, rows))
     }
 }
 
@@ -1573,10 +1575,9 @@ impl PyVerifiedResidualSystem {
         if sparse {
             if !(1..=MAX_SPARSE_LEAST_SQUARES_VARIABLES).contains(&variables)
                 || !(1..=MAX_SPARSE_LEAST_SQUARES_RESIDUALS).contains(&residuals)
-                || variables.saturating_mul(residuals) > MAX_TOTAL_OPS
             {
                 return Err(PyValueError::new_err(
-                    "sparse least squares requires 1..=256 variables, 1..=4096 residuals and at most 65536 Jacobian positions",
+                    "sparse least squares requires 1..=256 variables and 1..=4096 residuals",
                 ));
             }
         } else if !(1..=MAX_CONSUMER_VARIABLES).contains(&variables)
@@ -1907,8 +1908,10 @@ impl PyVerifiedResidualSystem {
         values: &Bound<'_, PyAny>,
         budget: Option<PyRef<'_, PyEvaluationBudget>>,
     ) -> PyResult<ResidualValues> {
-        let compiled = self.system.compiled();
-        let inputs = input_values_metered(values, compiled.num_vars, budget.as_deref())?;
+        self.system
+            .dense_jacobian_len()
+            .map_err(crate::to_value_error)?;
+        let inputs = input_values_metered(values, self.system.num_vars(), budget.as_deref())?;
         with_evaluation_meter(values.py(), budget.as_deref(), |meter| {
             self.evaluate_values(&inputs, meter)
         })
@@ -1986,15 +1989,18 @@ impl PyVerifiedResidualSystem {
         rows: &Bound<'_, PyAny>,
         budget: Option<PyRef<'_, PyEvaluationBudget>>,
     ) -> PyResult<Vec<ResidualValues>> {
-        let compiled = self.system.compiled();
-        let outputs = compiled.num_residuals.saturating_mul(compiled.num_vars + 1);
-        let inputs = batch_inputs(rows, compiled.num_vars, outputs, budget.as_deref())?;
+        self.system
+            .dense_jacobian_len()
+            .map_err(crate::to_value_error)?;
+        let variables = self.system.num_vars();
+        let outputs = self.system.num_residuals().saturating_mul(variables + 1);
+        let inputs = batch_inputs(rows, variables, outputs, budget.as_deref())?;
         with_evaluation_meter(rows.py(), budget.as_deref(), |meter| {
             let mut results = evaluation_buffer(inputs.len(), meter)?;
             for values in &inputs {
                 results.push(self.evaluate_values(values, meter)?);
             }
-            Ok::<_, EvalError>(results)
+            Ok::<_, ResidualEvaluationError>(results)
         })
     }
 
@@ -2005,10 +2011,9 @@ impl PyVerifiedResidualSystem {
         values: &Bound<'_, PyAny>,
         budget: Option<PyRef<'_, PyEvaluationBudget>>,
     ) -> PyResult<Vec<f64>> {
-        let compiled = self.system.compiled();
-        let inputs = input_values_metered(values, compiled.num_vars, budget.as_deref())?;
+        let inputs = input_values_metered(values, self.system.num_vars(), budget.as_deref())?;
         with_evaluation_meter(values.py(), budget.as_deref(), |meter| {
-            evaluate_programs(&compiled.compiled_residuals, &inputs, meter)
+            evaluate_programs(self.system.residual_programs(), &inputs, meter)
         })
     }
 
@@ -2019,26 +2024,27 @@ impl PyVerifiedResidualSystem {
         values: &Bound<'_, PyAny>,
         budget: Option<PyRef<'_, PyEvaluationBudget>>,
     ) -> PyResult<Vec<Vec<f64>>> {
-        let compiled = self.system.compiled();
-        let inputs = input_values_metered(values, compiled.num_vars, budget.as_deref())?;
+        self.system
+            .dense_jacobian_len()
+            .map_err(crate::to_value_error)?;
+        let inputs = input_values_metered(values, self.system.num_vars(), budget.as_deref())?;
         // Derivatives can erase source-domain restrictions (including a held
         // zero times log(x)). Admit every original residual before publishing
         // a derivative-only result.
         with_evaluation_meter(values.py(), budget.as_deref(), |meter| {
-            evaluate_programs(&compiled.compiled_residuals, &inputs, meter)?;
-            let flat = evaluate_programs(&compiled.compiled_jacobian, &inputs, meter)?;
-            jacobian_rows(&flat, compiled.num_residuals, compiled.num_vars, meter)
+            self.evaluate_values(&inputs, meter)
+                .map(|(_, jacobian)| jacobian)
         })
     }
 
     #[getter]
     fn variable_count(&self) -> usize {
-        self.system.compiled().num_vars
+        self.system.num_vars()
     }
 
     #[getter]
     fn residual_count(&self) -> usize {
-        self.system.compiled().num_residuals
+        self.system.num_residuals()
     }
 
     /// Canonical structural nonzeros in residual-row and variable-column order.

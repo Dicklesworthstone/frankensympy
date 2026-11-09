@@ -42,6 +42,7 @@ EvaluationCancelled = _native.EvaluationCancelled
 _MAX_VARIABLES = 256
 _MAX_OUTPUTS = 4096
 _MAX_NODES = 65_536
+_MAX_DENSE_JACOBIAN_VALUES = 65_536
 _MAX_DEPTH = 64
 _MAX_CONTAINER_DEPTH = 32
 _MAX_LITERAL_BITS = 4096
@@ -722,8 +723,18 @@ class _ResidualCallable:
         """
         return self.native_system.to_bytes()
 
+    def _check_dense_output(self):
+        if (self.native_system.residual_count * self.native_system.variable_count
+                > _MAX_DENSE_JACOBIAN_VALUES):
+            raise ValueError("dense Jacobian output exceeds the 65536-value limit")
+
     def evaluate(self, *values, budget=None):
-        """Return residuals and Jacobian rows, sharing any supplied evaluation budget."""
+        """Return residuals and at most 65536 dense Jacobian values.
+
+        Oversized dense output refuses before converting inputs or consuming
+        an evaluation budget. Sparse evaluation and products remain available.
+        """
+        self._check_dense_output()
         _check_evaluation_budget(budget)
         return self.native_system.evaluate(
             _call_arguments(self._layout, values, native=True), budget=budget,
@@ -736,6 +747,7 @@ class _ResidualCallable:
         )
 
     def jacobian(self, *values, budget=None):
+        self._check_dense_output()
         _check_evaluation_budget(budget)
         return self.native_system.jacobian(
             _call_arguments(self._layout, values, native=True), budget=budget,
@@ -798,7 +810,11 @@ class _ResidualCallable:
         Each row is a list/tuple of positional arguments with the declared
         nesting. A supplied budget is cumulative across every row and both
         derivative stages; a later failure publishes no earlier row.
+        Each Jacobian has at most 65536 values, and the batch retains its
+        separate 262144 total input/output value limit. Both shape limits
+        refuse before input conversion or native buffer allocation.
         """
+        self._check_dense_output()
         _check_evaluation_budget(budget)
         size = self.native_system.variable_count
         outputs = self.native_system.residual_count * (size + 1)
@@ -865,9 +881,11 @@ class _ResidualCallable:
         Jacobian values, without constructing a dense Jacobian or normal
         matrix. It admits 1..256 variables and 1..4096 residuals, including
         underdetermined and rank-deficient systems. Existing compilation and
-        source bounds still apply: at most 65536 Jacobian positions, plus the
-        separate differentiation-work and total compiled-operation limits of
-        65536. A permitted shape can still exceed these source limits.
+        source bounds still apply: at most 65536 source nodes, stored residual
+        and structural-derivative operations, and differentiation-work units.
+        Work is bounded using each row's source nodes and declared dependencies,
+        so unused coordinates do not introduce dense compilation work.
+        A permitted shape can still exceed these source limits.
         There is no claim of a unique or minimum-norm solution.
 
         initial is a scalar for one variable or a flat built-in list/tuple
@@ -909,11 +927,9 @@ class _ResidualCallable:
         columns = self.native_system.variable_count
         rows = self.native_system.residual_count
         if backend == "sparse":
-            if (not 1 <= columns <= _MAX_VARIABLES or not 1 <= rows <= _MAX_OUTPUTS
-                    or columns * rows > _MAX_NODES):
+            if not 1 <= columns <= _MAX_VARIABLES or not 1 <= rows <= _MAX_OUTPUTS:
                 raise ValueError(
-                    "sparse least squares requires 1..256 variables, 1..4096 residuals "
-                    "and at most 65536 Jacobian positions"
+                    "sparse least squares requires 1..256 variables and 1..4096 residuals"
                 )
         elif not 1 <= columns <= 16 or not columns <= rows <= 64:
             raise ValueError(
@@ -1107,8 +1123,14 @@ def compile_residual_system(residuals, args):
     ``jacobian_pattern`` order. ``jacobian_vector_product`` and
     ``jacobian_transpose_vector_product`` apply the checked Jacobian without
     dense output. These paths retain every original-source and stored-derivative
-    domain check, including for zero directions or weights. Compilation retains
-    its existing source and dense-admission bounds.
+    domain check, including for zero directions or weights. Compilation stores
+    residual programs and structural derivatives without a dense Jacobian
+    mirror. Its public limits are 256 variables, 4096 residuals, 65536 source
+    nodes, 65536 stored operations and 65536 differentiation-work units.
+    A row contributes its source-node count times its number of distinct
+    declared dependencies, or once its node count when no variable occurs.
+    Dense ``evaluate``, ``jacobian`` and ``evaluate_batch`` separately refuse
+    Jacobians with more than 65536 values before converting numeric inputs.
     Approximate evaluation methods and products accept the same reusable
     ``EvaluationBudget`` as ``compile_numeric``.
     Compilation and symbolic proof admission are outside that ledger; the

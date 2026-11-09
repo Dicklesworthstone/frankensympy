@@ -24,13 +24,10 @@ fn restored_proof_bundle_drives_both_consumers_and_independent_root_certificates
     let saved = original.to_json_bytes().unwrap();
     let restored = VerifiedResidualSystem::from_json_bytes(&saved).unwrap();
     assert_eq!(original.sparse_jacobian(), restored.sparse_jacobian());
+    assert_eq!(original.residual_programs(), restored.residual_programs());
     assert_eq!(
-        original.compiled().compiled_residuals,
-        restored.compiled().compiled_residuals
-    );
-    assert_eq!(
-        original.compiled().compiled_jacobian,
-        restored.compiled().compiled_jacobian
+        original.try_dense_program().unwrap().compiled_jacobian,
+        restored.try_dense_program().unwrap().compiled_jacobian
     );
 
     let newton = newton_refine_root_box_2x2(
@@ -80,8 +77,8 @@ fn tiny_residual_of_a_system_without_roots_does_not_become_a_root_proof() {
     let system = VerifiedResidualSystem::try_compile(&equations, &variables).unwrap();
     // exp(-40) is below the floating stopping tolerance, although exp(x)
     // has no real zero. The interval theorem must reject this proposal.
-    let approximate =
-        newton_refine_2x2(system.compiled(), [-40.0, 0.0], &NewtonGuards::default()).unwrap();
+    let compiled = system.try_dense_program().unwrap();
+    let approximate = newton_refine_2x2(&compiled, [-40.0, 0.0], &NewtonGuards::default()).unwrap();
     assert_eq!(approximate.iterations, 0);
     assert!(matches!(
         newton_refine_root_box_2x2(

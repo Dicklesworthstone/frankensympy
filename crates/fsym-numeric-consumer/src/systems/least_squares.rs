@@ -95,10 +95,7 @@ pub fn least_squares_with_meter<M: BudgetMeter>(
     meter.checkpoint()?;
     let n = system.vars().len();
     let m = system.residuals().len();
-    if !(1..=MAX_CONSUMER_VARIABLES).contains(&n)
-        || !(n..=MAX_LEAST_SQUARES_RESIDUALS).contains(&m)
-        || system.compiled().num_vars != n
-        || system.compiled().num_residuals != m
+    if !(1..=MAX_CONSUMER_VARIABLES).contains(&n) || !(n..=MAX_LEAST_SQUARES_RESIDUALS).contains(&m)
     {
         return Err(SystemConsumerError::InvalidRequest(
             "least squares requires 1..=16 variables and variable_count..=64 residuals",

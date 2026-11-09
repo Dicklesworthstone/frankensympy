@@ -126,7 +126,7 @@ fn derivative_domain_failure_wins_even_at_an_exact_initial_root() {
         // Both original residuals are finite at zero. The first is exactly
         // zero, but the pinned driver still sets up its analytic Jacobian.
         assert!(
-            system.compiled().compiled_residuals[0]
+            system.residual_programs()[0]
                 .try_eval_finite(&[0.0])
                 .is_ok()
         );

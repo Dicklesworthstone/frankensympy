@@ -714,11 +714,7 @@ fn admit_point<M: BudgetMeter>(
 ) -> Result<usize, SystemConsumerError> {
     meter.checkpoint()?;
     let n = system.vars().len();
-    if !(1..=MAX_CONSUMER_VARIABLES).contains(&n)
-        || system.residuals().len() != n
-        || system.compiled().num_vars != n
-        || system.compiled().num_residuals != n
-    {
+    if !(1..=MAX_CONSUMER_VARIABLES).contains(&n) || system.residuals().len() != n {
         return Err(SystemConsumerError::UnsupportedShape {
             variables: n,
             residuals: system.residuals().len(),
@@ -794,21 +790,28 @@ fn evaluate_system<M: BudgetMeter>(
     jacobian: &mut [f64],
     meter: &mut M,
 ) -> Result<(), SystemConsumerError> {
-    // The dense system's legacy evaluator permits nonfinite intermediates.
-    // A numerical consumer must retain every original source-domain check,
-    // even when a later zero, reciprocal, or zero power conceals that value.
+    // Only these small dense consumers materialize a numerical Jacobian. The
+    // accepted artifact retains sparse programs, and every original source is
+    // evaluated before its stored derivatives, including hidden domain holes.
+    let rows = system.residuals().len();
+    let columns = system.vars().len();
+    let cells = rows
+        .checked_mul(columns)
+        .ok_or(SystemConsumerError::InvalidRequest(
+            "Jacobian shape overflows",
+        ))?;
+    point_dimension(residuals, rows, "residual buffer")?;
+    point_dimension(jacobian, cells, "Jacobian buffer")?;
     charge(meter, (residuals.len() + jacobian.len()) as u64, 0, 0)?;
-    for (value, program) in residuals
-        .iter_mut()
-        .zip(&system.compiled().compiled_residuals)
-    {
+    for (value, program) in residuals.iter_mut().zip(system.residual_programs()) {
         *value = program.try_eval_finite_with_meter(point, meter)?;
     }
-    for (value, program) in jacobian
-        .iter_mut()
-        .zip(&system.compiled().compiled_jacobian)
-    {
-        *value = program.try_eval_finite_with_meter(point, meter)?;
+    jacobian.fill(0.0);
+    for entry in &system.sparse_jacobian().entries {
+        charge(meter, 1, 0, 0)?;
+        jacobian[entry.row * columns + entry.col] = entry
+            .compiled_deriv
+            .try_eval_finite_with_meter(point, meter)?;
     }
     finite(residuals, "residual", meter)?;
     finite(jacobian, "Jacobian", meter)
@@ -824,7 +827,7 @@ fn evaluate_residuals<M: BudgetMeter>(
     finite(point, "consumer iterate", meter)?;
     let mut values = zeros(n, meter)?;
     charge(meter, n as u64, 0, 0)?;
-    for (value, program) in values.iter_mut().zip(&system.compiled().compiled_residuals) {
+    for (value, program) in values.iter_mut().zip(system.residual_programs()) {
         *value = program.try_eval_finite_with_meter(point, meter)?;
     }
     finite(&values, "residual", meter)?;

@@ -8,6 +8,7 @@ use asupersync::{CancelKind, Cx};
 use fsym_budget::{BudgetError, MeterError};
 use fsym_calculus::compile::EvalError;
 use fsym_calculus::sparse_hessian::ObjectiveEvaluationError;
+use fsym_calculus::verified::ResidualEvaluationError;
 use fsym_calculus::{VerifiedObjective, VerifiedResidualSystem};
 use fsym_core::{Symbol, parse};
 use fsym_runtime::{Budget, BudgetLimits, Dimension, FsymCx};
@@ -40,8 +41,7 @@ fn checked_numeric_programs_share_the_region_and_observe_its_cancellation() {
     let mut jacobian = [902.0; 4];
 
     system
-        .compiled()
-        .try_eval_system_with_meter(&[2.0, 3.0], &mut residuals, &mut jacobian, &mut region)
+        .try_eval_dense_into_with_meter(&[2.0, 3.0], &mut residuals, &mut jacobian, &mut region)
         .unwrap();
     assert_eq!(residuals, [7.0, -1.0]);
     assert_eq!(jacobian, [4.0, 1.0, 1.0, -1.0]);
@@ -75,13 +75,15 @@ fn checked_numeric_programs_share_the_region_and_observe_its_cancellation() {
     residuals.fill(901.0);
     jacobian.fill(902.0);
     assert!(matches!(
-        system.compiled().try_eval_system_with_meter(
+        system.try_eval_dense_into_with_meter(
             &[2.0, 3.0],
             &mut residuals,
             &mut jacobian,
             &mut region,
         ),
-        Err(EvalError::Meter(MeterError::Cancelled))
+        Err(ResidualEvaluationError::Evaluation(EvalError::Meter(
+            MeterError::Cancelled
+        )))
     ));
     assert_eq!(residuals, [901.0; 2]);
     assert_eq!(jacobian, [902.0; 4]);
@@ -140,8 +142,7 @@ fn child_numeric_consumption_is_reconciled_without_refunding_spent_work() {
     let mut residuals = [0.0; 2];
     let mut jacobian = [0.0; 4];
     system
-        .compiled()
-        .try_eval_system_with_meter(&[2.0, 3.0], &mut residuals, &mut jacobian, &mut child)
+        .try_eval_dense_into_with_meter(&[2.0, 3.0], &mut residuals, &mut jacobian, &mut child)
         .unwrap();
     assert_eq!(residuals, [7.0, -1.0]);
     assert_eq!(jacobian, [4.0, 1.0, 1.0, -1.0]);
@@ -180,8 +181,7 @@ fn region_exhaustion_at_publication_cannot_expose_either_computed_lane() {
     let limits = BudgetLimits::uniform(1_000_000, 79);
     let mut measured = Budget::new(limits);
     system
-        .compiled()
-        .try_eval_system_with_meter(&[2.0, 3.0], &mut [0.0; 2], &mut [0.0; 4], &mut measured)
+        .try_eval_dense_into_with_meter(&[2.0, 3.0], &mut [0.0; 2], &mut [0.0; 4], &mut measured)
         .unwrap();
     let required = limits.dimensions[Dimension::ComputeSteps.index()]
         - measured.remaining(Dimension::ComputeSteps);
@@ -199,17 +199,17 @@ fn region_exhaustion_at_publication_cannot_expose_either_computed_lane() {
     let mut residuals = [901.0; 2];
     let mut jacobian = [902.0; 4];
     assert!(matches!(
-        system.compiled().try_eval_system_with_meter(
+        system.try_eval_dense_into_with_meter(
             &[2.0, 3.0],
             &mut residuals,
             &mut jacobian,
             &mut region,
         ),
-        Err(EvalError::Meter(MeterError::Budget(
-            BudgetError::Exhausted {
+        Err(ResidualEvaluationError::Evaluation(EvalError::Meter(
+            MeterError::Budget(BudgetError::Exhausted {
                 dimension: Dimension::ComputeSteps,
                 ..
-            }
+            })
         )))
     ));
     assert_eq!(residuals, [901.0; 2]);

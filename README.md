@@ -223,11 +223,27 @@ weights. Rectangular and empty-axis systems preserve their declared shapes.
 An optional reusable `EvaluationBudget` accounts for native input snapshots,
 expression evaluation, sparse multiply/add work, and output storage. Failures
 and cooperative cancellation publish no partial result and do not refund work.
-Python objects and compilation remain outside that ledger. Compilation retains
-its existing source, variable and dense-admission limits. Numerical outputs
-are approximate binary64 values; checked symbolic derivatives do not certify
-rounding error or a root. Saved residual programs retain these operations after
-the existing independent proof and source-binding replay on load.
+Python objects and compilation remain outside that ledger. Compiled storage
+contains the original residual programs and only the nonzero derivative
+programs. Differentiation visits the declared variables occurring in each
+residual; independent verification checks every omitted source dependency and
+establishes the other zero entries from its own typed-symbol traversal.
+Numerical outputs are approximate binary64 values; checked symbolic derivatives
+do not certify rounding error or a root. Saved residual programs retain the
+same versioned proof format and independently replay proof and source binding
+on load. Imported bundles must also satisfy the current aggregate source,
+operation and proof-work bounds.
+
+The public compiler admits up to 256 variables and 4,096 residuals, with
+65,536 source nodes, 65,536 stored bytecode operations, and 65,536 units of
+row-local differentiation work. Each row contributes its source-node count
+times its number of declared source dependencies (at least one). Unused axes
+therefore do not multiply compilation work or allocate zero programs. Existing
+per-expression, depth, literal, and supported-function limits still apply. Dense
+`evaluate`, `jacobian`, and `evaluate_batch` explicitly require at most 65,536
+Jacobian positions; larger checked systems use `residuals`, `evaluate_sparse`,
+Jacobian products, or the sparse least-squares backend. Dense requests exceeding
+that limit refuse before converting numerical inputs or spending their budget.
 
 For square systems, the analytic FrankenSciPy backend connects those checked
 derivatives to the pinned nonlinear solver and NumPy linear solves:
@@ -290,12 +306,12 @@ Invalid numerical trials backtrack, while budget, cancellation and allocation
 failures stop the operation. One supplied `EvaluationBudget` spans all attempts,
 rejected trials and final publication.
 
-The solver admits 1..256 variables and 1..4096 residuals with at most 65,536
-Jacobian positions. Existing compilation still stores dense zero instructions
-and separately limits source differentiation work and total compiled operations
-to 65,536, so not every expression at those shape ceilings is admitted. The
-default `backend="dense"` retains the existing 1..16-variable FrankenNumPy QR
-route. Sparse selection does not silently relax admission or switch backends.
+The solver admits 1..256 variables and 1..4096 residuals together, subject to
+the source, dependency-work and stored-operation bounds above. A 4,096-by-256
+system with one nonzero derivative per row stores 4,096 derivative programs;
+its 1,048,576 possible Jacobian positions do not become compiled zero programs.
+The default `backend="dense"` retains the existing 1..16-variable FrankenNumPy
+QR route. Sparse selection does not silently relax admission or switch backends.
 
 Success requires a fresh original cost gradient `J.T @ residuals` whose infinity
 norm is at most `gtol` (default `1e-10`). A small step, unchanged cost or exhausted

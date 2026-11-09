@@ -12,7 +12,8 @@ use crate::compile::{
     charge_evaluation_allocation, charge_evaluation_steps,
 };
 use crate::sparse_jacobian::{
-    JacobianVerificationError, SparseJacobian, SparseJacobianReceipt, compiled_expression_matches,
+    JacobianVerificationError, MAX_SPARSE_AXES, MAX_SPARSE_SOURCE_WORK, SparseJacobian,
+    SparseJacobianReceipt, compiled_expression_matches, plan_sparse_sources,
     verify_sparse_jacobian_certificate,
 };
 use fsym_budget::{BudgetMeter, Unbounded};
@@ -30,9 +31,18 @@ pub const VERIFIED_ARTIFACT_SCHEMA_VERSION: u32 = 1;
 pub const MAX_VERIFIED_ARTIFACT_BYTES: usize = 16 * 1024 * 1024;
 /// Transport depth stays below the JSON decoder's own recursion ceiling.
 pub const MAX_VERIFIED_ARTIFACT_JSON_DEPTH: usize = 96;
-/// This bridge materializes a dense consumer program from a sparse certificate.
-/// Bound that expansion before proof replay or allocation, including on decode.
+/// Maximum number of positions in an explicitly requested dense Jacobian.
+/// Sparse compilation, transport and evaluation do not materialize these zeros.
 pub const MAX_VERIFIED_JACOBIAN_ENTRIES: usize = 65_536;
+/// Maximum potential derivative coordinates and retained nonzero proofs.
+/// Conservative source dependency counts are bounded before proof generation.
+pub const MAX_VERIFIED_NONZERO_ENTRIES: usize = 65_536;
+/// Aggregate original-source and derivative expression nodes at admission.
+pub const MAX_VERIFIED_EXPRESSION_NODES: usize = 1_048_576;
+/// Aggregate bytecode operations in original residuals and stored derivatives.
+pub const MAX_VERIFIED_STORED_OPS: usize = 1_048_576;
+/// Aggregate independent kernel preflight units across all derivative proofs.
+pub const MAX_VERIFIED_PROOF_UNITS: u64 = 1_048_576;
 /// Proof construction and replay use symbolic recursion. Refuse deeper raw
 /// expression trees before entering those paths on an ordinary worker stack.
 pub const MAX_VERIFIED_SOURCE_DEPTH: usize = 32;
@@ -55,6 +65,12 @@ pub enum VerifiedCompilationError {
     },
     #[error("Verified source expression depth {depth} exceeds maximum {max}")]
     SourceDepthLimit { depth: usize, max: usize },
+    #[error("Verified {resource} requires {actual}, exceeding maximum {max}")]
+    AdmissionLimit {
+        resource: &'static str,
+        actual: u64,
+        max: u64,
+    },
     #[error("Proof payload exceeds its admission envelope: {0}")]
     ProofEnvelope(String),
 }
@@ -64,6 +80,14 @@ pub enum VerifiedCompilationError {
 /// These approximate values do not certify numerical rounding or a root.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SparseResidualEvaluation {
+    pub residuals: Vec<f64>,
+    pub jacobian: Vec<f64>,
+}
+
+/// Finite original residuals and an explicitly requested row-major Jacobian.
+/// Dense output is bounded separately from the retained sparse program.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResidualEvaluation {
     pub residuals: Vec<f64>,
     pub jacobian: Vec<f64>,
 }
@@ -79,6 +103,8 @@ pub enum ResidualEvaluationError {
         expected: usize,
         actual: usize,
     },
+    #[error("Dense consumer Jacobian requires {entries} entries, exceeding maximum {max}")]
+    DenseJacobianLimit { entries: usize, max: usize },
 }
 
 /// A transport failure never publishes a partially decoded verified system.
@@ -231,7 +257,8 @@ impl Write for BoundedArtifactWriter {
 /// decoder ensure that construction always includes proof and provenance checks.
 #[derive(Debug, Clone)]
 pub struct VerifiedResidualSystem {
-    compiled: CompiledResidualSystem,
+    residual_programs: Vec<CompiledExpr>,
+    stored_operation_count: usize,
     sparse_jacobian: SparseJacobian,
     receipt: SparseJacobianReceipt,
 }
@@ -242,10 +269,19 @@ impl VerifiedResidualSystem {
         residuals: &[Expr],
         vars: &[Symbol],
     ) -> Result<Self, VerifiedCompilationError> {
-        Self::check_dense_size(residuals.len(), vars.len())?;
+        Self::check_axes(residuals.len(), vars.len())?;
+        let mut expression_nodes = 0;
         for residual in residuals {
-            Self::check_expression_shape(residual)?;
+            let nodes = Self::check_expression_shape(residual)?;
+            Self::add_admission_count(
+                &mut expression_nodes,
+                nodes,
+                MAX_SPARSE_SOURCE_WORK,
+                "source nodes",
+            )?;
         }
+        // Bound row-local differentiation work before constructing any proofs.
+        Self::check_source_plan(residuals, vars)?;
         Self::try_from_owned_sparse_jacobian(SparseJacobian::try_build(residuals, vars)?)
     }
 
@@ -254,9 +290,11 @@ impl VerifiedResidualSystem {
     pub fn try_from_sparse_jacobian(
         jacobian: &SparseJacobian,
     ) -> Result<Self, VerifiedCompilationError> {
-        let (compiled, receipt) = Self::check_and_compile(jacobian)?;
+        let (residual_programs, stored_operation_count, receipt) =
+            Self::check_and_compile(jacobian)?;
         Ok(Self {
-            compiled,
+            residual_programs,
+            stored_operation_count,
             sparse_jacobian: jacobian.clone(),
             receipt,
         })
@@ -265,24 +303,30 @@ impl VerifiedResidualSystem {
     fn try_from_owned_sparse_jacobian(
         jacobian: SparseJacobian,
     ) -> Result<Self, VerifiedCompilationError> {
-        let (compiled, receipt) = Self::check_and_compile(&jacobian)?;
+        let (residual_programs, stored_operation_count, receipt) =
+            Self::check_and_compile(&jacobian)?;
         Ok(Self {
-            compiled,
+            residual_programs,
+            stored_operation_count,
             sparse_jacobian: jacobian,
             receipt,
         })
     }
 
-    fn check_dense_size(rows: usize, columns: usize) -> Result<usize, VerifiedCompilationError> {
+    fn check_axes(rows: usize, columns: usize) -> Result<(), VerifiedCompilationError> {
         for (axis, length) in [("rows", rows), ("columns", columns)] {
-            if length > MAX_VERIFIED_JACOBIAN_ENTRIES {
+            if length > MAX_SPARSE_AXES {
                 return Err(VerifiedCompilationError::AxisLimit {
                     axis,
                     length,
-                    max: MAX_VERIFIED_JACOBIAN_ENTRIES,
+                    max: MAX_SPARSE_AXES,
                 });
             }
         }
+        Ok(())
+    }
+
+    fn check_dense_size(rows: usize, columns: usize) -> Result<usize, VerifiedCompilationError> {
         let entries = rows
             .checked_mul(columns)
             .ok_or(CompileError::DimensionOverflow)?;
@@ -295,7 +339,48 @@ impl VerifiedResidualSystem {
         Ok(entries)
     }
 
-    fn check_expression_shape(expr: &Expr) -> Result<(), VerifiedCompilationError> {
+    fn add_admission_count(
+        total: &mut usize,
+        added: usize,
+        maximum: usize,
+        resource: &'static str,
+    ) -> Result<(), VerifiedCompilationError> {
+        let next = total
+            .checked_add(added)
+            .ok_or(VerifiedCompilationError::AdmissionLimit {
+                resource,
+                actual: u64::MAX,
+                max: maximum as u64,
+            })?;
+        if next > maximum {
+            return Err(VerifiedCompilationError::AdmissionLimit {
+                resource,
+                actual: next as u64,
+                max: maximum as u64,
+            });
+        }
+        *total = next;
+        Ok(())
+    }
+
+    fn check_source_plan(
+        residuals: &[Expr],
+        vars: &[Symbol],
+    ) -> Result<(), VerifiedCompilationError> {
+        let plan = plan_sparse_sources(residuals, vars)?;
+        let mut coordinates = 0;
+        for dependencies in plan.row_dependencies {
+            Self::add_admission_count(
+                &mut coordinates,
+                dependencies.len(),
+                MAX_VERIFIED_NONZERO_ENTRIES,
+                "potential derivative coordinates",
+            )?;
+        }
+        Ok(())
+    }
+
+    fn check_expression_shape(expr: &Expr) -> Result<usize, VerifiedCompilationError> {
         Self::check_expression_limits(expr, MAX_VERIFIED_SOURCE_DEPTH, MAX_COMPILE_OPS)
     }
 
@@ -303,13 +388,14 @@ impl VerifiedResidualSystem {
         // The independently checked differentiation claim adds a diff(source,
         // variable) wrapper: one level and two nodes beyond the source.
         Self::check_expression_limits(expr, MAX_VERIFIED_SOURCE_DEPTH + 1, MAX_COMPILE_OPS + 2)
+            .map(|_| ())
     }
 
     fn check_expression_limits(
         expr: &Expr,
         maximum_depth: usize,
         maximum_nodes: usize,
-    ) -> Result<(), VerifiedCompilationError> {
+    ) -> Result<usize, VerifiedCompilationError> {
         let mut pending = Vec::new();
         pending
             .try_reserve(1)
@@ -354,7 +440,7 @@ impl VerifiedResidualSystem {
                 _ => {}
             }
         }
-        Ok(())
+        Ok(visited)
     }
 
     fn check_proof_claim(claim: &Claim) -> Result<(), VerifiedCompilationError> {
@@ -394,25 +480,65 @@ impl VerifiedResidualSystem {
 
     fn check_and_compile(
         jacobian: &SparseJacobian,
-    ) -> Result<(CompiledResidualSystem, SparseJacobianReceipt), VerifiedCompilationError> {
+    ) -> Result<(Vec<CompiledExpr>, usize, SparseJacobianReceipt), VerifiedCompilationError> {
         let num_residuals = jacobian.residuals.len();
         let num_vars = jacobian.vars.len();
-        let dense_len = Self::check_dense_size(num_residuals, num_vars)?;
+        Self::check_axes(num_residuals, num_vars)?;
+        let mut nonzero_entries = 0;
+        Self::add_admission_count(
+            &mut nonzero_entries,
+            jacobian.entries.len().max(jacobian.pattern.nonzeros.len()),
+            MAX_VERIFIED_NONZERO_ENTRIES,
+            "nonzero entries",
+        )?;
         // Reject duplicate/extra coordinates and inconsistent counts before
         // traversing any untrusted symbolic or proof payload.
         jacobian.validate_structure()?;
+        let mut expression_nodes = 0;
         for expression in jacobian
             .residuals
             .iter()
             .chain(jacobian.entries.iter().map(|entry| &entry.symbolic_deriv))
         {
-            Self::check_expression_shape(expression)?;
+            let nodes = Self::check_expression_shape(expression)?;
+            Self::add_admission_count(
+                &mut expression_nodes,
+                nodes,
+                MAX_VERIFIED_EXPRESSION_NODES,
+                "expression nodes",
+            )?;
         }
+        // This is an admission/work plan only. The independent checker below
+        // reconstructs source dependencies and replays every retained proof.
+        Self::check_source_plan(&jacobian.residuals, &jacobian.vars)?;
+        let mut proof_units = 0u64;
+        let mut stored_operation_count = 0;
         for entry in &jacobian.entries {
+            Self::add_admission_count(
+                &mut stored_operation_count,
+                entry.compiled_deriv.ops().len(),
+                MAX_VERIFIED_STORED_OPS,
+                "stored bytecode operations",
+            )?;
             // Reuse the kernel's iterative limits for all step references,
             // claims, domains, text, and numeric payloads, including unused steps.
-            derivation_verification_units(&entry.derivation)
+            let units = derivation_verification_units(&entry.derivation)
                 .map_err(|error| VerifiedCompilationError::ProofEnvelope(error.to_string()))?;
+            proof_units =
+                proof_units
+                    .checked_add(units)
+                    .ok_or(VerifiedCompilationError::AdmissionLimit {
+                        resource: "proof verification units",
+                        actual: u64::MAX,
+                        max: MAX_VERIFIED_PROOF_UNITS,
+                    })?;
+            if proof_units > MAX_VERIFIED_PROOF_UNITS {
+                return Err(VerifiedCompilationError::AdmissionLimit {
+                    resource: "proof verification units",
+                    actual: proof_units,
+                    max: MAX_VERIFIED_PROOF_UNITS,
+                });
+            }
             for step in &entry.derivation.steps {
                 Self::check_proof_claim(&step.claim)?;
                 Self::check_proof_rule(&step.rule)?;
@@ -433,50 +559,18 @@ impl VerifiedResidualSystem {
             .map_err(|_| CompileError::AllocationFailure)?;
         for (residual, source) in jacobian.residuals.iter().enumerate() {
             let compiled = CompiledExpr::try_compile(source, &var_map)?;
+            Self::add_admission_count(
+                &mut stored_operation_count,
+                compiled.ops().len(),
+                MAX_VERIFIED_STORED_OPS,
+                "stored bytecode operations",
+            )?;
             if !compiled_expression_matches(source, &var_map, &compiled)? {
                 return Err(VerifiedCompilationError::ResidualProvenanceMismatch { residual });
             }
             compiled_residuals.push(compiled);
         }
-
-        let mut compiled_jacobian = Vec::new();
-        compiled_jacobian
-            .try_reserve_exact(dense_len)
-            .map_err(|_| CompileError::AllocationFailure)?;
-        let mut entries = jacobian.entries.iter().peekable();
-        for offset in 0..dense_len {
-            let mut ops = Vec::new();
-            if let Some(entry) = entries.peek()
-                && entry.row * num_vars + entry.col == offset
-            {
-                ops.try_reserve_exact(entry.compiled_deriv.ops().len())
-                    .map_err(|_| CompileError::AllocationFailure)?;
-                ops.extend_from_slice(entry.compiled_deriv.ops());
-                entries.next();
-            } else {
-                ops.try_reserve_exact(1)
-                    .map_err(|_| CompileError::AllocationFailure)?;
-                ops.push(CompiledOp::LoadConst(0.0));
-            }
-            compiled_jacobian
-                .push(CompiledExpr::try_from_ops(ops).map_err(CompileError::InvalidBytecode)?);
-        }
-        debug_assert!(entries.next().is_none());
-
-        let mut vars = Vec::new();
-        vars.try_reserve_exact(num_vars)
-            .map_err(|_| CompileError::AllocationFailure)?;
-        vars.extend_from_slice(&jacobian.vars);
-        Ok((
-            CompiledResidualSystem {
-                vars,
-                num_residuals,
-                num_vars,
-                compiled_residuals,
-                compiled_jacobian,
-            },
-            receipt,
-        ))
+        Ok((compiled_residuals, stored_operation_count, receipt))
     }
 
     /// Lossless, versioned JSON containing the original sparse proof bundle.
@@ -536,10 +630,77 @@ impl VerifiedResidualSystem {
         Self::try_from_owned_sparse_jacobian(jacobian).map_err(VerifiedArtifactError::Admission)
     }
 
-    /// Read-only access for numerical consumers. An edited clone is an ordinary,
-    /// unverified compiled system.
-    pub fn compiled(&self) -> &CompiledResidualSystem {
-        &self.compiled
+    /// Original residual programs, evaluated even when all derivatives vanish.
+    pub fn residual_programs(&self) -> &[CompiledExpr] {
+        &self.residual_programs
+    }
+
+    pub fn num_residuals(&self) -> usize {
+        self.sparse_jacobian.residuals.len()
+    }
+
+    pub fn num_vars(&self) -> usize {
+        self.sparse_jacobian.vars.len()
+    }
+
+    /// Actual stored residual/derivative bytecode; implicit zeros have no program.
+    pub fn stored_operation_count(&self) -> usize {
+        self.stored_operation_count
+    }
+
+    /// Preflight explicit dense output before allocating or inspecting a point.
+    pub fn dense_jacobian_len(&self) -> Result<usize, VerifiedCompilationError> {
+        Self::check_dense_size(self.num_residuals(), self.num_vars())
+    }
+
+    fn copy_program(program: &CompiledExpr) -> Result<CompiledExpr, CompileError> {
+        let mut ops = Vec::new();
+        ops.try_reserve_exact(program.ops().len())
+            .map_err(|_| CompileError::AllocationFailure)?;
+        ops.extend_from_slice(program.ops());
+        CompiledExpr::try_from_ops(ops).map_err(CompileError::InvalidBytecode)
+    }
+
+    /// Explicitly materialize the bounded legacy dense representation.
+    /// The returned independently owned program is mutable and unverified.
+    pub fn try_dense_program(&self) -> Result<CompiledResidualSystem, VerifiedCompilationError> {
+        let dense_len = self.dense_jacobian_len()?;
+        let mut compiled_residuals = Vec::new();
+        compiled_residuals
+            .try_reserve_exact(self.num_residuals())
+            .map_err(|_| CompileError::AllocationFailure)?;
+        for program in self.residual_programs() {
+            compiled_residuals.push(Self::copy_program(program)?);
+        }
+        let mut compiled_jacobian = Vec::new();
+        compiled_jacobian
+            .try_reserve_exact(dense_len)
+            .map_err(|_| CompileError::AllocationFailure)?;
+        let zero = CompiledExpr::try_from_ops(vec![CompiledOp::LoadConst(0.0)])
+            .map_err(CompileError::InvalidBytecode)?;
+        let mut entries = self.sparse_jacobian.entries.iter().peekable();
+        for offset in 0..dense_len {
+            let program = if let Some(entry) = entries.peek()
+                && entry.row * self.num_vars() + entry.col == offset
+            {
+                &entries.next().unwrap().compiled_deriv
+            } else {
+                &zero
+            };
+            compiled_jacobian.push(Self::copy_program(program)?);
+        }
+        debug_assert!(entries.next().is_none());
+        let mut vars = Vec::new();
+        vars.try_reserve_exact(self.num_vars())
+            .map_err(|_| CompileError::AllocationFailure)?;
+        vars.extend_from_slice(self.vars());
+        Ok(CompiledResidualSystem {
+            compiled_residuals,
+            compiled_jacobian,
+            num_residuals: self.num_residuals(),
+            num_vars: self.num_vars(),
+            vars,
+        })
     }
 
     /// Complete retained proof bundle for independent replay or checkpointing.
@@ -589,6 +750,106 @@ impl VerifiedResidualSystem {
         Ok(result)
     }
 
+    fn dense_evaluation_len(&self) -> Result<usize, ResidualEvaluationError> {
+        let entries = self
+            .num_residuals()
+            .checked_mul(self.num_vars())
+            .ok_or(EvalError::DimensionOverflow)?;
+        if entries > MAX_VERIFIED_JACOBIAN_ENTRIES {
+            return Err(ResidualEvaluationError::DenseJacobianLimit {
+                entries,
+                max: MAX_VERIFIED_JACOBIAN_ENTRIES,
+            });
+        }
+        Ok(entries)
+    }
+
+    /// Evaluate finite original residuals and an explicitly bounded dense Jacobian.
+    pub fn try_eval_dense(
+        &self,
+        point: &[f64],
+    ) -> Result<ResidualEvaluation, ResidualEvaluationError> {
+        self.try_eval_dense_with_meter(point, &mut Unbounded)
+    }
+
+    /// Dense size is checked before any meter activity or point inspection.
+    /// Every original residual and stored derivative is evaluated with finite
+    /// arithmetic; implicit zeros only initialize the bounded output buffer.
+    pub fn try_eval_dense_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        point: &[f64],
+        meter: &mut M,
+    ) -> Result<ResidualEvaluation, ResidualEvaluationError> {
+        let dense_len = self.dense_evaluation_len()?;
+        Self::input_with_meter(point, self.num_vars(), "point", meter)?;
+        let mut residuals = Self::evaluation_buffer(self.num_residuals(), meter)?;
+        for program in self.residual_programs() {
+            charge_evaluation_steps(meter, 1)?;
+            residuals.push(program.try_eval_finite_with_meter(point, meter)?);
+        }
+        let mut jacobian = Self::evaluation_buffer(dense_len, meter)?;
+        charge_evaluation_steps(meter, dense_len)?;
+        jacobian.resize(dense_len, 0.0);
+        for entry in &self.sparse_jacobian.entries {
+            let value = entry
+                .compiled_deriv
+                .try_eval_finite_with_meter(point, meter)?;
+            charge_evaluation_steps(meter, 1)?;
+            jacobian[entry.row * self.num_vars() + entry.col] = value;
+        }
+        charge_evaluation_steps(meter, 1)?;
+        Ok(ResidualEvaluation {
+            residuals,
+            jacobian,
+        })
+    }
+
+    /// Publish both dense result buffers or leave them unchanged on refusal.
+    pub fn try_eval_dense_into(
+        &self,
+        point: &[f64],
+        residuals: &mut [f64],
+        jacobian: &mut [f64],
+    ) -> Result<(), ResidualEvaluationError> {
+        self.try_eval_dense_into_with_meter(point, residuals, jacobian, &mut Unbounded)
+    }
+
+    /// Source checks, scratch storage, sparse evaluation and publication consume
+    /// one cumulative caller ledger. No caller buffer is changed before the
+    /// final cancellation checkpoint and all publication charges succeed.
+    pub fn try_eval_dense_into_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        point: &[f64],
+        residuals: &mut [f64],
+        jacobian: &mut [f64],
+        meter: &mut M,
+    ) -> Result<(), ResidualEvaluationError> {
+        let dense_len = self.dense_evaluation_len()?;
+        charge_evaluation_steps(meter, 1)?;
+        for (lane, expected, actual) in [
+            ("residual output", self.num_residuals(), residuals.len()),
+            ("dense Jacobian output", dense_len, jacobian.len()),
+        ] {
+            if expected != actual {
+                return Err(ResidualEvaluationError::Dimension {
+                    lane,
+                    expected,
+                    actual,
+                });
+            }
+        }
+        let result = self.try_eval_dense_with_meter(point, meter)?;
+        let published = residuals
+            .len()
+            .checked_add(jacobian.len())
+            .ok_or(EvalError::DimensionOverflow)?;
+        charge_evaluation_steps(meter, published)?;
+        charge_evaluation_steps(meter, 0)?;
+        residuals.copy_from_slice(&result.residuals);
+        jacobian.copy_from_slice(&result.jacobian);
+        Ok(())
+    }
+
     /// Evaluate the original residuals and only stored Jacobian entries.
     pub fn evaluate_sparse(
         &self,
@@ -609,9 +870,9 @@ impl VerifiedResidualSystem {
         point: &[f64],
         meter: &mut M,
     ) -> Result<SparseResidualEvaluation, ResidualEvaluationError> {
-        Self::input_with_meter(point, self.compiled.num_vars, "point", meter)?;
-        let mut residuals = Self::evaluation_buffer(self.compiled.num_residuals, meter)?;
-        for program in &self.compiled.compiled_residuals {
+        Self::input_with_meter(point, self.num_vars(), "point", meter)?;
+        let mut residuals = Self::evaluation_buffer(self.num_residuals(), meter)?;
+        for program in self.residual_programs() {
             charge_evaluation_steps(meter, 1)?;
             residuals.push(program.try_eval_finite_with_meter(point, meter)?);
         }
@@ -651,11 +912,7 @@ impl VerifiedResidualSystem {
     ) -> Result<(), ResidualEvaluationError> {
         charge_evaluation_steps(meter, 1)?;
         for (lane, expected, actual) in [
-            (
-                "residual output",
-                self.compiled.num_residuals,
-                residuals.len(),
-            ),
+            ("residual output", self.num_residuals(), residuals.len()),
             (
                 "sparse Jacobian output",
                 self.sparse_jacobian.entries.len(),
@@ -730,23 +987,15 @@ impl VerifiedResidualSystem {
         meter: &mut M,
     ) -> Result<Vec<f64>, ResidualEvaluationError> {
         let (input_length, output_length, lane) = if transpose {
-            (
-                self.compiled.num_residuals,
-                self.compiled.num_vars,
-                "weights",
-            )
+            (self.num_residuals(), self.num_vars(), "weights")
         } else {
-            (
-                self.compiled.num_vars,
-                self.compiled.num_residuals,
-                "direction",
-            )
+            (self.num_vars(), self.num_residuals(), "direction")
         };
         Self::input_with_meter(vector, input_length, lane, meter)?;
-        Self::input_with_meter(point, self.compiled.num_vars, "point", meter)?;
+        Self::input_with_meter(point, self.num_vars(), "point", meter)?;
         // A derivative can erase an original source domain. Do not infer
         // eligibility from a zero vector or from the sparsity pattern alone.
-        for program in &self.compiled.compiled_residuals {
+        for program in self.residual_programs() {
             charge_evaluation_steps(meter, 1)?;
             program.try_eval_finite_with_meter(point, meter)?;
         }
@@ -830,9 +1079,9 @@ impl VerifiedResidualSystem {
     ) -> Result<(), ResidualEvaluationError> {
         charge_evaluation_steps(meter, 1)?;
         let expected = if transpose {
-            self.compiled.num_vars
+            self.num_vars()
         } else {
-            self.compiled.num_residuals
+            self.num_residuals()
         };
         if output.len() != expected {
             return Err(ResidualEvaluationError::Dimension {
@@ -857,7 +1106,7 @@ impl VerifiedResidualSystem {
     }
 
     pub fn vars(&self) -> &[Symbol] {
-        &self.compiled.vars
+        &self.sparse_jacobian.vars
     }
 
     /// Receipt for derivative proofs, sparsity and bytecode provenance only.
@@ -885,17 +1134,17 @@ mod tests {
         assert_eq!(verified.vars(), vars);
         assert_eq!(verified.receipt().proofs_verified, sparse.entries.len());
         assert_eq!(verified.receipt().test_points_evaluated, 0);
+        let dense_program = verified.try_dense_program().unwrap();
         for entry in &sparse.entries {
             assert_eq!(
-                verified.compiled().compiled_jacobian[entry.row * vars.len() + entry.col],
+                dense_program.compiled_jacobian[entry.row * vars.len() + entry.col],
                 entry.compiled_deriv,
             );
         }
         let mut values = [0.0; 2];
         let mut jacobian = [0.0; 4];
         verified
-            .compiled()
-            .try_eval_system(&[3.0, 5.0], &mut values, &mut jacobian)
+            .try_eval_dense_into(&[3.0, 5.0], &mut values, &mut jacobian)
             .unwrap();
         assert_eq!(values, [9.0, 8.0]);
         assert_eq!(jacobian, [6.0, 0.0, 1.0, 1.0]);
@@ -920,10 +1169,7 @@ mod tests {
     #[test]
     fn empty_verified_system_is_well_formed() {
         let system = VerifiedResidualSystem::try_compile(&[], &[]).unwrap();
-        system
-            .compiled()
-            .try_eval_system(&[], &mut [], &mut [])
-            .unwrap();
+        system.try_eval_dense_into(&[], &mut [], &mut []).unwrap();
         assert_eq!(system.receipt().proofs_verified, 0);
     }
 

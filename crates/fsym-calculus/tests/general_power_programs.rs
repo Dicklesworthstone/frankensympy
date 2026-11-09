@@ -193,7 +193,8 @@ fn checked_power_jacobians_match_independent_closed_form() {
     let mut values = [0.0; 4];
     let mut jacobian = [0.0; 8];
     program
-        .compiled()
+        .try_dense_program()
+        .unwrap()
         .try_eval_system(&[2.0, 3.0], &mut values, &mut jacobian)
         .unwrap();
     assert_eq!(values, [8.0, 4.0, 4.0, 625.0]);
@@ -297,18 +298,13 @@ fn transport_replays_variable_power_proofs_and_guarded_bytecode() {
     assert_eq!(restored.sparse_jacobian(), system.sparse_jacobian());
     let mut residual = [0.0];
     let mut jacobian = [0.0];
-    restored
-        .compiled()
+    let compiled = restored.try_dense_program().unwrap();
+    compiled
         .try_eval_system(&[2.0], &mut residual, &mut jacobian)
         .unwrap();
     assert_eq!(residual, [0.0]);
     close(jacobian[0], 4.0 * (2.0f64.ln() + 1.0));
-    assert!(
-        restored
-            .compiled()
-            .try_eval_jacobian(&[-2.0], &mut jacobian)
-            .is_err()
-    );
+    assert!(compiled.try_eval_jacobian(&[-2.0], &mut jacobian).is_err());
 }
 
 #[test]

@@ -291,7 +291,7 @@ def test_backend_selector_requires_a_string_at_both_entrypoints(bad):
             callable_.solve_least_squares(initial, backend=bad)
 
 
-@pytest.mark.parametrize("case", ["variables", "residuals", "dense_positions"])
+@pytest.mark.parametrize("case", ["variables", "residuals", "differentiation_work"])
 def test_sparse_selection_does_not_relax_existing_compilation_caps(case):
     if case == "variables":
         variables = s.symbols("sparse_cap_0:257")
@@ -301,7 +301,7 @@ def test_sparse_selection_does_not_relax_existing_compilation_caps(case):
         residuals = [variables[0]] * 4097
     else:
         variables = s.symbols("sparse_cap_0:256")
-        residuals = [variables[0]] * 257
+        residuals = [s.Add(*variables, evaluate=False)]
     with pytest.raises(ValueError):
         s.compile_residual_system(residuals, variables)
 

@@ -198,7 +198,8 @@ pub fn newton_refine_verified_2x2(
     bound_decimal_places: u32,
 ) -> Result<NewtonOutcome, ConsumerError> {
     validate_bound_precision(bound_decimal_places).map_err(ConsumerError::Certification)?;
-    let outcome = newton_refine_2x2(system.compiled(), initial, guards)?;
+    let compiled = dense_verified_2x2(system)?;
+    let outcome = newton_refine_2x2(&compiled, initial, guards)?;
     certified_residual_bound(
         system.residuals(),
         system.vars(),
@@ -218,6 +219,19 @@ fn check_system_shape(system: &CompiledResidualSystem) -> Result<(), ConsumerErr
         return Err(ConsumerError::UnsupportedShape);
     }
     Ok(())
+}
+
+/// The legacy two-variable donor ABI explicitly requests a bounded dense
+/// program. Larger verified artifacts remain sparse and never enter this path.
+fn dense_verified_2x2(
+    system: &VerifiedResidualSystem,
+) -> Result<CompiledResidualSystem, ConsumerError> {
+    if system.vars().len() != 2 || system.residuals().len() != 2 {
+        return Err(ConsumerError::UnsupportedShape);
+    }
+    system
+        .try_dense_program()
+        .map_err(|error| ConsumerError::Evaluation(error.to_string()))
 }
 
 /// Evaluate every original program in the finite-real lane. A final finite
@@ -330,7 +344,8 @@ pub fn frankenscipy_fsolve_verified(
     bound_decimal_places: u32,
 ) -> Result<[f64; 2], ConsumerError> {
     validate_bound_precision(bound_decimal_places).map_err(ConsumerError::Certification)?;
-    let root = frankenscipy_fsolve(system.compiled(), initial)?;
+    let compiled = dense_verified_2x2(system)?;
+    let root = frankenscipy_fsolve(&compiled, initial)?;
     certified_residual_bound(
         system.residuals(),
         system.vars(),
@@ -535,12 +550,11 @@ pub fn certify_root_2x2(
     precision_digits: u32,
 ) -> Result<CertifiedRootOutcome2, ConsumerError> {
     validate_root_box_request(&radii, precision_digits)?;
-    check_system_shape(system.compiled())?;
+    let compiled = dense_verified_2x2(system)?;
     require_finite(&approximation, "root proposal")?;
     let mut values = [0.0; 2];
     let mut jacobian = [0.0; 4];
-    system
-        .compiled()
+    compiled
         .try_eval_system(&approximation, &mut values, &mut jacobian)
         .map_err(|error| ConsumerError::Evaluation(error.to_string()))?;
     require_finite(&values, "root proposal residual")?;
@@ -607,7 +621,8 @@ pub fn newton_refine_root_box_2x2(
     precision_digits: u32,
 ) -> Result<CertifiedRootOutcome2, ConsumerError> {
     validate_root_box_request(&radii, precision_digits)?;
-    let outcome = newton_refine_2x2(system.compiled(), initial, guards)?;
+    let compiled = dense_verified_2x2(system)?;
+    let outcome = newton_refine_2x2(&compiled, initial, guards)?;
     certify_root_2x2(system, outcome.root, radii, precision_digits)
 }
 
@@ -620,7 +635,8 @@ pub fn frankenscipy_fsolve_root_box(
     precision_digits: u32,
 ) -> Result<CertifiedRootOutcome2, ConsumerError> {
     validate_root_box_request(&radii, precision_digits)?;
-    let proposal = frankenscipy_fsolve(system.compiled(), initial)?;
+    let compiled = dense_verified_2x2(system)?;
+    let proposal = frankenscipy_fsolve(&compiled, initial)?;
     certify_root_2x2(system, proposal, radii, precision_digits)
 }
 

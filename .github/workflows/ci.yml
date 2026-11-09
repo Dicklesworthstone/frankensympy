@@ -160,6 +160,7 @@ jobs:
           cargo test --locked -p fsym-calculus --test sparse_hessian -j1
           cargo test --locked -p fsym-calculus --test verified_sparse_products -j1
           cargo test --locked -p fsym-calculus --test sparse_dependency_trust -j1
+          cargo test --locked -p fsym-calculus --test verified_sparse_storage --test verified_artifact_transport -j1
           cargo test --locked -p fsym-numeric-consumer --tests -j1
           cargo test --locked -p fsym-proof-kernel --test elementary_rational_definite -j1
           cargo test --locked -p fsym-calculus --test elementary_rational_definite --test rational_definite --test definite_integration_domains -j1
@@ -339,6 +340,7 @@ jobs:
               "python/tests/test_analytic_donor_backend.py",
               "python/tests/test_least_squares_consumer.py",
               "python/tests/test_sparse_least_squares_consumer.py",
+              "python/tests/test_sparse_compilation.py",
               "python/tests/test_objective_minimization.py",
               "python/tests/test_certified_minimization.py",
               "python/tests/test_certified_donor_backends.py",

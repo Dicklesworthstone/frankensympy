@@ -233,7 +233,8 @@ fn huge_finite_coefficients_reach_verified_residuals_and_objectives() {
     let mut values = [f64::NAN];
     let mut jacobian = [f64::NAN];
     residual
-        .compiled()
+        .try_dense_program()
+        .unwrap()
         .try_eval_system(&[2.0], &mut values, &mut jacobian)
         .unwrap();
     assert_eq!(values, [4.0]);
@@ -242,7 +243,7 @@ fn huge_finite_coefficients_reach_verified_residuals_and_objectives() {
     let restored =
         VerifiedResidualSystem::from_json_bytes(&residual.to_json_bytes().unwrap()).unwrap();
     assert_eq!(
-        restored.compiled().compiled_residuals[0]
+        restored.residual_programs()[0]
             .try_eval_finite(&[2.0])
             .unwrap(),
         4.0

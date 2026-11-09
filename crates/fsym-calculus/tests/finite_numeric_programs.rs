@@ -78,13 +78,13 @@ fn verified_residual_and_jacobian_programs_execute_in_the_finite_lane() {
     assert_eq!(system.receipt().proofs_verified, 4);
     assert_eq!(system.receipt().test_points_evaluated, 0);
     let residuals: Vec<_> = system
-        .compiled()
-        .compiled_residuals
+        .residual_programs()
         .iter()
         .map(|program| program.try_eval_finite(&[3.0, 4.0]).unwrap())
         .collect();
     let jacobian: Vec<_> = system
-        .compiled()
+        .try_dense_program()
+        .unwrap()
         .compiled_jacobian
         .iter()
         .map(|program| program.try_eval_finite(&[3.0, 4.0]).unwrap())
@@ -97,9 +97,9 @@ fn verified_residual_and_jacobian_programs_execute_in_the_finite_lane() {
 fn zero_variable_systems_and_absolute_values_are_admitted() {
     let constant = VerifiedResidualSystem::try_compile(&[Expr::from_i64(7)], &[]).unwrap();
     assert_eq!(constant.receipt().proofs_verified, 0);
-    assert!(constant.compiled().compiled_jacobian.is_empty());
+    assert!(constant.sparse_jacobian().entries.is_empty());
     assert_eq!(
-        constant.compiled().compiled_residuals[0]
+        constant.residual_programs()[0]
             .try_eval_finite(&[])
             .unwrap(),
         7.0
@@ -128,13 +128,13 @@ fn rational_power_jacobians_retain_exact_exponents_and_chain_factors() {
     let system = VerifiedResidualSystem::try_compile(&[source], std::slice::from_ref(&x)).unwrap();
     assert_eq!(system.receipt().proofs_verified, 1);
     assert_eq!(
-        system.compiled().compiled_residuals[0]
+        system.residual_programs()[0]
             .try_eval_finite(&[4.0])
             .unwrap(),
         27.0
     );
     assert_eq!(
-        system.compiled().compiled_jacobian[0]
+        system.try_dense_program().unwrap().compiled_jacobian[0]
             .try_eval_finite(&[4.0])
             .unwrap(),
         9.0
@@ -145,7 +145,7 @@ fn rational_power_jacobians_retain_exact_exponents_and_chain_factors() {
     ]);
     let system = VerifiedResidualSystem::try_compile(&[source], &[x]).unwrap();
     assert_eq!(
-        system.compiled().compiled_jacobian[0]
+        system.try_dense_program().unwrap().compiled_jacobian[0]
             .try_eval_finite(&[4.0])
             .unwrap(),
         0.1875
@@ -163,10 +163,11 @@ fn square_root_rules_do_not_extend_their_real_domain_or_erase_chain_signs() {
         rational_power(Expr::Sym(x.clone()), 1, 2),
     ];
     let system = VerifiedResidualSystem::try_compile(&residuals, &[x, Symbol::new("y")]).unwrap();
+    let compiled = system.try_dense_program().unwrap();
     for (at, expected) in [(-3.0, -1.0), (3.0, 1.0)] {
         for index in [0, 2] {
             assert_eq!(
-                system.compiled().compiled_jacobian[index]
+                compiled.compiled_jacobian[index]
                     .try_eval_finite(&[at, 0.0])
                     .unwrap(),
                 expected
@@ -175,22 +176,22 @@ fn square_root_rules_do_not_extend_their_real_domain_or_erase_chain_signs() {
     }
     for index in [0, 2, 4] {
         assert_eq!(
-            system.compiled().compiled_jacobian[index].try_eval_finite(&[0.0, 0.0]),
+            compiled.compiled_jacobian[index].try_eval_finite(&[0.0, 0.0]),
             Err(EvalError::NonFiniteValue)
         );
     }
     assert_eq!(
-        system.compiled().compiled_residuals[2]
+        system.residual_programs()[2]
             .try_eval_finite(&[0.0, 0.0])
             .unwrap(),
         0.0
     );
     assert_eq!(
-        system.compiled().compiled_residuals[2].try_eval_finite(&[-1.0, 0.0]),
+        system.residual_programs()[2].try_eval_finite(&[-1.0, 0.0]),
         Err(EvalError::NonFiniteValue)
     );
     assert_eq!(
-        system.compiled().compiled_jacobian[4].try_eval_finite(&[-1.0, 0.0]),
+        compiled.compiled_jacobian[4].try_eval_finite(&[-1.0, 0.0]),
         Err(EvalError::NonFiniteValue)
     );
 }

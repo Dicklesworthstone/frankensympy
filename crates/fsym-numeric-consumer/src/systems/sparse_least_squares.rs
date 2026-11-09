@@ -11,8 +11,8 @@
 //! have scale one. This changes the direction, never the residual objective.
 //!
 //! Solver scratch is O(nnz + m + n); no dense Jacobian, normal matrix or Q
-//! factor is built. The admitted artifact still has its existing compilation
-//! bounds and dense bytecode storage. Rectangular and rank-deficient systems
+//! factor is built. The admitted artifact stores only original residual and
+//! nonzero derivative programs. Rectangular and rank-deficient systems
 //! are allowed. A truncated inner iteration is only a proposed direction, not
 //! evidence of convergence. Only a freshly evaluated original J-transpose-r
 //! authorizes a stationary floating proposal, with no root, minimum, uniqueness
@@ -31,7 +31,7 @@ use super::{
 use fsym_budget::{BudgetMeter, Unbounded};
 use fsym_calculus::VerifiedResidualSystem;
 use fsym_calculus::compile::EvalError;
-use fsym_calculus::verified::{MAX_VERIFIED_JACOBIAN_ENTRIES, ResidualEvaluationError};
+use fsym_calculus::verified::ResidualEvaluationError;
 
 pub const MAX_SPARSE_LEAST_SQUARES_VARIABLES: usize = 256;
 pub const MAX_SPARSE_LEAST_SQUARES_RESIDUALS: usize = 4096;
@@ -74,13 +74,9 @@ pub fn sparse_least_squares_with_meter<M: BudgetMeter>(
     let m = system.residuals().len();
     if !(1..=MAX_SPARSE_LEAST_SQUARES_VARIABLES).contains(&n)
         || !(1..=MAX_SPARSE_LEAST_SQUARES_RESIDUALS).contains(&m)
-        || m.checked_mul(n)
-            .is_none_or(|cells| cells > MAX_VERIFIED_JACOBIAN_ENTRIES)
-        || system.compiled().num_vars != n
-        || system.compiled().num_residuals != m
     {
         return Err(SystemConsumerError::InvalidRequest(
-            "sparse least squares requires 1..=256 variables, 1..=4096 residuals and at most 65536 Jacobian cells",
+            "sparse least squares requires 1..=256 variables and 1..=4096 residuals",
         ));
     }
     if options.max_iterations > MAX_CONSUMER_NEWTON_ITERATIONS {
