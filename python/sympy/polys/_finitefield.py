@@ -71,7 +71,7 @@ def _integer(value, label):
     # bounded native preflight or any coefficient materialization.
     native = _native_expr(value)
     _native.prime_field_source_preflight_native(native)
-    if not native.is_integer:
+    if not (native.is_integer or (native.is_rational and native.exact_denominator() == 1)):
         raise CoercionFailed("%s must have an exact integer representation" % label)
     return native.exact_numerator()
 
@@ -214,12 +214,12 @@ def _call(request, prime, symmetric, operation, parameter=0,
     return result
 
 
-def _publish(cls, raw, request, prime, symmetric):
+def _publish(cls, raw, request, prime, symmetric, generators=None):
     expression = _lift_native_result(raw, *request.context)
     request.unchanged()
     result = object.__new__(cls)
     result._expr = expression
-    result._gens = tuple(request.gens)
+    result._gens = tuple(request.gens if generators is None else generators)
     result._domain = "GF(%d)" % prime
     result._domain_given = True
     result._extra_syms = frozenset()
@@ -592,26 +592,89 @@ def power(polynomial, exponent):
 
 
 def evaluate(polynomial, args):
+    """Evaluate exact field values and retain the ordered unevaluated ring.
+
+    A sequence supplies leading coordinates. A mapping follows the public
+    sequential generator convention, so integer keys refer to the generators
+    remaining after earlier mapping entries. The final contraction is one
+    native request with original coordinates; it cannot reset work accounting.
+    """
     state = _PolyState(polynomial)
-    if len(state.gens) != 1:
-        return unsupported(polynomial, "evaluation outside a univariate ring")
-    variable = None
+    containers = [args]
+    mapping = None
     if len(args) == 1:
-        value = args[0]
+        supplied = args[0]
+        if type(supplied) is dict:
+            if len(supplied) > len(state.gens):
+                raise ValueError("too many evaluation values provided")
+            mapping = supplied
+            pairs = tuple(supplied.items())
+        elif _exact(supplied, (tuple, list)):
+            if len(supplied) > len(state.gens):
+                raise ValueError("too many evaluation values provided")
+            containers.append(supplied)
+            pairs = tuple(zip(state.gens, supplied))
+        else:
+            pairs = ((0, supplied),)
     elif len(args) == 2:
-        variable, value = args
-        if not _exact(variable, (int, Symbol, Dummy)):
-            raise GeneratorsError("generator is not in this polynomial")
+        pairs = (args,)
     else:
         raise TypeError("eval takes one value or a generator and value")
-    if not _exact(value, _INTEGER_TYPES):
-        raise UnificationFailed("prime-field evaluation requires an exact integer")
-    retained = _Retained([state.expression, *args], state.gens, (state,), [args])
-    if variable is not None:
-        _check_generator(state, variable)
-    result = operation(polynomial, "compose", value)
-    retained.unchanged()
-    return object.__getattribute__(result, "__dict__")["_expr"]
+    for variable, value in pairs:
+        if not _exact(variable, (int, Symbol, Dummy)):
+            raise GeneratorsError("generator is not in this polynomial")
+        if not _exact(value, _INTEGER_TYPES):
+            raise UnificationFailed("prime-field evaluation requires an exact integer")
+    controls = [item for pair in pairs for item in pair]
+    retained = _Retained([state.expression, *controls], state.gens, (state,), containers)
+
+    def unchanged():
+        retained.unchanged()
+        if mapping is not None:
+            if len(mapping) != len(pairs):
+                raise RuntimeError("prime-field evaluation mapping mutated during exact evaluation")
+            current = tuple(mapping.items())
+            if any(key is not old_key or value is not old_value
+                   for (key, value), (old_key, old_value) in zip(current, pairs)):
+                raise RuntimeError("prime-field evaluation mapping mutated during exact evaluation")
+
+    unchanged()
+    remaining = list(range(len(state.gens)))
+    values = [None] * len(state.gens)
+    for variable, value in pairs:
+        if type(variable) is int:
+            if not -len(remaining) <= variable < len(remaining):
+                raise GeneratorsError("generator is not in this polynomial")
+            index = remaining[variable]
+        else:
+            index = _check_generator(state, variable)
+            if index not in remaining:
+                raise GeneratorsError("generator is not in this polynomial")
+        _integer(value, "evaluation value")
+        unchanged()
+        values[index] = _native_expr(value)
+        remaining.remove(index)
+    request = _Request([state.expression], state.gens, (state,))
+    unchanged()
+    try:
+        raw = _native.prime_field_evaluate_native(
+            request.raw[0], request.bindings, state.prime, values, state.symmetric)
+    except _native.PrimeFieldCoefficientError as error:
+        raise CoercionFailed("prime-field Poly coefficients must be integers") from error
+    request.unchanged()
+    unchanged()
+    if not pairs:
+        # The profile preserves identity for an empty assignment. Admission
+        # and independent source/evaluation checks still precede this no-op.
+        return polynomial
+    if remaining:
+        result = _publish(type(polynomial), raw, request, state.prime, state.symmetric,
+                          tuple(state.gens[index] for index in remaining))
+    else:
+        result = _lift_native_result(raw, *request.context)
+    request.unchanged()
+    unchanged()
+    return result
 
 
 def shift(polynomial, value):

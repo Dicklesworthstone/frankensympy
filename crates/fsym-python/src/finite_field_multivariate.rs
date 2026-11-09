@@ -14,7 +14,7 @@ use fsym_budget::{Budget, BudgetMeter};
 use fsym_core::{Expr, Symbol};
 use fsym_polys::{
     PrimeFieldMultivariateOperation as Op, PrimeFieldMultivariatePolynomial as Polynomial,
-    TermOrder, checked_prime_field_multivariate_arithmetic,
+    TermOrder, checked_prime_field_evaluation, checked_prime_field_multivariate_arithmetic,
     checked_prime_field_multivariate_division, checked_prime_field_multivariate_source,
     checked_prime_field_recursive_division,
 };
@@ -121,6 +121,89 @@ pub(crate) fn lift(
     };
     meter.checkpoint().map_err(to_value_error)?;
     Ok(PyExpr::from_expr(result))
+}
+
+/// Partial evaluation preserves the declared prime field and removes only the
+/// assigned original typed coordinates. The original source, integer-to-field
+/// reductions, exact contraction, independent verifier and output lift all
+/// consume the same cumulative pair of ledgers.
+#[pyfunction]
+#[pyo3(signature = (source, variables, prime, values, symmetric=true))]
+pub fn prime_field_evaluate_native(
+    source: &PyExpr,
+    variables: &Bound<'_, PyList>,
+    prime: u64,
+    values: &Bound<'_, PyList>,
+    symmetric: bool,
+) -> PyResult<PyExpr> {
+    if values.len() != variables.len() || values.len() > 8 {
+        return Err(PyValueError::new_err(
+            "prime-field evaluation requires one assignment per original generator",
+        ));
+    }
+    let (mut generator, mut verifier) = (budget(), budget());
+    let variables = symbols(variables, &mut generator)?;
+    let source = checked_prime_field_multivariate_source(
+        &source.inner,
+        &variables,
+        prime,
+        &mut generator,
+        &mut verifier,
+    )
+    .map_err(source_error)?;
+    charge(
+        &mut generator,
+        values.len(),
+        values.len() * std::mem::size_of::<Option<u64>>(),
+    )?;
+    let mut assignments = Vec::with_capacity(values.len());
+    for value in values.iter() {
+        if value.is_none() {
+            assignments.push(None);
+            continue;
+        }
+        let value: PyRef<'_, PyExpr> = value.extract()?;
+        let exact_integer = match &value.inner {
+            Expr::Integer(integer) => integer.bits() <= 4096,
+            Expr::Rational(rational) => rational.is_integer() && rational.numer().bits() <= 4096,
+            _ => false,
+        };
+        if !exact_integer {
+            return Err(PyValueError::new_err(
+                "prime-field evaluation values must be exact integers of at most 4096 bits",
+            ));
+        }
+        // The source checker independently verifies reduction of signed and
+        // large integers; the shell cannot supply an unchecked modular image.
+        let checked = checked_prime_field_multivariate_source(
+            &value.inner,
+            &[],
+            prime,
+            &mut generator,
+            &mut verifier,
+        )
+        .map_err(source_error)?;
+        assignments.push(Some(
+            checked
+                .polynomial()
+                .terms()
+                .values()
+                .next()
+                .copied()
+                .unwrap_or(0),
+        ));
+    }
+    let accepted = checked_prime_field_evaluation(
+        source.polynomial(),
+        &assignments,
+        &mut generator,
+        &mut verifier,
+    )
+    .map_err(polynomial_error)?;
+    let result = lift(accepted.result(), symmetric, &mut generator)?;
+    generator.checkpoint().map_err(to_value_error)?;
+    verifier.checkpoint().map_err(to_value_error)?;
+    Ok(result)
 }
 
 /// One cumulative pair of ledgers covers every original source, generation,
@@ -408,6 +491,7 @@ pub fn prime_field_polynomial_generators_native(
 }
 
 pub fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(prime_field_evaluate_native, module)?)?;
     module.add_function(wrap_pyfunction!(prime_field_multivariate_native, module)?)?;
     module.add_function(wrap_pyfunction!(
         prime_field_multivariate_terms_native,

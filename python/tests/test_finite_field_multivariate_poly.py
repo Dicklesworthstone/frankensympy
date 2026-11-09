@@ -373,7 +373,7 @@ def test_noncommutative_declarations_never_enter_a_commutative_field_ring(monkey
     lambda p, q: p.gcd(q), lambda p, q: p.lcm(q), lambda p, q: p.gcdex(q),
     lambda p, q: p.invert(q), lambda p, q: p.factor_list(), lambda p, q: p.sqf_list(),
     lambda p, q: p.resultant(q), lambda p, q: p.discriminant(),
-    lambda p, q: p.compose(q), lambda p, q: p.eval(2), lambda p, q: p.shift(2),
+    lambda p, q: p.compose(q), lambda p, q: p.shift(2),
 ])
 def test_unsupported_multivariate_families_refuse_before_univariate_arithmetic(monkeypatch, operation):
     x, y = sp.symbols("x y")

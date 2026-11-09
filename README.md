@@ -432,6 +432,28 @@ assert quotients[0]*g + quotients[1]*Poly(y, x, y, modulus=5) + remainder == f
 checks reconstruction and complete remainder reduction. Ordered division by
 an arbitrary list does not claim a unique normal form or a Gröbner basis.
 
+`Poly.eval` supports exact integer values in multivariate prime-field rings.
+Partial evaluation returns a `Poly` over the same field with the remaining
+generators in their original order; complete evaluation returns the integer
+residue representative under the original `symmetric` policy. It accepts a
+single value for the first coordinate, an explicit generator/value pair, a
+sequence of leading-coordinate values, or an ordered mapping:
+
+```python
+x, y, z = symbols("x y z")
+polynomial = Poly(x**2*y + 3*y*z + 4, x, y, z, modulus=5)
+assert polynomial.eval(x, 2) == Poly(-2*y*z - y - 1, y, z, modulus=5)
+assert polynomial.eval([2, 3]) == Poly(-z + 1, z, modulus=5)
+assert polynomial.eval({x: 2, y: 3, z: 4}) == 2
+assert polynomial.eval({}) is polynomial
+```
+
+The native generator and independent coefficient checker bind every assigned
+value and remaining typed coordinate. A complete request shares cumulative
+generation and verification budgets. Nonintegral, approximate, or custom
+values refuse without changing the field; even a no-op or zero result retains
+original-source admission.
+
 `groebner` also constructs a complete reduced basis over the requested prime
 field. It supports all three monomial orders, checked `reduce` and `contains`,
 `is_zero_dimensional`, and expression or `Poly` output. The coefficient field
@@ -551,7 +573,7 @@ terms, and at most 32 basis polynomials or ordered divisors. Original source exp
 coefficient growth have additional bounds. Source admission, generation,
 verification, and lifting use cumulative budgets; an exhausted or rejected
 request cannot restart over the rationals. Multivariate factorization, GCD,
-resultants, composition, and evaluation remain unsupported. Existing
+resultants, and composition remain unsupported. Existing
 univariate prime-field operations remain available. These are bounded
 in-process checked operations, not a certified compatibility profile or
 portable proof-kernel certificates.

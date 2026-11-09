@@ -477,14 +477,8 @@ fn constant_field_admission_checks_hidden_children_and_nonintegral_coefficients(
             .is_err()
         );
         assert!(
-            verify_prime_field_multivariate_source(
-                &integer(0),
-                &[],
-                prime,
-                &zero,
-                &mut Unbounded,
-            )
-            .is_err()
+            verify_prime_field_multivariate_source(&integer(0), &[], prime, &zero, &mut Unbounded,)
+                .is_err()
         );
     }
 }
@@ -496,17 +490,15 @@ fn constant_field_verification_binds_every_coefficient_and_the_complete_ring() {
         candidate(&[], 5, &PrimeFieldMultivariateTerms::new()),
         candidate(&[], 5, &PrimeFieldMultivariateTerms::from([(vec![], 3)])),
         candidate(&[], 7, &PrimeFieldMultivariateTerms::new()),
-        candidate(&xy(), 5, &PrimeFieldMultivariateTerms::from([(vec![0, 0], 2)])),
+        candidate(
+            &xy(),
+            5,
+            &PrimeFieldMultivariateTerms::from([(vec![0, 0], 2)]),
+        ),
     ] {
         assert!(
-            verify_prime_field_multivariate_source(
-                &source,
-                &[],
-                5,
-                &witness,
-                &mut Unbounded,
-            )
-            .is_err()
+            verify_prime_field_multivariate_source(&source, &[], 5, &witness, &mut Unbounded,)
+                .is_err()
         );
     }
 }

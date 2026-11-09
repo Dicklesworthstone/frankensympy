@@ -12,6 +12,7 @@ pub mod fglm;
 pub mod finite_field;
 pub mod finite_field_arithmetic;
 pub mod finite_field_element_source;
+pub mod finite_field_evaluation;
 pub mod finite_field_fglm;
 pub mod finite_field_groebner;
 pub mod finite_field_ideal;
@@ -47,6 +48,7 @@ pub use finite_field_element_source::{
     PrimeFieldElementSourceError, VerifiedPrimeFieldElementSource,
     checked_prime_field_element_source, verify_prime_field_element_source,
 };
+pub use finite_field_evaluation::*;
 pub use finite_field_fglm::*;
 pub use finite_field_groebner::{
     PrimeFieldGroebnerCertificate, PrimeFieldGroebnerSPairCertificate,
