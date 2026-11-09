@@ -11,6 +11,8 @@
 //!   only through a [`VerifierLease`] issued once per budget. Generator code
 //!   holding a plain [`Budget`] has no API path into the pool
 //!   ("generators cannot consume verifier-reserved budget").
+//!   [`VerifierMeter`] adapts that authority to algorithms using [`BudgetMeter`]
+//!   without making them depend on the runtime or resetting their accounting.
 //! - **Atomic refusal.** A failed charge leaves every counter untouched.
 //!   Ordinary exhaustion reports what was requested versus what remained;
 //!   unrepresentable aggregate requests report overflow explicitly.
@@ -238,6 +240,80 @@ impl BudgetMeter for Budget {
     }
 }
 
+/// An exclusively borrowed ledger authorized for independent verification.
+///
+/// [`Dimension::ComputeSteps`] consumes the protected verifier pool, never the
+/// generator's compute allowance. Other dimensions consume the same shared
+/// resource allowances as ordinary work. A mixed batch is atomic across both
+/// pools: exhaustion, zero charges, or duplicate-dimension overflow leave every
+/// counter and the sequence unchanged.
+///
+/// Only [`Budget::verifier_meter`] can construct this adapter, after validating
+/// the originating [`VerifierLease`]. Dropping and reacquiring the adapter does
+/// not replenish any allowance. Like [`Budget`] itself, it has no cancellation
+/// source; a region owner may wrap it with its own checkpoint policy.
+#[derive(Debug)]
+pub struct VerifierMeter<'a> {
+    budget: &'a mut Budget,
+}
+
+impl BudgetMeter for VerifierMeter<'_> {
+    fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
+        self.charge_batch(&[(dimension, amount)])
+    }
+
+    fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+        let requested = charge_totals(charges)?;
+        for dimension in Dimension::ALL {
+            let index = dimension.index();
+            let remaining = if dimension == Dimension::ComputeSteps {
+                self.budget.verifier_remaining
+            } else {
+                self.budget.remaining[index]
+            };
+            if requested[index] > remaining {
+                return Err(BudgetError::Exhausted {
+                    dimension,
+                    requested: requested[index],
+                    remaining,
+                }
+                .into());
+            }
+        }
+        if charges.is_empty() {
+            return Ok(());
+        }
+        for dimension in Dimension::ALL {
+            let index = dimension.index();
+            if dimension == Dimension::ComputeSteps {
+                self.budget.verifier_remaining -= requested[index];
+            } else {
+                self.budget.remaining[index] -= requested[index];
+            }
+        }
+        self.budget.sequence += 1;
+        Ok(())
+    }
+
+    fn checkpoint(&mut self) -> Result<(), MeterError> {
+        Ok(()) // pure accounting ledger: no cancellation source
+    }
+}
+
+fn charge_totals(charges: &[(Dimension, u64)]) -> Result<[u64; DIMENSION_COUNT], BudgetError> {
+    let mut requested = [0u64; DIMENSION_COUNT];
+    for &(dimension, amount) in charges {
+        if amount == 0 {
+            return Err(BudgetError::ZeroCharge);
+        }
+        let index = dimension.index();
+        requested[index] = requested[index]
+            .checked_add(amount)
+            .ok_or(BudgetError::ChargeOverflow { dimension })?;
+    }
+    Ok(requested)
+}
+
 /// Initial limits for each dimension plus the protected verifier pool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BudgetLimits {
@@ -397,6 +473,23 @@ impl Budget {
         }
     }
 
+    /// Borrows this ledger as a meter for an independently owned verifier.
+    ///
+    /// The lease must originate from this exact live ledger. Authorization is
+    /// checked before granting the borrow, including when the verifier will
+    /// perform only an empty batch or a checkpoint. The adapter cannot access
+    /// ordinary compute fuel or reset exhausted resources. Memory and other
+    /// non-compute dimensions remain shared with the owning request.
+    pub fn verifier_meter(
+        &mut self,
+        lease: &VerifierLease,
+    ) -> Result<VerifierMeter<'_>, BudgetError> {
+        if !Arc::ptr_eq(&self.authority, &lease.authority) {
+            return Err(BudgetError::VerifierPoolAccessDenied);
+        }
+        Ok(VerifierMeter { budget: self })
+    }
+
     /// Charges `amount` of `dimension`, atomically.
     pub fn try_charge(
         &mut self,
@@ -431,16 +524,7 @@ impl Budget {
     /// exhausted dimension refuses the whole batch without changing counters or sequence. An
     /// empty batch is a no-op.
     pub fn try_charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), BudgetError> {
-        let mut requested = [0u64; DIMENSION_COUNT];
-        for &(dimension, amount) in charges {
-            if amount == 0 {
-                return Err(BudgetError::ZeroCharge);
-            }
-            let index = dimension.index();
-            requested[index] = requested[index]
-                .checked_add(amount)
-                .ok_or(BudgetError::ChargeOverflow { dimension })?;
-        }
+        let requested = charge_totals(charges)?;
         for dimension in Dimension::ALL {
             let index = dimension.index();
             if requested[index] > self.remaining[index] {
@@ -747,6 +831,199 @@ mod tests {
         let mut budget = Budget::new(BudgetLimits::uniform(10, 0));
         let before = budget.snapshot();
         budget.try_charge_batch(&[]).expect("empty batch is valid");
+        assert_eq!(budget.snapshot(), before);
+    }
+
+    #[test]
+    fn verifier_meter_uses_reserved_compute_after_generator_exhaustion() {
+        let mut budget = Budget::new(BudgetLimits::uniform(10, 12));
+        let lease = budget.verifier_lease().unwrap();
+        budget.try_charge(Dimension::ComputeSteps, 10).unwrap();
+        {
+            let mut verifier = budget.verifier_meter(&lease).unwrap();
+            verifier
+                .charge_batch(&[
+                    (Dimension::ComputeSteps, 3),
+                    (Dimension::MemoryBytes, 2),
+                    (Dimension::ComputeSteps, 5),
+                    (Dimension::AllocationCount, 1),
+                ])
+                .unwrap();
+        }
+        assert_eq!(budget.remaining(Dimension::ComputeSteps), 0);
+        assert_eq!(budget.verifier_remaining(), 4);
+        assert_eq!(budget.remaining(Dimension::MemoryBytes), 8);
+        assert_eq!(budget.remaining(Dimension::AllocationCount), 9);
+        assert_eq!(budget.snapshot().sequence, 2);
+
+        // A plain generator meter still cannot draw the remaining verifier fuel.
+        let before = budget.snapshot();
+        assert_eq!(
+            BudgetMeter::charge(&mut budget, Dimension::ComputeSteps, 1),
+            Err(MeterError::Budget(BudgetError::Exhausted {
+                dimension: Dimension::ComputeSteps,
+                requested: 1,
+                remaining: 0,
+            }))
+        );
+        assert_eq!(budget.snapshot(), before);
+    }
+
+    #[test]
+    fn verifier_exhaustion_cannot_borrow_generator_fuel() {
+        let mut budget = Budget::new(BudgetLimits::uniform(100, 3));
+        let lease = budget.verifier_lease().unwrap();
+        budget
+            .verifier_meter(&lease)
+            .unwrap()
+            .charge(Dimension::ComputeSteps, 3)
+            .unwrap();
+        let before = budget.snapshot();
+        assert_eq!(
+            budget
+                .verifier_meter(&lease)
+                .unwrap()
+                .charge_batch(&[(Dimension::MemoryBytes, 1), (Dimension::ComputeSteps, 1),]),
+            Err(MeterError::Budget(BudgetError::Exhausted {
+                dimension: Dimension::ComputeSteps,
+                requested: 1,
+                remaining: 0,
+            }))
+        );
+        assert_eq!(budget.snapshot(), before);
+        assert_eq!(budget.remaining(Dimension::ComputeSteps), 100);
+    }
+
+    #[test]
+    fn verifier_mixed_batches_are_atomic_for_every_resource() {
+        for dimension in Dimension::ALL {
+            let mut budget = Budget::new(BudgetLimits::uniform(5, 5));
+            let lease = budget.verifier_lease().unwrap();
+            let before = budget.snapshot();
+            let other = if dimension == Dimension::ComputeSteps {
+                Dimension::MemoryBytes
+            } else {
+                Dimension::ComputeSteps
+            };
+            assert_eq!(
+                budget.verifier_meter(&lease).unwrap().charge_batch(&[
+                    (other, 2),
+                    (dimension, 3),
+                    (dimension, 3)
+                ]),
+                Err(MeterError::Budget(BudgetError::Exhausted {
+                    dimension,
+                    requested: 6,
+                    remaining: 5,
+                }))
+            );
+            assert_eq!(budget.snapshot(), before, "partial charge for {dimension}");
+
+            // The refused mixed charge did not prevent this exact-fit batch.
+            budget
+                .verifier_meter(&lease)
+                .unwrap()
+                .charge_batch(&[(other, 2), (dimension, 3), (dimension, 2)])
+                .unwrap();
+            let after = budget.snapshot();
+            assert_eq!(after.sequence, before.sequence + 1);
+            assert_eq!(budget.remaining(Dimension::ComputeSteps), 5);
+            if dimension == Dimension::ComputeSteps {
+                assert_eq!(after.verifier_pool, 0);
+                assert_eq!(budget.remaining(other), 3);
+            } else {
+                assert_eq!(after.verifier_pool, 3);
+                assert_eq!(budget.remaining(dimension), 0);
+            }
+        }
+    }
+
+    #[test]
+    fn verifier_batches_reject_zero_and_overflow_without_consumption() {
+        for dimension in Dimension::ALL {
+            let mut budget = Budget::new(BudgetLimits::uniform(u64::MAX, u64::MAX));
+            let lease = budget.verifier_lease().unwrap();
+            let before = budget.snapshot();
+            assert_eq!(
+                budget
+                    .verifier_meter(&lease)
+                    .unwrap()
+                    .charge_batch(&[(Dimension::MemoryBytes, 1), (dimension, 0)]),
+                Err(MeterError::Budget(BudgetError::ZeroCharge))
+            );
+            assert_eq!(budget.snapshot(), before);
+            assert_eq!(
+                budget
+                    .verifier_meter(&lease)
+                    .unwrap()
+                    .charge_batch(&[(dimension, u64::MAX), (dimension, 1)]),
+                Err(MeterError::Budget(BudgetError::ChargeOverflow {
+                    dimension,
+                }))
+            );
+            assert_eq!(budget.snapshot(), before);
+        }
+    }
+
+    #[test]
+    fn verifier_meter_authority_is_bound_to_the_exact_ledger() {
+        let mut issuer = Budget::new(BudgetLimits::uniform(8, 6));
+        let lease = issuer.verifier_lease().unwrap();
+        let before = issuer.snapshot();
+        let mut foreign = Budget::new(BudgetLimits::uniform(8, 6));
+        let foreign_before = foreign.snapshot();
+        assert_eq!(
+            foreign.verifier_meter(&lease).unwrap_err(),
+            BudgetError::VerifierPoolAccessDenied
+        );
+        assert_eq!(foreign.snapshot(), foreign_before);
+        assert_eq!(issuer.snapshot(), before);
+
+        let mut child = issuer.reserve_child(BudgetLimits::uniform(4, 0)).unwrap();
+        let child_before = child.snapshot();
+        let issuer_before = issuer.snapshot();
+        assert_eq!(
+            child.verifier_meter(&lease).unwrap_err(),
+            BudgetError::VerifierPoolAccessDenied
+        );
+        assert_eq!(child.snapshot(), child_before);
+        assert_eq!(issuer.snapshot(), issuer_before);
+        issuer.merge_child(child).unwrap();
+
+        // Moving the authorized ledger preserves authority, unlike constructing
+        // another ledger with identical numeric state.
+        let mut moved = issuer;
+        moved
+            .verifier_meter(&lease)
+            .unwrap()
+            .charge(Dimension::ComputeSteps, 2)
+            .unwrap();
+        assert_eq!(moved.verifier_remaining(), 4);
+    }
+
+    #[test]
+    fn reacquiring_verifier_meter_preserves_cumulative_work() {
+        let mut budget = Budget::new(BudgetLimits::uniform(9, 9));
+        let lease = budget.verifier_lease().unwrap();
+        for iteration in 1..=3 {
+            budget
+                .verifier_meter(&lease)
+                .unwrap()
+                .charge_batch(&[(Dimension::ComputeSteps, 3), (Dimension::MemoryBytes, 2)])
+                .unwrap();
+            assert_eq!(budget.verifier_remaining(), 9 - 3 * iteration);
+            assert_eq!(budget.remaining(Dimension::MemoryBytes), 9 - 2 * iteration);
+        }
+        let before = budget.snapshot();
+        {
+            let mut meter = budget.verifier_meter(&lease).unwrap();
+            meter.checkpoint().unwrap();
+            meter.charge_batch(&[]).unwrap();
+            assert!(matches!(
+                meter.charge(Dimension::ComputeSteps, 1),
+                Err(MeterError::Budget(BudgetError::Exhausted { .. }))
+            ));
+        }
         assert_eq!(budget.snapshot(), before);
     }
 
