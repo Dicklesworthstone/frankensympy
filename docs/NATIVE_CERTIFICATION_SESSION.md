@@ -70,6 +70,66 @@ resources are checked before either the complete receipt or its child handles
 are published. Child handles refer into the immutable accepted receipt, so they
 do not duplicate its retained source forest.
 
+## Advance a root search in bounded batches
+
+A live session can retain an unfinished search and advance it over several
+requests. After registering `system:polynomial` as above, begin a search:
+
+```json
+{"id":"begin","type":"BeginRootIsolationSearch","payload":{"schema_version":1,"system":"system:polynomial","search":"search:roots","domain":[{"lower":"-2","upper":"2"}],"precision_digits":16,"max_leaves":512}}
+{"id":"step","type":"AdvanceRootIsolationSearch","payload":{"schema_version":1,"search":"search:roots","max_cells":1}}
+{"id":"inspect","type":"InspectRootIsolationSearch","payload":{"schema_version":1,"search":"search:roots"}}
+```
+
+Repeat the advance request until `result.progress.ready_for_verification` is
+true. `max_cells` bounds committed cell transitions per call, from 1 through
+2,047. One cell can require several bounded interval calculations, so this is
+a work quantum rather than a wall-clock deadline. Inspection returns current
+progress without advancing the search.
+
+Progress reports `processed_cells`, `pending_cells`, `candidate_root_count`,
+`excluded_cells`, `leaf_count` and `ready_for_verification`. These replies carry
+`evidence: "heuristic_candidate"`; a candidate count is not an accepted root
+count, and readiness means only that a complete proposal is available. Finish
+the search to request independent verification:
+
+```json
+{"id":"finish","type":"FinishRootIsolationSearch","payload":{"schema_version":1,"search":"search:roots","isolation":"isolation:roots"}}
+{"id":"release","type":"ReleaseRootIsolationSearch","payload":{"schema_version":1,"search":"search:roots"}}
+```
+
+Only a successful finish returns `real_roots_isolated` and publishes the complete
+receipt and child certificate handles. It uses the same protected complete-cover
+checker and atomic publication path as one-shot isolation. The accepted result
+supports all existing local-root and complete-proof export/replay operations,
+including chunked transfer. Finishing before readiness returns `search_not_ready`.
+
+The search freezes the original typed equations, ordered coordinates, domain,
+precision, options and Session context association. Later workspace bindings
+cannot alter that problem. A cell is removed from the pending frontier only
+after its exclusion, root proposal or split is fully prepared and admitted.
+Cancellation or resource refusal preserves the current unresolved cell and any
+earlier completed cells. If a later cell in a batch refuses, inspection exposes
+the progress already committed earlier in that batch.
+
+All advances share the Session's cumulative ledger and the search's cumulative
+internal work limits. Yielding, retrying or releasing a search resets neither.
+An exhausted Session budget remains exhausted. The prepared source and scratch
+reservation are retained across batches instead of being recreated for every
+cell. Singular roots, unsupported source domains and subdivision limits can
+still prevent completion.
+
+Progress-response resources are admitted before advancing any cell. A refused
+finish, including output admission or a child-label collision, leaves the search
+available and publishes no partial accepted set. Successful finish also retains
+the search until explicit release. Sessions admit at most eight resident
+searches; release frees a slot and leaves already accepted certificates intact.
+
+This continuation lives in the current process. It is not a durable checkpoint
+or an asynchronous cancellation endpoint. Native callers can use a
+cancellation-aware `BudgetMeter`, retain the search after cancellation, and
+resume under the same cumulative ledger once cancellation is cleared.
+
 ## Replay the complete root set in another process
 
 Export the accepted coverage proof from the originating session:
@@ -198,11 +258,11 @@ construction can simplify away. Thus `0*(1/x)`, `log(x)-log(x)` and
 are exact rational numbers. No binary64 conversion enters this interface.
 
 Session labels have distinct kinds: `system:<identifier>`,
-`certificate:<identifier>`, `isolation:<identifier>` and
-`transfer:<identifier>`. They are local
+`certificate:<identifier>`, `isolation:<identifier>`,
+`search:<identifier>` and `transfer:<identifier>`. They are local
 references, not stable content IDs. Identifiers use ASCII letters, digits,
-underscores, hyphens or dots. System and certificate labels are at most 128
-bytes, as are transfer labels; isolation labels are at most 104 bytes, leaving space for generated
+underscores, hyphens or dots. System, certificate, search and transfer labels
+are at most 128 bytes; isolation labels are at most 104 bytes, leaving space for generated
 `.root-<index>` child certificate suffixes. Existing labels cannot be overwritten.
 Only a successful independent check and successful response admission insert
 a certificate into the resident store. A failed attempt leaves its label
@@ -243,6 +303,8 @@ its existing small defaults; numerical callers should use
 | Request ID | Optional string of at most 256 bytes, or unsigned integer |
 | Resident systems / certificates / complete isolations | 32 / 128 / 32; child certificates share the certificate limit |
 | Resident artifact transfers | 8 total imports and exports; explicit release frees a slot |
+| Resident root searches | 8; explicit release frees a slot without a budget refund |
+| Root-search work quantum | 1–2,047 committed cell transitions per advance |
 | Residuals / variables | 1–64 / 1–16 |
 | Residual × variable entries | At most 1,024 |
 | Automatic isolation leaves / roots | At most 1,024 / 128 |
@@ -263,6 +325,7 @@ its cumulative ordinary, memory, allocation and verifier limits.
 Typical error codes distinguish `budget_exhausted`, `domain_not_certified`,
 `unsupported_operation`, `source_mismatch`, `domain_mismatch`, `universe_mismatch`,
 `invalid_artifact`, `unsupported_schema`, `inconclusive` and a mathematical `refused` outcome.
+An incomplete root search returns `search_not_ready` when asked to finish.
 Transfers additionally distinguish `incomplete_transfer`, `out_of_order_chunk`,
 `conflicting_chunk`, `artifact_kind_mismatch` and `wrong_transfer_mode`.
 An error never contains an accepted root value.
@@ -318,6 +381,15 @@ receipt. Export ownership avoids a full-payload clone; imports reserve one
 bounded buffer at begin and publish each validated chunk with a final copy.
 
 ## In-process Rust API
+
+`ResidualProblem::begin_isolation_search(domain, options, meter)` constructs a
+source-owning `RootIsolationSearch`. Its `advance(max_cells, meter)` method
+retains completed work and reports `RootIsolationProgress`; `completed_witness()`
+returns a borrowed proposal only when the frontier is empty. The existing
+`ResidualProblem::verify_isolation` independently verifies that proposal using
+the caller's protected verifier meter. Keep one cumulative caller-owned ledger
+across advances and retries. The original `propose_isolation` / `isolate_roots`
+APIs use the same cell-processing engine for one-shot execution.
 
 The root crate exposes `ResidualProblem`, exact scalar/ball types, checker
 receipts, typed session requests and the portable export/replay functions.

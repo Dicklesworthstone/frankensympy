@@ -181,6 +181,15 @@ finite box, prove the box is root-free, or return an explicit inconclusive resul
 Accepted roots receive individually exportable certificate handles; no initial
 guesses or hand-written preconditioners are required.
 
+Root searches can also advance in bounded batches. `BeginRootIsolationSearch`
+freezes a problem, `AdvanceRootIsolationSearch` retains completed cells and the
+unresolved frontier, and `InspectRootIsolationSearch` reports candidate-only
+progress. `FinishRootIsolationSearch` independently verifies the complete
+proposal before publishing any accepted roots. The native `RootIsolationSearch`
+uses the same engine as one-shot search and preserves cumulative work across
+yields and cancellation; `ReleaseRootIsolationSearch` frees a live search slot
+without refunding its budget. This is an in-process continuation.
+
 `ExportRootIsolation` and `ReplayRootIsolation` transport the complete coverage
 proof, including a proved empty root set. A fresh receiving process binds the
 artifact to its own equations, typed coordinate order, context and requested

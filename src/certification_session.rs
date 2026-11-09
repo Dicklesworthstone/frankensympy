@@ -14,6 +14,10 @@ use crate::certification::{
 };
 use crate::isolation_transport::{export_root_isolation, replay_root_isolation};
 use fsym_budget::{Budget, BudgetError, BudgetMeter, Dimension, MeterError, VerifierLease};
+use fsym_calculus::root_isolation::{
+    MAX_ROOT_ISOLATION_ADVANCE_CELLS, RootIsolationOptions, RootIsolationProgress,
+    RootIsolationSearch,
+};
 use fsym_core::{
     BigInt, BigRational, RealBall, RootBoxError, RootBoxReceipt, RootBoxWitness,
     RootIsolationError, RootIsolationReceipt, Symbol,
@@ -33,6 +37,9 @@ const MAX_ISOLATIONS: usize = 32;
 /// Imports and exports share this resident bound; releasing a transfer does not
 /// refund any work or allocation already charged to the session ledger.
 pub const MAX_SESSION_ARTIFACT_TRANSFERS: usize = 8;
+/// Pending and complete candidate searches remain resident until released.
+/// This bound is independent of accepted complete-isolation receipts.
+pub const MAX_SESSION_ROOT_SEARCHES: usize = 8;
 const MAX_SCALAR_BYTES: usize = 512;
 const MAX_AXES: usize = fsym_core::MAX_ROOT_BOX_VARIABLES;
 
@@ -132,6 +139,32 @@ impl<'de> Deserialize<'de> for RootIsolationId {
     }
 }
 
+/// A resumable candidate search, distinct from an accepted root isolation.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct RootIsolationSearchId(Box<str>);
+
+impl RootIsolationSearchId {
+    pub fn new(value: impl Into<String>) -> Result<Self, CertificationSessionError> {
+        let value = value.into();
+        if !valid_label(&value, "search:") {
+            return Err(CertificationSessionError::InvalidLabel);
+        }
+        // A short label cannot retain an arbitrarily large caller capacity.
+        Ok(Self(value.into_boxed_str()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for RootIsolationSearchId {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::new(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
 /// One member of a verified complete root set. Its label also supports the
 /// ordinary root-certificate export/replay operations.
 #[derive(Debug, Serialize)]
@@ -200,6 +233,32 @@ pub enum CertificationRequest {
         precision_digits: u32,
         max_leaves: usize,
     },
+    BeginRootIsolationSearch {
+        schema_version: u32,
+        system: ResidualSystemId,
+        search: RootIsolationSearchId,
+        domain: Vec<ExactInterval>,
+        precision_digits: u32,
+        max_leaves: usize,
+    },
+    AdvanceRootIsolationSearch {
+        schema_version: u32,
+        search: RootIsolationSearchId,
+        max_cells: usize,
+    },
+    InspectRootIsolationSearch {
+        schema_version: u32,
+        search: RootIsolationSearchId,
+    },
+    FinishRootIsolationSearch {
+        schema_version: u32,
+        search: RootIsolationSearchId,
+        isolation: RootIsolationId,
+    },
+    ReleaseRootIsolationSearch {
+        schema_version: u32,
+        search: RootIsolationSearchId,
+    },
     ExportRootIsolation {
         schema_version: u32,
         isolation: RootIsolationId,
@@ -267,6 +326,11 @@ impl CertificationRequest {
             | Self::EncloseResidualJacobian { schema_version, .. }
             | Self::CertifyRootBox { schema_version, .. }
             | Self::IsolateRealRootsInBox { schema_version, .. }
+            | Self::BeginRootIsolationSearch { schema_version, .. }
+            | Self::AdvanceRootIsolationSearch { schema_version, .. }
+            | Self::InspectRootIsolationSearch { schema_version, .. }
+            | Self::FinishRootIsolationSearch { schema_version, .. }
+            | Self::ReleaseRootIsolationSearch { schema_version, .. }
             | Self::ExportRootIsolation { schema_version, .. }
             | Self::ReplayRootIsolation { schema_version, .. }
             | Self::ExportRootCertificate { schema_version, .. }
@@ -369,6 +433,26 @@ pub enum CertificationResponse {
         precision_digits: u32,
         context_digest: [u8; 32],
     },
+    RootIsolationSearchStarted {
+        schema_version: u32,
+        system: ResidualSystemId,
+        search: RootIsolationSearchId,
+        evidence: &'static str,
+        progress: RootIsolationProgress,
+        context_digest: [u8; 32],
+    },
+    RootIsolationSearchProgress {
+        schema_version: u32,
+        system: ResidualSystemId,
+        search: RootIsolationSearchId,
+        evidence: &'static str,
+        progress: RootIsolationProgress,
+        context_digest: [u8; 32],
+    },
+    RootIsolationSearchReleased {
+        schema_version: u32,
+        search: RootIsolationSearchId,
+    },
     RootCertificateExported {
         schema_version: u32,
         system: ResidualSystemId,
@@ -413,7 +497,7 @@ pub enum CertificationSessionError {
     #[error("unsupported certification request schema {0}")]
     UnsupportedVersion(u32),
     #[error(
-        "object label must have the proper system:, certificate: or isolation: kind and a bounded identifier"
+        "object label must have the proper system:, certificate:, isolation: or search: kind and a bounded identifier"
     )]
     InvalidLabel,
     #[error("object label already exists in this session")]
@@ -424,6 +508,12 @@ pub enum CertificationSessionError {
     UnknownCertificate,
     #[error("unknown accepted complete root isolation")]
     UnknownIsolation,
+    #[error("unknown root isolation search")]
+    UnknownSearch,
+    #[error("root isolation search still has pending cells")]
+    SearchNotReady,
+    #[error("root search work quantum is outside the supported range")]
+    InvalidSearchQuantum,
     #[error("unknown artifact transfer")]
     UnknownTransfer,
     #[error("artifact transfer has the wrong import/export direction")]
@@ -458,12 +548,17 @@ impl CertificationSessionError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::UnsupportedVersion(_) => "unsupported_schema",
-            Self::InvalidLabel | Self::InvalidScalar | Self::InvalidDomain => "invalid_input",
+            Self::InvalidLabel
+            | Self::InvalidScalar
+            | Self::InvalidDomain
+            | Self::InvalidSearchQuantum => "invalid_input",
             Self::DuplicateObject => "duplicate_object",
             Self::UnknownSystem
             | Self::UnknownCertificate
             | Self::UnknownIsolation
+            | Self::UnknownSearch
             | Self::UnknownTransfer => "unknown_object",
+            Self::SearchNotReady => "search_not_ready",
             Self::WrongTransferMode => "wrong_transfer_mode",
             Self::ObjectLimit | Self::ArtifactLimit => "resource_limit_exceeded",
             Self::OutputLimit => "output_limit_exceeded",
@@ -797,6 +892,29 @@ enum ResidentArtifact {
     Import(ArtifactImport),
 }
 
+struct ResidentRootSearch {
+    system: ResidualSystemId,
+    context_digest: [u8; 32],
+    search: RootIsolationSearch,
+}
+
+impl ResidentRootSearch {
+    fn response(
+        &self,
+        id: RootIsolationSearchId,
+        progress: RootIsolationProgress,
+    ) -> CertificationResponse {
+        CertificationResponse::RootIsolationSearchProgress {
+            schema_version: CERTIFICATION_REQUEST_SCHEMA,
+            system: self.system.clone(),
+            search: id,
+            evidence: "heuristic_candidate",
+            progress,
+            context_digest: self.context_digest,
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct CertificationState {
     systems: BTreeMap<ResidualSystemId, ResidualProblem>,
@@ -808,6 +926,9 @@ pub(crate) struct CertificationState {
     // These byte containers never participate in accepted-object lookup. An
     // import must pass full independent replay before any certificate exists.
     transfers: BTreeMap<ArtifactTransferId, ResidentArtifact>,
+    // Candidate frontiers are not accepted-object stores. Their immutable
+    // source/domain and receiving context survive every advance and retry.
+    searches: BTreeMap<RootIsolationSearchId, ResidentRootSearch>,
 }
 
 impl CertificationState {
@@ -820,6 +941,13 @@ impl CertificationState {
 
     pub(crate) fn isolation(&self, id: &RootIsolationId) -> Option<&RootIsolationReceipt> {
         self.isolations.get(id).map(|(_, receipt)| receipt)
+    }
+
+    pub(crate) fn search_progress(
+        &self,
+        id: &RootIsolationSearchId,
+    ) -> Option<RootIsolationProgress> {
+        self.searches.get(id).map(|slot| slot.search.progress())
     }
 
     fn certificate_record(
@@ -938,6 +1066,28 @@ impl CertificationState {
         }
         // Bound the resident map entry, labels and response metadata before
         // constructing either direction of a transfer.
+        meter.checkpoint()?;
+        meter.charge_batch(&[
+            (Dimension::ComputeSteps, 1),
+            (Dimension::MemoryBytes, 4096),
+            (Dimension::AllocationCount, 8),
+        ])?;
+        Ok(())
+    }
+
+    fn admit_search_id(
+        &self,
+        id: &RootIsolationSearchId,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<(), CertificationSessionError> {
+        if self.searches.contains_key(id) {
+            return Err(CertificationSessionError::DuplicateObject);
+        }
+        if self.searches.len() >= MAX_SESSION_ROOT_SEARCHES {
+            return Err(CertificationSessionError::ObjectLimit);
+        }
+        // The engine separately admits its retained source/frontier storage.
+        // Reserve bounded map, label and response metadata before construction.
         meter.checkpoint()?;
         meter.charge_batch(&[
             (Dimension::ComputeSteps, 1),
@@ -1095,6 +1245,144 @@ impl CertificationState {
                     &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
                 )?;
                 self.publish_isolation(system, isolation, receipt, context_digest, budget)
+            }
+            CertificationRequest::BeginRootIsolationSearch {
+                system,
+                search,
+                domain,
+                precision_digits,
+                max_leaves,
+                ..
+            } => {
+                self.admit_search_id(&search, budget)?;
+                let problem = self
+                    .systems
+                    .get(&system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                let domain = parse_domain(&domain, problem.variables().len(), budget)?;
+                let candidate = problem.begin_isolation_search(
+                    &domain,
+                    RootIsolationOptions {
+                        precision_digits,
+                        max_leaves,
+                    },
+                    budget,
+                )?;
+                let response = CertificationResponse::RootIsolationSearchStarted {
+                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                    system: system.clone(),
+                    search: search.clone(),
+                    evidence: "heuristic_candidate",
+                    progress: candidate.progress(),
+                    context_digest,
+                };
+                admit_response(&response, budget)?;
+                self.searches.insert(
+                    search,
+                    ResidentRootSearch {
+                        // Cloning keeps only this bounded label's bytes, not
+                        // spare capacity in a caller-owned native String.
+                        system: system.clone(),
+                        context_digest,
+                        search: candidate,
+                    },
+                );
+                Ok(response)
+            }
+            CertificationRequest::AdvanceRootIsolationSearch {
+                search, max_cells, ..
+            } => {
+                if !(1..=MAX_ROOT_ISOLATION_ADVANCE_CELLS).contains(&max_cells) {
+                    return Err(CertificationSessionError::InvalidSearchQuantum);
+                }
+                let slot = self
+                    .searches
+                    .get(&search)
+                    .ok_or(CertificationSessionError::UnknownSearch)?;
+                // Reserve the maximum possible counter widths and the longer
+                // Boolean spelling before the engine commits even one cell.
+                // Updating these Copy fields afterward cannot allocate or fail.
+                let mut response = slot.response(
+                    search.clone(),
+                    RootIsolationProgress {
+                        processed_cells: usize::MAX,
+                        pending_cells: usize::MAX,
+                        candidate_root_count: usize::MAX,
+                        excluded_cells: usize::MAX,
+                        leaf_count: usize::MAX,
+                        ready_for_verification: false,
+                    },
+                );
+                admit_response(&response, budget)?;
+                let slot = self
+                    .searches
+                    .get_mut(&search)
+                    .expect("the admitted candidate search remains resident");
+                let advanced = slot
+                    .search
+                    .advance(max_cells, budget)
+                    .map_err(CertificationError::from)?;
+                let CertificationResponse::RootIsolationSearchProgress { progress, .. } =
+                    &mut response
+                else {
+                    unreachable!("the prepared response is a candidate progress record");
+                };
+                *progress = advanced;
+                Ok(response)
+            }
+            CertificationRequest::InspectRootIsolationSearch { search, .. } => {
+                let slot = self
+                    .searches
+                    .get(&search)
+                    .ok_or(CertificationSessionError::UnknownSearch)?;
+                let response = slot.response(search, slot.search.progress());
+                admit_response(&response, budget)?;
+                Ok(response)
+            }
+            CertificationRequest::FinishRootIsolationSearch {
+                search, isolation, ..
+            } => {
+                self.admit_isolation_id(&isolation)?;
+                let slot = self
+                    .searches
+                    .get(&search)
+                    .ok_or(CertificationSessionError::UnknownSearch)?;
+                if slot.context_digest != context_digest {
+                    return Err(CertificationError::UniverseMismatch {
+                        found: slot.context_digest,
+                        expected: context_digest,
+                    }
+                    .into());
+                }
+                let witness = slot
+                    .search
+                    .completed_witness()
+                    .ok_or(CertificationSessionError::SearchNotReady)?;
+                let problem = self
+                    .systems
+                    .get(&slot.system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                let lease =
+                    lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+                let receipt = problem.verify_isolation(
+                    slot.search.domain(),
+                    witness,
+                    &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+                )?;
+                let system = slot.system.clone();
+                self.publish_isolation(system, isolation, receipt, context_digest, budget)
+            }
+            CertificationRequest::ReleaseRootIsolationSearch { search, .. } => {
+                if !self.searches.contains_key(&search) {
+                    return Err(CertificationSessionError::UnknownSearch);
+                }
+                let response = CertificationResponse::RootIsolationSearchReleased {
+                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                    search: search.clone(),
+                };
+                admit_response(&response, budget)?;
+                self.searches.remove(&search);
+                Ok(response)
             }
             CertificationRequest::ExportRootIsolation { isolation, .. } => {
                 let (system, receipt) = self

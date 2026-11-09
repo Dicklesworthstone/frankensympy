@@ -32,7 +32,8 @@ pub use certification::{
 pub use certification_session::{
     ArtifactSource, CERTIFICATION_REQUEST_SCHEMA, CertificationRequest, CertificationResponse,
     CertificationSessionError, ExactInterval, ExactRootWitness, IsolatedRoot,
-    MAX_SESSION_ARTIFACT_TRANSFERS, ResidualSystemId, RootCertificateId, RootIsolationId,
+    MAX_SESSION_ARTIFACT_TRANSFERS, MAX_SESSION_ROOT_SEARCHES, ResidualSystemId, RootCertificateId,
+    RootIsolationId, RootIsolationSearchId,
 };
 pub use fsym_budget::{Budget, BudgetLimits, BudgetMeter, BudgetSnapshot, Dimension, MeterError};
 pub use fsym_calculus::root_isolation::{

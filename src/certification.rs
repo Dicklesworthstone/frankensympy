@@ -9,7 +9,9 @@
 #![forbid(unsafe_code)]
 
 use fsym_budget::{BudgetMeter, Dimension, MeterError};
-use fsym_calculus::root_isolation::{RootIsolationOptions, propose_root_isolation};
+use fsym_calculus::root_isolation::{
+    RootIsolationOptions, RootIsolationSearch, propose_root_isolation,
+};
 use fsym_core::{
     Expr, MAX_ROOT_BOX_DEPTH, MAX_ROOT_BOX_JACOBIAN_ENTRIES, MAX_ROOT_BOX_LIMBS,
     MAX_ROOT_BOX_NODES, MAX_ROOT_BOX_RESIDUALS, MAX_ROOT_BOX_VARIABLES, RealBall,
@@ -359,6 +361,19 @@ impl ResidualProblem {
         meter: &mut impl BudgetMeter,
     ) -> Result<RootBoxReceipt, CertificationError> {
         verify_root_box(&self.residuals, &self.variables, witness, meter).map_err(Into::into)
+    }
+
+    /// Start a bounded, resumable candidate search over this immutable source.
+    /// Advances retain their frontier and charge the caller's cumulative meter;
+    /// completion still requires independent [`Self::verify_isolation`].
+    pub fn begin_isolation_search(
+        &self,
+        domain: &[RealBall],
+        options: RootIsolationOptions,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<RootIsolationSearch, CertificationError> {
+        RootIsolationSearch::new(&self.residuals, &self.variables, domain, options, meter)
+            .map_err(Into::into)
     }
 
     /// Propose a complete cover of a finite box without initial guesses or a

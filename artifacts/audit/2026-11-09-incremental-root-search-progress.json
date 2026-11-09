@@ -1,0 +1,3280 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-11-09T20:08:15.393389+00:00",
+  "repository": "Dicklesworthstone/frankensympy",
+  "base_commit": "3e35c727e6b2a6024fce55d80e20ee980dd5a6bb",
+  "feature": "Live incremental root isolation with source-bound candidate state and independent complete-cover acceptance",
+  "native_commit": {
+    "repository": "Dicklesworthstone/frankensympy",
+    "base": "3e35c727e6b2a6024fce55d80e20ee980dd5a6bb",
+    "commit": "4357d32f780ad7acd28b1ad7d31412e88a5f7ad5",
+    "tree": "4b4fe431121bfc0ecbc420eb4b652425cd5512c4",
+    "message": "Add incremental root isolation with cumulative bounded work\n\nShare one deterministic frontier engine between one-shot and resumable searches. Freeze exact typed sources and retain preparation, scratch admission and intrinsic work counters across advances, refusals and unwinding.\n\nPrepare and admit complete cell transitions before changing the frontier. Completed witnesses remain candidates until independent complete-cover verification.\n\nAdd exact schedule-equivalence, source-ownership, cancellation-sweep, cumulative-budget and intrinsic-cap regressions.",
+    "verification": [
+      {
+        "key": "commit",
+        "sha": "4357d32f780ad7acd28b1ad7d31412e88a5f7ad5",
+        "files": [
+          "crates/fsym-calculus/src/root_isolation.rs",
+          "crates/fsym-calculus/tests/root_isolation_search.rs",
+          "crates/fsym-core/src/root_certificate/root_isolation.rs",
+          "src/lib.rs"
+        ],
+        "message": "Add incremental root isolation with cumulative bounded work"
+      },
+      {
+        "key": "main",
+        "sha": "4357d32f780ad7acd28b1ad7d31412e88a5f7ad5"
+      },
+      {
+        "path": "crates/fsym-core/src/root_certificate/root_isolation.rs",
+        "sha": "e6b1686197965504b13d38d88b9b0e285781f3cb",
+        "content_matches": true
+      },
+      {
+        "path": "crates/fsym-calculus/src/root_isolation.rs",
+        "sha": "e8ec6cebbc8c02e2dee1f09bee6699ec78b39d67",
+        "content_matches": true
+      },
+      {
+        "path": "crates/fsym-calculus/tests/root_isolation_search.rs",
+        "sha": "6c4269a11892c6d1459cfa06ceb47dd4761428a9",
+        "content_matches": true
+      },
+      {
+        "path": "src/lib.rs",
+        "sha": "0269e024859ad47e976b5460654abccddc2b33b8",
+        "content_matches": true
+      }
+    ],
+    "source_hashes": [
+      {
+        "path": "crates/fsym-core/src/root_certificate/root_isolation.rs",
+        "bytes": 27048,
+        "sha256": "5291c2e4c6815d4aa2b6048961dd8371808c3f7d6c0d763bce85aab0554ef8f5",
+        "git_blob": "e6b1686197965504b13d38d88b9b0e285781f3cb"
+      },
+      {
+        "path": "crates/fsym-calculus/src/root_isolation.rs",
+        "bytes": 21075,
+        "sha256": "43ee29af90e9e287b5ef03793e3a7accdf7338efbd59a719c8d0ce586493f23e",
+        "git_blob": "e8ec6cebbc8c02e2dee1f09bee6699ec78b39d67"
+      },
+      {
+        "path": "crates/fsym-calculus/tests/root_isolation_search.rs",
+        "bytes": 17807,
+        "sha256": "022525f2ac350a6bae4cf6ab225271092980f1257b3666ffb72a2ea111713532",
+        "git_blob": "6c4269a11892c6d1459cfa06ceb47dd4761428a9"
+      },
+      {
+        "path": "src/lib.rs",
+        "bytes": 2789,
+        "sha256": "93fd5b1208c251c5160cca8d24c468ec9fbd885b2379f8a5e173c6786bb08d2e",
+        "git_blob": "0269e024859ad47e976b5460654abccddc2b33b8"
+      }
+    ]
+  },
+  "final_source_inputs": [
+    {
+      "path": "crates/fsym-calculus/src/root_isolation.rs",
+      "sha256": "43ee29af90e9e287b5ef03793e3a7accdf7338efbd59a719c8d0ce586493f23e",
+      "git_blob": "e8ec6cebbc8c02e2dee1f09bee6699ec78b39d67"
+    },
+    {
+      "path": "crates/fsym-calculus/tests/root_isolation_search.rs",
+      "sha256": "022525f2ac350a6bae4cf6ab225271092980f1257b3666ffb72a2ea111713532",
+      "git_blob": "6c4269a11892c6d1459cfa06ceb47dd4761428a9"
+    },
+    {
+      "path": "crates/fsym-core/src/root_certificate/root_isolation.rs",
+      "sha256": "5291c2e4c6815d4aa2b6048961dd8371808c3f7d6c0d763bce85aab0554ef8f5",
+      "git_blob": "e6b1686197965504b13d38d88b9b0e285781f3cb"
+    },
+    {
+      "path": "src/certification.rs",
+      "sha256": "07bc98def339e2aad4af49b668a4a454d4db3b759d8007679da210e472c3af09",
+      "git_blob": "d433e3560fdfb49a412e39f33a2c89a298f79b76"
+    },
+    {
+      "path": "src/certification_session.rs",
+      "sha256": "10f8760bd34159a59e0d1a1b3fc4b9b1f49a865c31fe0484d939f15a75801963",
+      "git_blob": "0928091c03530a6a838aa7f8b63430907e490560"
+    },
+    {
+      "path": "src/lib.rs",
+      "sha256": "bb48a231a5b347bac95869e7f6ea797599054df81f4345544e8d00b3de3665e0",
+      "git_blob": "df66b139029f87b9ea6740b70c3d50666173f9be"
+    },
+    {
+      "path": "src/session.rs",
+      "sha256": "3e152f1760655950ed7a2cf8e05b4e316faf699f80cab51e611f915a4c51a7b2",
+      "git_blob": "afe6f28b6b691740d7785fde0eb809fc70d9d8cf"
+    },
+    {
+      "path": "tests/root_isolation_search_session.rs",
+      "sha256": "55b5320f44b2fba1706f54481ed62735182916e7fae450b172233ad55c639f7d",
+      "git_blob": "06b272d499f754aadbd36d7f880706e440ebfd54"
+    }
+  ],
+  "documentation_inputs": [
+    {
+      "path": "README.md",
+      "sha256": "947925712db93b8f3493ddd66b8dea8e5617fb912cd5d32c0f4798a4eb1709bc"
+    },
+    {
+      "path": "docs/NATIVE_CERTIFICATION_SESSION.md",
+      "sha256": "dfbd5b977292006e665d872631bb7ac467345552ee9b52c41448b2e303f9eeae"
+    }
+  ],
+  "implemented": [
+    "One shared deterministic frontier engine powers one-shot and incremental search; exact witness ordering is checked across batch schedules.",
+    "RootIsolationPrepared owns a bounded structural copy of raw typed sources, coordinates and exact domain, retaining scratch admission and arithmetic/allocation/source/evaluation counters across batches, errors and unwinding.",
+    "Each cell is prepared and admitted before a nonfallible transition using pre-reserved capacity. Cancellation/refusal retains the unresolved cell and any prior committed cells.",
+    "Begin/Advance/Inspect/Finish/ReleaseRootIsolationSearch expose eight bounded resident candidates and 1..2047 cell work quanta through the native Session and NDJSON CLI.",
+    "Progress remains heuristic_candidate. Finish uses the existing protected independent complete-cover verifier and all-or-nothing publication, then supports existing local-root and complete-proof chunked export/replay.",
+    "Advance responses are admitted before work; completed searches remain resident until release. Failed finish retains the candidate. Retry and release do not replenish the cumulative Session ledger."
+  ],
+  "final_validation": {
+    "native-core-tests-final": {
+      "label": "native-core-tests-final",
+      "argv": [
+        "/root/.cargo/bin/cargo",
+        "+nightly-2026-08-20",
+        "test",
+        "--locked",
+        "-p",
+        "fsym-core",
+        "-j1"
+      ],
+      "cwd": "/workspace/scratch/03d77ea3bfad/frankensympy-next",
+      "environment": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_TARGET_DIR": "/workspace/scratch/03d77ea3bfad/frankensympy-next/target",
+        "CARGO_HTTP_USER_AGENT": "frankensympy-agent (+https://github.com/Dicklesworthstone/frankensympy)"
+      },
+      "source_root": "/workspace/scratch/03d77ea3bfad/frankensympy-next",
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 41.770652770996094,
+      "inputs_unchanged": true,
+      "log_sha256": "92e28e006d035d107113fe6cf44153aef5e115f1f7092f3ac28d1153e9fd67c5",
+      "input_universe": {
+        "base": "3e35c727e6b2a6024fce55d80e20ee980dd5a6bb",
+        "overlays": [
+          {
+            "path": "crates/fsym-calculus/src/root_isolation.rs",
+            "sha256": "43ee29af90e9e287b5ef03793e3a7accdf7338efbd59a719c8d0ce586493f23e",
+            "git_blob": "e8ec6cebbc8c02e2dee1f09bee6699ec78b39d67"
+          },
+          {
+            "path": "crates/fsym-calculus/tests/root_isolation_search.rs",
+            "sha256": "022525f2ac350a6bae4cf6ab225271092980f1257b3666ffb72a2ea111713532",
+            "git_blob": "6c4269a11892c6d1459cfa06ceb47dd4761428a9"
+          },
+          {
+            "path": "crates/fsym-core/src/root_certificate/root_isolation.rs",
+            "sha256": "5291c2e4c6815d4aa2b6048961dd8371808c3f7d6c0d763bce85aab0554ef8f5",
+            "git_blob": "e6b1686197965504b13d38d88b9b0e285781f3cb"
+          },
+          {
+            "path": "src/lib.rs",
+            "sha256": "93fd5b1208c251c5160cca8d24c468ec9fbd885b2379f8a5e173c6786bb08d2e",
+            "git_blob": "0269e024859ad47e976b5460654abccddc2b33b8"
+          }
+        ],
+        "lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2"
+      },
+      "test_blocks": [
+        {
+          "status": "ok",
+          "passed": 127,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 13,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 13,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 16,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 13,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 16,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 13,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 10,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 10,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "passed_tests": 372,
+      "failed_tests": 0,
+      "log_storage": "Full log retained in the local validation workspace; only the explicitly selected excerpts below are embedded in this repository artifact."
+    },
+    "native-calculus-root-tests-final": {
+      "label": "native-calculus-root-tests-final",
+      "argv": [
+        "/root/.cargo/bin/cargo",
+        "+nightly-2026-08-20",
+        "test",
+        "--locked",
+        "-p",
+        "fsym-calculus",
+        "--test",
+        "certified_root_isolation",
+        "--test",
+        "root_isolation_search",
+        "-j1"
+      ],
+      "cwd": "/workspace/scratch/03d77ea3bfad/frankensympy-next",
+      "environment": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_TARGET_DIR": "/workspace/scratch/03d77ea3bfad/frankensympy-next/target",
+        "CARGO_HTTP_USER_AGENT": "frankensympy-agent (+https://github.com/Dicklesworthstone/frankensympy)"
+      },
+      "source_root": "/workspace/scratch/03d77ea3bfad/frankensympy-next",
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 8.984947919845581,
+      "inputs_unchanged": true,
+      "log_sha256": "69db9e461785b76e29e1248b5158c638804bc411e4d126e39388593894982b33",
+      "input_universe": {
+        "base": "3e35c727e6b2a6024fce55d80e20ee980dd5a6bb",
+        "overlays": [
+          {
+            "path": "crates/fsym-calculus/src/root_isolation.rs",
+            "sha256": "43ee29af90e9e287b5ef03793e3a7accdf7338efbd59a719c8d0ce586493f23e",
+            "git_blob": "e8ec6cebbc8c02e2dee1f09bee6699ec78b39d67"
+          },
+          {
+            "path": "crates/fsym-calculus/tests/root_isolation_search.rs",
+            "sha256": "022525f2ac350a6bae4cf6ab225271092980f1257b3666ffb72a2ea111713532",
+            "git_blob": "6c4269a11892c6d1459cfa06ceb47dd4761428a9"
+          },
+          {
+            "path": "crates/fsym-core/src/root_certificate/root_isolation.rs",
+            "sha256": "5291c2e4c6815d4aa2b6048961dd8371808c3f7d6c0d763bce85aab0554ef8f5",
+            "git_blob": "e6b1686197965504b13d38d88b9b0e285781f3cb"
+          },
+          {
+            "path": "src/lib.rs",
+            "sha256": "93fd5b1208c251c5160cca8d24c468ec9fbd885b2379f8a5e173c6786bb08d2e",
+            "git_blob": "0269e024859ad47e976b5460654abccddc2b33b8"
+          }
+        ],
+        "lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2"
+      },
+      "test_blocks": [
+        {
+          "status": "ok",
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "passed_tests": 23,
+      "failed_tests": 0,
+      "log_storage": "Full log retained in the local validation workspace; only the explicitly selected excerpts below are embedded in this repository artifact."
+    },
+    "native-core-calculus-clippy-fresh": {
+      "label": "native-core-calculus-clippy-fresh",
+      "argv": [
+        "/root/.cargo/bin/cargo",
+        "+nightly-2026-08-20",
+        "clippy",
+        "--locked",
+        "-p",
+        "fsym-core",
+        "-p",
+        "fsym-calculus",
+        "--all-targets",
+        "-j1",
+        "--target-dir",
+        "/workspace/scratch/03d77ea3bfad/frankensympy-native-lint-target",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "cwd": "/workspace/scratch/03d77ea3bfad/frankensympy-next",
+      "environment": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_TARGET_DIR": "/workspace/scratch/03d77ea3bfad/frankensympy-next/target",
+        "CARGO_HTTP_USER_AGENT": "frankensympy-agent (+https://github.com/Dicklesworthstone/frankensympy)"
+      },
+      "source_root": "/workspace/scratch/03d77ea3bfad/frankensympy-next",
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 46.90437173843384,
+      "inputs_unchanged": true,
+      "log_sha256": "42cafb0b51f2e92e4c57977be410325cf4e28565f38dd9dabda078c1f49f1df2",
+      "input_universe": {
+        "base": "3e35c727e6b2a6024fce55d80e20ee980dd5a6bb",
+        "overlays": [
+          {
+            "path": "crates/fsym-calculus/src/root_isolation.rs",
+            "sha256": "43ee29af90e9e287b5ef03793e3a7accdf7338efbd59a719c8d0ce586493f23e",
+            "git_blob": "e8ec6cebbc8c02e2dee1f09bee6699ec78b39d67"
+          },
+          {
+            "path": "crates/fsym-calculus/tests/root_isolation_search.rs",
+            "sha256": "022525f2ac350a6bae4cf6ab225271092980f1257b3666ffb72a2ea111713532",
+            "git_blob": "6c4269a11892c6d1459cfa06ceb47dd4761428a9"
+          },
+          {
+            "path": "crates/fsym-core/src/root_certificate/root_isolation.rs",
+            "sha256": "5291c2e4c6815d4aa2b6048961dd8371808c3f7d6c0d763bce85aab0554ef8f5",
+            "git_blob": "e6b1686197965504b13d38d88b9b0e285781f3cb"
+          },
+          {
+            "path": "src/lib.rs",
+            "sha256": "93fd5b1208c251c5160cca8d24c468ec9fbd885b2379f8a5e173c6786bb08d2e",
+            "git_blob": "0269e024859ad47e976b5460654abccddc2b33b8"
+          }
+        ],
+        "lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2"
+      },
+      "test_blocks": [],
+      "passed_tests": 0,
+      "failed_tests": 0,
+      "log_storage": "Full log retained in the local validation workspace; only the explicitly selected excerpts below are embedded in this repository artifact."
+    },
+    "native-format-final": {
+      "label": "native-format-final",
+      "argv": [
+        "/root/.rustup/toolchains/nightly-2026-08-20-x86_64-unknown-linux-gnu/bin/rustfmt",
+        "--check",
+        "--edition",
+        "2024",
+        "--config",
+        "skip_children=true",
+        "crates/fsym-core/src/root_certificate/root_isolation.rs",
+        "crates/fsym-calculus/src/root_isolation.rs",
+        "crates/fsym-calculus/tests/root_isolation_search.rs",
+        "src/lib.rs"
+      ],
+      "cwd": "/workspace/scratch/03d77ea3bfad/frankensympy-next",
+      "environment": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_TARGET_DIR": "/workspace/scratch/03d77ea3bfad/frankensympy-next/target",
+        "CARGO_HTTP_USER_AGENT": "frankensympy-agent (+https://github.com/Dicklesworthstone/frankensympy)"
+      },
+      "source_root": "/workspace/scratch/03d77ea3bfad/frankensympy-next",
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.04885125160217285,
+      "inputs_unchanged": true,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "input_universe": {
+        "base": "3e35c727e6b2a6024fce55d80e20ee980dd5a6bb",
+        "overlays": [
+          {
+            "path": "crates/fsym-calculus/src/root_isolation.rs",
+            "sha256": "43ee29af90e9e287b5ef03793e3a7accdf7338efbd59a719c8d0ce586493f23e",
+            "git_blob": "e8ec6cebbc8c02e2dee1f09bee6699ec78b39d67"
+          },
+          {
+            "path": "crates/fsym-calculus/tests/root_isolation_search.rs",
+            "sha256": "022525f2ac350a6bae4cf6ab225271092980f1257b3666ffb72a2ea111713532",
+            "git_blob": "6c4269a11892c6d1459cfa06ceb47dd4761428a9"
+          },
+          {
+            "path": "crates/fsym-core/src/root_certificate/root_isolation.rs",
+            "sha256": "5291c2e4c6815d4aa2b6048961dd8371808c3f7d6c0d763bce85aab0554ef8f5",
+            "git_blob": "e6b1686197965504b13d38d88b9b0e285781f3cb"
+          },
+          {
+            "path": "src/lib.rs",
+            "sha256": "93fd5b1208c251c5160cca8d24c468ec9fbd885b2379f8a5e173c6786bb08d2e",
+            "git_blob": "0269e024859ad47e976b5460654abccddc2b33b8"
+          }
+        ],
+        "lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2"
+      },
+      "test_blocks": [],
+      "passed_tests": 0,
+      "failed_tests": 0,
+      "log_storage": "Full log retained in the local validation workspace; only the explicitly selected excerpts below are embedded in this repository artifact."
+    },
+    "native-scoped-root-tests": {
+      "label": "native-scoped-root-tests",
+      "argv": [
+        "/root/.cargo/bin/cargo",
+        "+nightly-2026-08-20",
+        "test",
+        "--locked",
+        "--manifest-path",
+        "/workspace/scratch/03d77ea3bfad/frankensympy-native-validation/Cargo.toml",
+        "-p",
+        "frankensympy-session-validation",
+        "--tests",
+        "-j1"
+      ],
+      "cwd": "/workspace/scratch/03d77ea3bfad/frankensympy-native-validation",
+      "environment": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_TARGET_DIR": "/workspace/scratch/03d77ea3bfad/frankensympy-next/target",
+        "CARGO_HTTP_USER_AGENT": "frankensympy-agent (+https://github.com/Dicklesworthstone/frankensympy)"
+      },
+      "source_root": "/workspace/scratch/03d77ea3bfad/frankensympy-next",
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 68.38795280456543,
+      "inputs_unchanged": true,
+      "log_sha256": "53be39730a047a3d132bc2dcb156743264b86078d6d33d7cf9573960599a9d58",
+      "input_universe": {
+        "base": "3e35c727e6b2a6024fce55d80e20ee980dd5a6bb",
+        "overlays": [
+          {
+            "path": "crates/fsym-calculus/src/root_isolation.rs",
+            "sha256": "43ee29af90e9e287b5ef03793e3a7accdf7338efbd59a719c8d0ce586493f23e",
+            "git_blob": "e8ec6cebbc8c02e2dee1f09bee6699ec78b39d67"
+          },
+          {
+            "path": "crates/fsym-calculus/tests/root_isolation_search.rs",
+            "sha256": "022525f2ac350a6bae4cf6ab225271092980f1257b3666ffb72a2ea111713532",
+            "git_blob": "6c4269a11892c6d1459cfa06ceb47dd4761428a9"
+          },
+          {
+            "path": "crates/fsym-core/src/root_certificate/root_isolation.rs",
+            "sha256": "5291c2e4c6815d4aa2b6048961dd8371808c3f7d6c0d763bce85aab0554ef8f5",
+            "git_blob": "e6b1686197965504b13d38d88b9b0e285781f3cb"
+          },
+          {
+            "path": "src/lib.rs",
+            "sha256": "93fd5b1208c251c5160cca8d24c468ec9fbd885b2379f8a5e173c6786bb08d2e",
+            "git_blob": "0269e024859ad47e976b5460654abccddc2b33b8"
+          }
+        ],
+        "lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2"
+      },
+      "test_blocks": [
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 13,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 10,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "passed_tests": 94,
+      "failed_tests": 0,
+      "log_storage": "Full log retained in the local validation workspace; only the explicitly selected excerpts below are embedded in this repository artifact."
+    },
+    "session-scoped-root-tests-corrected": {
+      "label": "session-scoped-root-tests-corrected",
+      "argv": [
+        "/root/.cargo/bin/cargo",
+        "+nightly-2026-08-20",
+        "test",
+        "--locked",
+        "--manifest-path",
+        "/workspace/scratch/03d77ea3bfad/frankensympy-scoped-validation/Cargo.toml",
+        "-p",
+        "frankensympy-session-validation",
+        "--tests",
+        "-j1"
+      ],
+      "cwd": "/workspace/scratch/03d77ea3bfad/frankensympy-scoped-validation",
+      "environment": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_TARGET_DIR": "/workspace/scratch/03d77ea3bfad/frankensympy-next/target",
+        "CARGO_HTTP_USER_AGENT": "frankensympy-agent (+https://github.com/Dicklesworthstone/frankensympy)"
+      },
+      "source_root": "/workspace/scratch/03d77ea3bfad/frankensympy-work",
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 8.017226219177246,
+      "inputs_unchanged": true,
+      "log_sha256": "c84b4dead7f8de3dfa8e7b53021c5fb282063574189a872b3dfdd15753ed010c",
+      "input_universe": {
+        "base": "3e35c727e6b2a6024fce55d80e20ee980dd5a6bb",
+        "overlays": [
+          {
+            "path": "crates/fsym-calculus/src/root_isolation.rs",
+            "sha256": "43ee29af90e9e287b5ef03793e3a7accdf7338efbd59a719c8d0ce586493f23e",
+            "git_blob": "e8ec6cebbc8c02e2dee1f09bee6699ec78b39d67"
+          },
+          {
+            "path": "crates/fsym-calculus/tests/root_isolation_search.rs",
+            "sha256": "022525f2ac350a6bae4cf6ab225271092980f1257b3666ffb72a2ea111713532",
+            "git_blob": "6c4269a11892c6d1459cfa06ceb47dd4761428a9"
+          },
+          {
+            "path": "crates/fsym-core/src/root_certificate/root_isolation.rs",
+            "sha256": "5291c2e4c6815d4aa2b6048961dd8371808c3f7d6c0d763bce85aab0554ef8f5",
+            "git_blob": "e6b1686197965504b13d38d88b9b0e285781f3cb"
+          },
+          {
+            "path": "src/certification.rs",
+            "sha256": "07bc98def339e2aad4af49b668a4a454d4db3b759d8007679da210e472c3af09",
+            "git_blob": "d433e3560fdfb49a412e39f33a2c89a298f79b76"
+          },
+          {
+            "path": "src/certification_session.rs",
+            "sha256": "10f8760bd34159a59e0d1a1b3fc4b9b1f49a865c31fe0484d939f15a75801963",
+            "git_blob": "0928091c03530a6a838aa7f8b63430907e490560"
+          },
+          {
+            "path": "src/lib.rs",
+            "sha256": "bb48a231a5b347bac95869e7f6ea797599054df81f4345544e8d00b3de3665e0",
+            "git_blob": "df66b139029f87b9ea6740b70c3d50666173f9be"
+          },
+          {
+            "path": "src/session.rs",
+            "sha256": "3e152f1760655950ed7a2cf8e05b4e316faf699f80cab51e611f915a4c51a7b2",
+            "git_blob": "afe6f28b6b691740d7785fde0eb809fc70d9d8cf"
+          },
+          {
+            "path": "tests/root_isolation_search_session.rs",
+            "sha256": "55b5320f44b2fba1706f54481ed62735182916e7fae450b172233ad55c639f7d",
+            "git_blob": "06b272d499f754aadbd36d7f880706e440ebfd54"
+          }
+        ],
+        "lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2"
+      },
+      "test_blocks": [
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 13,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 10,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "passed_tests": 103,
+      "failed_tests": 0,
+      "log_storage": "Full log retained in the local validation workspace; only the explicitly selected excerpts below are embedded in this repository artifact."
+    },
+    "session-scoped-root-clippy": {
+      "label": "session-scoped-root-clippy",
+      "argv": [
+        "/root/.cargo/bin/cargo",
+        "+nightly-2026-08-20",
+        "clippy",
+        "--locked",
+        "--manifest-path",
+        "/workspace/scratch/03d77ea3bfad/frankensympy-scoped-validation/Cargo.toml",
+        "-p",
+        "frankensympy-session-validation",
+        "--all-targets",
+        "-j1",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "cwd": "/workspace/scratch/03d77ea3bfad/frankensympy-scoped-validation",
+      "environment": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_TARGET_DIR": "/workspace/scratch/03d77ea3bfad/frankensympy-next/target",
+        "CARGO_HTTP_USER_AGENT": "frankensympy-agent (+https://github.com/Dicklesworthstone/frankensympy)"
+      },
+      "source_root": "/workspace/scratch/03d77ea3bfad/frankensympy-work",
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 22.528693675994873,
+      "inputs_unchanged": true,
+      "log_sha256": "bf7c9854b7e8ce079fd046c709ecadaeb7c8600eb1d923790dd2e9d510acbe2e",
+      "input_universe": {
+        "base": "3e35c727e6b2a6024fce55d80e20ee980dd5a6bb",
+        "overlays": [
+          {
+            "path": "crates/fsym-calculus/src/root_isolation.rs",
+            "sha256": "43ee29af90e9e287b5ef03793e3a7accdf7338efbd59a719c8d0ce586493f23e",
+            "git_blob": "e8ec6cebbc8c02e2dee1f09bee6699ec78b39d67"
+          },
+          {
+            "path": "crates/fsym-calculus/tests/root_isolation_search.rs",
+            "sha256": "022525f2ac350a6bae4cf6ab225271092980f1257b3666ffb72a2ea111713532",
+            "git_blob": "6c4269a11892c6d1459cfa06ceb47dd4761428a9"
+          },
+          {
+            "path": "crates/fsym-core/src/root_certificate/root_isolation.rs",
+            "sha256": "5291c2e4c6815d4aa2b6048961dd8371808c3f7d6c0d763bce85aab0554ef8f5",
+            "git_blob": "e6b1686197965504b13d38d88b9b0e285781f3cb"
+          },
+          {
+            "path": "src/certification.rs",
+            "sha256": "07bc98def339e2aad4af49b668a4a454d4db3b759d8007679da210e472c3af09",
+            "git_blob": "d433e3560fdfb49a412e39f33a2c89a298f79b76"
+          },
+          {
+            "path": "src/certification_session.rs",
+            "sha256": "10f8760bd34159a59e0d1a1b3fc4b9b1f49a865c31fe0484d939f15a75801963",
+            "git_blob": "0928091c03530a6a838aa7f8b63430907e490560"
+          },
+          {
+            "path": "src/lib.rs",
+            "sha256": "bb48a231a5b347bac95869e7f6ea797599054df81f4345544e8d00b3de3665e0",
+            "git_blob": "df66b139029f87b9ea6740b70c3d50666173f9be"
+          },
+          {
+            "path": "src/session.rs",
+            "sha256": "3e152f1760655950ed7a2cf8e05b4e316faf699f80cab51e611f915a4c51a7b2",
+            "git_blob": "afe6f28b6b691740d7785fde0eb809fc70d9d8cf"
+          },
+          {
+            "path": "tests/root_isolation_search_session.rs",
+            "sha256": "55b5320f44b2fba1706f54481ed62735182916e7fae450b172233ad55c639f7d",
+            "git_blob": "06b272d499f754aadbd36d7f880706e440ebfd54"
+          }
+        ],
+        "lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2"
+      },
+      "test_blocks": [],
+      "passed_tests": 0,
+      "failed_tests": 0,
+      "log_storage": "Full log retained in the local validation workspace; only the explicitly selected excerpts below are embedded in this repository artifact."
+    },
+    "session-project-format-final": {
+      "label": "session-project-format-final",
+      "argv": [
+        "/root/.cargo/bin/cargo",
+        "+nightly-2026-08-20",
+        "fmt",
+        "--check",
+        "-p",
+        "frankensympy",
+        "-p",
+        "fsym-assumptions",
+        "-p",
+        "fsym-bigint",
+        "-p",
+        "fsym-budget",
+        "-p",
+        "fsym-calculus",
+        "-p",
+        "fsym-capsule-consumer",
+        "-p",
+        "fsym-conformance",
+        "-p",
+        "fsym-core",
+        "-p",
+        "fsym-durable",
+        "-p",
+        "fsym-evidence",
+        "-p",
+        "fsym-formal",
+        "-p",
+        "fsym-functions",
+        "-p",
+        "fsym-geometry",
+        "-p",
+        "fsym-id",
+        "-p",
+        "fsym-logic",
+        "-p",
+        "fsym-matrices",
+        "-p",
+        "fsym-modular",
+        "-p",
+        "fsym-ntheory",
+        "-p",
+        "fsym-numeric-consumer",
+        "-p",
+        "fsym-outcome",
+        "-p",
+        "fsym-polys",
+        "-p",
+        "fsym-printing",
+        "-p",
+        "fsym-proof-kernel",
+        "-p",
+        "fsym-python",
+        "-p",
+        "fsym-rational",
+        "-p",
+        "fsym-runtime",
+        "-p",
+        "fsym-sets",
+        "-p",
+        "fsym-simplify",
+        "-p",
+        "fsym-solvers",
+        "-p",
+        "fsym-tensor",
+        "-p",
+        "xtask"
+      ],
+      "cwd": "/workspace/scratch/03d77ea3bfad/frankensympy-work",
+      "environment": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_TARGET_DIR": "/workspace/scratch/03d77ea3bfad/frankensympy-next/target",
+        "CARGO_HTTP_USER_AGENT": "frankensympy-agent (+https://github.com/Dicklesworthstone/frankensympy)"
+      },
+      "source_root": "/workspace/scratch/03d77ea3bfad/frankensympy-work",
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 2.1779916286468506,
+      "inputs_unchanged": true,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "input_universe": {
+        "base": "3e35c727e6b2a6024fce55d80e20ee980dd5a6bb",
+        "overlays": [
+          {
+            "path": "crates/fsym-calculus/src/root_isolation.rs",
+            "sha256": "43ee29af90e9e287b5ef03793e3a7accdf7338efbd59a719c8d0ce586493f23e",
+            "git_blob": "e8ec6cebbc8c02e2dee1f09bee6699ec78b39d67"
+          },
+          {
+            "path": "crates/fsym-calculus/tests/root_isolation_search.rs",
+            "sha256": "022525f2ac350a6bae4cf6ab225271092980f1257b3666ffb72a2ea111713532",
+            "git_blob": "6c4269a11892c6d1459cfa06ceb47dd4761428a9"
+          },
+          {
+            "path": "crates/fsym-core/src/root_certificate/root_isolation.rs",
+            "sha256": "5291c2e4c6815d4aa2b6048961dd8371808c3f7d6c0d763bce85aab0554ef8f5",
+            "git_blob": "e6b1686197965504b13d38d88b9b0e285781f3cb"
+          },
+          {
+            "path": "src/certification.rs",
+            "sha256": "07bc98def339e2aad4af49b668a4a454d4db3b759d8007679da210e472c3af09",
+            "git_blob": "d433e3560fdfb49a412e39f33a2c89a298f79b76"
+          },
+          {
+            "path": "src/certification_session.rs",
+            "sha256": "10f8760bd34159a59e0d1a1b3fc4b9b1f49a865c31fe0484d939f15a75801963",
+            "git_blob": "0928091c03530a6a838aa7f8b63430907e490560"
+          },
+          {
+            "path": "src/lib.rs",
+            "sha256": "bb48a231a5b347bac95869e7f6ea797599054df81f4345544e8d00b3de3665e0",
+            "git_blob": "df66b139029f87b9ea6740b70c3d50666173f9be"
+          },
+          {
+            "path": "src/session.rs",
+            "sha256": "3e152f1760655950ed7a2cf8e05b4e316faf699f80cab51e611f915a4c51a7b2",
+            "git_blob": "afe6f28b6b691740d7785fde0eb809fc70d9d8cf"
+          },
+          {
+            "path": "tests/root_isolation_search_session.rs",
+            "sha256": "55b5320f44b2fba1706f54481ed62735182916e7fae450b172233ad55c639f7d",
+            "git_blob": "06b272d499f754aadbd36d7f880706e440ebfd54"
+          }
+        ],
+        "lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2"
+      },
+      "test_blocks": [],
+      "passed_tests": 0,
+      "failed_tests": 0,
+      "log_storage": "Full log retained in the local validation workspace; only the explicitly selected excerpts below are embedded in this repository artifact."
+    }
+  },
+  "broad_native_validation_before_equivalent_lint_fixes": {
+    "label": "native-core-calculus-tests",
+    "argv": [
+      "/root/.cargo/bin/cargo",
+      "+nightly-2026-08-20",
+      "test",
+      "--locked",
+      "-p",
+      "fsym-core",
+      "-p",
+      "fsym-calculus",
+      "-j1"
+    ],
+    "cwd": "/workspace/scratch/03d77ea3bfad/frankensympy-next",
+    "environment": {
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_TARGET_DIR": "/workspace/scratch/03d77ea3bfad/frankensympy-next/target",
+      "CARGO_HTTP_USER_AGENT": "frankensympy-agent (+https://github.com/Dicklesworthstone/frankensympy)"
+    },
+    "source_root": "/workspace/scratch/03d77ea3bfad/frankensympy-next",
+    "status": "passed",
+    "exit_code": 0,
+    "elapsed_seconds": 319.44901633262634,
+    "inputs_unchanged": true,
+    "log_sha256": "8b1380364ff0324997b910be07a17b8705620a620ee196c455a7b103ab2a52c7",
+    "input_universe": {
+      "base": "3e35c727e6b2a6024fce55d80e20ee980dd5a6bb",
+      "overlays": [
+        {
+          "path": "crates/fsym-calculus/src/root_isolation.rs",
+          "sha256": "43ee29af90e9e287b5ef03793e3a7accdf7338efbd59a719c8d0ce586493f23e",
+          "git_blob": "e8ec6cebbc8c02e2dee1f09bee6699ec78b39d67"
+        },
+        {
+          "path": "crates/fsym-calculus/tests/root_isolation_search.rs",
+          "sha256": "9bcbdf7b4f3eebc263da59156e2226178ae6045db6bf875ab547289aa19a6c42",
+          "git_blob": "8d147c1c7a74d96bebbc8d80101971f07d0600bd"
+        },
+        {
+          "path": "crates/fsym-core/src/root_certificate/root_isolation.rs",
+          "sha256": "fe54259df687178e01f4c71b485a677e132af04c1fb4e409fa46f64ed60f8bca",
+          "git_blob": "a264543fd05effb05dd6daaad2c98c68627b5174"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "93fd5b1208c251c5160cca8d24c468ec9fbd885b2379f8a5e173c6786bb08d2e",
+          "git_blob": "0269e024859ad47e976b5460654abccddc2b33b8"
+        }
+      ],
+      "lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2"
+    },
+    "test_blocks": [
+      {
+        "status": "ok",
+        "passed": 75,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 15,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 18,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 9,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 15,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 8,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 11,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 13,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 8,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 8,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 12,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 10,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 12,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 9,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 12,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 12,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 13,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 5,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 8,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 11,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 7,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 10,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 8,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 18,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 7,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 26,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 8,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 15,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 8,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 8,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 8,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 13,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 15,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 10,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 14,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 12,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 10,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 127,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 13,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 13,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 4,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 6,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 16,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 5,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 12,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 13,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 16,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 15,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 15,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 11,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 13,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 6,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 15,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 10,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 9,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 15,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 15,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 10,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 5,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 8,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      }
+    ],
+    "passed_tests": 858,
+    "failed_tests": 0,
+    "log_storage": "Full log retained in the local validation workspace; only the explicitly selected excerpts below are embedded in this repository artifact."
+  },
+  "new_test_log_excerpts": {
+    "native_eight_tests": "     Running tests/root_isolation_search.rs (target/debug/build/fsym-calculus/4f76c59cb234c432/out/root_isolation_search-4f76c59cb234c432)\n\nrunning 8 tests\ntest invalid_batches_and_hard_search_limits_do_not_discard_or_accept_frontier ... ok\ntest budget_refusal_keeps_prior_cell_transitions_and_cannot_replenish_by_retry ... ok\ntest freezing_rebuilds_arc_buffers_and_retains_raw_source_and_typed_identity ... ok\ntest prepared_workspace_keeps_scratch_and_intrinsic_counters_across_failure_and_unwinding ... ok\ntest original_poles_and_distinct_same_print_symbols_remain_unresolved ... ok\ntest evaluation_limit_is_shared_by_all_prepared_batches ... ok\ntest every_advance_cancellation_safe_point_preserves_a_resumable_cover_on_the_same_ledger ... ok\ntest batch_schedules_preserve_exact_cover_and_independent_root_counts ... ok\n\ntest result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.63s",
+    "session_nine_tests": "     Running /workspace/scratch/03d77ea3bfad/frankensympy-work/tests/root_isolation_search_session.rs (/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/frankensympy-session-validation/560dadc85a728c3e/out/root_isolation_search_session-560dadc85a728c3e)\n\nrunning 9 tests\ntest progress_is_candidate_only_and_search_never_borrows_protected_fuel ... ok\ntest search_slots_and_release_are_bounded_and_failed_begin_or_release_is_atomic ... ok\ntest wire_schemas_and_quantums_are_strict_and_invalid_requests_do_not_advance ... ok\ntest advance_reserves_response_before_work_and_refusals_retain_the_committed_prefix ... ok\ntest search_sources_and_context_remain_frozen_through_workspace_changes_and_replay ... ok\ntest finish_reuses_one_cumulative_protected_pool_without_consuming_the_search ... ok\ntest verified_finish_and_late_child_collision_publish_atomically_and_keep_the_search ... ok\ntest fresh_cli_polls_bounded_searches_then_finishes_and_replays_the_chunked_complete_proof ... ok\ntest unresolved_searches_retain_pending_cells_without_partial_root_acceptance ... ok\n\ntest result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s"
+  },
+  "scoped_session_validation": {
+    "scope": {
+      "source_root": "/workspace/scratch/03d77ea3bfad/frankensympy-work",
+      "base": "3e35c727e6b2a6024fce55d80e20ee980dd5a6bb",
+      "tests": [
+        "artifact_transfer",
+        "artifact_transfer_session",
+        "certification",
+        "certification_session",
+        "claim_replay",
+        "cli_protocol_gate",
+        "isolation_transport",
+        "isolation_transport_session",
+        "root_isolation",
+        "root_isolation_search_session",
+        "root_isolation_session"
+      ],
+      "production_tree": "/workspace/scratch/03d77ea3bfad/frankensympy-scoped-validation/production-tree.txt",
+      "runtime_modules": [
+        {
+          "path": "crates/fsym-runtime/src/workspace.rs",
+          "sha256": "e6c81172935e23c0dadf28488e55f130f85acdd2be9ce8e847bc39ed8377fe09"
+        },
+        {
+          "path": "crates/fsym-runtime/src/protocol.rs",
+          "sha256": "6608ab6b84ecbbf926886c8580d34f28bcb78fe96cb7826681cbad1ca6514579"
+        },
+        {
+          "path": "crates/fsym-runtime/src/publication.rs",
+          "sha256": "a5ecb9fd9d7b44011699e12d220b8745de6af83a15e7e16353cbe79b562b5280"
+        },
+        {
+          "path": "crates/fsym-runtime/src/fmap.rs",
+          "sha256": "549e1bc052ffbe09dd246604053c5ab2ceb4b1bbe9b1082b5f4d224f147d8d75"
+        },
+        {
+          "path": "crates/fsym-runtime/src/replay.rs",
+          "sha256": "34179a2f3545a0b0687797f3d69213f260a452173ac8bda9c4e89dfa533016e8"
+        }
+      ],
+      "feature_unification": {
+        "serde": [
+          "alloc"
+        ],
+        "libc": [
+          "default",
+          "extra_traits",
+          "std"
+        ],
+        "memchr": [
+          "default",
+          "alloc",
+          "std"
+        ],
+        "host_syn_3": [
+          "full",
+          "visit"
+        ],
+        "reason": "Match retained foundational features from the original full Cargo dependency graph; no production dependency changes."
+      },
+      "production_lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2",
+      "scope": "Actual root source and mathematical crates, plus five unchanged synchronous runtime modules.",
+      "omitted": "Full asupersync runtime, other runtime modules and runtime unit tests; no full workspace/runtime gate."
+    },
+    "verification": {
+      "base": "3e35c727e6b2a6024fce55d80e20ee980dd5a6bb",
+      "external_identities_verified": 28,
+      "retained_feature_sets_verified": [
+        {
+          "name": "arrayvec",
+          "version": "0.7.8",
+          "features": []
+        },
+        {
+          "name": "autocfg",
+          "version": "1.5.1",
+          "features": []
+        },
+        {
+          "name": "blake3",
+          "version": "1.8.7",
+          "features": [
+            "default",
+            "std"
+          ]
+        },
+        {
+          "name": "cc",
+          "version": "1.4.4",
+          "features": []
+        },
+        {
+          "name": "cfg-if",
+          "version": "1.0.4",
+          "features": []
+        },
+        {
+          "name": "constant_time_eq",
+          "version": "0.4.2",
+          "features": [
+            "std"
+          ]
+        },
+        {
+          "name": "cpufeatures",
+          "version": "0.3.0",
+          "features": []
+        },
+        {
+          "name": "find-msvc-tools",
+          "version": "0.1.11",
+          "features": []
+        },
+        {
+          "name": "fsym-assumptions",
+          "version": "0.1.0",
+          "features": []
+        },
+        {
+          "name": "fsym-bigint",
+          "version": "0.1.0",
+          "features": []
+        },
+        {
+          "name": "fsym-budget",
+          "version": "0.1.0",
+          "features": []
+        },
+        {
+          "name": "fsym-calculus",
+          "version": "0.1.0",
+          "features": []
+        },
+        {
+          "name": "fsym-core",
+          "version": "0.1.0",
+          "features": []
+        },
+        {
+          "name": "fsym-evidence",
+          "version": "0.1.0",
+          "features": []
+        },
+        {
+          "name": "fsym-id",
+          "version": "0.1.0",
+          "features": []
+        },
+        {
+          "name": "fsym-matrices",
+          "version": "0.1.0",
+          "features": []
+        },
+        {
+          "name": "fsym-modular",
+          "version": "0.1.0",
+          "features": []
+        },
+        {
+          "name": "fsym-outcome",
+          "version": "0.1.0",
+          "features": []
+        },
+        {
+          "name": "fsym-polys",
+          "version": "0.1.0",
+          "features": []
+        },
+        {
+          "name": "fsym-proof-kernel",
+          "version": "0.1.0",
+          "features": []
+        },
+        {
+          "name": "fsym-rational",
+          "version": "0.1.0",
+          "features": []
+        },
+        {
+          "name": "fsym-sets",
+          "version": "0.1.0",
+          "features": []
+        },
+        {
+          "name": "fsym-simplify",
+          "version": "0.1.0",
+          "features": []
+        },
+        {
+          "name": "fsym-solvers",
+          "version": "0.1.0",
+          "features": []
+        },
+        {
+          "name": "itoa",
+          "version": "1.0.18",
+          "features": []
+        },
+        {
+          "name": "libc",
+          "version": "0.2.189",
+          "features": [
+            "default",
+            "extra_traits",
+            "std"
+          ]
+        },
+        {
+          "name": "memchr",
+          "version": "2.8.3",
+          "features": [
+            "alloc",
+            "default",
+            "std"
+          ]
+        },
+        {
+          "name": "num-bigint",
+          "version": "0.4.8",
+          "features": [
+            "default",
+            "serde",
+            "std"
+          ]
+        },
+        {
+          "name": "num-complex",
+          "version": "0.4.6",
+          "features": [
+            "default",
+            "std"
+          ]
+        },
+        {
+          "name": "num-integer",
+          "version": "0.1.47",
+          "features": [
+            "default",
+            "i128",
+            "std"
+          ]
+        },
+        {
+          "name": "num-rational",
+          "version": "0.4.2",
+          "features": [
+            "serde",
+            "std"
+          ]
+        },
+        {
+          "name": "num-traits",
+          "version": "0.2.19",
+          "features": [
+            "default",
+            "i128",
+            "std"
+          ]
+        },
+        {
+          "name": "proc-macro2",
+          "version": "1.0.107",
+          "features": [
+            "default",
+            "proc-macro"
+          ]
+        },
+        {
+          "name": "quote",
+          "version": "1.0.47",
+          "features": [
+            "default",
+            "proc-macro"
+          ]
+        },
+        {
+          "name": "serde",
+          "version": "1.0.229",
+          "features": [
+            "alloc",
+            "default",
+            "derive",
+            "rc",
+            "serde_derive",
+            "std"
+          ]
+        },
+        {
+          "name": "serde_core",
+          "version": "1.0.229",
+          "features": [
+            "alloc",
+            "rc",
+            "result",
+            "std"
+          ]
+        },
+        {
+          "name": "serde_derive",
+          "version": "1.0.229",
+          "features": [
+            "default"
+          ]
+        },
+        {
+          "name": "serde_json",
+          "version": "1.0.151",
+          "features": [
+            "default",
+            "float_roundtrip",
+            "raw_value",
+            "std"
+          ]
+        },
+        {
+          "name": "shlex",
+          "version": "2.0.1",
+          "features": [
+            "default",
+            "std"
+          ]
+        },
+        {
+          "name": "syn",
+          "version": "3.0.3",
+          "features": [
+            "clone-impls",
+            "default",
+            "derive",
+            "full",
+            "parsing",
+            "printing",
+            "proc-macro",
+            "visit"
+          ]
+        },
+        {
+          "name": "thiserror",
+          "version": "2.0.20",
+          "features": [
+            "default",
+            "std"
+          ]
+        },
+        {
+          "name": "thiserror-impl",
+          "version": "2.0.20",
+          "features": []
+        },
+        {
+          "name": "unicode-ident",
+          "version": "1.0.24",
+          "features": []
+        },
+        {
+          "name": "zmij",
+          "version": "1.0.23",
+          "features": []
+        }
+      ],
+      "production_lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2",
+      "validation_lock_sha256": "01bd5f973e0c8e19e76a3123ed444c18a3f686203d06528081c23683558da065",
+      "lower_source_snapshot": [
+        {
+          "path": "crates/fsym-assumptions/Cargo.toml",
+          "sha256": "de15d671a66d99d9862e02ab9453ec5f5ae1549445c1f1a44aaa9e1da1b53740"
+        },
+        {
+          "path": "crates/fsym-assumptions/src/bindings.rs",
+          "sha256": "fdaa3ebd0e647c57607d1fb62d113f2d67735a9eceabfcf15bffd5ac96d065d9"
+        },
+        {
+          "path": "crates/fsym-assumptions/src/domain.rs",
+          "sha256": "2f5cf16b713d275ea4c0b47f602dcaf411b56c7b757af69b53a3ceb476a31942"
+        },
+        {
+          "path": "crates/fsym-assumptions/src/lib.rs",
+          "sha256": "66f260a6ff6e054bbab3f5da417276262d8fcc9cf98877fe105b2eae902cda2c"
+        },
+        {
+          "path": "crates/fsym-assumptions/src/predicate.rs",
+          "sha256": "c80ad9bfc773c2998d24d91d3d74826803f5f844ae93df1f7e2694965fa61aa3"
+        },
+        {
+          "path": "crates/fsym-assumptions/src/truth.rs",
+          "sha256": "eb406953ea6dadc85a228fa5a76416ecfae5041c1e3170f1fbde5dd16a579381"
+        },
+        {
+          "path": "crates/fsym-bigint/Cargo.toml",
+          "sha256": "e31e6bd212f2e0460a6f388b0d28468349979f9129f22b58d4a3e7919c98f5a6"
+        },
+        {
+          "path": "crates/fsym-bigint/src/lib.rs",
+          "sha256": "421ab25ca07e6a9a9f7c6c499958d4524b028747378e4cb768f2930d92bd8d1e"
+        },
+        {
+          "path": "crates/fsym-bigint/src/ntt.rs",
+          "sha256": "15b5003ae0bdd8498569be56b45c52d6ae1723888419a2669f1b461c403d8d3c"
+        },
+        {
+          "path": "crates/fsym-budget/Cargo.toml",
+          "sha256": "08804ba27d1e88f0ea01ac08c8e7c84603b6e434ca05e6f47796b24eecdc9b62"
+        },
+        {
+          "path": "crates/fsym-budget/src/lib.rs",
+          "sha256": "0bde0a4a7e7a951315672b6841a08233d7c563d5815bbc38254dc18cf2f8bbe5"
+        },
+        {
+          "path": "crates/fsym-calculus/Cargo.toml",
+          "sha256": "35ec1a5d54b4c1700b51bd6ee53f433ec98c136e668d0b8a93f8821bf776d3eb"
+        },
+        {
+          "path": "crates/fsym-calculus/src/box_optimization.rs",
+          "sha256": "f014446571841b0ce3609be06a0685593d8793c06ca2b1d327407baa1d3d9f2d"
+        },
+        {
+          "path": "crates/fsym-calculus/src/compile.rs",
+          "sha256": "000cf9029c913577a380b4ab36a1ddd18951a369cc129df2632634cf255b0a97"
+        },
+        {
+          "path": "crates/fsym-calculus/src/delayed_laplace/distributional.rs",
+          "sha256": "ae95d504a16629e0fcac4dc3e7df8fb06569dbb6294059723ffab1a58d0cc8eb"
+        },
+        {
+          "path": "crates/fsym-calculus/src/delayed_laplace.rs",
+          "sha256": "5c405b27629152b7755476a54576f9eb1a4561d687e70b7b2b7a7e63619b880f"
+        },
+        {
+          "path": "crates/fsym-calculus/src/elementary_rational_definite.rs",
+          "sha256": "d65495699d262c33f25ff7a30fed97141d2bcbbbb1c027aaa6fb79f083e08ba6"
+        },
+        {
+          "path": "crates/fsym-calculus/src/fourier.rs",
+          "sha256": "927a9f0a3c22b31d24cf5028dfb9116e5feaed9478748f72061c1d5ff62be7a6"
+        },
+        {
+          "path": "crates/fsym-calculus/src/geometric_sum.rs",
+          "sha256": "f5a3cb5635e9574cceefe5dbe2655e07309b22441b8d1ac14f7bbb8edf672d28"
+        },
+        {
+          "path": "crates/fsym-calculus/src/gruntz.rs",
+          "sha256": "e677875ada87e7b2c4a2a180840b79f29b6600d35da112ae09174b6612c2be9e"
+        },
+        {
+          "path": "crates/fsym-calculus/src/hermite.rs",
+          "sha256": "d88c84180483753504b0792e8ee4f997b7b6c4592c877ae2e66bf57591e74641"
+        },
+        {
+          "path": "crates/fsym-calculus/src/integrate.rs",
+          "sha256": "453a200f834ca4b5a80fb1ac5c318ab2cf7a2360c52bcdffe599274dda6048d2"
+        },
+        {
+          "path": "crates/fsym-calculus/src/lib.rs",
+          "sha256": "3c48297d6b058b711edeb4959c0525f981e6787124a136cbecf48e6f3afd65e0"
+        },
+        {
+          "path": "crates/fsym-calculus/src/parametric_cover.rs",
+          "sha256": "7f57228968d3f383b8c15c5a5602aa0d5ae7284c2272b060a540833e5915a875"
+        },
+        {
+          "path": "crates/fsym-calculus/src/proof.rs",
+          "sha256": "3d74ae138e83dae137ea4ea60d6e35304cc9d91d2f71e8d8daab2ac61b90470e"
+        },
+        {
+          "path": "crates/fsym-calculus/src/quadrature.rs",
+          "sha256": "0f3dde04ad0cf905763b786f7d1cbeb902a120421afca855af522efeb822c1aa"
+        },
+        {
+          "path": "crates/fsym-calculus/src/rational_definite.rs",
+          "sha256": "a4e2ecd135ef4313adbae7b0a9e4b4e2a0f253221c3bd31ecfa327f6a4e6ddb9"
+        },
+        {
+          "path": "crates/fsym-calculus/src/rational_laplace/distributional.rs",
+          "sha256": "84a3bfa6283922805cfaca67b14a653c7202d1999e59e3746bf3b0e26dc64dfb"
+        },
+        {
+          "path": "crates/fsym-calculus/src/rational_laplace.rs",
+          "sha256": "b29ebb6d130c9b7de9f5024e7ef7155bba13f52d7c651d1b1c522ab19d16ccbe"
+        },
+        {
+          "path": "crates/fsym-calculus/src/rational_limits.rs",
+          "sha256": "2328a2c1f1ceb4ae71520af767ea06f5e39dfed89f3486985c815efa8c79f8b9"
+        },
+        {
+          "path": "crates/fsym-calculus/src/rational_mellin.rs",
+          "sha256": "a4fc6a6e03fcbdf1da7b43bcb62f8b482978fd17dfe7f1863348894f198dc7ce"
+        },
+        {
+          "path": "crates/fsym-calculus/src/rational_sum.rs",
+          "sha256": "4f4bd297355d8ffb4b55532ac0d822953f2e712be30d65f32cb453377b88e9ce"
+        },
+        {
+          "path": "crates/fsym-calculus/src/root_isolation.rs",
+          "sha256": "43ee29af90e9e287b5ef03793e3a7accdf7338efbd59a719c8d0ce586493f23e"
+        },
+        {
+          "path": "crates/fsym-calculus/src/series.rs",
+          "sha256": "7dcc5ff78a1c560d63fc017b2c99b1ee4a648a8d4fb3ff6e6a9f8520e7052ed8"
+        },
+        {
+          "path": "crates/fsym-calculus/src/sparse_hessian.rs",
+          "sha256": "89dd958954498691380654176492ae24462e013ffb3ee3532b02359263b45c30"
+        },
+        {
+          "path": "crates/fsym-calculus/src/sparse_jacobian.rs",
+          "sha256": "95b507b276446c4a358caf6c94cf2cb649a7f454611ad68552d5bd254d1248bb"
+        },
+        {
+          "path": "crates/fsym-calculus/src/summation.rs",
+          "sha256": "76bcfabd1e3d894ef074dff85031e1d4379335fdcd0194bf4ebe659536a432c7"
+        },
+        {
+          "path": "crates/fsym-calculus/src/transforms.rs",
+          "sha256": "816c12df1b479e4a0088ab28d8b4c0395144d1009458720187cec9e204f0a408"
+        },
+        {
+          "path": "crates/fsym-calculus/src/verified.rs",
+          "sha256": "8e1a41f5aac381907ebe226cad69ed5271a29173314717a3225be6de1eb70c5c"
+        },
+        {
+          "path": "crates/fsym-core/Cargo.toml",
+          "sha256": "89bd5d333d86aa66320a772040eb6b8d71b751b06c9331d50c9c9feb78a58f7f"
+        },
+        {
+          "path": "crates/fsym-core/src/algebraic.rs",
+          "sha256": "d85b079a11be6a1798389ae97e287f7558d5481484dba366237e9d1c8aca1a4f"
+        },
+        {
+          "path": "crates/fsym-core/src/arith.rs",
+          "sha256": "c4c0cbb00f2a9faf17c96681b128bc74b95f60a58f7ee9eb0fdfdd090d68b5e7"
+        },
+        {
+          "path": "crates/fsym-core/src/assume.rs",
+          "sha256": "bf4350c9a524fbf1e6199849b64ebb799b8fb09015d3cc596b5612cd23d91288"
+        },
+        {
+          "path": "crates/fsym-core/src/ball/inverse_circular.rs",
+          "sha256": "0862d7b884dc0c3b7412e37702c7e8de85d29c281379dea4744c516a59d1d7f0"
+        },
+        {
+          "path": "crates/fsym-core/src/ball.rs",
+          "sha256": "702b939c871121134a53d2885a979c5f59bab354037258ec58967501c5120486"
+        },
+        {
+          "path": "crates/fsym-core/src/bin/term_identity_probe.rs",
+          "sha256": "5e0d0732f329f2e41ec3b8f303f33416dbba336d0b2b2713dc306ecc02afa372"
+        },
+        {
+          "path": "crates/fsym-core/src/canonical.rs",
+          "sha256": "1d24f66aaa6b8e130fe81fed37c35e5c7abdab85279592ec0d8a5ab05d4d6019"
+        },
+        {
+          "path": "crates/fsym-core/src/dag.rs",
+          "sha256": "5534b009b9b6d72a247a8eb292a03e4c2f25f210bbbe7943652ff0a70de1aaf4"
+        },
+        {
+          "path": "crates/fsym-core/src/domain.rs",
+          "sha256": "7a32beddb4878bc4b8c4f78ebbd0e4f1ccbaf04a60519cdf9797b7a82699448c"
+        },
+        {
+          "path": "crates/fsym-core/src/elementary.rs",
+          "sha256": "0de110d757d46d6ac82e26d875594181d5a8464f069446388f3f6fcb038e4516"
+        },
+        {
+          "path": "crates/fsym-core/src/lib.rs",
+          "sha256": "dc78d1235a1377c7283f688f3a79e56507b8027050d6bd30b0d4983eb4bd6be7"
+        },
+        {
+          "path": "crates/fsym-core/src/parser.rs",
+          "sha256": "0d7a039804c2e3df566cd9c6a359d16d6fb8eedfac0a187a22f1e818c3e4a5cd"
+        },
+        {
+          "path": "crates/fsym-core/src/real_roots/comparison.rs",
+          "sha256": "d5ea6dcd05d8f1fd7dda1d9d06f49f8f80d76aeae1294945b1a55c18d8dc412e"
+        },
+        {
+          "path": "crates/fsym-core/src/real_roots.rs",
+          "sha256": "a29dc294dff444fa39e0ddfabac9efed41546a116388975f2ef8ac04550a257f"
+        },
+        {
+          "path": "crates/fsym-core/src/root_certificate/box_optimization.rs",
+          "sha256": "327a0fce51e0c0a1bee6c5c9061a544cd2fb8324564d0dd80d4c65d1768c8601"
+        },
+        {
+          "path": "crates/fsym-core/src/root_certificate/extremum.rs",
+          "sha256": "7374292282ba521a43294aa9c424d8cedb7e96b890821437440f13b79e3c406b"
+        },
+        {
+          "path": "crates/fsym-core/src/root_certificate/objective.rs",
+          "sha256": "415a0f66580bcb38cff0ea29072170095a646d400a2b82900e7c0d030bd3d7cb"
+        },
+        {
+          "path": "crates/fsym-core/src/root_certificate/parametric_cover.rs",
+          "sha256": "95ec9e0ecf2deea4164d6021e7f26719ff77811ccc69ce56cace99d9bd216115"
+        },
+        {
+          "path": "crates/fsym-core/src/root_certificate/parametric_root.rs",
+          "sha256": "2f1cb16ea10c023f576307ee008bc98089d7021f35213f7a54e610e18808bdd0"
+        },
+        {
+          "path": "crates/fsym-core/src/root_certificate/parametric_sensitivity.rs",
+          "sha256": "56e2a58ab939dd6b1bcd99517ef582a71b505db85b1e74b896b581ffcdcb04ab"
+        },
+        {
+          "path": "crates/fsym-core/src/root_certificate/piecewise.rs",
+          "sha256": "8bdf5a13ae28a7fcd21f43a2c8f098d0f6f7f971d4aeacd84dc604ec1e65fd01"
+        },
+        {
+          "path": "crates/fsym-core/src/root_certificate/quadrature.rs",
+          "sha256": "7ee3cdc4282397af914b422ad20c814ab0cc60dccdee8cc1d2ca191d11a0833c"
+        },
+        {
+          "path": "crates/fsym-core/src/root_certificate/root_isolation.rs",
+          "sha256": "5291c2e4c6815d4aa2b6048961dd8371808c3f7d6c0d763bce85aab0554ef8f5"
+        },
+        {
+          "path": "crates/fsym-core/src/root_certificate/stationary.rs",
+          "sha256": "1766d5afb6f278d7c1bea9c973d4be3dd2524e1d64070395c667464e83832b91"
+        },
+        {
+          "path": "crates/fsym-core/src/root_certificate.rs",
+          "sha256": "21743a2036e93fb68509862f974b33c9fa57512458a2db5f991e64954ce5c0ca"
+        },
+        {
+          "path": "crates/fsym-core/src/sort.rs",
+          "sha256": "b90b64fdf17af3456fab39e30b141dd559e628824916234dc24ab6fd4e3a982a"
+        },
+        {
+          "path": "crates/fsym-evidence/Cargo.toml",
+          "sha256": "ab54cf3da4543059d2bb776482327381b694300abb760e55c17ed138dcba232e"
+        },
+        {
+          "path": "crates/fsym-evidence/src/envelope.rs",
+          "sha256": "6ef206132abddcfd77941c28b9a716c2799275510e4f085ab0243640cdb2e779"
+        },
+        {
+          "path": "crates/fsym-evidence/src/lattice.rs",
+          "sha256": "07869757c9d4dd52222ea36302406cc023eaccb8164cb81ab518fa378062a20e"
+        },
+        {
+          "path": "crates/fsym-evidence/src/lib.rs",
+          "sha256": "f4d7bc1afbcb9c095b647ada035253b18fca61f94c15997210305ceeea273c6f"
+        },
+        {
+          "path": "crates/fsym-evidence/src/namespace.rs",
+          "sha256": "415707714795d3fd25bf418404f90ad0841d519d9b281aaf2481462bcf8dfb2a"
+        },
+        {
+          "path": "crates/fsym-evidence/src/receipt.rs",
+          "sha256": "e3fb281791366de487f2c486d148f8eb1496c3207393e2c3a7502752acd5bfff"
+        },
+        {
+          "path": "crates/fsym-id/Cargo.toml",
+          "sha256": "bb16b6b8017b96850e449301e9fac1b2382d406a166389ca1e8178973d41eeb3"
+        },
+        {
+          "path": "crates/fsym-id/src/lib.rs",
+          "sha256": "8e395d6f26c5ff74c8c4f17ee9029be677124b31a6ad552b4016b577bdf821c5"
+        },
+        {
+          "path": "crates/fsym-matrices/Cargo.toml",
+          "sha256": "a260962513eaefe08af0a73a3da5a932ac62d017fdc2c6b63320c103f138f293"
+        },
+        {
+          "path": "crates/fsym-matrices/src/affine.rs",
+          "sha256": "00c9fb3830e3723ab27a4c1e8fe591c62aa123e848aacd63088142474e6237b2"
+        },
+        {
+          "path": "crates/fsym-matrices/src/exponential.rs",
+          "sha256": "cee3659f14bea4990697f6a5c27ba9948eccbb7c5b9c07e2dfa50146353b90a3"
+        },
+        {
+          "path": "crates/fsym-matrices/src/least_squares.rs",
+          "sha256": "83b5d6a73b7a60768a637523ea94570e65a0d0a532c78a0644e6545dcf20f37b"
+        },
+        {
+          "path": "crates/fsym-matrices/src/lib.rs",
+          "sha256": "c0c28a35e48db20511a82de42b5800168166fff4c900cc3b33a2fa80b4191137"
+        },
+        {
+          "path": "crates/fsym-matrices/src/minimal_polynomial.rs",
+          "sha256": "9333afa467d83accd78dc5725e6f7edb65b0d4980c85c0d305d02ce02e73da07"
+        },
+        {
+          "path": "crates/fsym-matrices/src/pseudoinverse.rs",
+          "sha256": "dd53f62a324fdbc507f04f3cb0e9d4aec1efc1698acf658ebd7fe9b6f343d55e"
+        },
+        {
+          "path": "crates/fsym-matrices/src/sparse.rs",
+          "sha256": "dfb792029da37318573a7fbf1c9ad757901d076ca45751a295f2ac2c5d50f617"
+        },
+        {
+          "path": "crates/fsym-matrices/src/structured.rs",
+          "sha256": "0d79a2b95b7ac0d43c2f5456a65cea3d4473c64cd5102c82cc1210b73080bc5d"
+        },
+        {
+          "path": "crates/fsym-modular/Cargo.toml",
+          "sha256": "8b4b3ba67f172a42e1e7775b3c7036515270b49cec5c5161a87c83fa40284d8a"
+        },
+        {
+          "path": "crates/fsym-modular/src/lib.rs",
+          "sha256": "0d1c5151807d3a44334100b15aaa8ed15c67411d4714522825d33cb4fcfbe6e4"
+        },
+        {
+          "path": "crates/fsym-outcome/Cargo.toml",
+          "sha256": "58526dc163601b98d584d4a635412d6fceaaef5a98debe4bc5a729ab27f26d1b"
+        },
+        {
+          "path": "crates/fsym-outcome/src/lib.rs",
+          "sha256": "6636a2e060c55bc11a91bbef01c8df9fd9b911bea64d68651a41558be5e41dc5"
+        },
+        {
+          "path": "crates/fsym-polys/Cargo.toml",
+          "sha256": "e40b49122ebbcb72a7140572736d30002fcc9cf416c51f5dd529eb0c89139643"
+        },
+        {
+          "path": "crates/fsym-polys/src/checked_groebner.rs",
+          "sha256": "bbe34d4752d49d2b0a343c8d8616171df1d368380f5d04367e1ae0756a7e8551"
+        },
+        {
+          "path": "crates/fsym-polys/src/division.rs",
+          "sha256": "614262556cea8c98faa23ae95bb1c8ba29b17b4e56eda90dfd2ba60dae678038"
+        },
+        {
+          "path": "crates/fsym-polys/src/factorization.rs",
+          "sha256": "a8ec79e9d65e7bea45cee35646851599122657744f7194a537137e2d2c2372fa"
+        },
+        {
+          "path": "crates/fsym-polys/src/fglm.rs",
+          "sha256": "f082032505b8b5322ce412b5b56fefc94546c439e7430441c1eb337ac08d0ca8"
+        },
+        {
+          "path": "crates/fsym-polys/src/finite_field.rs",
+          "sha256": "35ff3560aac5d50a8e616976291138cc7f29bfb76cdc1bd2948ffe19ccd4a0fb"
+        },
+        {
+          "path": "crates/fsym-polys/src/finite_field_arithmetic.rs",
+          "sha256": "bbc0e1720b38887398dee9e4cb9ac19cba25d08b4e902a3c4d3aa889ea9a2517"
+        },
+        {
+          "path": "crates/fsym-polys/src/finite_field_element_source.rs",
+          "sha256": "e275469b55ed009277641bd13d1bfdd2b28c8961918bd38d6510e19ce53720e7"
+        },
+        {
+          "path": "crates/fsym-polys/src/finite_field_evaluation.rs",
+          "sha256": "1b2c2e20c5c206c2818b3bf8e12d9f6b482952f908fb3c71603f91091662cc2a"
+        },
+        {
+          "path": "crates/fsym-polys/src/finite_field_fglm.rs",
+          "sha256": "e9696a4f45c61b98352a97353622edcac80870f77e4053264dac55661395e84c"
+        },
+        {
+          "path": "crates/fsym-polys/src/finite_field_groebner.rs",
+          "sha256": "9b1a7c6795bea04f9bb004aaef2a570a57c070014b9f05bc40eecded96d2f2e8"
+        },
+        {
+          "path": "crates/fsym-polys/src/finite_field_ideal.rs",
+          "sha256": "954dadb932088342f80f10b752b2fa6b5ea100e9625388dad7dd0c06132bbda6"
+        },
+        {
+          "path": "crates/fsym-polys/src/finite_field_ideal_inverse.rs",
+          "sha256": "811481e1890c66b3b85aa2f0e727b0bee3a543dd6949ef95df1ed85bb2f7a774"
+        },
+        {
+          "path": "crates/fsym-polys/src/finite_field_ideal_quotient.rs",
+          "sha256": "974e32d28e48525ac57ce4656f23360dcce643484f4db92491faa299cfc773a9"
+        },
+        {
+          "path": "crates/fsym-polys/src/finite_field_multivariate.rs",
+          "sha256": "6d809b2d2f80b1ba57ce4787b1e03b0e568360d5321bc7bfa5fc53a0ee7460d9"
+        },
+        {
+          "path": "crates/fsym-polys/src/finite_field_multivariate_source.rs",
+          "sha256": "3d13e552a4e9642e7499d7284a050265eb67d3913b6577116185fad2ea69a510"
+        },
+        {
+          "path": "crates/fsym-polys/src/finite_field_quotient_algebra.rs",
+          "sha256": "a7f9a238402d39ca933e6c89f12cce70a67554ea6f23882b4b70a562c9b14a6e"
+        },
+        {
+          "path": "crates/fsym-polys/src/finite_field_quotient_minpoly.rs",
+          "sha256": "2bdb0fba276b80f4acedf6093c6a6d7f16e4b145e66c671dccea8f33006ae132"
+        },
+        {
+          "path": "crates/fsym-polys/src/finite_field_recursive_division.rs",
+          "sha256": "da6337fdc6cf00af5a153e948364700e92aaa2a169372015e8240ac8104507ff"
+        },
+        {
+          "path": "crates/fsym-polys/src/finite_field_resultant.rs",
+          "sha256": "1967b91a1fb4bb52bdb186a43411c07aaecd7827c36803708683d78cf8c54771"
+        },
+        {
+          "path": "crates/fsym-polys/src/finite_field_source.rs",
+          "sha256": "c8c969cd18366675f75d8ebdd4447c1d5f642ea509314633987276e4af66f4ee"
+        },
+        {
+          "path": "crates/fsym-polys/src/finite_field_syzygy.rs",
+          "sha256": "ca47f5b9dbb798f1e93c0546ce25052414ced769c40bd5f6acf48c16fb46633a"
+        },
+        {
+          "path": "crates/fsym-polys/src/gcd.rs",
+          "sha256": "124be0cfe2ca7347079c4c36a991e52c48f275f9199da57392bc9eae2a021061"
+        },
+        {
+          "path": "crates/fsym-polys/src/groebner.rs",
+          "sha256": "fd5036776837c0db2a109a89d6739e3847968a8d7614009cd135cb6c6ad31cf8"
+        },
+        {
+          "path": "crates/fsym-polys/src/ideal.rs",
+          "sha256": "dba0c3efa806913f635d4ec58585942fd353dc975c5813d6bc775458f6dd1c1e"
+        },
+        {
+          "path": "crates/fsym-polys/src/ideal_inverse.rs",
+          "sha256": "ebb204a6edad7e57091e9a7de1386a7a34cf137f132f67fb840ea85f0c78a1c9"
+        },
+        {
+          "path": "crates/fsym-polys/src/ideal_quotient.rs",
+          "sha256": "055a1a8689d4545ca77b2cb1d3030a36bc930139d63d4527ed07eaaa43e517e0"
+        },
+        {
+          "path": "crates/fsym-polys/src/identity.rs",
+          "sha256": "f4a003b769b8930c3b412c224c6dc7dfb906f37ae4ecde386e8e7ce0cb3f8fda"
+        },
+        {
+          "path": "crates/fsym-polys/src/lib.rs",
+          "sha256": "404ef843d72ee521373ef9567f220fdcec66af84d820716540f14aa7e0db30da"
+        },
+        {
+          "path": "crates/fsym-polys/src/multifactor.rs",
+          "sha256": "5144bc16beb4e7a6d22974b971317ae60c8dfc20d72273edc94fc15e6b40ba4d"
+        },
+        {
+          "path": "crates/fsym-polys/src/multivariate.rs",
+          "sha256": "62fb7de9e171f785f05dff6d31f4d2f7f4ca32e9a8e4ef74af88efca99662af4"
+        },
+        {
+          "path": "crates/fsym-polys/src/quotient_algebra.rs",
+          "sha256": "a472d86353139d8f450ac227b9a828de7ce06011c0d43038bd114dc0a18f4852"
+        },
+        {
+          "path": "crates/fsym-polys/src/quotient_minpoly.rs",
+          "sha256": "be01cfcd1168918f257e41aeafbfcb367837ec00c844f9c3d1b78815e772fecd"
+        },
+        {
+          "path": "crates/fsym-polys/src/radical.rs",
+          "sha256": "84431d538d2822ae5f5393f9972dbfc9c86291da247fde689bd04431548a860d"
+        },
+        {
+          "path": "crates/fsym-polys/src/rational.rs",
+          "sha256": "384de12ab3cf71aeb6ca0e17e836ac2ab7093c7af2e84b7385d1b346a50d533b"
+        },
+        {
+          "path": "crates/fsym-polys/src/syzygy.rs",
+          "sha256": "4fa3f7062d6bc7b32853b84e817826a50d6a57075df5e8212d02018dc17ff352"
+        },
+        {
+          "path": "crates/fsym-polys/src/univariate.rs",
+          "sha256": "2abab5c9924c654938e0dbdee96f045911b4103e3c0296db25572bd7bfed6312"
+        },
+        {
+          "path": "crates/fsym-proof-kernel/Cargo.toml",
+          "sha256": "e8a30033e92cd3769d6a030d7c91f8e7fb0f96507caccb38b8102229f6774c6b"
+        },
+        {
+          "path": "crates/fsym-proof-kernel/src/capsule.rs",
+          "sha256": "3271919a729556308d2df5b84442f105080f5f84dcfb2ec5ef0e41d3a5869441"
+        },
+        {
+          "path": "crates/fsym-proof-kernel/src/claim.rs",
+          "sha256": "914df528e14bab9bc70fd0fa95287b808e7630b9110c3fd32ef66c9678968980"
+        },
+        {
+          "path": "crates/fsym-proof-kernel/src/elementary_rational_definite.rs",
+          "sha256": "0ef22cfdb9a40af99b75b2e1bf3d06e9b684c7de9ad7ebdd2963e773b964ad91"
+        },
+        {
+          "path": "crates/fsym-proof-kernel/src/groebner.rs",
+          "sha256": "5cf72e4e2b0cf1e75f89cee7425ebfd0d82dd4dc59f1c6f929dbab29dbd78b4d"
+        },
+        {
+          "path": "crates/fsym-proof-kernel/src/kernel.rs",
+          "sha256": "9b48ed0c72e50b744722b41f59e9f831c8d7728281aa91cbdc408dea3f6e1082"
+        },
+        {
+          "path": "crates/fsym-proof-kernel/src/lib.rs",
+          "sha256": "1786ce6d38a25cb8fd8c2694aaf822c9a41aa03abc04a6df329e6a70c318beed"
+        },
+        {
+          "path": "crates/fsym-proof-kernel/src/linear_system.rs",
+          "sha256": "74815988346dd71d45d4b375e7c209956fa254753cd99fed91974c4ef1936ec7"
+        },
+        {
+          "path": "crates/fsym-proof-kernel/src/merge.rs",
+          "sha256": "8bd7d12c52c031b2a629a7ad779c5ad777c3d2ea206b8c5461cd95833f9430af"
+        },
+        {
+          "path": "crates/fsym-proof-kernel/src/mutation.rs",
+          "sha256": "90d708137592bee51ccb1bd236183934c025616b4b0336fa82c5e9eb40c0b025"
+        },
+        {
+          "path": "crates/fsym-proof-kernel/src/rational_definite.rs",
+          "sha256": "da9fc9dc5611c26dc77d795ee7db58e06b026a3c4aac51794358a2609ec617eb"
+        },
+        {
+          "path": "crates/fsym-proof-kernel/src/rational_integral.rs",
+          "sha256": "dbe71dcd0930210309fcffdbdf75262b8977492aaffc9e8e2dad5e18d181e28e"
+        },
+        {
+          "path": "crates/fsym-proof-kernel/src/rational_limit.rs",
+          "sha256": "b5d84cf9919599c49fc4c20b13603f83c2d91b6a59e47ff939aa704eb83648a6"
+        },
+        {
+          "path": "crates/fsym-proof-kernel/src/rational_sum.rs",
+          "sha256": "88cafd72072030db3fc3098bec15d0ed69ba9b74f33077fc12dee45be3c6551a"
+        },
+        {
+          "path": "crates/fsym-proof-kernel/src/rule.rs",
+          "sha256": "91c605b3906ed2d81e1f351b38535212561affe2706dae1e8f33d1dc6287792f"
+        },
+        {
+          "path": "crates/fsym-rational/Cargo.toml",
+          "sha256": "31bf70b87c22596fcc5ad7139d04cbfcf2340535c345a196f288754c06f65f1a"
+        },
+        {
+          "path": "crates/fsym-rational/src/lib.rs",
+          "sha256": "a4d3f3ccfd31d9a7543916961233549752be40e83ff75be4bd8c7bd906a16771"
+        },
+        {
+          "path": "crates/fsym-sets/Cargo.toml",
+          "sha256": "b3e7f1451597cca1b6720b7a490bf3cd88122de1be010d9b3c6615cf0e61bcae"
+        },
+        {
+          "path": "crates/fsym-sets/src/lib.rs",
+          "sha256": "5f83153fd814281031107793f1604fa1737e146468e0e0a55b0939962c451143"
+        },
+        {
+          "path": "crates/fsym-sets/src/realline.rs",
+          "sha256": "c5aab1b36976cb93a5d41061ff25f19cfe026abe378f2048c1c9f2326851334e"
+        },
+        {
+          "path": "crates/fsym-simplify/Cargo.toml",
+          "sha256": "f6b3acbd8b31fac4391453ce4a775a162933e12888c01e3fb8433569a8fbbb4d"
+        },
+        {
+          "path": "crates/fsym-simplify/src/lib.rs",
+          "sha256": "7849797683833c05790aa6e7b27d34dd82e6bc04eae63ae141a971c790d35add"
+        },
+        {
+          "path": "crates/fsym-simplify/src/rewrite.rs",
+          "sha256": "898c3371d48b1dee0d21a7ed2001837ae4de19a790f34ee22f562257f53a439b"
+        },
+        {
+          "path": "crates/fsym-solvers/Cargo.toml",
+          "sha256": "711482324401407cb2b9aa5f100c13269191e6826e662b0bc2bb8ffddbf17cb4"
+        },
+        {
+          "path": "crates/fsym-solvers/src/algebraic_expression.rs",
+          "sha256": "7a3cb8823345ee040c151b397314cce8d37a6cd1207c8f5c5249ff6931f81a26"
+        },
+        {
+          "path": "crates/fsym-solvers/src/exact_ode.rs",
+          "sha256": "359abb4f40d1b69362d54e76d5ab684344a65e330ff7eebf1137c80045f51fd8"
+        },
+        {
+          "path": "crates/fsym-solvers/src/inequality.rs",
+          "sha256": "de13ea100e75a9630e675b40c3ec80e1593711642f1767549a280ed8ef865161"
+        },
+        {
+          "path": "crates/fsym-solvers/src/lib.rs",
+          "sha256": "bd3a096b0b4401ca0e58be2d43177f2104f5e0a7db72c41910f8e2406f1b8c81"
+        },
+        {
+          "path": "crates/fsym-solvers/src/localized_components.rs",
+          "sha256": "36f919e0d83f5b818d50378cd191a931024bd339dcf2c185a34dab4ff8abccbf"
+        },
+        {
+          "path": "crates/fsym-solvers/src/ode/system/general/forcing.rs",
+          "sha256": "b04741b09301354c4e2b89fb09f6895e97db5725d2cc2437eca40301d415b39a"
+        },
+        {
+          "path": "crates/fsym-solvers/src/ode/system/general.rs",
+          "sha256": "3ed8d21a788d269718931bb6fee4a04ab4a4372678a1047c1ba50c01ffd5ee16"
+        },
+        {
+          "path": "crates/fsym-solvers/src/ode/system/polynomial.rs",
+          "sha256": "769bbcb7138c351cf05d079bc0b36b8ad00e8534c6f5075128e511bd613dc652"
+        },
+        {
+          "path": "crates/fsym-solvers/src/ode/system.rs",
+          "sha256": "282702f0043e5ceb9d39f99e51ec88dae2fd36b6840216694868de697f76e466"
+        },
+        {
+          "path": "crates/fsym-solvers/src/ode.rs",
+          "sha256": "4264c55f55c51bade4004236a9847e879dd5bd1dbda3c1fb59b535b9ca84d5aa"
+        },
+        {
+          "path": "crates/fsym-solvers/src/polynomial_components.rs",
+          "sha256": "949cc9f94b3fcfd2fec549cdf490daac65be1669a2f551efe1bbc59cbb3e1956"
+        },
+        {
+          "path": "crates/fsym-solvers/src/polynomial_graph.rs",
+          "sha256": "bc9be719076ff301cf109f3ec69dae3e1fc73ba043e0179847b8b89c5f20f4a3"
+        },
+        {
+          "path": "crates/fsym-solvers/src/polysys.rs",
+          "sha256": "c2ac7798f0672b28d1173604628ed218842dfe0db08ab0baf1ad23f921dac9c2"
+        },
+        {
+          "path": "crates/fsym-solvers/src/rational_graph.rs",
+          "sha256": "1dfdb00e8d69b17876c569f39a6f38cf8efbde3c5728251586cc8a52cb50810d"
+        },
+        {
+          "path": "crates/fsym-solvers/src/real_equation/algebraic_value.rs",
+          "sha256": "3ded7656b4ddcdbf22041a2e484f983c1e7acd295a616b52c50fcd59e91aea9f"
+        },
+        {
+          "path": "crates/fsym-solvers/src/real_equation/real_inequality.rs",
+          "sha256": "71cf46203d44941960931973432a87eb6ccc1ef4eea200b3b6862008176838ad"
+        },
+        {
+          "path": "crates/fsym-solvers/src/real_equation.rs",
+          "sha256": "47663ff51853fbf353efd1b81d563fbdd74ba62555a075158b21feddad2fb2d2"
+        },
+        {
+          "path": "crates/fsym-solvers/src/real_polysys.rs",
+          "sha256": "1ecf11b61f5192b45bc98cd84e2b58024603aedf468fd5727180277c670790b0"
+        },
+        {
+          "path": "crates/fsym-solvers/src/real_rur.rs",
+          "sha256": "0dd84672b916ed46b6db6d887cb6ebaecd3da1f0e85c0291dcafd5b0e7b90fa2"
+        },
+        {
+          "path": "crates/fsym-solvers/src/system.rs",
+          "sha256": "4a4da6ee57a943494d15007a0dd8ec235be9cc17836e7301aedf167a538f9e15"
+        },
+        {
+          "path": "crates/fsym-solvers/src/univariate.rs",
+          "sha256": "b5bac3d0316088e48b1cb9b93c89fb782b46383742f36d4cf8785b4f9f6db8cf"
+        },
+        {
+          "path": "crates/fsym-runtime/src/workspace.rs",
+          "sha256": "e6c81172935e23c0dadf28488e55f130f85acdd2be9ce8e847bc39ed8377fe09"
+        },
+        {
+          "path": "crates/fsym-runtime/src/protocol.rs",
+          "sha256": "6608ab6b84ecbbf926886c8580d34f28bcb78fe96cb7826681cbad1ca6514579"
+        },
+        {
+          "path": "crates/fsym-runtime/src/publication.rs",
+          "sha256": "a5ecb9fd9d7b44011699e12d220b8745de6af83a15e7e16353cbe79b562b5280"
+        },
+        {
+          "path": "crates/fsym-runtime/src/fmap.rs",
+          "sha256": "549e1bc052ffbe09dd246604053c5ab2ceb4b1bbe9b1082b5f4d224f147d8d75"
+        },
+        {
+          "path": "crates/fsym-runtime/src/replay.rs",
+          "sha256": "34179a2f3545a0b0687797f3d69213f260a452173ac8bda9c4e89dfa533016e8"
+        }
+      ],
+      "harness_files": {
+        "Cargo.toml": "9aaec36f61eaa6648028819a364c81288bd69d78808a06987c67de7c33c225d3",
+        "runtime/Cargo.toml": "17323dceecb475eb5c0fd2a0c21027622b7a3e2fb2056f0b89ce599fbdca9042",
+        "runtime/lib.rs": "c0c14dbb78226d77ff875c7d7ab68ea67e9117566f2d7dd46ce4d3a82e1ba161",
+        "feature-unification.rs": "2460c2776f51762de3636df0cec841e22af36257be2d85989e35a15a42945872"
+      },
+      "preparation_scripts": {
+        "/workspace/scratch/03d77ea3bfad/frankensympy-scoped-validation/prepare_scope.py": "fd80159d34f0bd880f0a11e7e8ab90a20373da090a66fb1c7e645f552e7760f1",
+        "/workspace/scratch/03d77ea3bfad/frankensympy-scoped-validation/verify_scope.py": "fe6a5825402bb718f223d28084e14ac182cc6d72d021b31fda3b11090e8a0168"
+      },
+      "scope": "Selected actual root and mathematical source plus five unchanged production synchronous runtime modules.",
+      "full_runtime_workspace_gate": false
+    },
+    "exact_temporary_harness_inputs": {
+      "Cargo.toml": {
+        "sha256": "9aaec36f61eaa6648028819a364c81288bd69d78808a06987c67de7c33c225d3",
+        "content": "[package]\nname = \"frankensympy-session-validation\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = false\nautobins = false\nautotests = false\nbuild = \"feature-unification.rs\"\n\n[workspace]\nmembers = [\"runtime\"]\nresolver = \"3\"\n\n[lib]\nname = \"frankensympy\"\npath = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/src/lib.rs\"\n\n[[bin]]\nname = \"frankensympy\"\npath = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/src/bin/frankensympy.rs\"\n\n[dependencies]\nfsym-assumptions = { path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-assumptions\" }\nfsym-budget = { path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-budget\" }\nfsym-calculus = { path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-calculus\" }\nfsym-core = { path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-core\" }\nfsym-polys = { path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-polys\" }\nfsym-proof-kernel = { path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-proof-kernel\" }\nfsym-runtime = { package = \"fsym-runtime-session-validation\", path = \"runtime\" }\nfsym-simplify = { path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-simplify\" }\nfsym-solvers = { path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-solvers\" }\nnum-traits = { version = \"0.2\" }\nserde = { version = \"1\", features = [\"derive\", \"rc\", \"alloc\"] }\nserde_json = { version = \"1\", features = [\"raw_value\"] }\nthiserror = { version = \"2\" }\nlibc = { version = \"=0.2.189\", features = [\"extra_traits\"] }\nmemchr = \"=2.8.3\"\n\n[build-dependencies]\nsyn = { version = \"=3.0.3\", features = [\"full\", \"visit\"] }\n\n[lints.rust]\nunsafe_code = \"forbid\"\n\n[[test]]\nname = \"artifact_transfer\"\npath = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/tests/artifact_transfer.rs\"\n\n[[test]]\nname = \"artifact_transfer_session\"\npath = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/tests/artifact_transfer_session.rs\"\n\n[[test]]\nname = \"certification\"\npath = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/tests/certification.rs\"\n\n[[test]]\nname = \"certification_session\"\npath = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/tests/certification_session.rs\"\n\n[[test]]\nname = \"claim_replay\"\npath = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/tests/claim_replay.rs\"\n\n[[test]]\nname = \"cli_protocol_gate\"\npath = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/tests/cli_protocol_gate.rs\"\n\n[[test]]\nname = \"isolation_transport\"\npath = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/tests/isolation_transport.rs\"\n\n[[test]]\nname = \"isolation_transport_session\"\npath = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/tests/isolation_transport_session.rs\"\n\n[[test]]\nname = \"root_isolation\"\npath = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/tests/root_isolation.rs\"\n\n[[test]]\nname = \"root_isolation_search_session\"\npath = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/tests/root_isolation_search_session.rs\"\n\n[[test]]\nname = \"root_isolation_session\"\npath = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/tests/root_isolation_session.rs\"\n"
+      },
+      "runtime/Cargo.toml": {
+        "sha256": "17323dceecb475eb5c0fd2a0c21027622b7a3e2fb2056f0b89ce599fbdca9042",
+        "content": "[package]\nname = \"fsym-runtime-session-validation\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = false\n\n[lib]\nname = \"fsym_runtime\"\npath = \"lib.rs\"\ntest = false\ndoctest = false\nbench = false\n\n[dependencies]\nfsym-core = { path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-core\" }\nfsym-id = { path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-id\" }\nfsym-budget = { path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-budget\" }\nfsym-outcome = { path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-outcome\" }\nfsym-proof-kernel = { path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-proof-kernel\" }\nfsym-evidence = { path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-evidence\" }\nfsym-assumptions = { path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-assumptions\" }\nfsym-simplify = { path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-simplify\" }\nfsym-calculus = { path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-calculus\" }\nfsym-polys = { path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-polys\" }\nfsym-solvers = { path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-solvers\" }\nfsym-matrices = { path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-matrices\" }\nblake3 = { version = \"1\" }\nnum-traits = { version = \"0.2\" }\nserde = { version = \"1\", features = [\"derive\", \"rc\"] }\nserde_json = { version = \"1\" }\nthiserror = { version = \"2\" }\n\n[lints.rust]\nunsafe_code = \"forbid\"\n"
+      },
+      "runtime/lib.rs": {
+        "sha256": "c0c14dbb78226d77ff875c7d7ab68ea67e9117566f2d7dd46ce4d3a82e1ba161",
+        "content": "#![forbid(unsafe_code)]\n\n#[path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-runtime/src/workspace.rs\"]\npub mod workspace;\n\n#[path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-runtime/src/protocol.rs\"]\npub mod protocol;\n\n#[path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-runtime/src/publication.rs\"]\npub mod publication;\n\n#[path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-runtime/src/fmap.rs\"]\npub mod fmap;\n\n#[path = \"/workspace/scratch/03d77ea3bfad/frankensympy-work/crates/fsym-runtime/src/replay.rs\"]\npub mod replay;\n"
+      },
+      "feature-unification.rs": {
+        "sha256": "2460c2776f51762de3636df0cec841e22af36257be2d85989e35a15a42945872",
+        "content": "// Activate the same host-side syn features as the full production graph.\n// No code generation or mathematical behavior is supplied here.\nfn main() {}\n"
+      },
+      "prepare_scope.py": {
+        "sha256": "fd80159d34f0bd880f0a11e7e8ab90a20373da090a66fb1c7e645f552e7760f1",
+        "content": "#!/usr/bin/env python3\n\"\"\"Prepare an explicitly scoped Cargo harness without editing production files.\n\nThe root library/CLI/tests and all mathematical crates are original source paths.\nOnly the runtime dependency is a separately named facade importing five unchanged\nproduction synchronous modules. This cannot establish a full runtime/workspace\ngate, and the facade's runtime unit tests are deliberately not selected.\n\"\"\"\n\nfrom pathlib import Path\nimport hashlib\nimport json\nimport os\nimport subprocess\nimport tomllib\n\nSCRIPT_HOME = Path(__file__).resolve().parent\nHERE = Path(os.environ.get('FSYM_VALIDATION_OUTPUT', str(SCRIPT_HOME))).resolve()\nSOURCE = Path(os.environ.get('FSYM_VALIDATION_SOURCE', str(SCRIPT_HOME.parent / 'frankensympy-work'))).resolve()\nBASE = '3e35c727e6b2a6024fce55d80e20ee980dd5a6bb'\nMODULES = ('workspace', 'protocol', 'publication', 'fmap', 'replay')\n\n\ndef value(item):\n    if isinstance(item, bool):\n        return str(item).lower()\n    if isinstance(item, str):\n        return json.dumps(item)\n    if isinstance(item, list):\n        return '[' + ', '.join(value(v) for v in item) + ']'\n    if isinstance(item, dict):\n        return '{ ' + ', '.join(f'{k} = {value(v)}' for k, v in item.items()) + ' }'\n    raise TypeError(item)\n\n\ndef dependencies(table, workspace, *, root=False):\n    lines = []\n    for name, declared in table.items():\n        if name == 'asupersync':\n            assert not root\n            continue\n        if name == 'fsym-runtime':\n            assert root\n            resolved = {'package': 'fsym-runtime-session-validation', 'path': 'runtime'}\n        else:\n            resolved = workspace[name]\n            if isinstance(resolved, str):\n                resolved = {'version': resolved}\n            else:\n                resolved = dict(resolved)\n            if isinstance(declared, dict):\n                for key, item in declared.items():\n                    if key == 'workspace':\n                        continue\n                    if key == 'features':\n                        resolved[key] = list(dict.fromkeys(resolved.get(key, []) + item))\n                    else:\n                        resolved[key] = item\n            if 'path' in resolved:\n                resolved['path'] = str((SOURCE / resolved['path']).resolve())\n        lines.append(f'{name} = {value(resolved)}')\n    return '\\n'.join(lines)\n\n\ndef main():\n    (HERE / 'runtime').mkdir(parents=True, exist_ok=True)\n    original = tomllib.loads((SOURCE / 'Cargo.toml').read_text())\n    runtime = tomllib.loads((SOURCE / 'crates/fsym-runtime/Cargo.toml').read_text())\n    workspace = original['workspace']['dependencies']\n    tests = sorted((SOURCE / 'tests').glob('*.rs'))\n    # Removing the async dependency narrows five already-admitted foundational\n    # feature sets. Recreate exactly the feature unification observed in the\n    # actual production Cargo graph, without changing any production manifest.\n    root_dependencies = {name: dict(v) if isinstance(v, dict) else v\n                         for name, v in original['dependencies'].items()}\n    root_dependencies['serde']['features'] = ['alloc']\n    production_lock = tomllib.loads((SOURCE / 'Cargo.lock').read_text())\n    locked = {(p['name'], p['version']): p for p in production_lock['package']}\n    for name, version in [('libc', '0.2.189'), ('memchr', '2.8.3'), ('syn', '3.0.3')]:\n        assert (name, version) in locked, (name, version)\n    root = '\\n'.join([\n        '[package]', 'name = \"frankensympy-session-validation\"',\n        'version = \"0.1.0\"', 'edition = \"2024\"', 'publish = false',\n        'autobins = false', 'autotests = false', 'build = \"feature-unification.rs\"',\n        '', '[workspace]', 'members = [\"runtime\"]', 'resolver = \"3\"',\n        '', '[lib]', 'name = \"frankensympy\"', f'path = {value(str(SOURCE / \"src/lib.rs\"))}',\n        '', '[[bin]]', 'name = \"frankensympy\"', f'path = {value(str(SOURCE / \"src/bin/frankensympy.rs\"))}',\n        '', '[dependencies]', dependencies(root_dependencies, workspace, root=True),\n        'libc = { version = \"=0.2.189\", features = [\"extra_traits\"] }',\n        'memchr = \"=2.8.3\"',\n        '', '[build-dependencies]', 'syn = { version = \"=3.0.3\", features = [\"full\", \"visit\"] }',\n        '', '[lints.rust]', 'unsafe_code = \"forbid\"',\n    ])\n    for test in tests:\n        root += f'\\n\\n[[test]]\\nname = {value(test.stem)}\\npath = {value(str(test))}'\n    root += '\\n'\n    (HERE / 'Cargo.toml').write_text(root)\n    (HERE / 'feature-unification.rs').write_text(\n        '// Activate the same host-side syn features as the full production graph.\\n'\n        '// No code generation or mathematical behavior is supplied here.\\n'\n        'fn main() {}\\n'\n    )\n    manifest = '\\n'.join([\n        '[package]', 'name = \"fsym-runtime-session-validation\"',\n        'version = \"0.1.0\"', 'edition = \"2024\"', 'publish = false',\n        '', '[lib]', 'name = \"fsym_runtime\"', 'path = \"lib.rs\"',\n        'test = false', 'doctest = false', 'bench = false',\n        '', '[dependencies]', dependencies(runtime['dependencies'], workspace),\n        '', '[lints.rust]', 'unsafe_code = \"forbid\"', '',\n    ])\n    (HERE / 'runtime/Cargo.toml').write_text(manifest)\n    facade = '#![forbid(unsafe_code)]\\n'\n    inputs = []\n    for module in MODULES:\n        relative = f'crates/fsym-runtime/src/{module}.rs'\n        path = SOURCE / relative\n        actual = path.read_bytes()\n        expected = subprocess.check_output(['git', 'show', f'{BASE}:{relative}'], cwd=SOURCE)\n        assert actual == expected, f'runtime module changed: {relative}'\n        inputs.append({'path': relative, 'sha256': hashlib.sha256(actual).hexdigest()})\n        facade += f'\\n#[path = {value(str(path))}]\\npub mod {module};\\n'\n    (HERE / 'runtime/lib.rs').write_text(facade)\n    lock = HERE / 'Cargo.lock'\n    if not lock.exists():\n        lock.write_bytes((SOURCE / 'Cargo.lock').read_bytes())\n    report = {\n        'source_root': str(SOURCE), 'base': BASE, 'tests': [t.stem for t in tests],\n        'production_tree': str(SCRIPT_HOME / 'production-tree.txt'),\n        'runtime_modules': inputs,\n        'feature_unification': {\n            'serde': ['alloc'], 'libc': ['default', 'extra_traits', 'std'],\n            'memchr': ['default', 'alloc', 'std'], 'host_syn_3': ['full', 'visit'],\n            'reason': 'Match retained foundational features from the original full Cargo dependency graph; no production dependency changes.',\n        },\n        'production_lock_sha256': hashlib.sha256((SOURCE / 'Cargo.lock').read_bytes()).hexdigest(),\n        'scope': 'Actual root source and mathematical crates, plus five unchanged synchronous runtime modules.',\n        'omitted': 'Full asupersync runtime, other runtime modules and runtime unit tests; no full workspace/runtime gate.',\n    }\n    (HERE / 'scope.json').write_text(json.dumps(report, indent=2) + '\\n')\n    print(json.dumps(report))\n\n\nif __name__ == '__main__':\n    main()\n"
+      },
+      "verify_scope.py": {
+        "sha256": "fe6a5825402bb718f223d28084e14ac182cc6d72d021b31fda3b11090e8a0168",
+        "content": "#!/usr/bin/env python3\n\"\"\"Check scoped lock identities, features and unchanged runtime source bindings.\"\"\"\n\nfrom pathlib import Path\nimport hashlib\nimport json\nimport os\nimport re\nimport subprocess\nimport tomllib\n\nSCRIPT_HOME = Path(__file__).resolve().parent\nHERE = Path(os.environ.get('FSYM_VALIDATION_OUTPUT', str(SCRIPT_HOME))).resolve()\nSCOPE = json.loads((HERE / 'scope.json').read_text())\nSOURCE = Path(SCOPE['source_root'])\nBASE = '3e35c727e6b2a6024fce55d80e20ee980dd5a6bb'\n\n\ndef sha(path):\n    return hashlib.sha256(path.read_bytes()).hexdigest()\n\n\ndef main():\n    key = lambda row: (row['name'], row['version'], row.get('source'))\n    production = {\n        key(row): row for row in tomllib.loads((SOURCE / 'Cargo.lock').read_text())['package']\n    }\n    scoped = tomllib.loads((HERE / 'Cargo.lock').read_text())['package']\n    external = [row for row in scoped if 'source' in row]\n    for row in external:\n        assert key(row) in production, key(row)\n        assert row.get('checksum') == production[key(row)].get('checksum'), key(row)\n    metadata = json.loads((HERE / 'metadata.json').read_text())\n    packages = {p['id']: p for p in metadata['packages']}\n    expected_features = {}\n    for line in Path(SCOPE.get('production_tree', str(SCRIPT_HOME / 'production-tree.txt'))).read_text().splitlines():\n        match = re.fullmatch(\n            r'([^ ]+) v([^ ]+)(?: \\([^)]*\\))* \\[([^\\]]*)\\](?: \\(\\*\\))?', line\n        )\n        assert match, line\n        expected_features[(match[1], match[2])] = sorted(filter(None, match[3].split(',')))\n    checked = []\n    for node in metadata['resolve']['nodes']:\n        package = packages[node['id']]\n        if package['name'] in ('frankensympy-session-validation', 'fsym-runtime-session-validation'):\n            continue\n        identity = (package['name'], package['version'])\n        assert expected_features[identity] == sorted(node['features']), {\n            'package': identity, 'production': expected_features[identity], 'scope': node['features']\n        }\n        checked.append({'name': identity[0], 'version': identity[1], 'features': node['features']})\n    sources = []\n    for package in metadata['packages']:\n        if package['source'] is not None:\n            continue\n        manifest = Path(package['manifest_path'])\n        if not manifest.is_relative_to(SOURCE):\n            continue\n        for path in [manifest, *sorted((manifest.parent / 'src').rglob('*.rs'))]:\n            sources.append({'path': str(path.relative_to(SOURCE)), 'sha256': sha(path)})\n    for name in ('workspace', 'protocol', 'publication', 'fmap', 'replay'):\n        relative = f'crates/fsym-runtime/src/{name}.rs'\n        path = SOURCE / relative\n        expected = subprocess.check_output(['git', 'show', f'{BASE}:{relative}'], cwd=SOURCE)\n        assert path.read_bytes() == expected, relative\n        sources.append({'path': relative, 'sha256': sha(path)})\n    result = {\n        'base': BASE, 'external_identities_verified': len(external),\n        'retained_feature_sets_verified': checked,\n        'production_lock_sha256': sha(SOURCE / 'Cargo.lock'),\n        'validation_lock_sha256': sha(HERE / 'Cargo.lock'),\n        'lower_source_snapshot': sources,\n        'harness_files': {\n            str(path.relative_to(HERE)): sha(path)\n            for path in [HERE / 'Cargo.toml', HERE / 'runtime/Cargo.toml', HERE / 'runtime/lib.rs',\n                         HERE / 'feature-unification.rs']\n        },\n        'preparation_scripts': {str(path): sha(path) for path in [SCRIPT_HOME / 'prepare_scope.py', Path(__file__)]},\n        'scope': 'Selected actual root and mathematical source plus five unchanged production synchronous runtime modules.',\n        'full_runtime_workspace_gate': False,\n    }\n    (HERE / 'verification.json').write_text(json.dumps(result, indent=2) + '\\n')\n    print(json.dumps({'external_identities_verified': len(external),\n                      'retained_feature_sets_verified': len(checked),\n                      'lower_sources': len(sources), 'manifest': str(HERE / 'verification.json')}))\n\n\nif __name__ == '__main__':\n    main()\n"
+      }
+    },
+    "production_changes": "No production manifest, lockfile, donor source or dependency changes. The harness is outside the production repository; it uses the real root/CLI/math sources and only the five enumerated unchanged synchronous runtime modules.",
+    "target_scope": "Actual root library, CLI, eleven integration suites and a feature-unification build script. The diagnostic example was removed from the harness manifest before the final run; its source file was retained."
+  },
+  "historical_attempts": {
+    "native-core-calculus-clippy": {
+      "label": "native-core-calculus-clippy",
+      "argv": [
+        "/root/.cargo/bin/cargo",
+        "+nightly-2026-08-20",
+        "clippy",
+        "--locked",
+        "-p",
+        "fsym-core",
+        "-p",
+        "fsym-calculus",
+        "--all-targets",
+        "-j1",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "cwd": "/workspace/scratch/03d77ea3bfad/frankensympy-next",
+      "environment": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_TARGET_DIR": "/workspace/scratch/03d77ea3bfad/frankensympy-next/target",
+        "CARGO_HTTP_USER_AGENT": "frankensympy-agent (+https://github.com/Dicklesworthstone/frankensympy)"
+      },
+      "source_root": "/workspace/scratch/03d77ea3bfad/frankensympy-next",
+      "status": "failed",
+      "exit_code": 101,
+      "elapsed_seconds": 8.404563903808594,
+      "inputs_unchanged": true,
+      "log_sha256": "e38f3f82b5a3e341278424809f3fb423a73c3f927f665b80d4e6e43c99bf392e",
+      "input_universe": {
+        "base": "3e35c727e6b2a6024fce55d80e20ee980dd5a6bb",
+        "overlays": [
+          {
+            "path": "crates/fsym-calculus/src/root_isolation.rs",
+            "sha256": "43ee29af90e9e287b5ef03793e3a7accdf7338efbd59a719c8d0ce586493f23e",
+            "git_blob": "e8ec6cebbc8c02e2dee1f09bee6699ec78b39d67"
+          },
+          {
+            "path": "crates/fsym-calculus/tests/root_isolation_search.rs",
+            "sha256": "9bcbdf7b4f3eebc263da59156e2226178ae6045db6bf875ab547289aa19a6c42",
+            "git_blob": "8d147c1c7a74d96bebbc8d80101971f07d0600bd"
+          },
+          {
+            "path": "crates/fsym-core/src/root_certificate/root_isolation.rs",
+            "sha256": "fe54259df687178e01f4c71b485a677e132af04c1fb4e409fa46f64ed60f8bca",
+            "git_blob": "a264543fd05effb05dd6daaad2c98c68627b5174"
+          },
+          {
+            "path": "src/lib.rs",
+            "sha256": "93fd5b1208c251c5160cca8d24c468ec9fbd885b2379f8a5e173c6786bb08d2e",
+            "git_blob": "0269e024859ad47e976b5460654abccddc2b33b8"
+          }
+        ],
+        "lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2"
+      },
+      "test_blocks": [],
+      "passed_tests": 0,
+      "failed_tests": 0,
+      "log_storage": "Full log retained in the local validation workspace; only the explicitly selected excerpts below are embedded in this repository artifact.",
+      "diagnostic_excerpt": "error: manual slice size calculation\n    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_slice_size_calculation\n    = help: to override `-D warnings` add `#[allow(clippy::manual_slice_size_calculation)]`\nerror: manual slice size calculation\n    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_slice_size_calculation\nerror: manual slice size calculation\n    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_slice_size_calculation\nerror: could not compile `fsym-core` (lib) due to 3 previous errors"
+    },
+    "native-core-calculus-clippy-corrected": {
+      "label": "native-core-calculus-clippy-corrected",
+      "argv": [
+        "/root/.cargo/bin/cargo",
+        "+nightly-2026-08-20",
+        "clippy",
+        "--locked",
+        "-p",
+        "fsym-core",
+        "-p",
+        "fsym-calculus",
+        "--all-targets",
+        "-j1",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "cwd": "/workspace/scratch/03d77ea3bfad/frankensympy-next",
+      "environment": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_TARGET_DIR": "/workspace/scratch/03d77ea3bfad/frankensympy-next/target",
+        "CARGO_HTTP_USER_AGENT": "frankensympy-agent (+https://github.com/Dicklesworthstone/frankensympy)"
+      },
+      "source_root": "/workspace/scratch/03d77ea3bfad/frankensympy-next",
+      "status": "failed",
+      "exit_code": 101,
+      "elapsed_seconds": 24.94704031944275,
+      "inputs_unchanged": true,
+      "log_sha256": "5a993a949d898825f468bbe4550338b74a425f1080548a9e3d4d7f3c20328ff1",
+      "input_universe": {
+        "base": "3e35c727e6b2a6024fce55d80e20ee980dd5a6bb",
+        "overlays": [
+          {
+            "path": "crates/fsym-calculus/src/root_isolation.rs",
+            "sha256": "43ee29af90e9e287b5ef03793e3a7accdf7338efbd59a719c8d0ce586493f23e",
+            "git_blob": "e8ec6cebbc8c02e2dee1f09bee6699ec78b39d67"
+          },
+          {
+            "path": "crates/fsym-calculus/tests/root_isolation_search.rs",
+            "sha256": "9bcbdf7b4f3eebc263da59156e2226178ae6045db6bf875ab547289aa19a6c42",
+            "git_blob": "8d147c1c7a74d96bebbc8d80101971f07d0600bd"
+          },
+          {
+            "path": "crates/fsym-core/src/root_certificate/root_isolation.rs",
+            "sha256": "5291c2e4c6815d4aa2b6048961dd8371808c3f7d6c0d763bce85aab0554ef8f5",
+            "git_blob": "e6b1686197965504b13d38d88b9b0e285781f3cb"
+          },
+          {
+            "path": "src/lib.rs",
+            "sha256": "93fd5b1208c251c5160cca8d24c468ec9fbd885b2379f8a5e173c6786bb08d2e",
+            "git_blob": "0269e024859ad47e976b5460654abccddc2b33b8"
+          }
+        ],
+        "lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2"
+      },
+      "test_blocks": [],
+      "passed_tests": 0,
+      "failed_tests": 0,
+      "log_storage": "Full log retained in the local validation workspace; only the explicitly selected excerpts below are embedded in this repository artifact.",
+      "diagnostic_excerpt": "error: unnecessary use of `clone` to create a slice from a reference\n    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#cloned_ref_to_slice_refs\n    = help: to override `-D warnings` add `#[allow(clippy::cloned_ref_to_slice_refs)]`\nerror: could not compile `fsym-calculus` (test \"root_isolation_search\") due to 1 previous error"
+    },
+    "native-core-calculus-clippy-final": {
+      "label": "native-core-calculus-clippy-final",
+      "argv": [
+        "/root/.cargo/bin/cargo",
+        "+nightly-2026-08-20",
+        "clippy",
+        "--locked",
+        "-p",
+        "fsym-core",
+        "-p",
+        "fsym-calculus",
+        "--all-targets",
+        "-j1",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "cwd": "/workspace/scratch/03d77ea3bfad/frankensympy-next",
+      "environment": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_TARGET_DIR": "/workspace/scratch/03d77ea3bfad/frankensympy-next/target",
+        "CARGO_HTTP_USER_AGENT": "frankensympy-agent (+https://github.com/Dicklesworthstone/frankensympy)"
+      },
+      "source_root": "/workspace/scratch/03d77ea3bfad/frankensympy-next",
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 8.585312128067017,
+      "inputs_unchanged": true,
+      "log_sha256": "5c908cb1051c21e3dc0d4b7500c8163f9f6bd0a9d25497159913af50781eb5da",
+      "input_universe": {
+        "base": "3e35c727e6b2a6024fce55d80e20ee980dd5a6bb",
+        "overlays": [
+          {
+            "path": "crates/fsym-calculus/src/root_isolation.rs",
+            "sha256": "43ee29af90e9e287b5ef03793e3a7accdf7338efbd59a719c8d0ce586493f23e",
+            "git_blob": "e8ec6cebbc8c02e2dee1f09bee6699ec78b39d67"
+          },
+          {
+            "path": "crates/fsym-calculus/tests/root_isolation_search.rs",
+            "sha256": "022525f2ac350a6bae4cf6ab225271092980f1257b3666ffb72a2ea111713532",
+            "git_blob": "6c4269a11892c6d1459cfa06ceb47dd4761428a9"
+          },
+          {
+            "path": "crates/fsym-core/src/root_certificate/root_isolation.rs",
+            "sha256": "5291c2e4c6815d4aa2b6048961dd8371808c3f7d6c0d763bce85aab0554ef8f5",
+            "git_blob": "e6b1686197965504b13d38d88b9b0e285781f3cb"
+          },
+          {
+            "path": "src/lib.rs",
+            "sha256": "93fd5b1208c251c5160cca8d24c468ec9fbd885b2379f8a5e173c6786bb08d2e",
+            "git_blob": "0269e024859ad47e976b5460654abccddc2b33b8"
+          }
+        ],
+        "lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2"
+      },
+      "test_blocks": [],
+      "passed_tests": 0,
+      "failed_tests": 0,
+      "log_storage": "Full log retained in the local validation workspace; only the explicitly selected excerpts below are embedded in this repository artifact.",
+      "diagnostic_excerpt": "error: manual slice size calculation\n    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_slice_size_calculation\n    = help: to override `-D warnings` add `#[allow(clippy::manual_slice_size_calculation)]`\nerror: manual slice size calculation\n    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_slice_size_calculation\nerror: manual slice size calculation\n    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_slice_size_calculation\n    Finished `dev` profile [unoptimized] target(s) in 8.49s"
+    },
+    "session-scoped-root-tests": {
+      "label": "session-scoped-root-tests",
+      "argv": [
+        "/root/.cargo/bin/cargo",
+        "+nightly-2026-08-20",
+        "test",
+        "--locked",
+        "--manifest-path",
+        "/workspace/scratch/03d77ea3bfad/frankensympy-scoped-validation/Cargo.toml",
+        "-p",
+        "frankensympy-session-validation",
+        "--tests",
+        "-j1"
+      ],
+      "cwd": "/workspace/scratch/03d77ea3bfad/frankensympy-scoped-validation",
+      "environment": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_TARGET_DIR": "/workspace/scratch/03d77ea3bfad/frankensympy-next/target",
+        "CARGO_HTTP_USER_AGENT": "frankensympy-agent (+https://github.com/Dicklesworthstone/frankensympy)"
+      },
+      "source_root": "/workspace/scratch/03d77ea3bfad/frankensympy-work",
+      "status": "failed",
+      "exit_code": 101,
+      "elapsed_seconds": 59.60265302658081,
+      "inputs_unchanged": true,
+      "log_sha256": "d8e32ec1b55aa22e4dad5b53ab0c0592b9a86ca68484c8eb65b3fddda256f7b8",
+      "input_universe": {
+        "base": "3e35c727e6b2a6024fce55d80e20ee980dd5a6bb",
+        "overlays": [
+          {
+            "path": "crates/fsym-calculus/src/root_isolation.rs",
+            "sha256": "43ee29af90e9e287b5ef03793e3a7accdf7338efbd59a719c8d0ce586493f23e",
+            "git_blob": "e8ec6cebbc8c02e2dee1f09bee6699ec78b39d67"
+          },
+          {
+            "path": "crates/fsym-calculus/tests/root_isolation_search.rs",
+            "sha256": "022525f2ac350a6bae4cf6ab225271092980f1257b3666ffb72a2ea111713532",
+            "git_blob": "6c4269a11892c6d1459cfa06ceb47dd4761428a9"
+          },
+          {
+            "path": "crates/fsym-core/src/root_certificate/root_isolation.rs",
+            "sha256": "5291c2e4c6815d4aa2b6048961dd8371808c3f7d6c0d763bce85aab0554ef8f5",
+            "git_blob": "e6b1686197965504b13d38d88b9b0e285781f3cb"
+          },
+          {
+            "path": "src/certification.rs",
+            "sha256": "07bc98def339e2aad4af49b668a4a454d4db3b759d8007679da210e472c3af09",
+            "git_blob": "d433e3560fdfb49a412e39f33a2c89a298f79b76"
+          },
+          {
+            "path": "src/certification_session.rs",
+            "sha256": "10f8760bd34159a59e0d1a1b3fc4b9b1f49a865c31fe0484d939f15a75801963",
+            "git_blob": "0928091c03530a6a838aa7f8b63430907e490560"
+          },
+          {
+            "path": "src/lib.rs",
+            "sha256": "bb48a231a5b347bac95869e7f6ea797599054df81f4345544e8d00b3de3665e0",
+            "git_blob": "df66b139029f87b9ea6740b70c3d50666173f9be"
+          },
+          {
+            "path": "src/session.rs",
+            "sha256": "3e152f1760655950ed7a2cf8e05b4e316faf699f80cab51e611f915a4c51a7b2",
+            "git_blob": "afe6f28b6b691740d7785fde0eb809fc70d9d8cf"
+          },
+          {
+            "path": "tests/root_isolation_search_session.rs",
+            "sha256": "53567c432235da0373694f5b9550b8a7b34976a84df82aea86c39665ee381308",
+            "git_blob": "b086dd0791bbac21b14025a7225a00c1babc65c0"
+          }
+        ],
+        "lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2"
+      },
+      "test_blocks": [
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 13,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "FAILED",
+          "passed": 7,
+          "failed": 2,
+          "ignored": 0
+        }
+      ],
+      "passed_tests": 91,
+      "failed_tests": 2,
+      "log_storage": "Full log retained in the local validation workspace; only the explicitly selected excerpts below are embedded in this repository artifact.",
+      "diagnostic_excerpt": "pends_persistent_verifier_budget_and_enforces_step_caps ... ok\ntest page_completeness_order_schema_and_uniform_metadata_are_required ... ok\ntest changed_steps_are_rejected_even_with_a_recomputed_digest ... ok\ntest valid_proof_cannot_be_relabelled_as_a_different_claim ... ok\ntest substituted_expansion_and_later_page_depth_are_bounded_before_comparison ... ok\ntest unknown_nested_proof_and_statement_fields_are_never_silently_discarded ... ok\ntest complete_pages_replay_without_any_resident_proof ... ok\ntest cli_constructs_verifies_exports_and_replays_in_a_second_process ... ok\n\ntest result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s\n\n     Running /workspace/scratch/03d77ea3bfad/frankensympy-work/tests/cli_protocol_gate.rs (/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/frankensympy-session-validation/122ae4543f26f217/out/cli_protocol_gate-122ae4543f26f217)\n\nrunning 12 tests\ntest proof_pagination_splits_multi_step_derivations ... ok\ntest candidate_claims_are_never_accepted_and_exports_refuse_them ... ok\ntest deeply_nested_and_garbage_input_cannot_crash_the_session ... ok\ntest oversized_frame_gets_a_typed_too_large_response ... ok\ntest repeated_request_ids_are_echoed_and_processed_independently ... ok\ntest eof_mid_request_exits_cleanly_with_one_response ... ok\ntest unknown_schema_gets_a_typed_malformed_response ... ok\ntest verify_claim_accepts_equational_identities_and_rejects_false_equations ... ok\ntest stdout_protocol_purity_responses_only ... ok\ntest same_print_symbols_from_conflicting_universes_refuse_import ... ok\ntest cli_survives_deep_nesting_and_garbage_on_stdin ... ok\ntest session_and_cli_execute_l3_operations_and_multi_branch_workspaces ... ok\n\ntest result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n\n     Running /workspace/scratch/03d77ea3bfad/frankensympy-work/tests/isolation_transport.rs (/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/frankensympy-session-validation/b772a1a1406b6f8b/out/isolation_transport-b772a1a1406b6f8b)\n\nrunning 6 tests\ntest canonical_false_exclusion_reaches_and_fails_the_independent_checker ... ok\ntest receiving_source_axes_context_and_complete_region_are_bound ... ok\ntest malformed_noncanonical_and_oversized_covers_never_receive_acceptance ... ok\ntest complete_two_root_and_root_free_proofs_replay_in_fresh_receivers ... ok\ntest transport_cancels_at_every_safe_point_and_uses_the_receiving_protected_pool ... ok\ntest inverse_circular_sources_isolate_and_replay_against_current_core ... ok\n\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s\n\n     Running /workspace/scratch/03d77ea3bfad/frankensympy-work/tests/isolation_transport_session.rs (/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/frankensympy-session-validation/188f8952df1b43f4/out/isolation_transport_session-188f8952df1b43f4)\n\nrunning 7 tests\ntest receiving_domain_and_source_must_match_before_any_object_is_published ... ok\ntest canonical_forged_zero_root_cover_reaches_and_fails_independent_verification ... ok\ntest transport_requests_refuse_ambiguous_missing_future_and_oversized_inputs ... ok\ntest a_second_child_collision_during_replay_preserves_all_existing_state ... ok\ntest response_exhaustion_after_replay_verification_publishes_no_parent_or_children ... ok\ntest replay_verifier_fuel_is_cumulative_and_cannot_borrow_ordinary_steps ... ok\ntest default_cli_round_trips_complete_two_root_and_zero_root_proofs ... ok\n\ntest result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s\n\n     Running /workspace/scratch/03d77ea3bfad/frankensympy-work/tests/root_isolation.rs (/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/frankensympy-session-validation/51693a3bfb06f97e/out/root_isolation-51693a3bfb06f97e)\n\nrunning 9 tests\ntest root_free_receipts_require_a_complete_original_source_exclusion ... ok\ntest automatic_isolation_finds_and_replays_both_irrational_roots ... ok\ntest one_cumulative_ledger_keeps_proposals_out_of_protected_verifier_fuel ... ok\ntest independent_cover_replay_rejects_missing_regions_overlap_and_changed_sources ... ok\ntest convenience_uses_distinct_meters_and_never_verifies_a_failed_proposal ... ok\ntest zero_products_cancelled_logs_and_zero_powers_retain_original_poles ... ok\ntest singular_boundary_and_exhausted_searches_never_return_partial_root_sets ... ok\ntest cancellation_in_either_phase_stays_an_operational_refusal ... ok\ntest coupled_systems_retain_all_roots_and_explicit_coordinate_order ... ok\n\ntest result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s\n\n     Running /workspace/scratch/03d77ea3bfad/frankensympy-work/tests/root_isolation_search_session.rs (/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/frankensympy-session-validation/560dadc85a728c3e/out/root_isolation_search_session-560dadc85a728c3e)\n\nrunning 9 tests\ntest advance_reserves_response_before_work_and_refusals_retain_the_committed_prefix ... FAILED\ntest search_slots_and_release_are_bounded_and_failed_begin_or_release_is_atomic ... ok\ntest wire_schemas_and_quantums_are_strict_and_invalid_requests_do_not_advance ... ok\ntest progress_is_candidate_only_and_search_never_borrows_protected_fuel ... ok\ntest finish_reuses_one_cumulative_protected_pool_without_consuming_the_search ... ok\ntest search_sources_and_context_remain_frozen_through_workspace_changes_and_replay ... ok\ntest verified_finish_and_late_child_collision_publish_atomically_and_keep_the_search ... ok\ntest fresh_cli_polls_bounded_searches_then_finishes_and_replays_the_chunked_complete_proof ... ok\ntest unresolved_searches_retain_pending_cells_without_partial_root_acceptance ... FAILED\n\nfailures:\n\n---- advance_reserves_response_before_work_and_refusals_retain_the_committed_prefix stdout ----\n\nthread 'advance_reserves_response_before_work_and_refusals_retain_the_committed_prefix' (3384) panicked at /workspace/scratch/03d77ea3bfad/frankensympy-work/tests/root_isolation_search_session.rs:323:5:\nassertion failed: advance_cost - acknowledgement < acknowledgement\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n---- unresolved_searches_retain_pending_cells_without_partial_root_acceptance stdout ----\n\nthread 'unresolved_searches_retain_pending_cells_without_partial_root_acceptance' (3392) panicked at /workspace/scratch/03d77ea3bfad/frankensympy-work/tests/root_isolation_search_session.rs:578:9:\nassertion failed: matches!(failure.code(), \"inconclusive\" | \"domain_not_certified\")\n\n\nfailures:\n    advance_reserves_response_before_work_and_refusals_retain_the_committed_prefix\n    unresolved_searches_retain_pending_cells_without_partial_root_acceptance\n\ntest result: FAILED. 7 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s\n\nerror: test failed, to rerun pass `-p frankensympy-session-validation --test root_isolation_search_session`\n"
+    },
+    "session-workspace-format": {
+      "label": "session-workspace-format",
+      "argv": [
+        "/root/.cargo/bin/cargo",
+        "+nightly-2026-08-20",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "cwd": "/workspace/scratch/03d77ea3bfad/frankensympy-work",
+      "environment": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_TARGET_DIR": "/workspace/scratch/03d77ea3bfad/frankensympy-next/target",
+        "CARGO_HTTP_USER_AGENT": "frankensympy-agent (+https://github.com/Dicklesworthstone/frankensympy)"
+      },
+      "source_root": "/workspace/scratch/03d77ea3bfad/frankensympy-work",
+      "status": "failed",
+      "exit_code": 1,
+      "elapsed_seconds": 51.64810228347778,
+      "inputs_unchanged": true,
+      "log_sha256": "2b9234472ee7b4da3fd3c946d67d034428cf42aca41d66485df268d287a21180",
+      "input_universe": {
+        "base": "3e35c727e6b2a6024fce55d80e20ee980dd5a6bb",
+        "overlays": [
+          {
+            "path": "crates/fsym-calculus/src/root_isolation.rs",
+            "sha256": "43ee29af90e9e287b5ef03793e3a7accdf7338efbd59a719c8d0ce586493f23e",
+            "git_blob": "e8ec6cebbc8c02e2dee1f09bee6699ec78b39d67"
+          },
+          {
+            "path": "crates/fsym-calculus/tests/root_isolation_search.rs",
+            "sha256": "022525f2ac350a6bae4cf6ab225271092980f1257b3666ffb72a2ea111713532",
+            "git_blob": "6c4269a11892c6d1459cfa06ceb47dd4761428a9"
+          },
+          {
+            "path": "crates/fsym-core/src/root_certificate/root_isolation.rs",
+            "sha256": "5291c2e4c6815d4aa2b6048961dd8371808c3f7d6c0d763bce85aab0554ef8f5",
+            "git_blob": "e6b1686197965504b13d38d88b9b0e285781f3cb"
+          },
+          {
+            "path": "src/certification.rs",
+            "sha256": "07bc98def339e2aad4af49b668a4a454d4db3b759d8007679da210e472c3af09",
+            "git_blob": "d433e3560fdfb49a412e39f33a2c89a298f79b76"
+          },
+          {
+            "path": "src/certification_session.rs",
+            "sha256": "10f8760bd34159a59e0d1a1b3fc4b9b1f49a865c31fe0484d939f15a75801963",
+            "git_blob": "0928091c03530a6a838aa7f8b63430907e490560"
+          },
+          {
+            "path": "src/lib.rs",
+            "sha256": "bb48a231a5b347bac95869e7f6ea797599054df81f4345544e8d00b3de3665e0",
+            "git_blob": "df66b139029f87b9ea6740b70c3d50666173f9be"
+          },
+          {
+            "path": "src/session.rs",
+            "sha256": "3e152f1760655950ed7a2cf8e05b4e316faf699f80cab51e611f915a4c51a7b2",
+            "git_blob": "afe6f28b6b691740d7785fde0eb809fc70d9d8cf"
+          },
+          {
+            "path": "tests/root_isolation_search_session.rs",
+            "sha256": "53567c432235da0373694f5b9550b8a7b34976a84df82aea86c39665ee381308",
+            "git_blob": "b086dd0791bbac21b14025a7225a00c1babc65c0"
+          }
+        ],
+        "lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2"
+      },
+      "test_blocks": [],
+      "passed_tests": 0,
+      "failed_tests": 0,
+      "log_storage": "Full log retained in the local validation workspace; only the explicitly selected excerpts below are embedded in this repository artifact.",
+      "diagnostic_excerpt": "Diff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/host.rs:14:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/host.rs:25:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/host.rs:54:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/host.rs:66:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:6:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:18:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:35:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:48:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:56:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:63:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:76:\n-    assert_eq!(joined(&mut task), LocalTaskCompletion { outcome: ok(42), publication_error: None });\n+            publication_error: None\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:83:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:91:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:107:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:118:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:125:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:132:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:145:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:154:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:174:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:189:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:211:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:220:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:225:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:240:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:262:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:274:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:290:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:304:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:318:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:332:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:339:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:363:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:370:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:377:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:383:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:400:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:407:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:417:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:422:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:456:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:467:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:477:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:490:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:498:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:504:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:522:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local/tests.rs:532:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:58:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:103:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:110:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:133:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:152:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:159:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:164:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:172:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:181:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:224:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:237:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:273:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:280:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:284:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:290:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:297:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:307:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:321:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:328:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:342:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:357:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/local.rs:366:\nDiff in /workspace/scratch/03d77ea3bfad/asupersync/asupersync-browser-core/src/loc"
+    }
+  },
+  "fixture_diagnosis": {
+    "response_cost_measurement": {
+      "label": "session-response-cost-diagnostic",
+      "argv": [
+        "/root/.cargo/bin/cargo",
+        "+nightly-2026-08-20",
+        "run",
+        "--locked",
+        "--manifest-path",
+        "/workspace/scratch/03d77ea3bfad/frankensympy-scoped-validation/Cargo.toml",
+        "-p",
+        "frankensympy-session-validation",
+        "--example",
+        "response-cost-diagnostic",
+        "-j1"
+      ],
+      "cwd": "/workspace/scratch/03d77ea3bfad/frankensympy-scoped-validation",
+      "environment": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_TARGET_DIR": "/workspace/scratch/03d77ea3bfad/frankensympy-next/target",
+        "CARGO_HTTP_USER_AGENT": "frankensympy-agent (+https://github.com/Dicklesworthstone/frankensympy)"
+      },
+      "source_root": "/workspace/scratch/03d77ea3bfad/frankensympy-work",
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 1.2972021102905273,
+      "inputs_unchanged": true,
+      "log_sha256": "0a37c1d7a601731c420776d691ce123d5df1359b7d08a7fa43dadb6d0773a6e6",
+      "input_universe": {
+        "base": "3e35c727e6b2a6024fce55d80e20ee980dd5a6bb",
+        "overlays": [
+          {
+            "path": "crates/fsym-calculus/src/root_isolation.rs",
+            "sha256": "43ee29af90e9e287b5ef03793e3a7accdf7338efbd59a719c8d0ce586493f23e",
+            "git_blob": "e8ec6cebbc8c02e2dee1f09bee6699ec78b39d67"
+          },
+          {
+            "path": "crates/fsym-calculus/tests/root_isolation_search.rs",
+            "sha256": "022525f2ac350a6bae4cf6ab225271092980f1257b3666ffb72a2ea111713532",
+            "git_blob": "6c4269a11892c6d1459cfa06ceb47dd4761428a9"
+          },
+          {
+            "path": "crates/fsym-core/src/root_certificate/root_isolation.rs",
+            "sha256": "5291c2e4c6815d4aa2b6048961dd8371808c3f7d6c0d763bce85aab0554ef8f5",
+            "git_blob": "e6b1686197965504b13d38d88b9b0e285781f3cb"
+          },
+          {
+            "path": "src/certification.rs",
+            "sha256": "07bc98def339e2aad4af49b668a4a454d4db3b759d8007679da210e472c3af09",
+            "git_blob": "d433e3560fdfb49a412e39f33a2c89a298f79b76"
+          },
+          {
+            "path": "src/certification_session.rs",
+            "sha256": "10f8760bd34159a59e0d1a1b3fc4b9b1f49a865c31fe0484d939f15a75801963",
+            "git_blob": "0928091c03530a6a838aa7f8b63430907e490560"
+          },
+          {
+            "path": "src/lib.rs",
+            "sha256": "bb48a231a5b347bac95869e7f6ea797599054df81f4345544e8d00b3de3665e0",
+            "git_blob": "df66b139029f87b9ea6740b70c3d50666173f9be"
+          },
+          {
+            "path": "src/session.rs",
+            "sha256": "3e152f1760655950ed7a2cf8e05b4e316faf699f80cab51e611f915a4c51a7b2",
+            "git_blob": "afe6f28b6b691740d7785fde0eb809fc70d9d8cf"
+          },
+          {
+            "path": "tests/root_isolation_search_session.rs",
+            "sha256": "53567c432235da0373694f5b9550b8a7b34976a84df82aea86c39665ee381308",
+            "git_blob": "b086dd0791bbac21b14025a7225a00c1babc65c0"
+          }
+        ],
+        "lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2"
+      },
+      "test_blocks": [],
+      "passed_tests": 0,
+      "failed_tests": 0,
+      "log_storage": "Full log retained in the local validation workspace; only the explicitly selected excerpts below are embedded in this repository artifact.",
+      "output": "   Compiling frankensympy-session-validation v0.1.0 (/workspace/scratch/03d77ea3bfad/frankensympy-scoped-validation)\n    Finished `dev` profile [unoptimized] target(s) in 1.24s\n     Running `/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/examples/response-cost-diagnostic`\nresponse_bytes=517\nComputeSteps: started=723 advance_total=2830 acknowledgement=517 cell=2313\nMemoryBytes: started=75818559 advance_total=14904 acknowledgement=12328 cell=2576\nAllocationCount: started=16434 advance_total=86 acknowledgement=1 cell=85\n",
+      "retained_helper_files": [
+        {
+          "name": "Cargo.toml",
+          "sha256": "0965cd468dca38d29cc295b6087d8572d835b72df73cc55e989b22408990e95d"
+        },
+        {
+          "name": "response-cost-diagnostic.rs",
+          "sha256": "70db4b85613fa48dca5c47216ea74d040a46b25d0590bffbe39dcdfdcd5b35e4"
+        }
+      ]
+    },
+    "correction": "The original test incorrectly assumed the constant cell used fewer compute steps than its response. The measured memory cost is 2576 bytes for the cell versus 12328 bytes for the response. The final test proves that inequality and withholds one response byte, retaining the same frontier-immutability requirement. No production behavior changed.",
+    "typed_domain_refusals": "The singular polynomial x^2*(x+1) yields RootIsolationError::Incomplete (inconclusive); 1+0*(1/x) yields RootBoxError::Ball(BallError::DivisionByZero) (refused). The final regression requires these exact typed causes, candidate counts 1/0, the full 16-leaf bound, retained frontier, unchanged protected fuel, and the same cause on retry."
+  },
+  "full_production_root_attempt": {
+    "repository": "Dicklesworthstone/frankensympy",
+    "head": "3e35c727e6b2a6024fce55d80e20ee980dd5a6bb",
+    "command": [
+      "/root/.cargo/bin/cargo",
+      "+nightly-2026-08-20",
+      "test",
+      "--locked",
+      "-p",
+      "frankensympy",
+      "--tests",
+      "-j1"
+    ],
+    "cwd": "/workspace/scratch/03d77ea3bfad/frankensympy-next",
+    "environment": {
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_HTTP_USER_AGENT": "frankensympy-agent (+https://github.com/Dicklesworthstone/frankensympy)"
+    },
+    "lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2",
+    "toolchain": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)\nbinary: rustc\ncommit-hash: f7d782a3be46d6bb4b9792fe69a61db389ba1769\ncommit-date: 2026-08-19\nhost: x86_64-unknown-linux-gnu\nrelease: 1.100.0-nightly\nLLVM version: 23.1.0\n",
+    "donors": {
+      "asupersync": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+      "franken_numpy-pin": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+      "frankenscipy-pin": "213a417c739025ed865a3875c89a7d86726ecb5a"
+    },
+    "status": "failed",
+    "log": "/workspace/scratch/03d77ea3bfad/frankensympy-build-baseline/root-tests.log",
+    "exit_code": 101,
+    "terminal_cause": "unchanged pinned asupersync rustc process ended with signal 9 (SIGKILL)",
+    "log_sha256": "1b59c9028d3aeedb6cc0f75fef87d547f1546bbe77ec41d2d1d946b8a353c237",
+    "tests_executed": 0,
+    "final_git_status": "",
+    "memory_events": "low 0\nhigh 0\nmax 1091199\noom 5\noom_kill 2\noom_group_kill 0\n",
+    "diagnostic_excerpt": "ea3bfad/frankensympy-next/target/debug/build/franken-decision/1dc0d962bf81164b/out/libfranken_decision-1dc0d962bf81164b.rmeta --extern franken_evidence=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/franken-evidence/a68a56acedfe5fd8/out/libfranken_evidence-a68a56acedfe5fd8.rmeta --extern franken_kernel=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/franken-kernel/0facc24fadb3608e/out/libfranken_kernel-0facc24fadb3608e.rmeta --extern futures_lite=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/futures-lite/6bbda20451f110fe/out/libfutures_lite-6bbda20451f110fe.rmeta --extern getrandom=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/getrandom/c70978060234668e/out/libgetrandom-c70978060234668e.rmeta --extern hashbrown=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/hashbrown/42ba0116e054fbe1/out/libhashbrown-42ba0116e054fbe1.rmeta --extern hex=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/hex/0e734afca1ced3a7/out/libhex-0e734afca1ced3a7.rmeta --extern hmac=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/hmac/8922af6a0335275b/out/libhmac-8922af6a0335275b.rmeta --extern libc=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/libc/b40bdcc49179d204/out/liblibc-b40bdcc49179d204.rmeta --extern memchr=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/memchr/1d6a8dd4683d48ae/out/libmemchr-1d6a8dd4683d48ae.rmeta --extern nix=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/nix/fdaa1542705d155d/out/libnix-fdaa1542705d155d.rmeta --extern nkeys=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/nkeys/ecb6731676c19bed/out/libnkeys-ecb6731676c19bed.rmeta --extern parking_lot=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/parking_lot/4c9d8861a82fb3eb/out/libparking_lot-4c9d8861a82fb3eb.rmeta --extern pin_project=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/pin-project/386bcdfb314bc083/out/libpin_project-386bcdfb314bc083.rmeta --extern polling=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/polling/491cf83a65249c51/out/libpolling-491cf83a65249c51.rmeta --extern prost=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/prost/2bb7d3c0f1378b8d/out/libprost-2bb7d3c0f1378b8d.rmeta --extern rmp_serde=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/rmp-serde/734477d74aa0bfa2/out/librmp_serde-734477d74aa0bfa2.rmeta --extern semver=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/semver/d86621c3929549d1/out/libsemver-d86621c3929549d1.rmeta --extern serde=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/serde/3b922bba0c483235/out/libserde-3b922bba0c483235.rmeta --extern serde_json=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/serde_json/543c961513ae3a71/out/libserde_json-543c961513ae3a71.rmeta --extern sha1=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/sha1/462e654dd6481005/out/libsha1-462e654dd6481005.rmeta --extern sha2=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/sha2/eefe0c2247b22724/out/libsha2-eefe0c2247b22724.rmeta --extern signal_hook=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/signal-hook/46bc6f2f349fb575/out/libsignal_hook-46bc6f2f349fb575.rmeta --extern slab=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/slab/4b735776f0060f72/out/libslab-4b735776f0060f72.rmeta --extern smallvec=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/smallvec/bd6a8aae357b13b4/out/libsmallvec-bd6a8aae357b13b4.rmeta --extern socket2=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/socket2/6510417e9e5cfa1f/out/libsocket2-6510417e9e5cfa1f.rmeta --extern subtle=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/subtle/e91394263e9af5e7/out/libsubtle-e91394263e9af5e7.rmeta --extern sysinfo=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/sysinfo/6a8dac31326b58bb/out/libsysinfo-6a8dac31326b58bb.rmeta --extern tempfile=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/tempfile/19b17212b30d5181/out/libtempfile-19b17212b30d5181.rmeta --extern thiserror=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/thiserror/43c025dc6559c849/out/libthiserror-43c025dc6559c849.rmeta --extern unicode_normalization=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/unicode-normalization/eaade9d489928a87/out/libunicode_normalization-eaade9d489928a87.rmeta --extern xattr=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/xattr/df9d9a40739fbcca/out/libxattr-df9d9a40739fbcca.rmeta --extern zeroize=/workspace/scratch/03d77ea3bfad/frankensympy-next/target/debug/build/zeroize/9a5d91f90a3e19a8/out/libzeroize-9a5d91f90a3e19a8.rmeta` (signal: 9, SIGKILL: kill)\n"
+  },
+  "limitations": [
+    "No full asupersync runtime or full-workspace success: the unchanged pinned asupersync compiler was killed with SIGKILL before the original root tests ran.",
+    "cargo fmt --all --check traversed pinned donors and reported differences in 33 unchanged asupersync files. Explicit pinned formatting of all 31 repository packages passed; donors were not edited.",
+    "The initial cached Clippy retry exited zero while replaying stale diagnostics. The final fresh-target strict all-target check passed cleanly; earlier output is preserved in historical_attempts.",
+    "This is an in-process continuation only: no durable checkpoint format, fresh-process search resume, asynchronous cancellation endpoint, full campaign/profile gate, claim-tier promotion or competitive performance result is asserted.",
+    "Complete witness readiness remains untrusted. Singular/boundary roots, unresolved original-source domains and resource/subdivision limits can still prevent completion.",
+    "Full local logs are identified by SHA-256; only the selected actual excerpts and the exact scoped harness inputs are embedded here."
+  ],
+  "governance": {
+    "claim_tiers_unchanged": true,
+    "bead_status_priority_dependencies_unchanged": true,
+    "production_dependencies_unchanged": true
+  },
+  "documentation_inputs_at_validation": [
+    {
+      "path": "README.md",
+      "sha256": "7494e3031178dde4c59639c61d135b59799b344bed615a8c47a77783b2f78a6d"
+    },
+    {
+      "path": "docs/NATIVE_CERTIFICATION_SESSION.md",
+      "sha256": "dfbd5b977292006e665d872631bb7ac467345552ee9b52c41448b2e303f9eeae"
+    }
+  ],
+  "concurrent_main_integration": {
+    "parent": "1813f886fecc1360b20a0f90eab4f374c0f59308",
+    "base_tree": "3f39fc678843e6119686e699264a61b9b043e53c",
+    "commits_preserved": [
+      {
+        "sha": "5093d5e26a8990fd4337e32543e39fe202cdce65",
+        "parents": [
+          "4357d32f780ad7acd28b1ad7d31412e88a5f7ad5"
+        ],
+        "message": "feat(numeric): solve sparse nonlinear roots with bounded scaled LSQR",
+        "files": [
+          "crates/fsym-numeric-consumer/src/lib.rs",
+          "crates/fsym-numeric-consumer/src/systems.rs",
+          "crates/fsym-numeric-consumer/src/systems/sparse_least_squares.rs",
+          "crates/fsym-numeric-consumer/src/systems/sparse_linear.rs",
+          "crates/fsym-numeric-consumer/src/systems/sparse_newton.rs",
+          "crates/fsym-numeric-consumer/tests/sparse_root_consumer.rs"
+        ]
+      },
+      {
+        "sha": "0794f80989960528dc38a731ff8ba247ff275158",
+        "parents": [
+          "5093d5e26a8990fd4337e32543e39fe202cdce65"
+        ],
+        "message": "fix(ode): admit authentic undefined-function factory metadata",
+        "files": [
+          "python/sympy/solvers/ode.py",
+          "python/tests/test_exact_dsolve.py"
+        ]
+      },
+      {
+        "sha": "1813f886fecc1360b20a0f90eab4f374c0f59308",
+        "parents": [
+          "0794f80989960528dc38a731ff8ba247ff275158"
+        ],
+        "message": "feat(python): expose sparse root solving for verified systems and nsolve",
+        "files": [
+          ".github/workflows/ci.yml",
+          "README.md",
+          "crates/fsym-python/src/numeric.rs",
+          "python/sympy/solvers/numerical.py",
+          "python/sympy/utilities/lambdify.py",
+          "python/tests/test_sparse_root_consumer.py"
+        ]
+      }
+    ],
+    "changed_paths_preserved": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "base": "e6852170111e61942ab740559dccc7ff22d5bd8b",
+        "remote": "357879c2a7124fcaf2c716a428da43d5201b26f5"
+      },
+      {
+        "path": "README.md",
+        "base": "428b9c662a7c8224386c1f7dfe35071ccbca9401",
+        "remote": "ece47e56c72e98463b7e5d7b7bf336d5cfa58832"
+      },
+      {
+        "path": "crates/fsym-numeric-consumer/src/lib.rs",
+        "base": "dd67761390a92c85d2efc5e7c0007f4f89b4db6b",
+        "remote": "bbe072a732167df22431f7b9e3d19935e9fff62c"
+      },
+      {
+        "path": "crates/fsym-numeric-consumer/src/systems.rs",
+        "base": "24e4080190b175b60599448a0a3b2ca9b0f545f0",
+        "remote": "12ef203f54c27c690791733b9a82cc9b3bb489a4"
+      },
+      {
+        "path": "crates/fsym-numeric-consumer/src/systems/sparse_least_squares.rs",
+        "base": "f66a786438849da8d7364b44ca7bb946b15fcc9a",
+        "remote": "f87a4a2effdb13c5dadde08119be1920e87e3f7b"
+      },
+      {
+        "path": "crates/fsym-numeric-consumer/src/systems/sparse_linear.rs",
+        "remote": "7404230336503b65be397c29f5fee9c8ae5e5fad"
+      },
+      {
+        "path": "crates/fsym-numeric-consumer/src/systems/sparse_newton.rs",
+        "remote": "1f4ca76f7f8c140bec08e88bc000c3e3b6fb3f47"
+      },
+      {
+        "path": "crates/fsym-numeric-consumer/tests/sparse_root_consumer.rs",
+        "remote": "82792aa1cbbb4546d31ebb65808ff15ffd536c0a"
+      },
+      {
+        "path": "crates/fsym-python/src/numeric.rs",
+        "base": "8d69f55291ea181b3e83a95a35dcf811f0c24813",
+        "remote": "450a92529f9a949a0d9c73179122eef667a31a1f"
+      },
+      {
+        "path": "python/sympy/solvers/numerical.py",
+        "base": "a015652990d9711913e52295e515cec833ff40b3",
+        "remote": "9b75ccf04d61a23c9241994932e676d0642e4d96"
+      },
+      {
+        "path": "python/sympy/solvers/ode.py",
+        "base": "a318636940920f7e2b65e74f768396ef9288abae",
+        "remote": "9798ec153682f2e69785016fa251985b373e34d8"
+      },
+      {
+        "path": "python/sympy/utilities/lambdify.py",
+        "base": "dff0c4fe876324a39dd5825e94b4214de178e500",
+        "remote": "eadea70ae91f8395a62ac705915b24da1e90906a"
+      },
+      {
+        "path": "python/tests/test_exact_dsolve.py",
+        "base": "8f78c7e0e6bcb7894a31dc86e1b3a549681aa9cc",
+        "remote": "7ec455fd44cfdb91e829f9b8e78b6604c08be38e"
+      },
+      {
+        "path": "python/tests/test_sparse_root_consumer.py",
+        "remote": "cce40deb4683f3d40c495fa035f9c6290b3e235d"
+      }
+    ],
+    "overlap": "README.md only; a clean three-way merge preserves both the incremental-search paragraph and the sparse-root section. No mathematical, root/CLI source, root integration test, retained runtime module, manifest, lockfile or toolchain used by this validation changed.",
+    "retained_lower_source_files_identical": 174,
+    "testing_scope_note": "All executable feature inputs remain byte-identical to the final successful tests/lint. The 31-package formatting check preceded these unrelated concurrent commits; no full-workspace validation of their additional code is inferred."
+  }
+}

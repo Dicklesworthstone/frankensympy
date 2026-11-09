@@ -12,7 +12,7 @@
 
 use crate::certification_session::{
     CertificationRequest, CertificationResponse, CertificationSessionError, CertificationState,
-    ResidualSystemId, RootCertificateId, RootIsolationId,
+    ResidualSystemId, RootCertificateId, RootIsolationId, RootIsolationSearchId,
 };
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_budget::{Budget, BudgetLimits, Dimension, VerifierLease};
@@ -516,6 +516,14 @@ impl Session {
         self.certification.isolation(id)
     }
 
+    /// Read-only candidate progress; readiness is not mathematical acceptance.
+    pub fn root_isolation_search_progress(
+        &self,
+        id: &RootIsolationSearchId,
+    ) -> Option<fsym_calculus::root_isolation::RootIsolationProgress> {
+        self.certification.search_progress(id)
+    }
+
     /// The assumption-universe digest this session is bound to.
     pub fn context_digest(&self) -> [u8; 32] {
         self.context.digest()
@@ -1017,6 +1025,11 @@ impl Session {
                     | "EncloseResidualJacobian"
                     | "CertifyRootBox"
                     | "IsolateRealRootsInBox"
+                    | "BeginRootIsolationSearch"
+                    | "AdvanceRootIsolationSearch"
+                    | "InspectRootIsolationSearch"
+                    | "FinishRootIsolationSearch"
+                    | "ReleaseRootIsolationSearch"
                     | "ExportRootIsolation"
                     | "ReplayRootIsolation"
                     | "ExportRootCertificate"
