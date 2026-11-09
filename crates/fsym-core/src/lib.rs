@@ -31,7 +31,7 @@ pub use algebraic::*;
 pub use ball::*;
 pub use dag::*;
 pub use domain::*;
-pub use parser::parse;
+pub use parser::{parse, parse_raw};
 pub use root_certificate::*;
 pub use sort::*;
 

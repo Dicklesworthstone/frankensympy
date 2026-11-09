@@ -134,6 +134,7 @@ struct Parser<'a> {
     pos: usize,
     src: &'a str,
     nesting_depth: usize,
+    preserve_source: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -182,12 +183,12 @@ impl<'a> Parser<'a> {
                 Some(Tok::Plus) => {
                     self.bump();
                     let right = self.term()?;
-                    left = left + right;
+                    left = self.add(left, right);
                 }
                 Some(Tok::Minus) => {
                     self.bump();
                     let right = self.term()?;
-                    left = left + neg(right);
+                    left = self.add(left, neg(right));
                 }
                 _ => break,
             }
@@ -202,17 +203,49 @@ impl<'a> Parser<'a> {
                 Some(Tok::Star) => {
                     self.bump();
                     let right = self.unary()?;
-                    left = left * right;
+                    left = self.multiply(left, right);
                 }
                 Some(Tok::Slash) => {
                     self.bump();
                     let right = self.unary()?;
-                    left = divide(left, right)?;
+                    left = if self.preserve_source {
+                        divide_raw(left, right)?
+                    } else {
+                        divide(left, right)?
+                    };
                 }
                 _ => break,
             }
         }
         Ok(left)
+    }
+
+    fn add(&self, left: Expr, right: Expr) -> Expr {
+        if !self.preserve_source {
+            return left + right;
+        }
+        // Flatten only the already visited left-associated spine. Every
+        // operand survives in its original evaluation order, including zero,
+        // repeated, and opposite terms. A long flat input does not create an
+        // unbounded recursive clone/drop spine.
+        if let Expr::Add(mut terms) = left {
+            terms.push(right);
+            Expr::Add(terms)
+        } else {
+            Expr::Add(vec![left, right])
+        }
+    }
+
+    fn multiply(&self, left: Expr, right: Expr) -> Expr {
+        if !self.preserve_source {
+            return left * right;
+        }
+        if let Expr::Mul(mut factors) = left {
+            factors.push(right);
+            Expr::Mul(factors)
+        } else {
+            Expr::Mul(vec![left, right])
+        }
     }
 
     fn unary(&mut self) -> Result<Expr, CoreError> {
@@ -350,6 +383,29 @@ fn divide(a: Expr, b: Expr) -> Result<Expr, CoreError> {
     }
 }
 
+/// Preserve division's domain, including a zero literal denominator in an
+/// inactive branch. Folding two finite numeric literals with a nonzero
+/// denominator is exact and cannot erase a source-domain obligation.
+fn divide_raw(a: Expr, b: Expr) -> Result<Expr, CoreError> {
+    let numerator_is_literal = matches!(&a, Expr::Integer(_) | Expr::Rational(_));
+    let denominator_is_nonzero_literal = match &b {
+        Expr::Integer(n) => !n.is_zero(),
+        Expr::Rational(q) => !q.numer().is_zero(),
+        _ => false,
+    };
+    if numerator_is_literal && denominator_is_nonzero_literal {
+        divide(a, b)
+    } else {
+        let reciprocal = Expr::Pow(Arc::new(b), Arc::new(Expr::from_i64(-1)));
+        Ok(if let Expr::Mul(mut factors) = a {
+            factors.push(reciprocal);
+            Expr::Mul(factors)
+        } else {
+            Expr::Mul(vec![a, reciprocal])
+        })
+    }
+}
+
 /// Decimal literal as an exact rational: `"3.14"` → `157/50`.
 fn decimal_expr(s: &str) -> Result<Expr, CoreError> {
     let (whole, frac) = match s.split_once('.') {
@@ -388,6 +444,24 @@ fn constant_named(name: &str) -> Option<Constant> {
 /// [`CoreError::ParseError`] on malformed, oversized, or excessively nested
 /// input; [`CoreError::DivisionByZero`] for literal division by zero.
 pub fn parse(input: &str) -> Result<Expr, CoreError> {
+    parse_with_policy(input, false)
+}
+
+/// Parse exact arithmetic while retaining original domain obligations.
+///
+/// Addends and factors keep their input order and multiplicity. In particular,
+/// zero products, opposite terms, and zero-denominator reciprocals remain in
+/// the typed source for an independent domain checker. Powers never evaluate
+/// during parsing. Decimal literals, unary numeric negation, and division of
+/// two numeric literals with a nonzero denominator remain exact.
+///
+/// This uses the same grammar and intrinsic source/nesting bounds as [`parse`].
+/// It is a construction API, not a domain, differentiation, or root proof.
+pub fn parse_raw(input: &str) -> Result<Expr, CoreError> {
+    parse_with_policy(input, true)
+}
+
+fn parse_with_policy(input: &str, preserve_source: bool) -> Result<Expr, CoreError> {
     if input.len() > MAX_PARSE_INPUT_BYTES {
         return Err(CoreError::ParseError(format!(
             "input exceeds {MAX_PARSE_INPUT_BYTES}-byte parser limit"
@@ -402,6 +476,7 @@ pub fn parse(input: &str) -> Result<Expr, CoreError> {
         pos: 0,
         src: input,
         nesting_depth: 0,
+        preserve_source,
     };
     let e = p.expr()?;
     if p.pos != toks.len() {
@@ -518,6 +593,93 @@ mod tests {
                 "f".to_string(),
                 vec![Expr::symbol("x"), parse("y+1").unwrap()]
             )
+        );
+    }
+
+    #[test]
+    fn raw_parser_preserves_zero_products_cancelled_terms_and_operand_order() {
+        let x = Expr::symbol("x");
+        let y = Expr::symbol("y");
+        assert_eq!(
+            parse_raw("y+x+y+0").unwrap(),
+            Expr::Add(vec![y.clone(), x.clone(), y.clone(), Expr::from_i64(0)])
+        );
+        assert_eq!(
+            parse_raw("y*x*y*0").unwrap(),
+            Expr::Mul(vec![y.clone(), x.clone(), y, Expr::from_i64(0)])
+        );
+        assert_eq!(
+            parse_raw("x-x").unwrap(),
+            Expr::Add(vec![x.clone(), Expr::Mul(vec![Expr::from_i64(-1), x])])
+        );
+        assert_eq!(parse("0*(1/x)").unwrap(), Expr::from_i64(0));
+        let raw = parse_raw("0*(1/x)").unwrap();
+        assert!(matches!(&raw, Expr::Mul(factors) if factors.len() == 2));
+        assert!(
+            crate::enclose_residual_jacobian(
+                &[raw],
+                &[Symbol::new("x")],
+                &[crate::RealBall::from_i64(0)],
+                16,
+            )
+            .is_err()
+        );
+        let raw = parse_raw("log(x)-log(x)").unwrap();
+        assert!(
+            crate::enclose_residual_jacobian(
+                &[raw],
+                &[Symbol::new("x")],
+                &[crate::RealBall::from_i64(-1)],
+                16,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn raw_parser_keeps_exact_literals_without_evaluating_powers_or_zero_division() {
+        for source in ["1/2", "-1/2", "0.125", "sqrt(x)", "x**2**3"] {
+            assert_eq!(parse_raw(source).unwrap(), parse(source).unwrap());
+        }
+        assert_eq!(parse("1/0"), Err(CoreError::DivisionByZero));
+        assert_eq!(
+            parse_raw("1/0").unwrap(),
+            Expr::Mul(vec![
+                Expr::from_i64(1),
+                Expr::Pow(Arc::new(Expr::from_i64(0)), Arc::new(Expr::from_i64(-1))),
+            ])
+        );
+        assert_eq!(
+            parse_raw("2^1000000000").unwrap(),
+            Expr::Pow(
+                Arc::new(Expr::from_i64(2)),
+                Arc::new(Expr::from_i64(1_000_000_000)),
+            )
+        );
+        let flat = std::iter::repeat_n("x", 1024).collect::<Vec<_>>().join("+");
+        assert!(matches!(parse_raw(&flat).unwrap(), Expr::Add(terms) if terms.len() == 1024));
+        let division = std::iter::repeat_n("x", 1024).collect::<Vec<_>>().join("/");
+        let divided = parse_raw(&division).unwrap();
+        let Expr::Mul(factors) = divided else {
+            panic!("a raw division chain must remain a flat ordered product");
+        };
+        assert_eq!(factors.len(), 1024);
+        assert_eq!(factors[0], Expr::symbol("x"));
+        for reciprocal in &factors[1..] {
+            assert_eq!(
+                reciprocal,
+                &Expr::Pow(Arc::new(Expr::symbol("x")), Arc::new(Expr::from_i64(-1)))
+            );
+        }
+        let undefined = parse_raw("0/(x-x)").unwrap();
+        assert!(
+            crate::enclose_residual_jacobian(
+                &[undefined],
+                &[Symbol::new("x")],
+                &[crate::RealBall::from_i64(1)],
+                16,
+            )
+            .is_err()
         );
     }
 
