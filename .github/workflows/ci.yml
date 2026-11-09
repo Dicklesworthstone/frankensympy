@@ -309,6 +309,7 @@ jobs:
               "python/tests/test_sparse_campaign.py",
               "python/tests/test_sparse_linear_algebra.py",
               "python/tests/test_opaque_matrix_surface.py",
+              "python/tests/test_dense_jacobian_boundary.py",
               "python/tests/test_exact_dsolve.py",
               "python/tests/test_recurrence_integrity.py",
               "python/tests/test_recurrence_forcing.py",

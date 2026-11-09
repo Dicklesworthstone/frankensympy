@@ -1888,26 +1888,72 @@ class Matrix(MatrixBase):
     n = evalf
 
     def jacobian(self, X):
-        """Compute the Jacobian matrix with respect to coordinates X."""
+        """Differentiate a vector against a frozen, bounded coordinate vector."""
         from ..core import diff
-        if isinstance(X, MatrixBase):
-            vars_list = [X[i] for i in range(len(X))]
+        from .sparse import (
+            SparseMatrix, _ZERO, _admit_native_cell, _capture_sources,
+            _check_sources, _checked_entry,
+        )
+
+        if self.rows != 1 and self.cols != 1:
+            raise TypeError("self must be a row or a column matrix")
+        sources = _capture_sources(self)
+        rows = self.rows * self.cols
+        if isinstance(X, (Matrix, SparseMatrix)):
+            sources += _capture_sources(X)
+            xrows, xcols = X.shape
+            if xrows != 1 and xcols != 1:
+                raise TypeError("X must be a row or a column matrix")
+            cols = xrows * xcols
+            # Admit the complete output before collecting coordinates or
+            # invoking their converters or any derivative hooks.
+            _matrix_dimensions(rows, cols)
+            if isinstance(X, SparseMatrix):
+                entries = X._operation_entries()
+                raw_variables = tuple(entries.get(divmod(i, xcols), _ZERO)
+                                      for i in range(cols))
+            elif X._surface is not None:
+                raw_variables = X._surface
+            else:
+                raw_variables = tuple(X._native_storage[i] for i in range(cols))
         elif isinstance(X, (list, tuple)):
-            vars_list = list(X)
+            if not X:
+                raise TypeError("X must be a row or a column matrix")
+            if isinstance(X[0], (list, tuple)):
+                xrows, xcols = len(X), len(X[0])
+                if xrows != 1 and xcols != 1:
+                    raise TypeError("X must be a row or a column matrix")
+                cols = xrows * xcols
+                _matrix_dimensions(rows, cols)
+                if any(not isinstance(row, (list, tuple)) or len(row) != xcols
+                       for row in X):
+                    raise ValueError("Row length mismatch in Jacobian variables")
+                raw_variables = tuple(value for row in X for value in row)
+            else:
+                cols = len(X)
+                _matrix_dimensions(rows, cols)
+                raw_variables = tuple(X)
         else:
-            vars_list = [X]
-        start_gen = self._mutation_generation
-        funcs = [self[i] for i in range(len(self))]
-        rows = len(funcs)
-        cols = len(vars_list)
+            raise TypeError("X must be a row or a column matrix")
+
+        variables = tuple(_checked_entry(value, sources) for value in raw_variables)
+        if self._surface is not None:
+            funcs = self._surface
+        else:
+            native_values = tuple(self._native_storage[i] for i in range(rows))
+            for value in native_values:
+                _admit_native_cell(value)
+            funcs = tuple(_checked_entry(value, sources) for value in native_values)
+        _check_sources(sources)
         flat = []
         for f in funcs:
-            for v in vars_list:
-                res = diff(f, v)
-                if self._mutation_generation != start_gen:
-                    raise RuntimeError("Matrix mutated during callback traversal")
-                flat.append(res)
-        return self._finish_traversal(rows, cols, flat, start_gen)
+            for variable in variables:
+                flat.append(_checked_entry(diff(f, variable), sources))
+        result = self._new(rows, cols, flat)
+        # Result construction can invoke subclass or conversion callbacks.
+        # Neither input may change before a Jacobian leaves this operation.
+        _check_sources(sources)
+        return result
 
     def to_sparse(self):
         """Convert to a SparseMatrix."""

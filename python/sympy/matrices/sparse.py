@@ -65,7 +65,7 @@ def _check_sources(sources):
                 or matrix._surface is not surface
                 or matrix._native_storage is not native
                 or matrix._matrix_shape != shape):
-            raise RuntimeError("SparseMatrix mutated during callback traversal")
+            raise RuntimeError("Matrix mutated during callback traversal")
 
 
 def _checked_entry(value, sources):
