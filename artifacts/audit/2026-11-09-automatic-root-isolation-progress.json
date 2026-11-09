@@ -1,0 +1,171 @@
+{
+  "schema": "frankensympy.bounded-feature-progress.v1",
+  "date": "2026-11-09",
+  "status": "progress_only",
+  "objective": "Connect existing exact finite-box root discovery and independent complete-cover verification to the root Rust API, typed Session and interactive NDJSON CLI.",
+  "source_commit_anchors": {
+    "native_isolation": "8abd270d34e37e8a1a10d4f7a6d032dbd2bbb91f",
+    "session_isolation": "7b2014bd68eeb5192b3d3c45bc5e626829072e29",
+    "prior_native_certification": "43ce3f5562f6a851cd18cc4b83d20efb8843590f"
+  },
+  "implementation_source_tree": "46485f1991547a5158b9b21187e3a624a50597fd",
+  "implementation_and_validation_inputs_git_blobs": {
+    "src/lib.rs": "8243ea1771e6bbc7a6af19a8f0f33a7a73816dcb",
+    "src/session.rs": "f0cdb83e49c98029141da60f4f43a6fc1b584713",
+    "src/certification.rs": "d2267c67653e29cbc30b16a601d5dd92b714738d",
+    "src/certification_session.rs": "8c0fb09adf661b8ad072b5580080d20aca13054d",
+    "src/bin/frankensympy.rs": "cc21ef6589115d50f0fd2b3a16ab105fecdcd158",
+    "tests/root_isolation.rs": "9a6f406aa582b4fc6e6c49c9d54e7861f366f3b9",
+    "tests/root_isolation_session.rs": "ec5fed2843d7c385ba5c6728d15f1e52d5adcc42",
+    "tests/certification.rs": "d5001d0fcaf1e95c473f8f1ec81c710090bfbb73",
+    "tests/certification_session.rs": "84c9803d167f960d0eee541b38c18dded438f586",
+    "tests/claim_replay.rs": "689149beb576c0b9b5a78daed67f160ddef74ce4",
+    "tests/cli_protocol_gate.rs": "15bef078fe4eedd788adaea05bdf65aeea6a3f31",
+    "crates/fsym-runtime/src/workspace.rs": "15c1e90461d9338c75550a722cbde2400e93d972",
+    "crates/fsym-runtime/src/protocol.rs": "3384f9b7f303c709e915f455d80dedb2712fe85d",
+    "crates/fsym-runtime/src/publication.rs": "eebc7011c2ffa291969b29e54fe813db39dff44e",
+    "crates/fsym-runtime/src/fmap.rs": "1431b3928636047fd24ba834d30d0520b67b16fa",
+    "crates/fsym-runtime/src/replay.rs": "04ea5cfd6cf46b5572f9949ee66cbac3252682f6",
+    "Cargo.toml": "56280dc6bf6fdbd3130a1d9770642e30feebdc63",
+    "Cargo.lock": "1d01ef6eff93d9f07119e016e67a569828699a42",
+    "rust-toolchain.toml": "e325a230747ac250490047f0a3a6625ea82e5831"
+  },
+  "behavior": {
+    "rust_api": [
+      "ResidualProblem::propose_isolation",
+      "ResidualProblem::verify_isolation",
+      "ResidualProblem::isolate_roots"
+    ],
+    "session_operation": "IsolateRealRootsInBox",
+    "accepted_claim": "all_real_roots_in_closed_box_are_isolated_and_nonsingular",
+    "accepted_empty_result": "A zero-root result requires independent verification of a complete exclusion cover.",
+    "unresolved_result": "Unresolved, singular, outer-boundary, invalid-domain and exhausted-resource cases never publish a successful partial root set.",
+    "implementation": "Reuse fsym-calculus exact subdivision and fsym-core independent original-source complete-cover checking. No new mathematical engine, dependency or changed precision/budget default.",
+    "budgets": "Search spends ordinary compute. Complete-cover acceptance spends protected verifier compute. Memory and allocations use the same cumulative ledger; retries and failures retain performed work.",
+    "publication": "Validate every derived child label, collision, aggregate capacity and complete response/resource admission before publishing either the immutable isolation receipt or child handles.",
+    "storage": "Child certificates hold parent-isolation/index references, avoiding deep copies of retained source/witness forests.",
+    "portability": "Every accepted child root uses existing canonical local-root export and fresh-session independent replay. The complete coverage receipt is currently in-process only."
+  },
+  "validation": {
+    "toolchain": "nightly-2026-08-20",
+    "scope": "Actual root library, CLI and six integration-test files compiled afresh against cached production mathematical dependencies and a separately named synchronous runtime validation crate. That crate references unchanged production workspace, protocol, publication, fmap and replay modules. Full production fsym-runtime/asupersync was not compiled by this scoped run.",
+    "execution": "Pinned rustc and clippy-driver were invoked directly with the recorded Cargo dependency closure because the overlay was full. Temporary source and outputs were staged in a persistent executor's private /dev filesystem. No mocked functions, replacement mathematics, changed pins or relaxed warnings were used.",
+    "dependency_provenance": {
+      "baseline_commit": "43ce3f5562f6a851cd18cc4b83d20efb8843590f",
+      "lower_source_and_manifest_hashes_rechecked": 159,
+      "production_runtime_modules_rechecked": 5,
+      "direct_externs": 13,
+      "transitive_dependency_output_directories": 39,
+      "original_Cargo_lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2",
+      "cached_cargo_fingerprint": "target/debug/build/frankensympy-session-validation/7fd6fffa57774306/fingerprint/lib-frankensympy.json",
+      "prior_dependency_admission_record": "artifacts/audit/2026-11-09-native-certification-progress.json",
+      "concurrent_change_not_rebuilt": "0bca4943e902b6998ea5bf21ff89accadd5f2567 adds inverse-circular compiled-program operations in fsym-calculus and was preserved as the Session commit parent. These changed compiled-program paths are outside the original-source isolation path exercised here. This record does not claim the cached binaries validate those new operations."
+    },
+    "compiler_flags": [
+      "--edition=2024",
+      "--forbid=unsafe_code",
+      "-Zunstable-options",
+      "--jobs-frontend=1",
+      "--jobs-backend=1",
+      "--jobs-linker=1",
+      "-Cdebuginfo=0"
+    ],
+    "compiler_result": "Root library, actual CLI and all six integration targets compiled successfully; every observed exit code was zero.",
+    "test_arguments": [
+      "--test-threads=1",
+      "--show-output"
+    ],
+    "tests_passed": {
+      "root_isolation": 9,
+      "root_isolation_session": 10,
+      "certification": 13,
+      "certification_session": 12,
+      "claim_replay": 11,
+      "cli_protocol_gate": 12,
+      "total": 67
+    },
+    "test_exit_codes": "All six test executables exited zero.",
+    "strict_clippy": {
+      "invocation": "Pinned clippy-driver on the same actual sources and dependency closure, with -Dwarnings --emit=metadata.",
+      "targets": [
+        "root library",
+        "CLI",
+        "root_isolation",
+        "root_isolation_session",
+        "certification",
+        "certification_session",
+        "claim_replay",
+        "cli_protocol_gate"
+      ],
+      "result": "All eight invocations exited zero."
+    },
+    "formatting": {
+      "scope": "Changed Rust source and integration tests",
+      "tool": "Pinned rustfmt",
+      "exit_code": 0
+    },
+    "observed_cases": [
+      "Both irrational roots of x^2-2 and all four roots of a coupled two-dimensional system, checked against independent exact expectations.",
+      "Explicit coordinate order, source freezing despite later workspace bindings, and complete root-free exclusion.",
+      "Missing cover cells, overlapping or forged covers, source/domain substitution, original poles hidden by zero products or cancellation.",
+      "Singular and outer-boundary roots, subdivision exhaustion and invalid precision, shape or wire inputs.",
+      "Cumulative ordinary/protected fuel separation and typed cancellation at first, middle and last observed successful-path checkpoints.",
+      "A late child-ID collision and ordinary output exhaustion after complete protected verification publish neither parent nor child objects.",
+      "Actual stdin-open CLI at default limits discovers both roots, exports both children and independently replays them in fresh processes."
+    ],
+    "full_workspace": {
+      "status": "unverified",
+      "detail": "The prior pinned full-workspace checks were killed while compiling unchanged asupersync under the shared memory limit. This continuation used the explicitly scoped cached closure; full-workspace check, Clippy, tests and Python-extension execution are not claimed. The execution environment became unavailable after both feature commits had been tested and remotely verified."
+    },
+    "measured_x_squared_minus_two_session": {
+      "domain": [
+        "-2",
+        "2"
+      ],
+      "precision_digits": 16,
+      "max_leaves": 512,
+      "ordinary_compute_steps": 228906,
+      "protected_verifier_compute_steps": 62320,
+      "interpretation": "Observed logical cumulative counters for the focused registration/isolation example; not a performance benchmark."
+    }
+  },
+  "independent_review": {
+    "scope": "Native generator/verifier separation, Session budget ownership, child-reference lifetime, capacities, collision checks, wire boundaries and publication atomicity.",
+    "result": "No blocking correctness or acceptance issue found in the bounded source review.",
+    "reviewed_session_source_tree": "af41f33b98cb847de334c5a8e8b9ea04aacc5853",
+    "reviewed_sources_match_committed_blobs": true
+  },
+  "remote_verification": {
+    "feature_commits": "Both exact commit objects, messages, changed paths and final relevant source blobs were independently fetched after connector writes to main.",
+    "later_head_inspected": "fa27bc447eea7dcb5a30d97f97bdcf8f52e1cbde",
+    "later_change": "One descendant commit adds sparse least-squares consumer/Python support and README/CI additions. A read-only comparison confirmed the isolation source, tests and validation dependency closure were unchanged.",
+    "session_commit_ci_observed": [
+      {
+        "run_id": 42569605718,
+        "name": "CI Gate Topology",
+        "status": "queued",
+        "conclusion": null
+      },
+      {
+        "run_id": 42569605714,
+        "name": "Verify Remote Main (Read Only)",
+        "status": "completed",
+        "conclusion": "cancelled"
+      }
+    ],
+    "ci_pass_claimed": false
+  },
+  "limitations": [
+    "The bounded successful receipt proves completeness only in its declared finite closed box and requires certifiable nonsingular roots.",
+    "Portable export/replay of the entire complete-cover or zero-root proof was designed and source-reviewed but not applied, compiled, tested or committed before environment loss.",
+    "No complete runtime lifecycle, asynchronous cancellation, persistence, repair, Python compatibility profile or full integration campaign is validated by this scoped run.",
+    "No comparative performance or profile/campaign completion claim is made."
+  ],
+  "claims": {
+    "bead_status_priority_dependencies_changed": false,
+    "claim_tiers_changed": false,
+    "workstream_closed": false,
+    "compatibility_profile_promoted": false,
+    "performance_claimed": false
+  }
+}
