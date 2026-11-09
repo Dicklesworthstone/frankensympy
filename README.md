@@ -282,6 +282,50 @@ their causes. Candidate generation and optional certification share a supplied
 `fsolve`; `frankenscipy_analytic` selects the analytic nonlinear driver. A floating
 candidate alone carries no root-existence, uniqueness or rounding guarantee.
 
+### Sparse nonlinear root solving
+
+An explicit sparse backend extends approximate square-system root searches to
+256 variables while retaining the checked sparse Jacobian throughout the solve:
+
+```python
+from sympy import compile_residual_system, symbols
+
+variables = symbols("q0:24")
+equations = [
+    variable**2 - (index % 7 + 1)**2
+    for index, variable in enumerate(variables)
+]
+system = compile_residual_system(equations, variables)
+candidate = system.solve_candidate([2] * 24, backend="sparse", tol=1e-12)
+
+# Each positive coordinate approximates index % 7 + 1.
+assert candidate.residual_norm <= 1e-12
+assert candidate.evidence == "approximate"
+```
+
+The native search uses column-scaled LSQR directions, bounded damping and
+backtracking. Its numerical buffers scale with stored Jacobian entries and
+vector lengths; it does not assemble a dense Jacobian or normal matrix.
+Consistent rank-deficient systems are admitted, including unused coordinates.
+Success requires a fresh evaluation of every original residual with infinity
+norm at most `tol`. A small least-squares gradient, a small step or an exhausted
+linear iteration cannot authorize a root candidate. Stationary points with
+nonzero residuals therefore refuse instead of reporting convergence.
+
+The route accepts square systems with 1..256 variables, at most 1,024 nonlinear
+iterations, six damping strengths per iteration, 512 LSQR steps per strength
+and 32 backtracking trials per direction. `max_step_norm` clips the proposed
+step before backtracking. Initial source or derivative domain failures refuse;
+invalid mathematical trial points can backtrack. Budget, cancellation and
+allocation failures stop the search, and all attempts and final publication
+share the supplied `EvaluationBudget`.
+
+`nsolve(equations, variables, initial, backend="sparse")` exposes the same
+approximate route with the usual scalar, matrix or `dict=True` output. Existing
+backend defaults remain in place. Independent root certification still admits
+at most 16 variables and grants a receipt only after original-source interval
+verification; the larger sparse search does not extend that certificate claim.
+
 ### Sparse nonlinear least squares
 
 The same checked residual program can fit rectangular, rank-deficient and

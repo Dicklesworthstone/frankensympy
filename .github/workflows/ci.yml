@@ -340,6 +340,7 @@ jobs:
               "python/tests/test_analytic_donor_backend.py",
               "python/tests/test_least_squares_consumer.py",
               "python/tests/test_sparse_least_squares_consumer.py",
+              "python/tests/test_sparse_root_consumer.py",
               "python/tests/test_sparse_compilation.py",
               "python/tests/test_objective_minimization.py",
               "python/tests/test_certified_minimization.py",

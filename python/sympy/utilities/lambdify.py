@@ -823,14 +823,15 @@ class _ResidualCallable:
 
     def solve_candidate(self, initial, *, backend="frankennumpy", tol=None,
                         maxiter=None, max_step_norm=None, budget=None):
-        """Generate an approximate root with a real pinned numerical consumer.
+        """Generate an approximate root with an explicitly selected numerical backend.
 
-        Systems must be square with 1..16 variables. ``initial`` is a finite
+        Systems must be square. ``initial`` is a finite
         real scalar for one variable or a flat vector in ``variables`` order,
         including programs whose ordinary evaluation arguments are nested.
 
         ``frankennumpy`` uses the checked symbolic Jacobian and the pinned
-        dense linear solver. Its defaults are ``tol=1e-12``, ``maxiter=64`` and
+        dense linear solver for 1..16 variables. Its defaults are
+        ``tol=1e-12``, ``maxiter=64`` and
         ``max_step_norm=1e6``; the iteration limit may be 0..1024. A zero limit
         only checks the initial point. ``frankenscipy`` runs the pinned fsolve
         with its finite-difference Jacobian, at most 200 iterations and a
@@ -844,22 +845,42 @@ class _ResidualCallable:
         a finite sum of squared residuals; each admitted linear solve is dense
         with at most 16 variables. It does not substitute finite differences
         when a derivative or linear solve refuses.
+
+        ``sparse`` admits 1..256 variables and uses checked sparse Jacobian
+        values with damped LSQR directions. It shares the FrankenNumPy route's
+        controls and defaults, while retaining sparse storage throughout the
+        iteration. ``max_step_norm`` clips each proposed direction's infinity
+        norm before backtracking. At most six damping strengths, 512 LSQR
+        iterations per direction and 32 line-search trials per direction are
+        attempted.
+        Existing source, differentiation-work and stored-operation caps remain.
+        A freshly evaluated original residual infinity norm must be <= tol;
+        least-squares stationarity, a tiny step or a singular Jacobian cannot
+        by themselves authorize a returned root candidate. Rank-deficient
+        systems can succeed when the original residual criterion is met.
+        Initial and final source/derivative failures are terminal; mathematical
+        trial-domain failures may backtrack within the same cumulative budget.
         No backend silently falls back to another algorithm.
 
         The immutable ``NumericRootCandidate`` remains approximate. Use
-        ``solve_certified`` for an independently checked local-root claim.
+        ``solve_certified`` for an independently checked local-root claim on
+        its separately bounded 1..16-variable domain.
         One supplied EvaluationBudget spans native input buffers, all source
         evaluations and conservative donor work allowances. Cancellation is
         cooperative between synchronous donor kernels, without a wall-time
         promise. Python containers and compilation remain outside that ledger.
         """
-        from ..solvers.numerical import _candidate_initial, _candidate_options
+        from ..solvers.numerical import _candidate_initial, _candidate_options, _candidate_shape
 
-        _check_evaluation_budget(budget)
+        if type(backend) is not str or backend != "sparse":
+            _check_evaluation_budget(budget)
         tol, maxiter, max_step_norm = _candidate_options(
             backend, tol, maxiter, max_step_norm, allow_python=False,
         )
-        values = _candidate_initial(self, initial)
+        _candidate_shape(self, backend)
+        if backend == "sparse":
+            _check_evaluation_budget(budget)
+        values = _candidate_initial(self, initial, backend=backend)
         root, norm, iterations = self.native_system.solve_candidate(
             values, backend=backend, tol=tol, maxiter=maxiter,
             max_step_norm=max_step_norm, budget=budget,
@@ -1088,8 +1109,9 @@ class _ResidualCallable:
         ``backend="python"`` preserves the scaled QR/Newton search with
         default ``tol=1e-12`` and ``maxiter=200``. ``frankennumpy``,
         ``frankenscipy`` and ``frankenscipy_analytic`` select the real pinned
-        consumers with the controls
-        documented by ``solve_candidate``. None selects each backend's
+        consumers; ``sparse`` uses native damped LSQR. Their controls are
+        documented by ``solve_candidate``. The certification bound remains
+        16 variables for every backend. None selects each backend's
         defaults; the Python backend rejects ``max_step_norm`` and SciPy
         rejects all non-None solver-control overrides. No backend fallback
         occurs. Source eligibility and captured assumptions are checked before

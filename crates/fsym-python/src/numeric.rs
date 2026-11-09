@@ -34,9 +34,10 @@ use fsym_core::{
 use fsym_numeric_consumer::{
     LeastSquaresOptions, LeastSquaresTermination, MAX_CONSUMER_NEWTON_ITERATIONS,
     MAX_CONSUMER_VARIABLES, MAX_LEAST_SQUARES_RESIDUALS, MAX_SPARSE_LEAST_SQUARES_RESIDUALS,
-    MAX_SPARSE_LEAST_SQUARES_VARIABLES, NewtonGuards, SystemConsumerError,
-    frankenscipy_analytic_system_with_meter, frankenscipy_fsolve_system_with_meter,
-    least_squares_with_meter, newton_refine_with_meter, sparse_least_squares_with_meter,
+    MAX_SPARSE_LEAST_SQUARES_VARIABLES, MAX_SPARSE_NEWTON_VARIABLES, NewtonGuards,
+    SystemConsumerError, frankenscipy_analytic_system_with_meter,
+    frankenscipy_fsolve_system_with_meter, least_squares_with_meter, newton_refine_with_meter,
+    sparse_least_squares_with_meter, sparse_newton_refine_with_meter,
 };
 use pyo3::exceptions::{PyMemoryError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -1482,7 +1483,7 @@ impl PyVerifiedResidualSystem {
         Self::admit(system)
     }
 
-    /// Generate an approximate root through a real pinned numerical consumer.
+    /// Generate an approximate root through an explicitly selected native consumer.
     /// Native buffers, donor work and every source evaluation share one ledger.
     /// No convergence flag or residual tolerance grants a root certificate.
     #[pyo3(signature = (initial, *, backend="frankennumpy", tol=None, maxiter=None, max_step_norm=None, budget=None))]
@@ -1496,7 +1497,7 @@ impl PyVerifiedResidualSystem {
         budget: Option<PyRef<'_, PyEvaluationBudget>>,
     ) -> PyResult<Bound<'py, PyTuple>> {
         let guards = match backend {
-            "frankennumpy" => Some(donor_newton_guards(tol, maxiter, max_step_norm)?),
+            "frankennumpy" | "sparse" => Some(donor_newton_guards(tol, maxiter, max_step_norm)?),
             "frankenscipy" | "frankenscipy_analytic" => {
                 if tol.is_some() || maxiter.is_some() || max_step_norm.is_some() {
                     return Err(PyValueError::new_err(
@@ -1507,13 +1508,22 @@ impl PyVerifiedResidualSystem {
             }
             _ => {
                 return Err(PyValueError::new_err(
-                    "candidate backend must be frankennumpy, frankenscipy or frankenscipy_analytic",
+                    "candidate backend must be frankennumpy, frankenscipy, frankenscipy_analytic or sparse",
                 ));
             }
         };
         let variables = self.system.vars().len();
         let residuals = self.system.residuals().len();
-        if !(1..=MAX_CONSUMER_VARIABLES).contains(&variables) || residuals != variables {
+        if backend == "sparse" {
+            if !(1..=MAX_SPARSE_NEWTON_VARIABLES).contains(&variables) || residuals != variables {
+                return Err(crate::to_value_error(
+                    SystemConsumerError::UnsupportedSparseRootShape {
+                        variables,
+                        residuals,
+                    },
+                ));
+            }
+        } else if !(1..=MAX_CONSUMER_VARIABLES).contains(&variables) || residuals != variables {
             return Err(crate::to_value_error(
                 SystemConsumerError::UnsupportedShape {
                     variables,
@@ -1524,6 +1534,9 @@ impl PyVerifiedResidualSystem {
         let inputs = input_values_metered(initial, variables, budget.as_deref())?;
         let py = initial.py();
         let proposal = with_evaluation_meter(py, budget.as_deref(), |meter| match &guards {
+            Some(guards) if backend == "sparse" => {
+                sparse_newton_refine_with_meter(&self.system, &inputs, guards, meter)
+            }
             Some(guards) => newton_refine_with_meter(&self.system, &inputs, guards, meter),
             None if backend == "frankenscipy_analytic" => {
                 frankenscipy_analytic_system_with_meter(&self.system, &inputs, meter)

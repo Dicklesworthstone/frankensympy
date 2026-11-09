@@ -15,6 +15,7 @@ __all__ = ["nsolve", "nsolve_certified", "RootSearchError"]
 _MAX_NEWTON_ITERATIONS = 10_000
 _MAX_SYSTEM_VARIABLES = 64
 _MAX_SYSTEM_RESIDUALS = 256
+_MAX_SPARSE_ROOT_VARIABLES = 256
 _MAX_JACOBIAN_ENTRIES = 4096
 _MAX_LINE_SEARCH_STEPS = 64
 _MAX_SYSTEM_EVALUATIONS = 4096
@@ -329,10 +330,10 @@ def _newton_options(tol, maxiter):
 
 
 def _candidate_options(backend, tol, maxiter, max_step_norm, *, allow_python):
-    """Admit backend-specific controls before any donor or conversion work."""
+    """Admit backend-specific controls before numerical or conversion work."""
     if type(backend) is not str:
         raise TypeError("numerical backend must be an exact built-in string")
-    allowed = ("frankennumpy", "frankenscipy", "frankenscipy_analytic")
+    allowed = ("frankennumpy", "frankenscipy", "frankenscipy_analytic", "sparse")
     if allow_python:
         allowed = ("python",) + allowed
     if backend not in allowed:
@@ -349,26 +350,35 @@ def _candidate_options(backend, tol, maxiter, max_step_norm, *, allow_python):
         tol = 1e-12 if tol is None else tol
         maxiter = 200 if maxiter is None else maxiter
         return _newton_options(tol, maxiter), maxiter, None
+    label = "sparse" if backend == "sparse" else "FrankenNumPy"
     tol = _finite_real(1e-12 if tol is None else tol, "tolerance")
     if tol < 0:
-        raise ValueError("FrankenNumPy tolerance must be nonnegative")
+        raise ValueError(f"{label} tolerance must be nonnegative")
     maxiter = 64 if maxiter is None else maxiter
     if type(maxiter) is not int:
-        raise TypeError("FrankenNumPy maxiter must be a built-in integer")
+        raise TypeError(f"{label} maxiter must be a built-in integer")
     if not 0 <= maxiter <= 1024:
-        raise ValueError("FrankenNumPy maxiter must be between 0 and 1024")
+        raise ValueError(f"{label} maxiter must be between 0 and 1024")
     max_step_norm = _finite_real(
         1e6 if max_step_norm is None else max_step_norm, "maximum step norm",
     )
     if max_step_norm <= 0:
-        raise ValueError("FrankenNumPy max_step_norm must be positive")
+        raise ValueError(f"{label} max_step_norm must be positive")
     return tol, maxiter, max_step_norm
 
 
-def _candidate_initial(program, initial):
+def _candidate_shape(program, backend):
     columns = program.native_system.variable_count
-    if not 1 <= columns <= 16 or program.native_system.residual_count != columns:
-        raise ValueError("numerical consumers require a square system with 1..16 variables")
+    maximum = _MAX_SPARSE_ROOT_VARIABLES if backend == "sparse" else 16
+    if not 1 <= columns <= maximum or program.native_system.residual_count != columns:
+        raise ValueError(
+            f"numerical consumers require a square system with 1..{maximum} variables"
+        )
+    return columns
+
+
+def _candidate_initial(program, initial, *, backend="frankennumpy"):
+    columns = _candidate_shape(program, backend)
     values = (_vector(initial, "initial values", columns)
               if _is_vector(initial) else [initial])
     if len(values) != columns:
@@ -387,14 +397,14 @@ def _solve_compiled_certified(program, initial, *, tol, maxiter, precision, max_
     # Check the original immutable program, shape, assumptions and policy
     # before running any floating candidate work or user conversion hooks.
     prepare_root_search(program, precision, max_attempts)
-    values = _candidate_initial(program, initial)
+    values = _candidate_initial(program, initial, backend=backend)
     try:
         if backend == "python":
             candidate = (_iterate_system(program, values, tolerance, iterations)
                          if budget is None else
                          _iterate_system(program, values, tolerance, iterations, budget=budget))
         else:
-            # The real donor supplies only a floating proposal. It cannot
+            # The selected backend supplies only a floating proposal. It cannot
             # bypass source/assumption admission or the independent checker.
             candidate = program.solve_candidate(
                 values, backend=backend, tol=tolerance, maxiter=iterations,
@@ -434,6 +444,11 @@ def nsolve_certified(expr, var, initial, *, tol=None, maxiter=None,
     with default ``tol=1e-12`` and ``maxiter=200``. ``frankennumpy`` selects
     the pinned dense linear solver and checked symbolic Jacobian, defaulting
     to ``tol=1e-12``, ``maxiter=64`` (0..1024), and ``max_step_norm=1e6``.
+    ``sparse`` uses checked sparse Jacobian values and bounded damped LSQR
+    directions with the same controls, clipping directions before backtracking.
+    It must meet the original residual tolerance; least-squares stationarity
+    alone cannot return a candidate.
+    The certification limit remains 16 variables for every backend.
     ``frankenscipy`` selects the pinned fsolve with its finite-difference
     Jacobian. ``frankenscipy_analytic`` selects the pinned nonlinear driver
     with the independently checked sparse Jacobian and NumPy linear solves.
@@ -485,38 +500,95 @@ def nsolve_certified(expr, var, initial, *, tol=None, maxiter=None,
     )
 
 
-def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False, budget=None):
+def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False, budget=None,
+           backend="python", max_step_norm=None):
     """Find a finite real Newton candidate for an equation or residual system.
 
-    Scalars use typed symbolic differentiation. Systems supply equations and
-    variables as list, tuple, or matrix vectors, using a checked native symbolic
-    Jacobian, equilibrated column-pivoted QR, and a bounded backtracking line
-    search. Square and overdetermined systems are supported; underdetermined
-    and numerically rank-deficient systems refuse. Matrix inputs are snapshots.
+    ``backend="python"`` retains the scalar typed-symbolic Newton path and
+    system path with checked native Jacobians, equilibrated column-pivoted QR
+    and bounded backtracking. Systems supply equations and variables as list,
+    tuple, or matrix vectors. This route admits square and overdetermined
+    systems; underdetermined and numerically rank-deficient systems refuse.
+    Matrix inputs are snapshots.
 
-    ``tol`` is an absolute tolerance for every residual and the undamped Newton
-    step. An exactly zero binary64 residual also terminates. A small or damped
-    step alone never establishes convergence. Nonfinite values and stagnation
-    above tolerance raise ``ValueError``. System dimensions, evaluations, dense
-    linear-algebra work, and line-search trials have independent fixed bounds.
+    On the Python route, ``tol`` bounds every residual and the undamped Newton
+    step; an exactly zero binary64 residual also terminates. A small or damped
+    step alone never establishes convergence. ``maxiter`` remains a built-in
+    integer from 1 through 10,000, and ``max_step_norm`` must be omitted.
+
+    ``backend="sparse"`` selects native damped LSQR for square systems with
+    1..256 variables, including a scalar equation. It keeps checked sparse
+    Jacobian storage and requires a freshly evaluated original residual
+    infinity norm <= tol, never least-squares stationarity alone. Every source
+    and stored derivative is checked even at an initially acceptable point.
+    Its controls allow tol >= 0, maxiter from 0 through 1024, and a finite
+    positive max_step_norm (default 1e6), which clips each proposed direction's
+    infinity norm before backtracking. The function's existing defaults
+    tol=1e-12 and maxiter=200 apply when those arguments are omitted.
+    The sparse route never falls back to the Python or dense donor algorithms.
+    Existing native source, work and stored-operation limits still apply.
 
     Return a ``Float`` for a scalar or a column ``Matrix`` for a system.
     ``dict=True`` returns one solution mapping inside a list. Results are
     approximate binary64 candidates, not certified roots or interval enclosures.
-    Complex arithmetic, arbitrary precision, custom numerical callbacks, and
-    alternative solver/back-end keywords are outside this bounded preview.
-    ``maxiter`` is a built-in integer from 1 through 10,000.
+    Complex arithmetic, arbitrary precision and custom numerical callbacks
+    are outside this bounded preview. Other donor backends are selected through
+    compiled ``solve_candidate`` or ``nsolve_certified``.
 
     An optional reusable ``EvaluationBudget`` limits cumulative native
-    evaluations and logical dense-solve work across all iterations and rejected
+    evaluations and numerical solve work across all iterations and rejected
     line-search trials. Exhaustion and cooperative cancellation raise distinct
     ``RuntimeError`` subclasses and are never retried as domain failures.
-    With a budget, the scalar path uses the finite-real native compiler;
+    With a budget, the Python scalar path uses the finite-real native compiler;
     unsupported native functions refuse explicitly. Compilation, certification
     and CPython allocation overhead are outside this evaluation ledger.
     """
     if type(dict) is not bool:
         raise TypeError("nsolve dict must be a built-in boolean")
+    if type(backend) is not str:
+        raise TypeError("nsolve backend must be an exact built-in string")
+    if backend not in ("python", "sparse"):
+        raise ValueError("nsolve backend must be python or sparse")
+    if backend == "sparse":
+        tolerance, iterations, step_limit = _candidate_options(
+            backend, tol, maxiter, max_step_norm, allow_python=False,
+        )
+        is_system = _is_vector(expr) or _is_vector(var)
+        if is_system:
+            variables = _vector(var, "variables", _MAX_SPARSE_ROOT_VARIABLES)
+            residuals = _vector(expr, "residuals", _MAX_SPARSE_ROOT_VARIABLES)
+            if len(variables) != len(residuals):
+                raise ValueError("sparse nsolve requires a square system")
+            variables = [_require_symbol(value) for value in variables]
+        else:
+            variables = [_require_symbol(var)]
+            residuals = [expr]
+        if len(set(variables)) != len(variables):
+            raise ValueError("nsolve has duplicate typed variables")
+        values = (_vector(initial, "initial values", len(variables))
+                  if _is_vector(initial) else [initial])
+        if len(values) != len(variables):
+            raise TypeError("initial vector must match the number of variables")
+        _check_evaluation_budget(budget)
+        program = compile_residual_system(
+            [_equation_residual(value) for value in residuals], variables,
+        )
+        candidate = program.solve_candidate(
+            values, backend="sparse", tol=tolerance, maxiter=iterations,
+            max_step_norm=step_limit, budget=budget,
+        )
+        roots = [Float(value) for value in candidate.root]
+        if dict:
+            result = [{variable: root for variable, root in zip(variables, roots)}]
+        elif is_system:
+            from ..matrices import Matrix
+            result = Matrix(roots)
+        else:
+            result = roots[0]
+        _check_evaluation_budget(budget)
+        return result
+    if max_step_norm is not None:
+        raise ValueError("the python backend does not accept max_step_norm")
     _check_evaluation_budget(budget)
     tolerance = _newton_options(tol, maxiter)
 
