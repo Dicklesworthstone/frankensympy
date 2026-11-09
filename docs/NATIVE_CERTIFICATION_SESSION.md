@@ -183,6 +183,30 @@ limit (1 through 1,024). Singular roots, roots on the outer boundary, unresolved
 source domains and exhausted subdivision can remain inconclusive; they never
 produce a successful partial list or a false root-free result.
 
+## Portable complete-cover proofs in Rust
+
+`export_root_isolation(receipt, context_digest, meter)` exports the entire
+complete-cover witness, including a proved empty root set. A receiving process
+calls `replay_root_isolation(bytes, expected_problem, expected_domain,
+expected_context, meter)` with its own typed equations, coordinate order,
+exact requested box and context. Only a fresh independent complete-cover check
+can construct the receiving `RootIsolationReceipt`.
+
+The canonical schema binds the original typed sources, ordered symbol
+identities, exact outer domain, context and witness. It contains no accepted
+flag, asserted root count, claimed root enclosures or claimed contraction bounds.
+The receiver compares the source, axes and domain before decoding the bounded
+root proposals. It then validates the canonical encoding and rechecks every
+local root, exclusion and cover cell. A proof for a smaller or different box
+cannot establish completeness for the receiver's requested box.
+
+Both root and complete-cover native artifacts are limited to 1 MiB and JSON
+depth 96. A complete-cover witness is limited to 128 local root proposals and
+2,047 partition tokens. Sequence lengths and root-witness scalar bounds are
+checked during decoding; cumulative charges precede the bounded decoding work.
+Receiving sessions should run replay through their protected verifier meter.
+Failures retain performed work and produce no accepted receipt.
+
 ## In-process Rust API
 
 The root crate exposes `ResidualProblem`, exact scalar/ball types, checker

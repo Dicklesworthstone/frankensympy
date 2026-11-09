@@ -16,6 +16,7 @@ pub const IMPLEMENTATION_STATUS: &str = "implemented_uncertified";
 
 pub mod certification;
 pub mod certification_session;
+pub mod isolation_transport;
 pub mod session;
 
 pub use certification::{
@@ -43,6 +44,9 @@ pub use fsym_runtime::protocol::{
 pub use fsym_runtime::publication::{PublicationError, PublicationGate};
 pub use fsym_runtime::workspace::{
     MergeReceipt, SemanticWorkspace, WorkspaceError, WorkspacePatch,
+};
+pub use isolation_transport::{
+    ROOT_ISOLATION_ARTIFACT_SCHEMA_VERSION, export_root_isolation, replay_root_isolation,
 };
 
 pub use session::{

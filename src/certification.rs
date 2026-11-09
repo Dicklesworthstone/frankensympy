@@ -63,6 +63,8 @@ pub enum CertificationError {
         "root certificate sources or ordered symbol identities differ from the expected problem"
     )]
     SourceMismatch,
+    #[error("root isolation artifact domain differs from the expected domain")]
+    DomainMismatch,
     #[error("root certificate assumption universe differs from the expected universe")]
     UniverseMismatch { found: [u8; 32], expected: [u8; 32] },
     #[error("certification allocation refused")]
@@ -87,7 +89,7 @@ impl From<RootIsolationError> for CertificationError {
     }
 }
 
-fn charge(
+pub(crate) fn charge(
     meter: &mut impl BudgetMeter,
     steps: u64,
     bytes: u64,
@@ -113,7 +115,7 @@ fn charge(
     Ok(())
 }
 
-fn encoding_error(error: &serde_json::Error) -> CertificationError {
+pub(crate) fn encoding_error(error: &serde_json::Error) -> CertificationError {
     // serde diagnostics may quote an entire untrusted field or payload. Keep
     // protocol/library diagnostics independently bounded and source-private.
     CertificationError::Encoding(format!(
@@ -197,7 +199,7 @@ fn check_source(
     Ok(())
 }
 
-fn check_problem_sources(
+pub(crate) fn check_problem_sources(
     residuals: &[Expr],
     variables: &[Symbol],
     meter: &mut impl BudgetMeter,
@@ -434,14 +436,14 @@ struct UntrustedArtifact<'a> {
 }
 
 #[derive(Default)]
-struct JsonNesting {
+pub(crate) struct JsonNesting {
     depth: usize,
     in_string: bool,
     escaped: bool,
 }
 
 impl JsonNesting {
-    fn scan(&mut self, bytes: &[u8]) -> Result<(), CertificationError> {
+    pub(crate) fn scan(&mut self, bytes: &[u8]) -> Result<(), CertificationError> {
         for &byte in bytes {
             if self.in_string {
                 if self.escaped {
@@ -535,7 +537,7 @@ impl<M: BudgetMeter> Write for MeteredWriter<'_, M> {
     }
 }
 
-fn encode<T: Serialize + ?Sized>(
+pub(crate) fn encode<T: Serialize + ?Sized>(
     value: &T,
     meter: &mut impl BudgetMeter,
 ) -> Result<Vec<u8>, CertificationError> {
@@ -553,7 +555,7 @@ fn encode<T: Serialize + ?Sized>(
     Ok(writer.bytes)
 }
 
-fn charge_witness_encoding(
+pub(crate) fn charge_witness_encoding(
     witness: &RootBoxWitness,
     meter: &mut impl BudgetMeter,
 ) -> Result<(), CertificationError> {
@@ -642,11 +644,13 @@ pub fn replay_root_certificate(
         charge(meter, chunk.len() as u64, 0, 0)?;
         nesting.scan(chunk)?;
     }
+    // Escaped keys can grow serde's reusable scratch buffer repeatedly.
+    // Cover those bounded growth requests and decoder diagnostics.
     charge(
         meter,
         bytes.len() as u64 + 1,
         bytes.len() as u64 * 4 + 1024,
-        8,
+        64,
     )?;
     let wire: UntrustedArtifact<'_> =
         serde_json::from_slice(bytes).map_err(|error| encoding_error(&error))?;
