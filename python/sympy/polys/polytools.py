@@ -1873,20 +1873,25 @@ class GroebnerBasis:
         return relations
 
     def invert(self, polynomial: Any) -> Any:
-        """Return the reduced multiplicative inverse modulo this ideal over QQ.
+        """Return the reduced multiplicative inverse modulo this ideal.
 
         This FrankenSymPy extension supports multivariate and positive-
         dimensional quotient rings. A complete checked augmented ideal proves
         whether an inverse exists; accepted inverses are independently checked
         and reduced in this basis's declared monomial order. Current exprs need
-        not already form a Groebner basis. ZZ coefficients extend to QQ.
+        not already form a Groebner basis. ZZ coefficients extend to QQ;
+        a retained GF(p) basis uses its original prime field and signed policy.
 
         ``NotInvertible`` means the element is proved to be a nonunit. Resource,
         admission and verification failures remain distinct exceptions. In the
         zero quotient ring (the unit ideal), the inverse representative is zero,
         including for the zero element. There are at most eight variables and
-        63 ideal generators in the bounded lane.
+        63 ideal generators (31 over GF(p)) in the bounded lane.
         """
+        from . import _finitefield_groebner as finite
+
+        if finite.has_field_marker(self):
+            return finite.invert(self, polynomial)
         # A second retained source container includes the element in the same
         # immutable snapshot without invoking its public Poly.as_expr protocol.
         element_basis = GroebnerBasis([polynomial], (), "QQ", "lex")
@@ -1963,25 +1968,36 @@ class GroebnerBasis:
         """Return the monic minimal polynomial of element in the full quotient.
 
         This FrankenSymPy extension computes the complete kernel of
-        QQ[gen] -> QQ[gens]/I, gen -> element. A None result proves that no
-        nonzero polynomial annihilates the element. Positive-dimensional
+        K[gen] -> K[gens]/I, gen -> element, over QQ or the retained GF(p).
+        A None result proves that no nonzero polynomial annihilates the element.
+        Positive-dimensional
         quotient rings are supported, and nilpotent multiplicities are retained;
         this does not select one root or algebraic embedding of the ideal.
 
         gen must be an exact Symbol or Dummy distinct from every typed ring
         generator; omitting it creates a fresh Dummy. The unit ideal returns
         1. ZZ coefficients extend to QQ. At most seven ring variables and 63
-        ideal generators are supported. Admission, mutation, resource and
-        verifier failures raise rather than being reported as transcendence.
+        ideal generators (31 over GF(p)) are supported. Admission, mutation,
+        resource and verifier failures raise rather than being reported as
+        transcendence.
         """
+        from . import _finitefield_groebner as finite
         from ..core import Dummy, _surface_binding_key
 
+        if finite.has_field_marker(self):
+            return finite.minimal_polynomial(self, element, gen)
+        element_basis = GroebnerBasis([element], (), "QQ", "lex")
+        before_parameter = (_IdealQuotientSnapshot(self, element_basis)
+                            if gen is None else None)
         parameter = Dummy("t") if gen is None else gen
+        if before_parameter is not None:
+            before_parameter.unchanged()
         if type(parameter) is not Symbol and type(parameter) is not Dummy:
             raise TypeError("quotient minimal polynomial requires an exact Symbol or Dummy")
-        element_basis = GroebnerBasis([element], (), "QQ", "lex")
         parameter_basis = GroebnerBasis([], (parameter,), "QQ", "lex")
         snapshot = _IdealQuotientSnapshot(self, element_basis, parameter_basis)
+        if before_parameter is not None:
+            before_parameter.unchanged()
         if len(snapshot.bases[0][3]) > 63 or len(snapshot.bases[0][4]) > 7:
             raise ValueError("quotient minimal polynomials support seven variables and 63 ideal generators")
         source_data, element_data, parameter_data = snapshot.inputs()

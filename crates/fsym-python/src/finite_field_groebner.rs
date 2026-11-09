@@ -6,6 +6,7 @@
 
 #![forbid(unsafe_code)]
 
+use crate::binding::PySymbolBinding;
 use crate::expr::PyExpr;
 use crate::finite_field_multivariate::{lift, monomial_cmp, order, symbols};
 use crate::finite_field_polynomial::{budget, charge, polynomial_error, source_error};
@@ -15,7 +16,8 @@ use fsym_core::{Expr, Symbol};
 use fsym_polys::{
     PrimeFieldMultivariatePolynomial as Polynomial, checked_prime_field_fglm,
     checked_prime_field_groebner_basis, checked_prime_field_groebner_reduction,
-    checked_prime_field_multivariate_source, checked_prime_field_quotient_multiplication,
+    checked_prime_field_ideal_inverse, checked_prime_field_multivariate_source,
+    checked_prime_field_quotient_minimal_polynomial, checked_prime_field_quotient_multiplication,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -387,6 +389,142 @@ pub fn prime_field_quotient_multiplication_native(
     Ok((monomials, matrix))
 }
 
+/// Return a verified reduced inverse or a proved nonunit in the full quotient.
+/// Sources are the element followed by every original ideal generator; current
+/// sources need not already be a Groebner basis or define a finite quotient.
+#[pyfunction]
+#[pyo3(signature = (sources, variables, prime, order="lex", symmetric=true, source_variables=None))]
+pub fn prime_field_ideal_inverse_native(
+    sources: &Bound<'_, PyList>,
+    variables: &Bound<'_, PyList>,
+    prime: u64,
+    order: &str,
+    symmetric: bool,
+    source_variables: Option<&Bound<'_, PyList>>,
+) -> PyResult<Option<PyExpr>> {
+    if !(1..=32).contains(&sources.len()) {
+        return Err(PyValueError::new_err(
+            "prime-field inverse requires one element and at most 31 ideal polynomials",
+        ));
+    }
+    let term_order = self::order(order)?;
+    let (mut generator, mut verifier) = (budget(), budget());
+    let variables = symbols(variables, &mut generator)?;
+    Polynomial::metered_new(&variables, prime, &BTreeMap::new(), &mut generator)
+        .map_err(polynomial_error)?;
+    let polynomials = admit_sources(
+        sources,
+        &variables,
+        prime,
+        source_variables,
+        &mut generator,
+        &mut verifier,
+    )?;
+    let accepted = checked_prime_field_ideal_inverse(
+        &variables,
+        prime,
+        &polynomials[1..],
+        &polynomials[0],
+        term_order,
+        &mut generator,
+        &mut verifier,
+    )
+    .map_err(polynomial_error)?;
+    let result = accepted
+        .inverse()
+        .map(|inverse| lift(inverse, symmetric, &mut generator))
+        .transpose()?;
+    generator.checkpoint().map_err(to_value_error)?;
+    verifier.checkpoint().map_err(to_value_error)?;
+    Ok(result)
+}
+
+/// Compute the exact kernel of F_p[t] -> F_p[variables]/I, including positive-
+/// dimensional quotients. None denotes proved transcendence; work failures do
+/// not become that mathematical conclusion. All original sources are admitted
+/// before any unit-ideal or constant-element result can be published.
+#[pyfunction]
+#[pyo3(signature = (sources, variables, prime, parameter, symmetric=true, source_variables=None))]
+pub fn prime_field_quotient_minimal_polynomial_native(
+    sources: &Bound<'_, PyList>,
+    variables: &Bound<'_, PyList>,
+    prime: u64,
+    parameter: &PySymbolBinding,
+    symmetric: bool,
+    source_variables: Option<&Bound<'_, PyList>>,
+) -> PyResult<Option<PyExpr>> {
+    if !(1..=32).contains(&sources.len()) || variables.len() > 7 {
+        return Err(PyValueError::new_err(
+            "prime-field quotient minimal polynomials support seven variables and 31 ideal polynomials",
+        ));
+    }
+    if parameter.name.len() > 65_536 {
+        return Err(PyValueError::new_err(
+            "minimal-polynomial parameter name exceeds 65536 bytes",
+        ));
+    }
+    let (mut generator, mut verifier) = (budget(), budget());
+    let variables = symbols(variables, &mut generator)?;
+    charge(
+        &mut generator,
+        parameter.name.len() + 1,
+        parameter.name.len() + std::mem::size_of::<Symbol>(),
+    )?;
+    let parameter = parameter.to_symbol();
+    Polynomial::metered_new(&variables, prime, &BTreeMap::new(), &mut generator)
+        .map_err(polynomial_error)?;
+    let polynomials = admit_sources(
+        sources,
+        &variables,
+        prime,
+        source_variables,
+        &mut generator,
+        &mut verifier,
+    )?;
+    let accepted = checked_prime_field_quotient_minimal_polynomial(
+        &variables,
+        prime,
+        &polynomials[1..],
+        &polynomials[0],
+        &parameter,
+        &mut generator,
+        &mut verifier,
+    )
+    .map_err(polynomial_error)?;
+    let result = if let Some(coefficients) = accepted.coefficients() {
+        if coefficients.is_empty() || coefficients.len() > 65 || coefficients.last() != Some(&1) {
+            return Err(PyValueError::new_err(
+                "checked prime-field minimal polynomial has an invalid coefficient vector",
+            ));
+        }
+        charge(
+            &mut generator,
+            coefficients.len() + 1,
+            std::mem::size_of::<BTreeMap<Vec<u32>, u64>>()
+                + coefficients.len() * (128 + std::mem::size_of::<u32>()),
+        )?;
+        let terms: BTreeMap<_, _> = coefficients
+            .iter()
+            .enumerate()
+            .filter(|(_, value)| **value != 0)
+            .map(|(degree, value)| (vec![degree as u32], *value))
+            .collect();
+        let polynomial = Polynomial::metered_new(
+            std::slice::from_ref(&parameter),
+            prime,
+            &terms,
+            &mut generator,
+        )
+        .map_err(polynomial_error)?;
+        Some(lift(&polynomial, symmetric, &mut generator)?)
+    } else {
+        None
+    };
+    generator.checkpoint().map_err(to_value_error)?;
+    verifier.checkpoint().map_err(to_value_error)?;
+    Ok(result)
+}
+
 pub fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(prime_field_groebner_native, module)?)?;
     module.add_function(wrap_pyfunction!(
@@ -396,6 +534,11 @@ pub fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(prime_field_groebner_fglm_native, module)?)?;
     module.add_function(wrap_pyfunction!(
         prime_field_quotient_multiplication_native,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(prime_field_ideal_inverse_native, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        prime_field_quotient_minimal_polynomial_native,
         module
     )?)?;
     Ok(())

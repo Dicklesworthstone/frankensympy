@@ -557,6 +557,39 @@ order changes or finite operator construction. A same-order `fglm` request
 checks the current source and returns the original object, including for
 positive-dimensional ideals.
 
+Prime-field quotients also support `invert(element)` and
+`minimal_polynomial(element, gen)` (alias `minpoly`). These operations admit
+positive-dimensional ideals. Inversion checks the complete augmented ideal
+`I + <element>`; its Bezout cofactors supply an inverse, which is independently
+checked and reduced in the declared order. A proved nonunit raises
+`NotInvertible`; resource or verification failures remain distinct errors.
+
+Minimal polynomials compute the complete elimination ideal
+`<I, gen - element>` intersected with `GF(p)[gen]`. The result is its monic
+generator, retaining inseparability and nilpotent multiplicity. `None` proves
+that no nonzero polynomial annihilates the element. The output variable must
+be a distinct typed `Symbol` or `Dummy`; omitting it creates a fresh `Dummy`.
+The unit ideal has inverse representative zero and minimal polynomial one.
+
+```python
+t = symbols("t")
+curve = groebner([x*y - 1], x, y, modulus=5)
+assert curve.invert(x) == y
+assert curve.minimal_polynomial(x, t) is None
+
+nilpotent = groebner([x**3], x, y, modulus=5)
+assert nilpotent.invert(1 - x) == 1 + x + x**2
+assert nilpotent.minpoly(x, t) == t**3
+```
+
+Both operations retain the original prime, exact typed sources and coefficient
+lift policy through native verification and public output. They admit at most
+31 original ideal generators. Inversion supports eight variables; minimal
+polynomials support seven, leaving one auxiliary coordinate for the output
+variable. The element in a minimal-polynomial request has at most 4095 terms
+to leave room for `gen - element`. Degree and intermediate sparse-work bounds
+still apply; there is no finite-point sampling or rational-domain retry.
+
 Intersection and saturation introduce one auxiliary variable, which counts
 toward the eight-variable bound. Their constructed inputs count toward the
 32-polynomial limit, so intersection admits at most 32 combined generators

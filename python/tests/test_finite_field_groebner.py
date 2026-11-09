@@ -477,9 +477,9 @@ def test_ideal_operations_do_not_reinterpret_a_prime_field_as_rationals(monkeypa
     assert basis.fglm("grlex").exprs == [y**2-1, x+y]
     assert basis.quotient_basis() == (1, y)
     assert basis.multiplication_matrix(y) == sp.Matrix([[0, 1], [1, 0]])
-    for operation in (lambda: basis.invert(y), lambda: basis.minpoly(y)):
-        with pytest.raises(NotImplementedError):
-            operation()
+    assert basis.invert(y) == y
+    t = sp.Symbol("field_quotient_parameter")
+    assert basis.minpoly(y, t) == t**2-1
 
 
 @pytest.mark.parametrize("target", ["input_container", "poly_metadata"])

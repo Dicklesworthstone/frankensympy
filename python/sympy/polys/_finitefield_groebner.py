@@ -12,7 +12,7 @@ from ..core import (
     _surface_binding_key, _symbol_binding,
 )
 from . import _finitefield as field
-from .polyerrors import DomainError, GeneratorsNeeded, UnificationFailed
+from .polyerrors import DomainError, GeneratorsNeeded, NotInvertible, UnificationFailed
 from .polytools import GroebnerBasis, Poly, _rational_ideal_source, _sort_gens
 
 
@@ -255,10 +255,10 @@ class _BasisState:
                 or any(current.get(key, field._ABSENT) is not value for key, value in self.items)):
             raise RuntimeError("prime-field Groebner basis mutated during exact evaluation")
 
-    def request(self, extra=()):
+    def request(self, extra=(), controls=()):
         expressions, states, source_gens = _unpack(
             [*extra, *self.expressions], 33 if extra else 32)
-        retained = _retained(expressions, self.gens, states, (self.expressions,))
+        retained = _retained(expressions, self.gens, states, (self.expressions,), controls)
         _ring_states(states, self.gens, self.prime)
         request = _request(expressions, self.gens, states, source_gens)
         self.unchanged()
@@ -452,6 +452,78 @@ def multiplication_matrix(basis, element):
             entries.append(_lift_native_result(value, *request.context))
             _unchanged(state, request, retained)
     result = Matrix(len(monomials), len(monomials), entries)
+    _unchanged(state, request, retained)
+    return result
+
+
+def invert(basis, element):
+    """Return a checked inverse, including in positive-dimensional quotients."""
+    state = _BasisState(basis)
+    if len(state.expressions) > 31:
+        raise ValueError("prime-field quotient inverses support at most 31 ideal generators")
+    request, retained = state.request((element,))
+    try:
+        raw = _native.prime_field_ideal_inverse_native(
+            request.raw, request.bindings, state.prime, state.order,
+            state.symmetric, request.source_bindings)
+    except _native.PrimeFieldCoefficientError as error:
+        from .polyerrors import CoercionFailed
+        raise CoercionFailed("prime-field quotient coefficients must be integers") from error
+    _unchanged(state, request, retained)
+    if raw is None:
+        raise NotInvertible(
+            "polynomial is not invertible modulo the ideal over GF(%d)" % state.prime)
+    result = _lift_native_result(raw, *request.context)
+    _unchanged(state, request, retained)
+    return result
+
+
+def minimal_polynomial(basis, element, gen=None):
+    """Return the monic generator of the complete annihilator ideal."""
+    state = _BasisState(basis)
+    if len(state.gens) > 7 or len(state.expressions) > 31:
+        raise ValueError(
+            "prime-field quotient minimal polynomials support seven variables and 31 ideal generators")
+    before_parameter = None
+    if gen is None:
+        # Fresh Dummy construction crosses the replaceable symbol bridge.
+        # Capture original list contents and held children before that call,
+        # then hand off to the full source-and-parameter snapshot below.
+        expressions, states, _ = _unpack([element, *state.expressions], 32)
+        before_parameter = _retained(expressions, state.gens, states, (state.expressions,))
+    parameter = Dummy("t") if gen is None else gen
+    state.unchanged()
+    if before_parameter is not None:
+        before_parameter.unchanged()
+    if not field._exact(parameter, (Symbol, Dummy)):
+        raise TypeError("quotient minimal polynomial requires an exact Symbol or Dummy")
+    # The parameter is retained before source conversion, including when the
+    # checked result will be constant or will prove transcendence.
+    request, retained = state.request((element,), (parameter,))
+    if before_parameter is not None:
+        before_parameter.unchanged()
+    raw_parameter = _native_expr(parameter)
+    if type(raw_parameter) is not _native.Expr or not raw_parameter.is_symbol:
+        raise ValueError("quotient minimal polynomial has an invalid output symbol")
+    _native.prime_field_source_preflight_native(raw_parameter)
+    parameter_binding = _symbol_binding(parameter)
+    parameter_key = _surface_binding_key(parameter_binding)
+    if _surface_binding_key(raw_parameter.symbol_binding) != parameter_key:
+        raise ValueError("quotient minimal polynomial output symbol has inconsistent typed assumptions")
+    if any(_surface_binding_key(binding) == parameter_key for binding in request.bindings):
+        raise ValueError("quotient minimal polynomial requires a distinct typed output variable")
+    _unchanged(state, request, retained)
+    try:
+        raw = _native.prime_field_quotient_minimal_polynomial_native(
+            request.raw, request.bindings, state.prime, parameter_binding,
+            state.symmetric, request.source_bindings)
+    except _native.PrimeFieldCoefficientError as error:
+        from .polyerrors import CoercionFailed
+        raise CoercionFailed("prime-field quotient coefficients must be integers") from error
+    _unchanged(state, request, retained)
+    if raw is None:
+        return None
+    result = _lift_native_result(raw, *request.context, parameter)
     _unchanged(state, request, retained)
     return result
 
