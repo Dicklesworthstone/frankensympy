@@ -12,7 +12,7 @@
 
 use crate::certification_session::{
     CertificationRequest, CertificationResponse, CertificationSessionError, CertificationState,
-    ResidualSystemId, RootCertificateId,
+    ResidualSystemId, RootCertificateId, RootIsolationId,
 };
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_budget::{Budget, BudgetLimits, Dimension, VerifierLease};
@@ -509,6 +509,11 @@ impl Session {
 
     pub fn root_certificate(&self, id: &RootCertificateId) -> Option<&fsym_core::RootBoxReceipt> {
         self.certification.certificate(id)
+    }
+
+    /// The independently verified complete root set in its declared closed box.
+    pub fn root_isolation(&self, id: &RootIsolationId) -> Option<&fsym_core::RootIsolationReceipt> {
+        self.certification.isolation(id)
     }
 
     /// The assumption-universe digest this session is bound to.
@@ -1011,6 +1016,7 @@ impl Session {
                 "RegisterResidualSystem"
                     | "EncloseResidualJacobian"
                     | "CertifyRootBox"
+                    | "IsolateRealRootsInBox"
                     | "ExportRootCertificate"
                     | "ReplayRootCertificate"
             )

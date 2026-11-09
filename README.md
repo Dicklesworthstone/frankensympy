@@ -175,6 +175,12 @@ recomputing a transported claim. Verification draws from a protected cumulative
 budget, and source parsing retains original domain obligations such as
 `0*(1/x)`.
 
+Automatic complete root isolation connects the existing exact subdivision search
+to an independent coverage check. A session can find every nonsingular root in a
+finite box, prove the box is root-free, or return an explicit inconclusive result.
+Accepted roots receive individually exportable certificate handles; no initial
+guesses or hand-written preconditioners are required.
+
 See [Native certification sessions](docs/NATIVE_CERTIFICATION_SESSION.md) for a
 complete CLI example, typed Rust APIs, budget controls and precise limits.
 This is a bounded development interface; complete campaign and profile gates

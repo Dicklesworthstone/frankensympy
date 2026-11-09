@@ -11,7 +11,7 @@ use crate::certification::{
 use fsym_budget::{Budget, BudgetError, BudgetMeter, Dimension, MeterError, VerifierLease};
 use fsym_core::{
     BigInt, BigRational, RealBall, RootBoxError, RootBoxReceipt, RootBoxWitness,
-    RootIsolationError, Symbol,
+    RootIsolationError, RootIsolationReceipt, Symbol,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
@@ -24,6 +24,7 @@ pub const MAX_SESSION_ROOT_ARTIFACT_BYTES: usize = 24 * 1024;
 pub const MAX_CERTIFICATION_RESPONSE_BYTES: usize = 1024 * 1024;
 const MAX_SYSTEMS: usize = 32;
 const MAX_CERTIFICATES: usize = 128;
+const MAX_ISOLATIONS: usize = 32;
 const MAX_SCALAR_BYTES: usize = 512;
 const MAX_AXES: usize = fsym_core::MAX_ROOT_BOX_VARIABLES;
 
@@ -87,6 +88,52 @@ impl<'de> Deserialize<'de> for RootCertificateId {
     }
 }
 
+/// A complete, independently verified root set in one finite closed box.
+/// The 104-byte cap leaves room for deterministic child certificate labels.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct RootIsolationId(String);
+
+impl RootIsolationId {
+    pub fn new(value: impl Into<String>) -> Result<Self, CertificationSessionError> {
+        let value = value.into();
+        if value.len() > 104 || !valid_label(&value, "isolation:") {
+            return Err(CertificationSessionError::InvalidLabel);
+        }
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    fn child_certificate(
+        &self,
+        index: usize,
+    ) -> Result<RootCertificateId, CertificationSessionError> {
+        RootCertificateId::new(format!(
+            "certificate:{}.root-{index}",
+            &self.0["isolation:".len()..],
+        ))
+    }
+}
+
+impl<'de> Deserialize<'de> for RootIsolationId {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::new(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
+/// One member of a verified complete root set. Its label also supports the
+/// ordinary root-certificate export/replay operations.
+#[derive(Debug, Serialize)]
+pub struct IsolatedRoot {
+    pub certificate: RootCertificateId,
+    pub domain: Vec<ExactInterval>,
+    pub root_enclosure: Vec<ExactInterval>,
+    pub contraction_bound: String,
+}
+
 /// Exact endpoints: integers, finite decimal strings, or integer fractions.
 /// No binary floating-point conversion occurs at this boundary.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -128,6 +175,14 @@ pub enum CertificationRequest {
         certificate: RootCertificateId,
         witness: ExactRootWitness,
     },
+    IsolateRealRootsInBox {
+        schema_version: u32,
+        system: ResidualSystemId,
+        isolation: RootIsolationId,
+        domain: Vec<ExactInterval>,
+        precision_digits: u32,
+        max_leaves: usize,
+    },
     ExportRootCertificate {
         schema_version: u32,
         certificate: RootCertificateId,
@@ -146,6 +201,7 @@ impl CertificationRequest {
             Self::RegisterResidualSystem { schema_version, .. }
             | Self::EncloseResidualJacobian { schema_version, .. }
             | Self::CertifyRootBox { schema_version, .. }
+            | Self::IsolateRealRootsInBox { schema_version, .. }
             | Self::ExportRootCertificate { schema_version, .. }
             | Self::ReplayRootCertificate { schema_version, .. } => *schema_version,
         }
@@ -225,6 +281,20 @@ pub enum CertificationResponse {
         precision_digits: u32,
         context_digest: [u8; 32],
     },
+    RealRootsIsolated {
+        schema_version: u32,
+        system: ResidualSystemId,
+        isolation: RootIsolationId,
+        evidence: &'static str,
+        claim: &'static str,
+        domain: Vec<ExactInterval>,
+        root_count: usize,
+        roots: Vec<IsolatedRoot>,
+        leaf_count: usize,
+        excluded_leaf_count: usize,
+        precision_digits: u32,
+        context_digest: [u8; 32],
+    },
     RootCertificateExported {
         schema_version: u32,
         system: ResidualSystemId,
@@ -238,7 +308,7 @@ pub enum CertificationSessionError {
     #[error("unsupported certification request schema {0}")]
     UnsupportedVersion(u32),
     #[error(
-        "object label must have the proper system: or certificate: kind and a bounded identifier"
+        "object label must have the proper system:, certificate: or isolation: kind and a bounded identifier"
     )]
     InvalidLabel,
     #[error("object label already exists in this session")]
@@ -583,6 +653,10 @@ fn root_response(
 pub(crate) struct CertificationState {
     systems: BTreeMap<ResidualSystemId, ResidualProblem>,
     certificates: BTreeMap<RootCertificateId, (ResidualSystemId, RootBoxReceipt)>,
+    // References into immutable complete receipts avoid cloning retained source
+    // forests and witnesses for each separately exportable root certificate.
+    isolated_certificates: BTreeMap<RootCertificateId, (RootIsolationId, usize)>,
+    isolations: BTreeMap<RootIsolationId, (ResidualSystemId, RootIsolationReceipt)>,
 }
 
 impl CertificationState {
@@ -590,17 +664,111 @@ impl CertificationState {
         self.systems.get(id)
     }
     pub(crate) fn certificate(&self, id: &RootCertificateId) -> Option<&RootBoxReceipt> {
-        self.certificates.get(id).map(|(_, receipt)| receipt)
+        self.certificate_record(id).map(|(_, receipt)| receipt)
+    }
+
+    pub(crate) fn isolation(&self, id: &RootIsolationId) -> Option<&RootIsolationReceipt> {
+        self.isolations.get(id).map(|(_, receipt)| receipt)
+    }
+
+    fn certificate_record(
+        &self,
+        id: &RootCertificateId,
+    ) -> Option<(&ResidualSystemId, &RootBoxReceipt)> {
+        if let Some((system, receipt)) = self.certificates.get(id) {
+            return Some((system, receipt));
+        }
+        let (isolation, index) = self.isolated_certificates.get(id)?;
+        let (system, receipt) = self.isolations.get(isolation)?;
+        receipt.roots().get(*index).map(|root| (system, root))
+    }
+
+    fn certificate_count(&self) -> usize {
+        self.certificates.len() + self.isolated_certificates.len()
+    }
+
+    fn admit_isolation_id(&self, id: &RootIsolationId) -> Result<(), CertificationSessionError> {
+        if self.isolations.contains_key(id) {
+            return Err(CertificationSessionError::DuplicateObject);
+        }
+        if self.isolations.len() >= MAX_ISOLATIONS {
+            return Err(CertificationSessionError::ObjectLimit);
+        }
+        Ok(())
+    }
+
+    fn publish_isolation(
+        &mut self,
+        system: ResidualSystemId,
+        isolation: RootIsolationId,
+        receipt: RootIsolationReceipt,
+        context_digest: [u8; 32],
+        budget: &mut Budget,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        self.admit_isolation_id(&isolation)?;
+        let count = receipt.root_count();
+        if self.certificate_count().saturating_add(count) > MAX_CERTIFICATES {
+            return Err(CertificationSessionError::ObjectLimit);
+        }
+        // Admit both index entries and their bounded labels, response slots,
+        // and every associated allocation before constructing them.
+        budget.checkpoint()?;
+        budget.charge_batch(&[
+            (Dimension::ComputeSteps, (count + 1) as u64),
+            (Dimension::MemoryBytes, ((count + 1) * 1024) as u64),
+            (Dimension::AllocationCount, ((count + 1) * 8) as u64),
+        ])?;
+        let mut members = Vec::new();
+        members
+            .try_reserve_exact(count)
+            .map_err(|_| CertificationError::AllocationFailure)?;
+        let mut roots = Vec::new();
+        roots
+            .try_reserve_exact(count)
+            .map_err(|_| CertificationError::AllocationFailure)?;
+        for (index, root) in receipt.roots().iter().enumerate() {
+            let certificate = isolation.child_certificate(index)?;
+            self.admit_certificate_id(&certificate)?;
+            roots.push(IsolatedRoot {
+                certificate: certificate.clone(),
+                domain: render_domain(&root.witness().domain, budget)?,
+                root_enclosure: render_domain(root.root_enclosure(), budget)?,
+                contraction_bound: render_scalar(root.contraction_bound(), budget)?,
+            });
+            members.push((certificate, (isolation.clone(), index)));
+        }
+        let response = CertificationResponse::RealRootsIsolated {
+            schema_version: CERTIFICATION_REQUEST_SCHEMA,
+            system: system.clone(),
+            isolation: isolation.clone(),
+            evidence: "certificate_verified",
+            claim: "all_real_roots_in_closed_box_are_isolated_and_nonsingular",
+            domain: render_domain(receipt.domain(), budget)?,
+            root_count: count,
+            roots,
+            leaf_count: receipt.leaf_count(),
+            excluded_leaf_count: receipt.excluded_leaf_count(),
+            precision_digits: receipt.precision_digits(),
+            context_digest,
+        };
+        admit_response(&response, budget)?;
+        // All fallible validation, preparation and accounting is complete.
+        // Both stores publish together; no partially accepted root list escapes.
+        self.isolations.insert(isolation, (system, receipt));
+        for (certificate, member) in members {
+            self.isolated_certificates.insert(certificate, member);
+        }
+        Ok(response)
     }
 
     fn admit_certificate_id(
         &self,
         id: &RootCertificateId,
     ) -> Result<(), CertificationSessionError> {
-        if self.certificates.contains_key(id) {
+        if self.certificates.contains_key(id) || self.isolated_certificates.contains_key(id) {
             return Err(CertificationSessionError::DuplicateObject);
         }
-        if self.certificates.len() >= MAX_CERTIFICATES {
+        if self.certificate_count() >= MAX_CERTIFICATES {
             return Err(CertificationSessionError::ObjectLimit);
         }
         Ok(())
@@ -713,10 +881,40 @@ impl CertificationState {
                 self.certificates.insert(certificate, (system, receipt));
                 Ok(response)
             }
+            CertificationRequest::IsolateRealRootsInBox {
+                system,
+                isolation,
+                domain,
+                precision_digits,
+                max_leaves,
+                ..
+            } => {
+                self.admit_isolation_id(&isolation)?;
+                let problem = self
+                    .systems
+                    .get(&system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                let domain = parse_domain(&domain, problem.variables().len(), budget)?;
+                let witness = problem.propose_isolation(
+                    &domain,
+                    fsym_calculus::root_isolation::RootIsolationOptions {
+                        precision_digits,
+                        max_leaves,
+                    },
+                    budget,
+                )?;
+                let lease =
+                    lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+                let receipt = problem.verify_isolation(
+                    &domain,
+                    &witness,
+                    &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+                )?;
+                self.publish_isolation(system, isolation, receipt, context_digest, budget)
+            }
             CertificationRequest::ExportRootCertificate { certificate, .. } => {
                 let (system, receipt) = self
-                    .certificates
-                    .get(&certificate)
+                    .certificate_record(&certificate)
                     .ok_or(CertificationSessionError::UnknownCertificate)?;
                 let bytes = export_root_certificate(receipt, context_digest, budget)?;
                 if bytes.len() > MAX_SESSION_ROOT_ARTIFACT_BYTES {

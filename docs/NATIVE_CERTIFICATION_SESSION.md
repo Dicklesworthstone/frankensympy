@@ -38,6 +38,37 @@ The rational matrix is an untrusted preconditioner proposal. Its entries, a
 small residual, a solver convergence flag or a previously stored acceptance
 flag cannot authorize a root certificate.
 
+## Find every root in a finite box
+
+The session can search automatically with no initial guesses or preconditioner.
+For example, send these lines to a fresh process using the default CLI budgets:
+
+```json
+{"id":"register","type":"RegisterResidualSystem","payload":{"schema_version":1,"system":"system:polynomial","residuals":["x^2-2"],"variables":["x"]}}
+{"id":"isolate","type":"IsolateRealRootsInBox","payload":{"schema_version":1,"system":"system:polynomial","isolation":"isolation:roots","domain":[{"lower":"-2","upper":"2"}],"precision_digits":16,"max_leaves":512}}
+{"id":"export-negative","type":"ExportRootCertificate","payload":{"schema_version":1,"certificate":"certificate:roots.root-0"}}
+```
+
+The isolation response has `kind: "real_roots_isolated"`, `root_count: 2`, exact
+root enclosures, and a complete independently checked cover of the requested
+closed box. The roots receive `certificate:roots.root-0` and
+`certificate:roots.root-1`; either can be exported and independently replayed
+through the existing root-certificate operations. Each child export carries
+that local root claim. The full coverage receipt is available in-process through
+`Session::root_isolation`.
+
+A successful `root_count: 0` proves the whole requested box is root-free.
+`inconclusive` instead means the search could not establish completeness, for
+example because of a singular root, an outer-boundary root or an exhausted
+subdivision limit. It does not return a successful partial root list. Source
+domain, budget and cancellation errors retain their separate categories.
+
+Search spends ordinary compute; independent complete-cover verification spends
+protected compute. All child labels, collisions, resident capacities and response
+resources are checked before either the complete receipt or its child handles
+are published. Child handles refer into the immutable accepted receipt, so they
+do not duplicate its retained source forest.
+
 ## Replay in another process
 
 The export response's `result.artifact` is a JSON **string** containing canonical
@@ -72,10 +103,12 @@ construction can simplify away. Thus `0*(1/x)`, `log(x)-log(x)` and
 `0/(x-x)` still undergo their original domain checks. Finite decimal literals
 are exact rational numbers. No binary64 conversion enters this interface.
 
-Session labels have distinct kinds: `system:<identifier>` and
-`certificate:<identifier>`. They are local references, not stable content IDs.
-The identifier uses ASCII letters, digits, underscores, hyphens or dots; the
-complete label is at most 128 bytes. Existing labels cannot be overwritten.
+Session labels have distinct kinds: `system:<identifier>`,
+`certificate:<identifier>` and `isolation:<identifier>`. They are local
+references, not stable content IDs. Identifiers use ASCII letters, digits,
+underscores, hyphens or dots. System and certificate labels are at most 128
+bytes; isolation labels are at most 104 bytes, leaving space for generated
+`.root-<index>` child certificate suffixes. Existing labels cannot be overwritten.
 Only a successful independent check and successful response admission insert
 a certificate into the resident store. A failed attempt leaves its label
 available for a corrected request.
@@ -112,9 +145,10 @@ its existing small defaults; numerical callers should use
 | --- | --- |
 | Input NDJSON frame | 64 KiB |
 | Request ID | Optional string of at most 256 bytes, or unsigned integer |
-| Resident systems / certificates | 32 / 128 |
+| Resident systems / certificates / complete isolations | 32 / 128 / 32; child certificates share the certificate limit |
 | Residuals / variables | 1–64 / 1–16 |
 | Residual × variable entries | At most 1,024 |
+| Automatic isolation leaves / roots | At most 1,024 / 128 |
 | Source text per residual | 4 KiB, also subject to cumulative admission cost |
 | Typed source depth / total nodes | 32 / 16,384 |
 | Exact scalar input | At most 512 bytes: integer, decimal such as `0.5`, or integer fraction such as `1/3` |
@@ -129,7 +163,7 @@ that cannot be replayed through the same framing contract.
 
 Typical error codes distinguish `budget_exhausted`, `domain_not_certified`,
 `unsupported_operation`, `source_mismatch`, `universe_mismatch`,
-`invalid_artifact`, `unsupported_schema` and a mathematical `refused` outcome.
+`invalid_artifact`, `unsupported_schema`, `inconclusive` and a mathematical `refused` outcome.
 An error never contains an accepted root value.
 
 ## Automatic bounded root isolation in Rust

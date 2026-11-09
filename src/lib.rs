@@ -23,8 +23,8 @@ pub use certification::{
 };
 pub use certification_session::{
     CERTIFICATION_REQUEST_SCHEMA, CertificationRequest, CertificationResponse,
-    CertificationSessionError, ExactInterval, ExactRootWitness, ResidualSystemId,
-    RootCertificateId,
+    CertificationSessionError, ExactInterval, ExactRootWitness, IsolatedRoot, ResidualSystemId,
+    RootCertificateId, RootIsolationId,
 };
 pub use fsym_budget::{Budget, BudgetLimits, BudgetMeter, BudgetSnapshot, Dimension, MeterError};
 pub use fsym_calculus::root_isolation::RootIsolationOptions;
