@@ -3,7 +3,9 @@
 //! A stationary floating point proposal is neither a root certificate nor a
 //! local/global minimum claim. Every original residual and stored derivative
 //! is evaluated, including rows after the variable count and zero gradients.
-//! Numerical failures are terminal; there is no alternate solver or ledger reset.
+//! Mathematical point-domain failures reject a line-search trial. Invalid
+//! initial/final values, operational failures and malformed artifacts remain
+//! terminal; there is no alternate solver or ledger reset.
 //!
 //! The bounded Gauss-Newton direction uses the pinned NumPy Householder QR
 //! after column equilibration. Rank-deficient nonstationary systems refuse.
@@ -18,6 +20,8 @@ use super::{
 };
 use fsym_budget::{BudgetMeter, Unbounded};
 use fsym_calculus::VerifiedResidualSystem;
+use fsym_calculus::compile::EvalError;
+use fsym_calculus::verified::ResidualEvaluationError;
 use std::mem::size_of;
 
 /// Maximum residual rows admitted by the dense numerical least-squares lane.
@@ -80,7 +84,8 @@ pub fn least_squares(
 }
 
 /// One cumulative meter covers admission, rejected trials, donor buffers and
-/// final publication. Source evaluation errors are never treated as success.
+/// final publication. Only mathematical trial-point refusals backtrack; they
+/// cannot authorize success or discard the original source/derivative domains.
 pub fn least_squares_with_meter<M: BudgetMeter>(
     system: &VerifiedResidualSystem,
     initial: &[f64],
@@ -168,16 +173,29 @@ pub fn least_squares_with_meter<M: BudgetMeter>(
         let mut alpha = 1.0;
         let mut accepted = None;
         for _ in 0..MAX_BACKTRACKS {
-            charge(meter, (3 * n + 12) as u64, 0, 0)?;
+            charge(meter, (4 * n + 16) as u64, 0, 0)?;
             for ((target, original), delta) in trial_point.iter_mut().zip(&point).zip(&direction) {
-                let update = checked_finite(alpha * delta, "least-squares trial step")?;
-                *target = checked_finite(original + update, "least-squares trial point")?;
+                *target = original + alpha * delta;
             }
             if trial_point == point {
                 return Err(stopped(iteration, &state));
             }
-            let trial = evaluate(system, &trial_point, m, n, meter)?;
+            // Both the accepted point and direction are finite. Their sum can
+            // still overflow, so shrink this proposal before trying the source.
+            // A finite trial must pass every original residual and derivative.
+            if trial_point.iter().any(|value| !value.is_finite()) {
+                alpha *= 0.5;
+                continue;
+            }
             evaluations += 1;
+            let trial = match evaluate(system, &trial_point, m, n, meter) {
+                Ok(trial) => trial,
+                Err(error) if trial_domain_failure(&error) => {
+                    alpha *= 0.5;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             let decrease = checked_finite(ARMIJO * alpha * slope, "least-squares Armijo decrease")?;
             let target_cost = state.cost + decrease;
             let threshold = checked_finite(target_cost, "least-squares Armijo threshold")?;
@@ -209,6 +227,27 @@ pub fn least_squares_with_meter<M: BudgetMeter>(
         state = next;
     }
     Err(stopped(options.max_iterations, &state))
+}
+
+/// A failed proposal may lie outside a function's real domain or overflow even
+/// though a shorter step is admissible. This is a deliberately narrow boundary:
+/// nested meter errors, allocation failures, dimensions and invalid bytecode
+/// stay terminal with their original typed cause and all prior work retained.
+fn trial_domain_failure(error: &SystemConsumerError) -> bool {
+    matches!(
+        error,
+        SystemConsumerError::NonFinite(_)
+            | SystemConsumerError::Evaluation(
+                EvalError::NonFiniteValue
+                    | EvalError::NonPositivePowerBase
+                    | EvalError::NoMatchingPiecewiseBranch
+            )
+            | SystemConsumerError::SparseEvaluation(ResidualEvaluationError::Evaluation(
+                EvalError::NonFiniteValue
+                    | EvalError::NonPositivePowerBase
+                    | EvalError::NoMatchingPiecewiseBranch
+            ))
+    )
 }
 
 fn checked_finite(value: f64, label: &'static str) -> Result<f64, SystemConsumerError> {

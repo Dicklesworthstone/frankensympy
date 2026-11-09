@@ -38,6 +38,91 @@ def test_nonlinear_inconsistent_fit_has_the_expected_stationary_point():
     )
 
 
+@pytest.mark.parametrize("kind,initial,expected", [
+    ("log", 10, 1), ("sqrt", 4, 1), ("exp", -7, 0),
+])
+def test_invalid_trials_backtrack_without_dropping_original_rows_or_derivatives(kind, initial, expected):
+    x = s.Symbol("least_squares_trial_domain")
+    residual = {"log": s.log(x), "sqrt": s.sqrt(x) - 1, "exp": s.exp(x) - 1}[kind]
+    program = s.compile_residual_system([residual, 2*residual], x)
+    # log crosses x=0; sqrt's first full step has an undefined derivative;
+    # exp encounters both nonfinite values and finite-but-overflowing costs.
+    result = program.solve_least_squares(initial)
+    assert result.point == pytest.approx((expected,), abs=1e-9)
+    assert result.evaluations > result.iterations + 2
+    assert result.gradient_norm <= 1e-10
+    assert result.cost < 1e-18
+    values, jacobian = program.evaluate(*result.point)
+    assert result.residuals == tuple(values)
+    assert result.cost == 0.5 * sum(value*value for value in values)
+    gradient = sum(row[0] * value for row, value in zip(jacobian, values))
+    assert result.gradient_norm == abs(gradient)
+    assert result.evidence == "approximate" and not hasattr(result, "certificate")
+
+
+def test_coordinate_overflow_trials_shrink_to_a_finite_root():
+    x = s.Symbol("least_squares_trial_coordinate")
+    program = s.compile_residual_system([s.exp(x/(s.Integer(10)**308)) - 5], x)
+    result = program.solve_least_squares(1e308, gtol=1e-320, max_step_norm=float.fromhex("0x1.fffffffffffffp+1023"))
+    assert math.isfinite(result.point[0])
+    assert result.point[0]/1e308 == pytest.approx(math.log(5), abs=1e-11)
+    assert abs(result.residuals[0]) < 1e-11
+    assert result.gradient_norm <= 1e-320
+
+
+@pytest.mark.parametrize("kind,initial", [("log", 0), ("log", -1), ("sqrt", 0), ("exp", 550)])
+def test_initial_domain_or_overflow_errors_are_terminal(kind, initial):
+    x = s.Symbol("least_squares_initial_domain")
+    residual = {"log": s.log(x), "sqrt": s.sqrt(x) - 1, "exp": s.exp(x) - 1}[kind]
+    program = s.compile_residual_system([residual, 2*residual], x)
+    for callable_, point in ((program, initial), (program.native_system, [float(initial)])):
+        budget = s.EvaluationBudget()
+        before = budget.remaining_steps
+        with pytest.raises(ValueError):
+            callable_.solve_least_squares(point, budget=budget)
+        assert budget.remaining_steps < before
+
+
+def test_domain_backtracking_never_publishes_a_held_source_hole_as_a_zero():
+    x = s.Symbol("least_squares_retained_trial_hole")
+    program = s.compile_residual_system([x, s.Mul(0, s.log(x), evaluate=False)], x)
+    with pytest.raises(ValueError, match="stationarity"):
+        program.solve_least_squares(1, gtol=0, maxiter=4)
+    # A looser gradient criterion can accept a small positive proposal. It
+    # still evaluates the retained logarithm and does not invent an exact root.
+    result = program.solve_least_squares(1, gtol=0.1, maxiter=4)
+    assert 0 < result.point[0] <= 0.1
+    assert result.residuals == (result.point[0], 0.0)
+    assert result.cost > 0 and result.evidence == "approximate"
+
+
+@pytest.mark.parametrize("limit,remaining", [
+    ("max_steps", "remaining_steps"),
+    ("max_memory_bytes", "remaining_memory_bytes"),
+    ("max_allocations", "remaining_allocations"),
+])
+def test_rejected_domain_trials_retain_cumulative_resource_charges(limit, remaining):
+    x = s.Symbol("least_squares_domain_budget")
+    program = s.compile_residual_system([s.log(x), 2*s.log(x)], x)
+    measured = s.EvaluationBudget()
+    before = getattr(measured, remaining)
+    result = program.solve_least_squares(10, budget=measured)
+    cost = before - getattr(measured, remaining)
+    assert result.evaluations > result.iterations + 2 and cost > 0
+    exact = s.EvaluationBudget(**{limit: cost})
+    assert program.solve_least_squares(10, budget=exact).point == result.point
+    assert getattr(exact, remaining) == 0
+    with pytest.raises(s.EvaluationBudgetExceeded):
+        program.solve_least_squares(10, budget=exact)
+    short = s.EvaluationBudget(**{limit: cost - 1})
+    with pytest.raises(s.EvaluationBudgetExceeded):
+        program.solve_least_squares(10, budget=short)
+    cancelled = s.EvaluationBudget()
+    cancelled.cancel()
+    with pytest.raises(s.EvaluationCancelled):
+        program.solve_least_squares(10, budget=cancelled)
+
+
 def test_stationarity_at_a_local_maximum_does_not_become_a_root_or_minimum_claim():
     x = s.Symbol("least_squares_nonminimum")
     program = s.compile_residual_system([x**2 - 1], x)

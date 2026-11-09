@@ -1,7 +1,9 @@
 //! Rectangular numerical fitting must retain every original residual row.
 
-use fsym_budget::{Budget, BudgetLimits, BudgetMeter, Dimension, MeterError};
+use fsym_budget::{Budget, BudgetError, BudgetLimits, BudgetMeter, Dimension, MeterError};
 use fsym_calculus::VerifiedResidualSystem;
+use fsym_calculus::compile::EvalError;
+use fsym_calculus::verified::ResidualEvaluationError;
 use fsym_core::{Expr, Symbol, parse};
 use fsym_numeric_consumer::{
     LeastSquaresOptions, LeastSquaresTermination, SystemConsumerError, least_squares,
@@ -151,6 +153,105 @@ fn armijo_backtracking_and_clipped_steps_keep_one_actual_objective() {
 }
 
 #[test]
+fn logarithmic_trials_backtrack_without_losing_any_residual_rows() {
+    let source = system(&["log(x)", "2*log(x)"], &["x"]);
+    // At x=10 the full Gauss-Newton trial is 10*(1-log(10)) < 0.
+    // Smaller trials are valid and must still use both original rows.
+    let result = least_squares(&source, &[10.0], &LeastSquaresOptions::default()).unwrap();
+    near(result.point[0], 1.0, 1e-10);
+    assert!(result.evaluations > result.iterations + 2);
+    assert!(result.gradient_norm <= 1e-10);
+    near(result.residuals[0], result.point[0].ln(), 1e-14);
+    near(result.residuals[1], 2.0 * result.point[0].ln(), 1e-14);
+    near(
+        result.cost,
+        0.5 * result
+            .residuals
+            .iter()
+            .map(|value| value * value)
+            .sum::<f64>(),
+        1e-24,
+    );
+    for invalid in [0.0, -1.0] {
+        assert!(matches!(
+            least_squares(&source, &[invalid], &LeastSquaresOptions::default()),
+            Err(SystemConsumerError::SparseEvaluation(
+                ResidualEvaluationError::Evaluation(EvalError::NonFiniteValue)
+            ))
+        ));
+    }
+}
+
+#[test]
+fn derivative_only_trial_holes_backtrack_but_initial_holes_still_refuse() {
+    let source = system(&["x^(1/2)-1"], &["x"]);
+    // The initial Newton trial is exactly zero: its residual is finite, but
+    // its derivative is not. A half step keeps the full source C1 domain.
+    let result = least_squares(&source, &[4.0], &LeastSquaresOptions::default()).unwrap();
+    near(result.point[0], 1.0, 1e-9);
+    assert!(result.evaluations > result.iterations + 2);
+    assert!(result.gradient_norm <= 1e-10);
+    assert!(least_squares(&source, &[0.0], &LeastSquaresOptions::default()).is_err());
+}
+
+#[test]
+fn overflowing_source_and_squared_cost_trials_can_recover() {
+    let source = system(&["exp(x)-1", "2*exp(x)-2"], &["x"]);
+    // The first step from -7 exceeds 1000. Repeated halvings encounter both
+    // exp overflow and finite residuals whose squared cost overflows.
+    let result = least_squares(&source, &[-7.0], &LeastSquaresOptions::default()).unwrap();
+    near(result.point[0], 0.0, 1e-10);
+    assert!(result.evaluations > result.iterations + 2);
+    assert!(result.cost < 1e-20);
+    assert!(result.gradient_norm <= 1e-10);
+    assert!(matches!(
+        least_squares(&source, &[550.0], &LeastSquaresOptions::default()),
+        Err(SystemConsumerError::NonFinite(
+            "least-squares squared residual cost"
+        ))
+    ));
+}
+
+#[test]
+fn overflowing_coordinate_sum_backtracks_before_source_evaluation() {
+    let source = system(&["exp(x/(10^308))-5"], &["x"]);
+    let options = LeastSquaresOptions {
+        gradient_tolerance: 1e-320,
+        max_step_norm: f64::MAX,
+        ..LeastSquaresOptions::default()
+    };
+    // The unscaled direction and initial point are separately finite, but
+    // 1e308 + (5/e - 1)*1e308 overflows. The actual root fits in binary64.
+    let result = least_squares(&source, &[1e308], &options).unwrap();
+    assert!(result.point[0].is_finite());
+    near(result.point[0] / 1e308, 5.0_f64.ln(), 1e-11);
+    assert!(result.gradient_norm <= options.gradient_tolerance);
+    assert!(result.residuals[0].abs() < 1e-11);
+}
+
+#[test]
+fn rejected_hidden_source_holes_cannot_turn_into_zero_gradient_success() {
+    let x = Symbol::new("x");
+    let hidden = Expr::Mul(vec![
+        Expr::from_i64(0),
+        Expr::Function("log".into(), vec![Expr::Sym(x.clone())]),
+    ]);
+    let source =
+        VerifiedResidualSystem::try_compile(&[Expr::Sym(x.clone()), hidden], &[x]).unwrap();
+    let options = LeastSquaresOptions {
+        max_iterations: 4,
+        gradient_tolerance: 0.0,
+        ..LeastSquaresOptions::default()
+    };
+    // Each full trial is the algebraic zero, which is outside the retained
+    // logarithm's domain. Valid half steps must not publish that invalid zero.
+    assert!(matches!(
+        least_squares(&source, &[1.0], &options),
+        Err(SystemConsumerError::NonlinearSolve(_))
+    ));
+}
+
+#[test]
 fn trailing_original_holes_and_derivative_domains_are_never_discarded() {
     let x = Symbol::new("x");
     let y = Symbol::new("y");
@@ -270,32 +371,66 @@ struct CancelAt {
     checkpoints: usize,
     stop: Option<usize>,
     cancelled: bool,
+    charges: usize,
+    exhaust_at: Option<usize>,
+    exhausted: bool,
     compute: u64,
     bytes: u64,
     allocations: u64,
 }
 
-impl BudgetMeter for CancelAt {
-    fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
-        assert!(!self.cancelled, "work continued after cancellation");
+impl CancelAt {
+    fn before_charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
+        assert!(
+            !self.cancelled && !self.exhausted,
+            "work continued after refusal"
+        );
+        self.charges += 1;
+        if self.exhaust_at == Some(self.charges) {
+            self.exhausted = true;
+            return Err(BudgetError::Exhausted {
+                dimension,
+                requested: amount,
+                remaining: 0,
+            }
+            .into());
+        }
+        Ok(())
+    }
+
+    fn accumulate(&mut self, dimension: Dimension, amount: u64) {
         match dimension {
             Dimension::ComputeSteps => self.compute += amount,
             Dimension::MemoryBytes => self.bytes += amount,
             Dimension::AllocationCount => self.allocations += amount,
             _ => {}
         }
+    }
+}
+
+impl BudgetMeter for CancelAt {
+    fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
+        self.before_charge(dimension, amount)?;
+        self.accumulate(dimension, amount);
         Ok(())
     }
 
     fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+        if let Some(&(dimension, amount)) = charges.first() {
+            // An injected refusal must precede every member of an atomic batch.
+            self.before_charge(dimension, amount)?;
+        }
         for &(dimension, amount) in charges {
-            self.charge(dimension, amount)?;
+            self.accumulate(dimension, amount);
         }
         Ok(())
     }
 
     fn checkpoint(&mut self) -> Result<(), MeterError> {
-        assert!(!self.cancelled, "work continued after cancellation");
+        assert!(
+            !self.cancelled && !self.exhausted,
+            "work continued after refusal"
+        );
         self.checkpoints += 1;
         if self.stop == Some(self.checkpoints) {
             self.cancelled = true;
@@ -340,4 +475,89 @@ fn rejected_trials_and_repeated_calls_consume_the_shared_budget() {
     assert_eq!(budget.verifier_remaining(), 37);
     assert!(least_squares_with_meter(&source, &[0.01], &options, &mut budget).is_err());
     assert_eq!(budget.remaining(Dimension::ComputeSteps), 0);
+}
+
+fn meter_cause(error: &SystemConsumerError) -> Option<MeterError> {
+    match error {
+        SystemConsumerError::Meter(error)
+        | SystemConsumerError::Evaluation(EvalError::Meter(error))
+        | SystemConsumerError::SparseEvaluation(ResidualEvaluationError::Evaluation(
+            EvalError::Meter(error),
+        )) => Some(error.clone()),
+        _ => None,
+    }
+}
+
+#[test]
+fn backtracked_domain_trials_never_swallow_cancellation_or_exhaustion() {
+    let source = system(&["log(x)"], &["x"]);
+    let options = LeastSquaresOptions::default();
+    let mut complete = CancelAt::default();
+    let result = least_squares_with_meter(&source, &[10.0], &options, &mut complete).unwrap();
+    assert!(result.evaluations > result.iterations + 2);
+    for checkpoint in 1..=complete.checkpoints {
+        let mut meter = CancelAt {
+            stop: Some(checkpoint),
+            ..CancelAt::default()
+        };
+        let error = least_squares_with_meter(&source, &[10.0], &options, &mut meter)
+            .expect_err("published after cancellation during domain backtracking");
+        assert_eq!(meter_cause(&error), Some(MeterError::Cancelled));
+        assert!(meter.cancelled);
+        assert_eq!(meter.checkpoints, checkpoint);
+    }
+    for charge in 1..=complete.charges {
+        let mut meter = CancelAt {
+            exhaust_at: Some(charge),
+            ..CancelAt::default()
+        };
+        let error = least_squares_with_meter(&source, &[10.0], &options, &mut meter)
+            .expect_err("published after resource exhaustion during domain backtracking");
+        assert!(
+            matches!(
+                meter_cause(&error),
+                Some(MeterError::Budget(BudgetError::Exhausted { .. }))
+            ),
+            "charge {charge}: {error}"
+        );
+        assert!(meter.exhausted);
+        assert_eq!(meter.charges, charge);
+    }
+}
+
+#[test]
+fn failed_domain_trials_are_charged_to_every_cumulative_budget_dimension() {
+    let source = system(&["log(x)"], &["x"]);
+    let options = LeastSquaresOptions::default();
+    let mut measured = CancelAt::default();
+    let result = least_squares_with_meter(&source, &[10.0], &options, &mut measured).unwrap();
+    assert!(result.evaluations > result.iterations + 2);
+    for (dimension, total) in [
+        (Dimension::ComputeSteps, measured.compute),
+        (Dimension::MemoryBytes, measured.bytes),
+        (Dimension::AllocationCount, measured.allocations),
+    ] {
+        let mut limits = BudgetLimits::uniform(1_000_000_000, 37);
+        limits.dimensions[dimension.index()] = total;
+        let mut budget = Budget::new(limits);
+        least_squares_with_meter(&source, &[10.0], &options, &mut budget).unwrap();
+        assert_eq!(budget.remaining(dimension), 0);
+        assert_eq!(budget.verifier_remaining(), 37);
+        assert!(least_squares_with_meter(&source, &[10.0], &options, &mut budget).is_err());
+        assert_eq!(budget.remaining(dimension), 0);
+        assert_eq!(budget.verifier_remaining(), 37);
+
+        limits.dimensions[dimension.index()] -= 1;
+        let mut short = Budget::new(limits);
+        let error = least_squares_with_meter(&source, &[10.0], &options, &mut short)
+            .expect_err("published without the final required resource unit");
+        assert!(matches!(
+            meter_cause(&error),
+            Some(MeterError::Budget(BudgetError::Exhausted {
+                dimension: exhausted,
+                ..
+            })) if exhausted == dimension
+        ));
+        assert_eq!(short.verifier_remaining(), 37);
+    }
 }

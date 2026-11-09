@@ -878,11 +878,13 @@ class _ResidualCallable:
         maximum; it carries no root or minimum certificate.
 
         Initial, trial and final evaluations retain every original source
-        and derivative domain. Nonfinite arithmetic and domain errors are
-        terminal. Native buffers, rejected trials, donor work and publication
-        share one supplied EvaluationBudget. Cancellation is cooperative
-        around synchronous donor work. Python objects and compilation are
-        outside that ledger, and no fallback resets consumed work.
+        and derivative domain. A domain-invalid or overflowing trial backtracks;
+        invalid initial/final values, malformed artifacts, allocation failures
+        and operational errors remain terminal. Native buffers, rejected trials,
+        donor work and publication share one supplied EvaluationBudget.
+        Cancellation is cooperative around synchronous donor work. Python
+        objects and compilation are outside that ledger, and no fallback resets
+        consumed work.
         """
         from ..solvers.numerical import _candidate_options
 
