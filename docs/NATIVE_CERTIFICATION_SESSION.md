@@ -132,6 +132,23 @@ Typical error codes distinguish `budget_exhausted`, `domain_not_certified`,
 `invalid_artifact`, `unsupported_schema` and a mathematical `refused` outcome.
 An error never contains an accepted root value.
 
+## Automatic bounded root isolation in Rust
+
+`ResidualProblem::isolate_roots(domain, options, proposal_meter, verification_meter)`
+uses the existing exact subdivision search and independent complete-cover checker.
+It needs no initial guesses, hand-written centers or preconditioner matrices.
+Accepted results contain every real root in the declared finite closed box, with
+an independently checked nonsingular local root enclosure for each. A zero-root
+receipt requires a verified exclusion cover of the complete domain.
+
+The two meters keep candidate work separate from acceptance. A session or other
+caller sharing one `Budget` can call `propose_isolation` on ordinary resources,
+then `verify_isolation` through `Budget::verifier_meter`. Neither phase resets
+spent resources. `RootIsolationOptions` specifies precision and a bounded leaf
+limit (1 through 1,024). Singular roots, roots on the outer boundary, unresolved
+source domains and exhausted subdivision can remain inconclusive; they never
+produce a successful partial list or a false root-free result.
+
 ## In-process Rust API
 
 The root crate exposes `ResidualProblem`, exact scalar/ball types, checker

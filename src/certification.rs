@@ -1,4 +1,5 @@
-//! Source-bound real residual enclosures and portable root-box witnesses.
+//! Source-bound real residual enclosures, complete root isolation and portable
+//! root-box witnesses.
 //!
 //! The public problem retains typed sources and ordered symbol identities.
 //! Numerical acceptance always recomputes the original source with the core
@@ -8,11 +9,13 @@
 #![forbid(unsafe_code)]
 
 use fsym_budget::{BudgetMeter, Dimension, MeterError};
+use fsym_calculus::root_isolation::{RootIsolationOptions, propose_root_isolation};
 use fsym_core::{
     Expr, MAX_ROOT_BOX_DEPTH, MAX_ROOT_BOX_JACOBIAN_ENTRIES, MAX_ROOT_BOX_LIMBS,
     MAX_ROOT_BOX_NODES, MAX_ROOT_BOX_RESIDUALS, MAX_ROOT_BOX_VARIABLES, RealBall,
-    ResidualJacobianEnclosure, RootBoxError, RootBoxReceipt, RootBoxWitness, Symbol,
-    metered_enclose_residual_jacobian, parse_raw, verify_root_box,
+    ResidualJacobianEnclosure, RootBoxError, RootBoxReceipt, RootBoxWitness, RootIsolationError,
+    RootIsolationReceipt, RootIsolationWitness, Symbol, metered_enclose_residual_jacobian,
+    parse_raw, verify_root_box, verify_root_isolation,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -36,6 +39,8 @@ pub const ROOT_CERTIFICATE_SCHEMA_VERSION: u32 = 1;
 pub enum CertificationError {
     #[error("original-source verification refused: {0}")]
     Root(#[source] RootBoxError),
+    #[error("complete root isolation refused: {0}")]
+    Isolation(#[source] RootIsolationError),
     #[error("certification work stopped: {0}")]
     Meter(#[from] MeterError),
     #[error("certification source limit exceeded: {0}")]
@@ -69,6 +74,15 @@ impl From<RootBoxError> for CertificationError {
         match error {
             RootBoxError::Meter(error) => Self::Meter(error),
             error => Self::Root(error),
+        }
+    }
+}
+
+impl From<RootIsolationError> for CertificationError {
+    fn from(error: RootIsolationError) -> Self {
+        match error {
+            RootIsolationError::Verification(error) => error.into(),
+            error => Self::Isolation(error),
         }
     }
 }
@@ -343,6 +357,54 @@ impl ResidualProblem {
         meter: &mut impl BudgetMeter,
     ) -> Result<RootBoxReceipt, CertificationError> {
         verify_root_box(&self.residuals, &self.variables, witness, meter).map_err(Into::into)
+    }
+
+    /// Propose a complete cover of a finite box without initial guesses or a
+    /// supplied inverse. Exact interval bounds and bounded subdivision guide
+    /// this search; the returned witness grants no completeness claim.
+    ///
+    /// Singular roots, roots on the outer boundary, unresolved source domains
+    /// and exhausted search limits refuse without returning a partial root set.
+    /// Candidate generation belongs to the caller's ordinary work budget.
+    pub fn propose_isolation(
+        &self,
+        domain: &[RealBall],
+        options: RootIsolationOptions,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<RootIsolationWitness, CertificationError> {
+        propose_root_isolation(&self.residuals, &self.variables, domain, options, meter)
+            .map_err(Into::into)
+    }
+
+    /// Independently check every original-source exclusion and local root
+    /// witness, complete box coverage and strict separation of distinct roots.
+    /// A zero-root receipt requires a complete exclusion cover.
+    pub fn verify_isolation(
+        &self,
+        domain: &[RealBall],
+        witness: &RootIsolationWitness,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<RootIsolationReceipt, CertificationError> {
+        verify_root_isolation(&self.residuals, &self.variables, domain, witness, meter)
+            .map_err(Into::into)
+    }
+
+    /// Find and independently certify the complete real root set in a finite
+    /// box using separate proposal and verification meters. This lane accepts
+    /// only nonsingular roots; singular or unresolved regions refuse.
+    ///
+    /// To share one cumulative [`fsym_budget::Budget`], call
+    /// [`Self::propose_isolation`] first, then [`Self::verify_isolation`] through
+    /// that budget's protected verifier meter. Neither phase resets a ledger.
+    pub fn isolate_roots(
+        &self,
+        domain: &[RealBall],
+        options: RootIsolationOptions,
+        proposal_meter: &mut impl BudgetMeter,
+        verification_meter: &mut impl BudgetMeter,
+    ) -> Result<RootIsolationReceipt, CertificationError> {
+        let witness = self.propose_isolation(domain, options, proposal_meter)?;
+        self.verify_isolation(domain, &witness, verification_meter)
     }
 }
 

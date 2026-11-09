@@ -10,7 +10,8 @@ use crate::certification::{
 };
 use fsym_budget::{Budget, BudgetError, BudgetMeter, Dimension, MeterError, VerifierLease};
 use fsym_core::{
-    BigInt, BigRational, RealBall, RootBoxError, RootBoxReceipt, RootBoxWitness, Symbol,
+    BigInt, BigRational, RealBall, RootBoxError, RootBoxReceipt, RootBoxWitness,
+    RootIsolationError, Symbol,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
@@ -306,6 +307,10 @@ fn certification_error_code(error: &CertificationError) -> &'static str {
         | CertificationError::DepthLimit { .. }
         | CertificationError::AllocationFailure => "resource_limit_exceeded",
         CertificationError::Encoding(_) | CertificationError::NonCanonical => "invalid_artifact",
+        CertificationError::Isolation(RootIsolationError::Incomplete(_)) => "inconclusive",
+        CertificationError::Isolation(RootIsolationError::InvalidPartition(_)) => {
+            "invalid_artifact"
+        }
         _ => "refused",
     }
 }

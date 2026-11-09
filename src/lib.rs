@@ -27,9 +27,11 @@ pub use certification_session::{
     RootCertificateId,
 };
 pub use fsym_budget::{Budget, BudgetLimits, BudgetMeter, BudgetSnapshot, Dimension, MeterError};
+pub use fsym_calculus::root_isolation::RootIsolationOptions;
 pub use fsym_core::{
     BigInt, BigRational, Expr, RealBall, ResidualJacobianEnclosure, RootBoxReceipt, RootBoxWitness,
-    Symbol, SymbolIdentity,
+    RootIsolationError, RootIsolationReceipt, RootIsolationStep, RootIsolationWitness, Symbol,
+    SymbolIdentity,
 };
 pub use fsym_proof_kernel::{
     MergeCertError, MergePolicy, SemanticMergeCertificate, WitnessKind, verify_merge_certificate,
