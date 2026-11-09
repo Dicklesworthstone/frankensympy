@@ -181,6 +181,12 @@ finite box, prove the box is root-free, or return an explicit inconclusive resul
 Accepted roots receive individually exportable certificate handles; no initial
 guesses or hand-written preconditioners are required.
 
+`ExportRootIsolation` and `ReplayRootIsolation` transport the complete coverage
+proof, including a proved empty root set. A fresh receiving process binds the
+artifact to its own equations, typed coordinate order, context and requested
+box, then independently verifies every root and exclusion before publishing
+the complete result and its child certificate handles.
+
 See [Native certification sessions](docs/NATIVE_CERTIFICATION_SESSION.md) for a
 complete CLI example, typed Rust APIs, budget controls and precise limits.
 This is a bounded development interface; complete campaign and profile gates

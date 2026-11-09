@@ -2,9 +2,10 @@
 
 This development interface connects the root Rust library and the `frankensympy`
 NDJSON command to the existing original-source interval checker. Its scope is
-exact real residual/Jacobian enclosures and one unique nonsingular root in a
-specified box. It does not close the complete Certified Jacobian campaign or
-certify a SymPy compatibility profile.
+exact real residual/Jacobian enclosures, unique nonsingular local roots and
+complete finite-box root sets, with independently replayable artifacts. It does
+not close the complete Certified Jacobian campaign or certify a SymPy
+compatibility profile.
 
 ## Run an exact root check
 
@@ -55,7 +56,7 @@ closed box. The roots receive `certificate:roots.root-0` and
 `certificate:roots.root-1`; either can be exported and independently replayed
 through the existing root-certificate operations. Each child export carries
 that local root claim. The full coverage receipt is available in-process through
-`Session::root_isolation`.
+`Session::root_isolation` and can be exported with `ExportRootIsolation`.
 
 A successful `root_count: 0` proves the whole requested box is root-free.
 `inconclusive` instead means the search could not establish completeness, for
@@ -68,6 +69,38 @@ protected compute. All child labels, collisions, resident capacities and respons
 resources are checked before either the complete receipt or its child handles
 are published. Child handles refer into the immutable accepted receipt, so they
 do not duplicate its retained source forest.
+
+## Replay the complete root set in another process
+
+Export the accepted coverage proof from the originating session:
+
+```json
+{"id":"export-all","type":"ExportRootIsolation","payload":{"schema_version":1,"isolation":"isolation:roots"}}
+```
+
+The `root_isolation_exported` response contains a canonical `result.artifact`
+JSON string. A fresh receiving process independently registers its expected
+equations and supplies its requested exact box when replaying that string:
+
+```json
+{"id":"register","type":"RegisterResidualSystem","payload":{"schema_version":1,"system":"system:polynomial","residuals":["x^2-2"],"variables":["x"]}}
+{"id":"replay-all","type":"ReplayRootIsolation","payload":{"schema_version":1,"system":"system:polynomial","isolation":"isolation:received","domain":[{"lower":"-2","upper":"2"}],"artifact":"<the exact exported result.artifact string, JSON-escaped by your client>"}}
+```
+
+Success returns `real_roots_isolated` after independently rechecking the entire
+cover. It publishes `isolation:received` and, for this two-root example,
+`certificate:received.root-0` and `certificate:received.root-1`. Those child
+certificates support the same local export/replay operations as discovered
+roots. The receiving labels are local handles and are not part of the portable
+mathematical statement.
+
+The same operations transport a verified zero-root result, including its
+complete exclusion cover. Merely omitting roots or supplying an acceptance flag
+cannot establish that a box is empty. Replay binds the source, ordered typed
+axes, exact domain and receiving context before independently verifying the
+proof. A different requested box receives `domain_mismatch`; the label remains
+available for a corrected request. Failed verification, resource admission or
+child-label collision publishes neither the complete receipt nor any children.
 
 ## Replay in another process
 
@@ -153,8 +186,8 @@ its existing small defaults; numerical callers should use
 | Typed source depth / total nodes | 32 / 16,384 |
 | Exact scalar input | At most 512 bytes: integer, decimal such as `0.5`, or integer fraction such as `1/3` |
 | Precision request | 8–128 decimal digits |
-| Session root artifact | 24 KiB before outer JSON escaping |
-| Native root artifact | 1 MiB, JSON depth at most 96 |
+| Session root or complete-cover artifact | 24 KiB before outer JSON escaping |
+| Native root or complete-cover artifact | 1 MiB, JSON depth at most 96 |
 | Certification response | 1 MiB including bounded envelope metadata |
 
 The session transport deliberately exposes a single-frame artifact subset. A
@@ -162,7 +195,7 @@ larger native artifact receives a typed resource refusal instead of an export
 that cannot be replayed through the same framing contract.
 
 Typical error codes distinguish `budget_exhausted`, `domain_not_certified`,
-`unsupported_operation`, `source_mismatch`, `universe_mismatch`,
+`unsupported_operation`, `source_mismatch`, `domain_mismatch`, `universe_mismatch`,
 `invalid_artifact`, `unsupported_schema`, `inconclusive` and a mathematical `refused` outcome.
 An error never contains an accepted root value.
 

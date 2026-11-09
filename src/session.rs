@@ -1017,6 +1017,8 @@ impl Session {
                     | "EncloseResidualJacobian"
                     | "CertifyRootBox"
                     | "IsolateRealRootsInBox"
+                    | "ExportRootIsolation"
+                    | "ReplayRootIsolation"
                     | "ExportRootCertificate"
                     | "ReplayRootCertificate"
             )

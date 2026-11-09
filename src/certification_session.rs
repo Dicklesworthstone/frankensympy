@@ -8,6 +8,7 @@
 use crate::certification::{
     CertificationError, ResidualProblem, export_root_certificate, replay_root_certificate,
 };
+use crate::isolation_transport::{export_root_isolation, replay_root_isolation};
 use fsym_budget::{Budget, BudgetError, BudgetMeter, Dimension, MeterError, VerifierLease};
 use fsym_core::{
     BigInt, BigRational, RealBall, RootBoxError, RootBoxReceipt, RootBoxWitness,
@@ -183,6 +184,17 @@ pub enum CertificationRequest {
         precision_digits: u32,
         max_leaves: usize,
     },
+    ExportRootIsolation {
+        schema_version: u32,
+        isolation: RootIsolationId,
+    },
+    ReplayRootIsolation {
+        schema_version: u32,
+        system: ResidualSystemId,
+        isolation: RootIsolationId,
+        domain: Vec<ExactInterval>,
+        artifact: String,
+    },
     ExportRootCertificate {
         schema_version: u32,
         certificate: RootCertificateId,
@@ -202,6 +214,8 @@ impl CertificationRequest {
             | Self::EncloseResidualJacobian { schema_version, .. }
             | Self::CertifyRootBox { schema_version, .. }
             | Self::IsolateRealRootsInBox { schema_version, .. }
+            | Self::ExportRootIsolation { schema_version, .. }
+            | Self::ReplayRootIsolation { schema_version, .. }
             | Self::ExportRootCertificate { schema_version, .. }
             | Self::ReplayRootCertificate { schema_version, .. } => *schema_version,
         }
@@ -301,6 +315,12 @@ pub enum CertificationResponse {
         certificate: RootCertificateId,
         artifact: String,
     },
+    RootIsolationExported {
+        schema_version: u32,
+        system: ResidualSystemId,
+        isolation: RootIsolationId,
+        artifact: String,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -317,6 +337,8 @@ pub enum CertificationSessionError {
     UnknownSystem,
     #[error("unknown accepted root certificate")]
     UnknownCertificate,
+    #[error("unknown accepted complete root isolation")]
+    UnknownIsolation,
     #[error("resident certification object limit reached")]
     ObjectLimit,
     #[error(
@@ -347,7 +369,9 @@ impl CertificationSessionError {
             Self::UnsupportedVersion(_) => "unsupported_schema",
             Self::InvalidLabel | Self::InvalidScalar | Self::InvalidDomain => "invalid_input",
             Self::DuplicateObject => "duplicate_object",
-            Self::UnknownSystem | Self::UnknownCertificate => "unknown_object",
+            Self::UnknownSystem | Self::UnknownCertificate | Self::UnknownIsolation => {
+                "unknown_object"
+            }
             Self::ObjectLimit | Self::ArtifactLimit => "resource_limit_exceeded",
             Self::OutputLimit => "output_limit_exceeded",
             Self::Serialization(_) => "malformed_request",
@@ -368,6 +392,7 @@ fn certification_error_code(error: &CertificationError) -> &'static str {
         }
         CertificationError::UniverseMismatch { .. } => "universe_mismatch",
         CertificationError::SourceMismatch => "source_mismatch",
+        CertificationError::DomainMismatch => "domain_mismatch",
         CertificationError::UnsupportedVersion { .. } => "unsupported_schema",
         CertificationError::Root(RootBoxError::Domain(_)) => "domain_not_certified",
         CertificationError::Root(RootBoxError::Unsupported(_)) => "unsupported_operation",
@@ -908,6 +933,53 @@ impl CertificationState {
                 let receipt = problem.verify_isolation(
                     &domain,
                     &witness,
+                    &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+                )?;
+                self.publish_isolation(system, isolation, receipt, context_digest, budget)
+            }
+            CertificationRequest::ExportRootIsolation { isolation, .. } => {
+                let (system, receipt) = self
+                    .isolations
+                    .get(&isolation)
+                    .ok_or(CertificationSessionError::UnknownIsolation)?;
+                let bytes = export_root_isolation(receipt, context_digest, budget)?;
+                if bytes.len() > MAX_SESSION_ROOT_ARTIFACT_BYTES {
+                    return Err(CertificationSessionError::ArtifactLimit);
+                }
+                let artifact = String::from_utf8(bytes)
+                    .map_err(|error| CertificationSessionError::Serialization(error.to_string()))?;
+                let response = CertificationResponse::RootIsolationExported {
+                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                    system: system.clone(),
+                    isolation,
+                    artifact,
+                };
+                admit_response(&response, budget)?;
+                Ok(response)
+            }
+            CertificationRequest::ReplayRootIsolation {
+                system,
+                isolation,
+                domain,
+                artifact,
+                ..
+            } => {
+                self.admit_isolation_id(&isolation)?;
+                if artifact.len() > MAX_SESSION_ROOT_ARTIFACT_BYTES {
+                    return Err(CertificationSessionError::ArtifactLimit);
+                }
+                let problem = self
+                    .systems
+                    .get(&system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                let domain = parse_domain(&domain, problem.variables().len(), budget)?;
+                let lease =
+                    lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+                let receipt = replay_root_isolation(
+                    artifact.as_bytes(),
+                    problem,
+                    &domain,
+                    context_digest,
                     &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
                 )?;
                 self.publish_isolation(system, isolation, receipt, context_digest, budget)
