@@ -30,9 +30,9 @@ pub use certification::{
     CertificationError, ResidualProblem, export_root_certificate, replay_root_certificate,
 };
 pub use certification_session::{
-    CERTIFICATION_REQUEST_SCHEMA, CertificationRequest, CertificationResponse,
-    CertificationSessionError, ExactInterval, ExactRootWitness, IsolatedRoot, ResidualSystemId,
-    RootCertificateId, RootIsolationId,
+    ArtifactSource, CERTIFICATION_REQUEST_SCHEMA, CertificationRequest, CertificationResponse,
+    CertificationSessionError, ExactInterval, ExactRootWitness, IsolatedRoot,
+    MAX_SESSION_ARTIFACT_TRANSFERS, ResidualSystemId, RootCertificateId, RootIsolationId,
 };
 pub use fsym_budget::{Budget, BudgetLimits, BudgetMeter, BudgetSnapshot, Dimension, MeterError};
 pub use fsym_calculus::root_isolation::RootIsolationOptions;

@@ -187,6 +187,15 @@ artifact to its own equations, typed coordinate order, context and requested
 box, then independently verifies every root and exclusion before publishing
 the complete result and its child certificate handles.
 
+Both proof kinds also support bounded chunked transfer up to 1 MiB through
+`BeginArtifactExport`, `ReadArtifactChunk`, `BeginArtifactImport` and
+`AppendArtifactChunk`. Chunks fit the existing 64 KiB NDJSON frame limit and
+support exact retries. `ReplayRootCertificateFromArtifact` and
+`ReplayRootIsolationFromArtifact` check complete content integrity and then run
+independent protected verification before publishing accepted results. Staged
+bytes never authorize a root claim; `ReleaseArtifactTransfer` frees a transfer
+slot without resetting spent budgets.
+
 See [Native certification sessions](docs/NATIVE_CERTIFICATION_SESSION.md) for a
 complete CLI example, typed Rust APIs, budget controls and precise limits.
 This is a bounded development interface; complete campaign and profile gates

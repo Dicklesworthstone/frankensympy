@@ -1021,6 +1021,13 @@ impl Session {
                     | "ReplayRootIsolation"
                     | "ExportRootCertificate"
                     | "ReplayRootCertificate"
+                    | "BeginArtifactExport"
+                    | "BeginArtifactImport"
+                    | "ReadArtifactChunk"
+                    | "AppendArtifactChunk"
+                    | "ReleaseArtifactTransfer"
+                    | "ReplayRootCertificateFromArtifact"
+                    | "ReplayRootIsolationFromArtifact"
             )
         ) {
             // Bound envelope metadata before the request can publish anything.

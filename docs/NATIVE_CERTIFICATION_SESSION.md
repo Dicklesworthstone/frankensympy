@@ -124,6 +124,67 @@ keys refuse. Native artifact replay also rejects noncanonical JSON, including
 pretty-printing or changed field order; clients should pass the exported
 string through their JSON encoder without parsing and rewriting its contents.
 
+## Transfer proofs larger than one frame
+
+Both proof kinds also support a chunked route up to the native 1 MiB artifact
+limit. This route preserves the 64 KiB input frame limit. Each chunk carries
+at most 16 KiB of bytes encoded as at most 32 KiB of lowercase hexadecimal;
+schema 1 has at most 64 chunks. Clients can forward the returned manifest and
+chunk objects directly, without decoding, reserializing or concatenating the
+canonical proof themselves.
+
+After obtaining an accepted `isolation:roots`, start an immutable export in
+the sending session:
+
+```json
+{"id":"begin","type":"BeginArtifactExport","payload":{"schema_version":1,"transfer":"transfer:out","source":{"root_isolation":"isolation:roots"}}}
+{"id":"read-0","type":"ReadArtifactChunk","payload":{"schema_version":1,"transfer":"transfer:out","index":0}}
+```
+
+For a local-root certificate, use `source: {"root_certificate":
+"certificate:sqrt2"}` instead. The begin response's `result.manifest` contains
+`schema_version`, `kind`, `total_bytes` and `content_id`. The read response's
+`result.chunk` contains `index`, a 32-byte `digest` array and `data_hex`.
+
+Use the following sequence in the receiving session, which registers its own
+expected residual system before replay:
+
+| Request | Payload in addition to `schema_version: 1` |
+| --- | --- |
+| `BeginArtifactImport` | `transfer: "transfer:in"`, `manifest: <the complete returned manifest object>` |
+| `AppendArtifactChunk` | `transfer: "transfer:in"`, `chunk: <the complete returned chunk object>` |
+| `ReplayRootIsolationFromArtifact` | `system: "system:polynomial"`, `isolation: "isolation:received"`, `domain: [{"lower":"-2","upper":"2"}]`, `transfer: "transfer:in"` |
+| `ReleaseArtifactTransfer` | `transfer: "transfer:in"` |
+
+Read and append chunks in index order, starting at zero. Wait for each append
+response before advancing. Both the import-start and append responses report
+`progress: {"received_bytes": ..., "next_chunk": ...}`. An exact retry of an
+earlier chunk returns the current progress; a conflicting retry or a future
+chunk refuses without changing the received prefix. Reads are repeatable and
+every retry still consumes cumulative resources. These retries operate within
+the live session; they do not create a durable checkpoint.
+
+For a local root, the final replay request is instead:
+
+```json
+{"id":"replay","type":"ReplayRootCertificateFromArtifact","payload":{"schema_version":1,"system":"system:sqrt2","certificate":"certificate:received","transfer":"transfer:in"}}
+```
+
+The complete content ID is checked before protected mathematical replay.
+Per-chunk digests bind the full content ID, chunk index and chunk bytes; the
+content ID binds the artifact kind, length and bytes. Neither successful
+transfer nor a matching digest creates an accepted mathematical object.
+Replay still checks canonical encoding, expected sources, axes and context,
+plus the requested domain for complete isolation, and independently verifies
+the proof before publishing any receipt or child certificate.
+
+Imports remain available after both successful and failed replay, including
+response-budget refusal or child-label collision. Release transfers explicitly
+when finished on **both** sessions. Imports and exports share eight resident
+slots; release frees a slot without refunding any spent budget. Existing
+transfer labels cannot be overwritten. A response resource refusal before
+publication leaves the corresponding transfer or accepted-object state intact.
+
 ## Source and object semantics
 
 `RegisterResidualSystem` converts source text into native `Expr` objects once
@@ -137,10 +198,11 @@ construction can simplify away. Thus `0*(1/x)`, `log(x)-log(x)` and
 are exact rational numbers. No binary64 conversion enters this interface.
 
 Session labels have distinct kinds: `system:<identifier>`,
-`certificate:<identifier>` and `isolation:<identifier>`. They are local
+`certificate:<identifier>`, `isolation:<identifier>` and
+`transfer:<identifier>`. They are local
 references, not stable content IDs. Identifiers use ASCII letters, digits,
 underscores, hyphens or dots. System and certificate labels are at most 128
-bytes; isolation labels are at most 104 bytes, leaving space for generated
+bytes, as are transfer labels; isolation labels are at most 104 bytes, leaving space for generated
 `.root-<index>` child certificate suffixes. Existing labels cannot be overwritten.
 Only a successful independent check and successful response admission insert
 a certificate into the resident store. A failed attempt leaves its label
@@ -149,9 +211,10 @@ available for a corrected request.
 ## Resources and limits
 
 Every operation uses the session's cumulative ledger. Registration, initial
-exact input preparation, certificate export and response preparation consume
-ordinary resources. Mathematical checking, including receiving-session
-artifact validation and replay, consumes the protected verifier compute pool
+exact input preparation, artifact transfer and integrity checks, certificate
+export and response preparation consume ordinary resources. Mathematical
+checking, including receiving-session canonical artifact validation and replay,
+consumes the protected verifier compute pool
 through `Budget::verifier_meter`; memory and allocation limits remain shared.
 Failure retains performed work. Reacquiring a meter or retrying a request never
 replenishes either pool.
@@ -179,6 +242,7 @@ its existing small defaults; numerical callers should use
 | Input NDJSON frame | 64 KiB |
 | Request ID | Optional string of at most 256 bytes, or unsigned integer |
 | Resident systems / certificates / complete isolations | 32 / 128 / 32; child certificates share the certificate limit |
+| Resident artifact transfers | 8 total imports and exports; explicit release frees a slot |
 | Residuals / variables | 1–64 / 1–16 |
 | Residual × variable entries | At most 1,024 |
 | Automatic isolation leaves / roots | At most 1,024 / 128 |
@@ -186,17 +250,21 @@ its existing small defaults; numerical callers should use
 | Typed source depth / total nodes | 32 / 16,384 |
 | Exact scalar input | At most 512 bytes: integer, decimal such as `0.5`, or integer fraction such as `1/3` |
 | Precision request | 8–128 decimal digits |
-| Session root or complete-cover artifact | 24 KiB before outer JSON escaping |
-| Native root or complete-cover artifact | 1 MiB, JSON depth at most 96 |
+| Inline session root or complete-cover artifact | 24 KiB before outer JSON escaping |
+| Native or chunked root / complete-cover artifact | 1 MiB, JSON depth at most 96 |
+| Artifact chunk | 16 KiB of bytes, 32 KiB lowercase hex; at most 64 chunks |
 | Certification response | 1 MiB including bounded envelope metadata |
 
-The session transport deliberately exposes a single-frame artifact subset. A
-larger native artifact receives a typed resource refusal instead of an export
-that cannot be replayed through the same framing contract.
+The inline export/replay operations retain their single-frame subset. Use
+`BeginArtifactExport` and `BeginArtifactImport` for larger proofs. The artifact
+and chunk caps are upper bounds; a caller must still admit the operation under
+its cumulative ordinary, memory, allocation and verifier limits.
 
 Typical error codes distinguish `budget_exhausted`, `domain_not_certified`,
 `unsupported_operation`, `source_mismatch`, `domain_mismatch`, `universe_mismatch`,
 `invalid_artifact`, `unsupported_schema`, `inconclusive` and a mathematical `refused` outcome.
+Transfers additionally distinguish `incomplete_transfer`, `out_of_order_chunk`,
+`conflicting_chunk`, `artifact_kind_mismatch` and `wrong_transfer_mode`.
 An error never contains an accepted root value.
 
 ## Automatic bounded root isolation in Rust
@@ -239,6 +307,15 @@ depth 96. A complete-cover witness is limited to 128 local root proposals and
 checked during decoding; cumulative charges precede the bounded decoding work.
 Receiving sessions should run replay through their protected verifier meter.
 Failures retain performed work and produce no accepted receipt.
+
+The root crate also exposes `ArtifactExport`, `ArtifactImport`, typed manifests,
+chunks and IDs, and `artifact_content_id` / `artifact_chunk_digest` helpers for
+native clients. These transport opaque bytes with caller-owned meters and
+cancellation safe points. `ArtifactImport::checked_bytes` validates completeness,
+kind and full content integrity on every attempt, returning borrowed bytes for
+the caller's independent canonical replay. It does not return a mathematical
+receipt. Export ownership avoids a full-payload clone; imports reserve one
+bounded buffer at begin and publish each validated chunk with a final copy.
 
 ## In-process Rust API
 

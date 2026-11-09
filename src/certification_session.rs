@@ -5,6 +5,10 @@
 //! workspace binding changes never rewrite that captured problem. Verification
 //! uses the protected pool of the same cumulative session ledger.
 
+use crate::artifact_stream::{
+    ArtifactChunk, ArtifactExport, ArtifactImport, ArtifactKind, ArtifactManifest,
+    ArtifactProgress, ArtifactTransferError, ArtifactTransferId,
+};
 use crate::certification::{
     CertificationError, ResidualProblem, export_root_certificate, replay_root_certificate,
 };
@@ -26,6 +30,9 @@ pub const MAX_CERTIFICATION_RESPONSE_BYTES: usize = 1024 * 1024;
 const MAX_SYSTEMS: usize = 32;
 const MAX_CERTIFICATES: usize = 128;
 const MAX_ISOLATIONS: usize = 32;
+/// Imports and exports share this resident bound; releasing a transfer does not
+/// refund any work or allocation already charged to the session ledger.
+pub const MAX_SESSION_ARTIFACT_TRANSFERS: usize = 8;
 const MAX_SCALAR_BYTES: usize = 512;
 const MAX_AXES: usize = fsym_core::MAX_ROOT_BOX_VARIABLES;
 
@@ -153,6 +160,15 @@ pub struct ExactRootWitness {
     pub precision_digits: u32,
 }
 
+/// An accepted object to export. The transfer remains a byte container, not a
+/// second source of mathematical authority.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum ArtifactSource {
+    RootCertificate(RootCertificateId),
+    RootIsolation(RootIsolationId),
+}
+
 /// Bounded certification operations accepted by the native session and NDJSON
 /// command. Every payload carries an explicit schema version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -205,6 +221,43 @@ pub enum CertificationRequest {
         certificate: RootCertificateId,
         artifact: String,
     },
+    BeginArtifactExport {
+        schema_version: u32,
+        transfer: ArtifactTransferId,
+        source: ArtifactSource,
+    },
+    BeginArtifactImport {
+        schema_version: u32,
+        transfer: ArtifactTransferId,
+        manifest: ArtifactManifest,
+    },
+    ReadArtifactChunk {
+        schema_version: u32,
+        transfer: ArtifactTransferId,
+        index: usize,
+    },
+    AppendArtifactChunk {
+        schema_version: u32,
+        transfer: ArtifactTransferId,
+        chunk: ArtifactChunk,
+    },
+    ReleaseArtifactTransfer {
+        schema_version: u32,
+        transfer: ArtifactTransferId,
+    },
+    ReplayRootCertificateFromArtifact {
+        schema_version: u32,
+        system: ResidualSystemId,
+        certificate: RootCertificateId,
+        transfer: ArtifactTransferId,
+    },
+    ReplayRootIsolationFromArtifact {
+        schema_version: u32,
+        system: ResidualSystemId,
+        isolation: RootIsolationId,
+        domain: Vec<ExactInterval>,
+        transfer: ArtifactTransferId,
+    },
 }
 
 impl CertificationRequest {
@@ -217,7 +270,14 @@ impl CertificationRequest {
             | Self::ExportRootIsolation { schema_version, .. }
             | Self::ReplayRootIsolation { schema_version, .. }
             | Self::ExportRootCertificate { schema_version, .. }
-            | Self::ReplayRootCertificate { schema_version, .. } => *schema_version,
+            | Self::ReplayRootCertificate { schema_version, .. }
+            | Self::BeginArtifactExport { schema_version, .. }
+            | Self::BeginArtifactImport { schema_version, .. }
+            | Self::ReadArtifactChunk { schema_version, .. }
+            | Self::AppendArtifactChunk { schema_version, .. }
+            | Self::ReleaseArtifactTransfer { schema_version, .. }
+            | Self::ReplayRootCertificateFromArtifact { schema_version, .. }
+            | Self::ReplayRootIsolationFromArtifact { schema_version, .. } => *schema_version,
         }
     }
 }
@@ -321,6 +381,31 @@ pub enum CertificationResponse {
         isolation: RootIsolationId,
         artifact: String,
     },
+    ArtifactExportStarted {
+        schema_version: u32,
+        transfer: ArtifactTransferId,
+        manifest: ArtifactManifest,
+    },
+    ArtifactImportStarted {
+        schema_version: u32,
+        transfer: ArtifactTransferId,
+        manifest: ArtifactManifest,
+        progress: ArtifactProgress,
+    },
+    ArtifactChunkRead {
+        schema_version: u32,
+        transfer: ArtifactTransferId,
+        chunk: ArtifactChunk,
+    },
+    ArtifactChunkAppended {
+        schema_version: u32,
+        transfer: ArtifactTransferId,
+        progress: ArtifactProgress,
+    },
+    ArtifactTransferReleased {
+        schema_version: u32,
+        transfer: ArtifactTransferId,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -339,6 +424,10 @@ pub enum CertificationSessionError {
     UnknownCertificate,
     #[error("unknown accepted complete root isolation")]
     UnknownIsolation,
+    #[error("unknown artifact transfer")]
+    UnknownTransfer,
+    #[error("artifact transfer has the wrong import/export direction")]
+    WrongTransferMode,
     #[error("resident certification object limit reached")]
     ObjectLimit,
     #[error(
@@ -348,7 +437,7 @@ pub enum CertificationSessionError {
     #[error("box endpoints are reversed or dimensions are inconsistent")]
     InvalidDomain,
     #[error(
-        "certificate exceeds the bounded single-frame session transport; use the native artifact API"
+        "certificate exceeds the bounded single-frame session transport; use chunked artifact transfer"
     )]
     ArtifactLimit,
     #[error("certification response exceeds its output limit")]
@@ -359,6 +448,8 @@ pub enum CertificationSessionError {
     Meter(#[from] MeterError),
     #[error("certification refused: {0}")]
     Certification(#[from] CertificationError),
+    #[error("artifact transfer refused: {0}")]
+    Transfer(#[from] ArtifactTransferError),
 }
 
 impl CertificationSessionError {
@@ -369,16 +460,43 @@ impl CertificationSessionError {
             Self::UnsupportedVersion(_) => "unsupported_schema",
             Self::InvalidLabel | Self::InvalidScalar | Self::InvalidDomain => "invalid_input",
             Self::DuplicateObject => "duplicate_object",
-            Self::UnknownSystem | Self::UnknownCertificate | Self::UnknownIsolation => {
-                "unknown_object"
-            }
+            Self::UnknownSystem
+            | Self::UnknownCertificate
+            | Self::UnknownIsolation
+            | Self::UnknownTransfer => "unknown_object",
+            Self::WrongTransferMode => "wrong_transfer_mode",
             Self::ObjectLimit | Self::ArtifactLimit => "resource_limit_exceeded",
             Self::OutputLimit => "output_limit_exceeded",
             Self::Serialization(_) => "malformed_request",
             Self::Meter(MeterError::Cancelled) => "cancelled",
             Self::Meter(MeterError::Budget(_)) => "budget_exhausted",
             Self::Certification(error) => certification_error_code(error),
+            Self::Transfer(error) => transfer_error_code(error),
         }
+    }
+}
+
+fn transfer_error_code(error: &ArtifactTransferError) -> &'static str {
+    match error {
+        ArtifactTransferError::Meter(MeterError::Cancelled) => "cancelled",
+        ArtifactTransferError::Meter(MeterError::Budget(_)) => "budget_exhausted",
+        ArtifactTransferError::UnsupportedVersion { .. } => "unsupported_schema",
+        ArtifactTransferError::ByteLimit { .. } | ArtifactTransferError::AllocationFailure => {
+            "resource_limit_exceeded"
+        }
+        ArtifactTransferError::Incomplete { .. } => "incomplete_transfer",
+        ArtifactTransferError::OutOfOrder { .. } => "out_of_order_chunk",
+        ArtifactTransferError::ConflictingChunk => "conflicting_chunk",
+        ArtifactTransferError::KindMismatch => "artifact_kind_mismatch",
+        ArtifactTransferError::ChunkDigestMismatch | ArtifactTransferError::FinalDigestMismatch => {
+            "invalid_artifact"
+        }
+        ArtifactTransferError::InvalidLabel
+        | ArtifactTransferError::InvalidContentId
+        | ArtifactTransferError::EmptyArtifact
+        | ArtifactTransferError::InvalidIndex { .. }
+        | ArtifactTransferError::ChunkLength { .. }
+        | ArtifactTransferError::InvalidHex => "invalid_input",
     }
 }
 
@@ -674,6 +792,11 @@ fn root_response(
     })
 }
 
+enum ResidentArtifact {
+    Export(ArtifactExport),
+    Import(ArtifactImport),
+}
+
 #[derive(Default)]
 pub(crate) struct CertificationState {
     systems: BTreeMap<ResidualSystemId, ResidualProblem>,
@@ -682,6 +805,9 @@ pub(crate) struct CertificationState {
     // forests and witnesses for each separately exportable root certificate.
     isolated_certificates: BTreeMap<RootCertificateId, (RootIsolationId, usize)>,
     isolations: BTreeMap<RootIsolationId, (ResidualSystemId, RootIsolationReceipt)>,
+    // These byte containers never participate in accepted-object lookup. An
+    // import must pass full independent replay before any certificate exists.
+    transfers: BTreeMap<ArtifactTransferId, ResidentArtifact>,
 }
 
 impl CertificationState {
@@ -797,6 +923,39 @@ impl CertificationState {
             return Err(CertificationSessionError::ObjectLimit);
         }
         Ok(())
+    }
+
+    fn admit_transfer_id(
+        &self,
+        id: &ArtifactTransferId,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<(), CertificationSessionError> {
+        if self.transfers.contains_key(id) {
+            return Err(CertificationSessionError::DuplicateObject);
+        }
+        if self.transfers.len() >= MAX_SESSION_ARTIFACT_TRANSFERS {
+            return Err(CertificationSessionError::ObjectLimit);
+        }
+        // Bound the resident map entry, labels and response metadata before
+        // constructing either direction of a transfer.
+        meter.checkpoint()?;
+        meter.charge_batch(&[
+            (Dimension::ComputeSteps, 1),
+            (Dimension::MemoryBytes, 4096),
+            (Dimension::AllocationCount, 8),
+        ])?;
+        Ok(())
+    }
+
+    fn artifact_import(
+        &self,
+        id: &ArtifactTransferId,
+    ) -> Result<&ArtifactImport, CertificationSessionError> {
+        match self.transfers.get(id) {
+            Some(ResidentArtifact::Import(import)) => Ok(import),
+            Some(ResidentArtifact::Export(_)) => Err(CertificationSessionError::WrongTransferMode),
+            None => Err(CertificationSessionError::UnknownTransfer),
+        }
     }
 
     pub(crate) fn handle(
@@ -1035,6 +1194,170 @@ impl CertificationState {
                 admit_response(&response, budget)?;
                 self.certificates.insert(certificate, (system, receipt));
                 Ok(response)
+            }
+            CertificationRequest::BeginArtifactExport {
+                transfer, source, ..
+            } => {
+                self.admit_transfer_id(&transfer, budget)?;
+                let (kind, bytes) = match source {
+                    ArtifactSource::RootCertificate(certificate) => {
+                        let (_, receipt) = self
+                            .certificate_record(&certificate)
+                            .ok_or(CertificationSessionError::UnknownCertificate)?;
+                        (
+                            ArtifactKind::RootCertificate,
+                            export_root_certificate(receipt, context_digest, budget)?,
+                        )
+                    }
+                    ArtifactSource::RootIsolation(isolation) => {
+                        let (_, receipt) = self
+                            .isolations
+                            .get(&isolation)
+                            .ok_or(CertificationSessionError::UnknownIsolation)?;
+                        (
+                            ArtifactKind::RootIsolation,
+                            export_root_isolation(receipt, context_digest, budget)?,
+                        )
+                    }
+                };
+                let export = ArtifactExport::new(kind, bytes, budget)?;
+                let response = CertificationResponse::ArtifactExportStarted {
+                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                    transfer: transfer.clone(),
+                    manifest: export.manifest().clone(),
+                };
+                admit_response(&response, budget)?;
+                self.transfers
+                    .insert(transfer, ResidentArtifact::Export(export));
+                Ok(response)
+            }
+            CertificationRequest::BeginArtifactImport {
+                transfer, manifest, ..
+            } => {
+                self.admit_transfer_id(&transfer, budget)?;
+                let import = ArtifactImport::new(manifest, budget)?;
+                let response = CertificationResponse::ArtifactImportStarted {
+                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                    transfer: transfer.clone(),
+                    manifest: import.manifest().clone(),
+                    progress: import.progress(),
+                };
+                admit_response(&response, budget)?;
+                self.transfers
+                    .insert(transfer, ResidentArtifact::Import(import));
+                Ok(response)
+            }
+            CertificationRequest::ReadArtifactChunk {
+                transfer, index, ..
+            } => {
+                let export = match self.transfers.get(&transfer) {
+                    Some(ResidentArtifact::Export(export)) => export,
+                    Some(ResidentArtifact::Import(_)) => {
+                        return Err(CertificationSessionError::WrongTransferMode);
+                    }
+                    None => return Err(CertificationSessionError::UnknownTransfer),
+                };
+                let response = CertificationResponse::ArtifactChunkRead {
+                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                    chunk: export.chunk(index, budget)?,
+                    transfer,
+                };
+                admit_response(&response, budget)?;
+                Ok(response)
+            }
+            CertificationRequest::AppendArtifactChunk {
+                transfer, chunk, ..
+            } => {
+                let progress = self
+                    .artifact_import(&transfer)?
+                    .preview_append(chunk.index)?;
+                let response = CertificationResponse::ArtifactChunkAppended {
+                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                    transfer: transfer.clone(),
+                    progress,
+                };
+                // A response-admission refusal cannot advance the staged
+                // prefix. A lost reply is recovered by retrying the exact chunk.
+                // The core validates and charges before its only write.
+                admit_response(&response, budget)?;
+                let Some(ResidentArtifact::Import(import)) = self.transfers.get_mut(&transfer)
+                else {
+                    unreachable!("the checked transfer remains in its import slot");
+                };
+                import.append(chunk.index, &chunk.digest, &chunk.data_hex, budget)?;
+                Ok(response)
+            }
+            CertificationRequest::ReleaseArtifactTransfer { transfer, .. } => {
+                if !self.transfers.contains_key(&transfer) {
+                    return Err(CertificationSessionError::UnknownTransfer);
+                }
+                let response = CertificationResponse::ArtifactTransferReleased {
+                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                    transfer: transfer.clone(),
+                };
+                admit_response(&response, budget)?;
+                self.transfers.remove(&transfer);
+                Ok(response)
+            }
+            CertificationRequest::ReplayRootCertificateFromArtifact {
+                system,
+                certificate,
+                transfer,
+                ..
+            } => {
+                self.admit_certificate_id(&certificate)?;
+                let problem = self
+                    .systems
+                    .get(&system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                let bytes = self
+                    .artifact_import(&transfer)?
+                    .checked_bytes(ArtifactKind::RootCertificate, budget)?;
+                let lease =
+                    lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+                let receipt = replay_root_certificate(
+                    bytes,
+                    problem,
+                    context_digest,
+                    &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+                )?;
+                let response = root_response(
+                    &receipt,
+                    system.clone(),
+                    certificate.clone(),
+                    context_digest,
+                    budget,
+                )?;
+                admit_response(&response, budget)?;
+                self.certificates.insert(certificate, (system, receipt));
+                Ok(response)
+            }
+            CertificationRequest::ReplayRootIsolationFromArtifact {
+                system,
+                isolation,
+                domain,
+                transfer,
+                ..
+            } => {
+                self.admit_isolation_id(&isolation)?;
+                let problem = self
+                    .systems
+                    .get(&system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                let domain = parse_domain(&domain, problem.variables().len(), budget)?;
+                let bytes = self
+                    .artifact_import(&transfer)?
+                    .checked_bytes(ArtifactKind::RootIsolation, budget)?;
+                let lease =
+                    lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+                let receipt = replay_root_isolation(
+                    bytes,
+                    problem,
+                    &domain,
+                    context_digest,
+                    &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+                )?;
+                self.publish_isolation(system, isolation, receipt, context_digest, budget)
             }
         }
     }
