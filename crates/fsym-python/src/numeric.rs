@@ -31,9 +31,10 @@ use fsym_core::{
 };
 use fsym_numeric_consumer::{
     LeastSquaresOptions, LeastSquaresTermination, MAX_CONSUMER_NEWTON_ITERATIONS,
-    MAX_CONSUMER_VARIABLES, MAX_LEAST_SQUARES_RESIDUALS, NewtonGuards, SystemConsumerError,
+    MAX_CONSUMER_VARIABLES, MAX_LEAST_SQUARES_RESIDUALS, MAX_SPARSE_LEAST_SQUARES_RESIDUALS,
+    MAX_SPARSE_LEAST_SQUARES_VARIABLES, NewtonGuards, SystemConsumerError,
     frankenscipy_analytic_system_with_meter, frankenscipy_fsolve_system_with_meter,
-    least_squares_with_meter, newton_refine_with_meter,
+    least_squares_with_meter, newton_refine_with_meter, sparse_least_squares_with_meter,
 };
 use pyo3::exceptions::{PyMemoryError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -1535,15 +1536,27 @@ impl PyVerifiedResidualSystem {
 
     /// Generate an approximate least-squares stationary point, not a root.
     /// All residual rows and derivative domains share the same native ledger.
-    #[pyo3(signature = (initial, *, gtol=None, maxiter=None, max_step_norm=None, budget=None))]
+    /// The sparse route retains sparse Jacobian values throughout LSQR; neither
+    /// route silently substitutes another solver when its own work refuses.
+    #[pyo3(signature = (initial, *, backend="dense", gtol=None, maxiter=None, max_step_norm=None, budget=None))]
     fn solve_least_squares<'py>(
         &self,
         initial: &Bound<'py, PyAny>,
+        backend: &str,
         gtol: Option<&Bound<'_, PyAny>>,
         maxiter: Option<&Bound<'_, PyAny>>,
         max_step_norm: Option<&Bound<'_, PyAny>>,
         budget: Option<PyRef<'_, PyEvaluationBudget>>,
     ) -> PyResult<Bound<'py, PyTuple>> {
+        let sparse = match backend {
+            "dense" => false,
+            "sparse" => true,
+            _ => {
+                return Err(PyValueError::new_err(
+                    "least-squares backend must be dense or sparse",
+                ));
+            }
+        };
         let defaults = LeastSquaresOptions::default();
         let shared_guards = donor_newton_guards(None, maxiter, max_step_norm)?;
         let gradient_tolerance =
@@ -1555,7 +1568,16 @@ impl PyVerifiedResidualSystem {
         };
         let variables = self.system.vars().len();
         let residuals = self.system.residuals().len();
-        if !(1..=MAX_CONSUMER_VARIABLES).contains(&variables)
+        if sparse {
+            if !(1..=MAX_SPARSE_LEAST_SQUARES_VARIABLES).contains(&variables)
+                || !(1..=MAX_SPARSE_LEAST_SQUARES_RESIDUALS).contains(&residuals)
+                || variables.saturating_mul(residuals) > MAX_TOTAL_OPS
+            {
+                return Err(PyValueError::new_err(
+                    "sparse least squares requires 1..=256 variables, 1..=4096 residuals and at most 65536 Jacobian positions",
+                ));
+            }
+        } else if !(1..=MAX_CONSUMER_VARIABLES).contains(&variables)
             || !(variables..=MAX_LEAST_SQUARES_RESIDUALS).contains(&residuals)
         {
             return Err(PyValueError::new_err(
@@ -1565,7 +1587,11 @@ impl PyVerifiedResidualSystem {
         let inputs = input_values_metered(initial, variables, budget.as_deref())?;
         let py = initial.py();
         let proposal = with_evaluation_meter(py, budget.as_deref(), |meter| {
-            least_squares_with_meter(&self.system, &inputs, &options, meter)
+            if sparse {
+                sparse_least_squares_with_meter(&self.system, &inputs, &options, meter)
+            } else {
+                least_squares_with_meter(&self.system, &inputs, &options, meter)
+            }
         })?;
         let termination = match proposal.termination {
             LeastSquaresTermination::GradientTolerance => "gradient_tolerance",

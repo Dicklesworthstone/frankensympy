@@ -602,11 +602,11 @@ class NumericLeastSquaresCandidate:
 
     __slots__ = (
         "_point", "_variables", "_residuals", "_cost", "_gradient_norm",
-        "_iterations", "_evaluations", "_termination",
+        "_iterations", "_evaluations", "_termination", "_backend",
     )
 
     def __init__(self, point, variables, residuals, cost, gradient_norm,
-                 iterations, evaluations, termination):
+                 iterations, evaluations, termination, backend="frankennumpy_qr"):
         if hasattr(self, "_point"):
             raise AttributeError("least-squares candidates are immutable")
         object.__setattr__(self, "_point", tuple(point))
@@ -617,6 +617,7 @@ class NumericLeastSquaresCandidate:
         object.__setattr__(self, "_iterations", iterations)
         object.__setattr__(self, "_evaluations", evaluations)
         object.__setattr__(self, "_termination", termination)
+        object.__setattr__(self, "_backend", backend)
 
     def __setattr__(self, name, value):
         raise AttributeError("least-squares candidates are immutable")
@@ -663,7 +664,7 @@ class NumericLeastSquaresCandidate:
 
     @property
     def backend(self):
-        return "frankennumpy_qr"
+        return self._backend
 
     @property
     def evidence(self):
@@ -851,47 +852,70 @@ class _ResidualCallable:
         _check_evaluation_budget(budget)
         return result
 
-    def solve_least_squares(self, initial, *, gtol=None, maxiter=None,
+    def solve_least_squares(self, initial, *, backend="dense", gtol=None, maxiter=None,
                            max_step_norm=None, budget=None):
         """Find an approximate stationary point of the full least-squares cost.
 
-        Admit 1..16 variables and between variable_count and 64 residuals.
+        ``backend="dense"`` retains the checked symbolic Jacobian and pinned
+        FrankenNumPy Householder QR, with 1..16 variables and between
+        variable_count and 64 residuals. A numerically rank-deficient Jacobian
+        refuses unless the point already meets the stationarity criterion.
+
+        ``backend="sparse"`` uses native damped LSQR directions from stored
+        Jacobian values, without constructing a dense Jacobian or normal
+        matrix. It admits 1..256 variables and 1..4096 residuals, including
+        underdetermined and rank-deficient systems. Existing compilation and
+        source bounds still apply: at most 65536 Jacobian positions, plus the
+        separate differentiation-work and total compiled-operation limits of
+        65536. A permitted shape can still exceed these source limits.
+        There is no claim of a unique or minimum-norm solution.
+
         initial is a scalar for one variable or a flat built-in list/tuple
         in variables order, independently of the evaluation argument layout.
         Every residual has unit weight; no row rescaling changes the objective.
 
-        The checked symbolic Jacobian supplies a column-equilibrated
-        Gauss-Newton step through pinned FrankenNumPy Householder QR, followed
-        by bounded Armijo backtracking. A numerically rank-deficient Jacobian
-        refuses unless the point already meets the stationarity criterion.
+        Both routes use column equilibration and bounded Armijo backtracking.
         Controls default to gtol=1e-10, maxiter=64 and max_step_norm=1e6.
         The iteration limit is 0..1024; the step limit clips the infinity norm
-        before at most 32 line-search trials. At the objective's rounding
-        scale, a slight cost increase is allowed only while the fresh gradient
-        strictly improves.
+        before at most 32 line-search trials per direction. The sparse route
+        tries at most six damping strengths per nonlinear iteration, with up
+        to 512 LSQR steps for each. At the objective's rounding scale, a slight
+        cost increase is allowed only while the fresh gradient strictly improves.
 
         Success requires a freshly evaluated infinity norm of J-transpose-r
         at most gtol. A small step or unchanged cost alone cannot succeed.
         The immutable NumericLeastSquaresCandidate reports all residuals,
         half their squared norm, gradient norm and evaluation counts. It can
         represent a nonzero-residual stationary point, including a saddle or
-        maximum; it carries no root or minimum certificate.
+        maximum; it carries no root or minimum certificate. Its backend is
+        "frankennumpy_qr" for the dense route or "sparse_lsqr" for the sparse route.
 
         Initial, trial and final evaluations retain every original source
         and derivative domain. A domain-invalid or overflowing trial backtracks;
         invalid initial/final values, malformed artifacts, allocation failures
         and operational errors remain terminal. Native buffers, rejected trials,
-        donor work and publication share one supplied EvaluationBudget.
-        Cancellation is cooperative around synchronous donor work. Python
+        solver work and publication share one supplied EvaluationBudget.
+        Cancellation is cooperative around synchronous solver work. Python
         objects and compilation are outside that ledger, and no fallback resets
         consumed work.
         """
         from ..solvers.numerical import _candidate_options
 
         _check_evaluation_budget(budget)
+        if type(backend) is not str:
+            raise TypeError("least-squares backend must be an exact built-in string")
+        if backend not in ("dense", "sparse"):
+            raise ValueError("least-squares backend must be dense or sparse")
         columns = self.native_system.variable_count
         rows = self.native_system.residual_count
-        if not 1 <= columns <= 16 or not columns <= rows <= 64:
+        if backend == "sparse":
+            if (not 1 <= columns <= _MAX_VARIABLES or not 1 <= rows <= _MAX_OUTPUTS
+                    or columns * rows > _MAX_NODES):
+                raise ValueError(
+                    "sparse least squares requires 1..256 variables, 1..4096 residuals "
+                    "and at most 65536 Jacobian positions"
+                )
+        elif not 1 <= columns <= 16 or not columns <= rows <= 64:
             raise ValueError(
                 "least squares requires 1..16 variables and variable_count..64 residuals"
             )
@@ -903,13 +927,14 @@ class _ResidualCallable:
         inputs = _call_arguments((None,) * columns, values, native=True)
         point, residuals, cost, gradient, iterations, evaluations, termination = (
             self.native_system.solve_least_squares(
-                inputs, gtol=gtol, maxiter=maxiter,
+                inputs, backend=backend, gtol=gtol, maxiter=maxiter,
                 max_step_norm=max_step_norm, budget=budget,
             )
         )
         result = NumericLeastSquaresCandidate(
             point, self.variables, residuals, cost, gradient,
             iterations, evaluations, termination,
+            "sparse_lsqr" if backend == "sparse" else "frankennumpy_qr",
         )
         _check_evaluation_budget(budget)
         return result

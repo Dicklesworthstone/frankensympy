@@ -5,9 +5,13 @@
 //! ([`fsym_calculus::CompiledResidualSystem`]) define the artifact; this
 //! boundary executes the LINEAR SOLVE of each Newton step through the
 //! pinned `fnp-linalg` consumer (`franken_numpy` @ d5d29c9d, admitted in
-//! registries/dependencies.toml) instead of an in-house solver, so the
-//! consumer's real API is exercised against the same canonical artifact
-//! the native lane evaluates.
+//! registries/dependencies.toml), so the consumer's real API is exercised
+//! against the same canonical artifact the native lane evaluates.
+//!
+//! An explicitly selected sparse least-squares route also uses bounded native
+//! LSQR on checked sparse derivative values. It supports larger rectangular
+//! and rank-deficient systems with cumulative budgets and original-source
+//! acceptance. Its results identify that native algorithm and remain approximate.
 //!
 //! Boundary rules (registries/dependencies.toml, franken_numpy entry):
 //! - only `fnp-linalg` is imported; no pyo3/CPython bridge, no RNG, no

@@ -251,6 +251,55 @@ their causes. Candidate generation and optional certification share a supplied
 `fsolve`; `frankenscipy_analytic` selects the analytic nonlinear driver. A floating
 candidate alone carries no root-existence, uniqueness or rounding guarantee.
 
+### Sparse nonlinear least squares
+
+The same checked residual program can fit rectangular, rank-deficient and
+underdetermined systems through an explicitly selected sparse backend:
+
+```python
+from sympy import compile_residual_system, symbols
+
+variables = symbols("p0:24")
+targets = tuple(index % 7 for index in range(24))
+residuals = [
+    weight * (variable - target)
+    for weight in (1, 2, 3)
+    for variable, target in zip(variables, targets)
+]
+fit = compile_residual_system(residuals, variables)
+candidate = fit.solve_least_squares([0] * 24, backend="sparse")
+
+# candidate.point approximates targets; all 72 rows contribute to the cost.
+# candidate.cost is half the sum of squared original residuals.
+assert candidate.backend == "sparse_lsqr"
+assert candidate.evidence == "approximate"
+```
+
+The numerical search uses column-scaled, damped Gauss–Newton steps from bounded
+LSQR iterations and Armijo backtracking. It operates directly on checked sparse
+Jacobian entries; its solve buffers grow with the stored nonzeros and row/column
+counts, without assembling a dense Jacobian, QR factorization or normal matrix.
+Every original residual and derivative domain is checked again at trial points.
+Invalid numerical trials backtrack, while budget, cancellation and allocation
+failures stop the operation. One supplied `EvaluationBudget` spans all attempts,
+rejected trials and final publication.
+
+The solver admits 1..256 variables and 1..4096 residuals with at most 65,536
+Jacobian positions. Existing compilation still stores dense zero instructions
+and separately limits source differentiation work and total compiled operations
+to 65,536, so not every expression at those shape ceilings is admitted. The
+default `backend="dense"` retains the existing 1..16-variable FrankenNumPy QR
+route. Sparse selection does not silently relax admission or switch backends.
+
+Success requires a fresh original cost gradient `J.T @ residuals` whose infinity
+norm is at most `gtol` (default `1e-10`). A small step, unchanged cost or exhausted
+inner iteration alone cannot succeed. The result reports all residuals, cost,
+gradient norm and evaluation counts. It is an approximate stationary candidate,
+which can have nonzero residuals or be a maximum or saddle; no minimum, root,
+uniqueness or minimum-norm claim is made. Controls are bounded by 1,024 nonlinear
+iterations, six damping strengths per iteration, 512 LSQR steps per strength and
+32 line-search trials per direction.
+
 ---
 
 ## Compiled scalar objectives (development API)

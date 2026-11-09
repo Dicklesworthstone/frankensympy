@@ -1,7 +1,8 @@
-//! Bounded square-system consumers for checked symbolic artifacts.
+//! Bounded numerical consumers for checked symbolic artifacts.
 //!
-//! These adapters accept 1..=16 variables and keep one caller-owned ledger
+//! Square root adapters accept 1..=16 variables and keep one caller-owned ledger
 //! through numerical proposal generation and original-source root verification.
+//! Least-squares routes have separate explicit rectangular and sparse bounds.
 //! The pinned donors are synchronous. Cancellation is checked before and after
 //! each NumPy solve, at every SciPy residual callback, and before publication;
 //! it does not interrupt an individual donor kernel or promise a wall-time bound.
@@ -16,6 +17,8 @@
 
 mod least_squares;
 pub use least_squares::*;
+mod sparse_least_squares;
+pub use sparse_least_squares::*;
 
 use crate::{NewtonGuards, exact_binary64_rational};
 use fsym_budget::{BudgetMeter, Dimension, MeterError, Unbounded};
@@ -89,6 +92,13 @@ pub enum SystemConsumerError {
     NoConvergence {
         iterations: usize,
         residual_norm: f64,
+    },
+    #[error(
+        "sparse least squares did not reach stationarity after {iterations} iterations; gradient infinity-norm {gradient_norm}"
+    )]
+    SparseLeastSquaresNoConvergence {
+        iterations: usize,
+        gradient_norm: f64,
     },
     #[error("compiled evaluation refused: {0}")]
     Evaluation(#[from] EvalError),
