@@ -430,6 +430,121 @@ class ExactDsolveTests(unittest.TestCase):
             with self.assertRaisesRegex(NotImplementedError, "ordinary undefined function"):
                 checkodesol(equation, solution, target)
 
+    def test_factory_identity_and_unary_arity_preserve_both_ode_lanes(self):
+        from sympy import exp
+
+        for index, options in enumerate(({}, {"nargs": None}, {"nargs": 1},
+                                         {"nargs": (1,)}, {"nargs": (0, 1, 2)})):
+            with self.subTest(options=options):
+                function = Function(f"factory_ode_{index}", **options)
+                y = function(self.x)
+                derivative = Derivative(y, self.x)
+                linear = derivative - y
+                solution = dsolve(linear, y)
+                self.assertEqual(solution, Eq(y, Symbol("C1") * exp(self.x)))
+                self.assertEqual(checkodesol(linear, solution, y), (True, 0))
+                exact = 2*self.x + y + (self.x + 2*y)*derivative
+                potential = self.x**2 + self.x*y + y**2
+                relation = dsolve(exact, y, hint="1st_exact", simplify=False)
+                self.assertEqual(expand(relation.lhs - potential), 0)
+                self.assertEqual(relation.rhs, Symbol("C1"))
+                self.assertEqual(checkodesol(exact, relation, y), (True, 0))
+
+    def test_copied_factory_metadata_cannot_admit_a_same_named_custom_class(self):
+        from sympy import exp
+        from sympy.core import AppliedUndef, UndefinedFunction
+
+        factory = Function("copied_ode_factory", nargs=1)
+        namespace = {name: value for name, value in factory.__dict__.items()
+                     if name not in {"__dict__", "__weakref__"}}
+        custom = UndefinedFunction(factory.__name__, (AppliedUndef,), namespace)
+        self.assertIsNot(custom, factory)
+        target = custom(self.x, evaluate=False)
+        equation = Derivative(target, self.x) - target
+        solution = Eq(target, exp(self.x), evaluate=False)
+        with patch(
+            "sympy.solvers.ode._native.exact_ode_potential_native",
+            side_effect=AssertionError("copied metadata must not reach the native ODE generator"),
+        ):
+            with self.assertRaisesRegex(NotImplementedError, "ordinary undefined function"):
+                checkodesol(equation, solution, target)
+            with self.assertRaisesRegex(ValueError, "1st_exact requires"):
+                dsolve(equation, target, hint="1st_exact")
+
+    def test_factory_metadata_mutations_refuse_without_running_user_hooks(self):
+        from sympy import exp
+
+        calls = []
+
+        class HostileMetadata:
+            def __eq__(self, other):
+                calls.append("equality")
+                raise AssertionError("metadata equality hook must not run")
+
+            def __iter__(self):
+                calls.append("iteration")
+                raise AssertionError("metadata iteration hook must not run")
+
+            def __bool__(self):
+                calls.append("truth")
+                raise AssertionError("metadata truth hook must not run")
+
+        class HostileTuple(tuple):
+            def __eq__(self, other):
+                calls.append("tuple equality")
+                raise AssertionError("arity subclass hook must not run")
+
+        class HostileMapping(dict):
+            def __len__(self):
+                calls.append("mapping length")
+                raise AssertionError("metadata mapping hook must not run")
+
+        function = Function("mutated_ode_metadata", nargs=1)
+        target = function(self.x)
+        equation = Derivative(target, self.x) - target
+        solution = Eq(target, exp(self.x), evaluate=False)
+        hostile = HostileMetadata()
+        mutations = (
+            ("_nargs", (2,)), ("_nargs", hostile), ("_nargs", HostileTuple((1,))),
+            ("_kwargs", {"nargs": hostile}), ("_kwargs", HostileMapping(nargs=1)),
+            ("_undefined_function_identity", hostile),
+            ("_undefined_function_options", hostile),
+            ("_undefined_function_arity_list", hostile),
+            ("__module__", hostile), ("__doc__", hostile),
+            ("__name__", "renamed_ode_metadata"),
+        )
+        for attribute, replacement in mutations:
+            with self.subTest(attribute=attribute), patch.object(
+                function, attribute, replacement,
+            ), patch(
+                "sympy.solvers.ode._native.exact_ode_potential_native",
+                side_effect=AssertionError("modified metadata reached native ODE generation"),
+            ):
+                with self.assertRaisesRegex(NotImplementedError, "ordinary undefined function"):
+                    checkodesol(equation, solution, target)
+                with self.assertRaisesRegex(ValueError, "1st_exact requires"):
+                    dsolve(equation, target, hint="1st_exact")
+        with patch.dict(function._kwargs, {"nargs": hostile}):
+            with self.assertRaisesRegex(NotImplementedError, "ordinary undefined function"):
+                checkodesol(equation, solution, target)
+        self.assertEqual(calls, [])
+        self.assertEqual(checkodesol(equation, solution, target), (True, 0))
+
+    def test_assumption_bearing_factory_declarations_do_not_expand_ode_admission(self):
+        from sympy import exp
+
+        for index, options in enumerate(({"real": True}, {"positive": True},
+                                         {"commutative": False}, {"label": "flow"})):
+            with self.subTest(options=options):
+                function = Function(f"declared_ode_{index}", **options)
+                target = function(self.x)
+                equation = Derivative(target, self.x)
+                solution = Eq(target, exp(self.x), evaluate=False)
+                with self.assertRaisesRegex(NotImplementedError, "ordinary undefined function"):
+                    checkodesol(equation, solution, target)
+                with self.assertRaisesRegex(ValueError, "1st_exact requires"):
+                    dsolve(equation, target, hint="1st_exact")
+
     def test_checkodesol_refuses_inherited_argument_and_hook_mutations(self):
         from sympy import exp
         from sympy.core import AppliedUndef

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import GetSetDescriptorType
 from typing import Any
 from ..core import (
     AppliedUndef as _OdeAppliedUndef,
@@ -14,6 +15,7 @@ from ..core import (
     _native_symbol_key,
     _parse_result,
     _require_symbol,
+    _undefined_function_records as _ODE_FUNCTION_RECORDS,
     _wrap,
 )
 from ..core._function_capabilities import _owner_matches, _owner_record
@@ -25,6 +27,15 @@ from ._ode_system import solve_linear_system as _solve_linear_system
 # argument getters, constructors, identity, or _eval_* hooks. Capture owners
 # during package import, before any caller can supply an ODE.
 _ODE_MRO = type.__dict__["__mro__"]
+_ODE_BASES = type.__dict__["__bases__"]
+_ODE_DICT = type.__dict__["__dict__"]
+_ODE_NAME = type.__dict__["__name__"]
+_ODE_MISSING = object()
+_ODE_FUNCTION_MEMBERS = frozenset({
+    "__module__", "__dict__", "__weakref__", "__doc__", "_nargs", "_kwargs",
+    "_undefined_function_options", "_undefined_function_identity",
+    "_undefined_function_arity_list",
+})
 _ODE_FUNCTION_MROS = tuple(
     (root, _ODE_MRO.__get__(root)) for root in (_OdeAppliedUndef, _OdeUndefinedFunction)
 )
@@ -116,12 +127,63 @@ def dsolve_separable_linear(f: Any, x: Any) -> Any:
 
 
 def _plain_ode_function_class(cls):
-    """An ordinary undefined function, with no user-defined behavior."""
-    from ..core import AppliedUndef, UndefinedFunction
+    """Admit an unchanged factory declaration without running user hooks.
 
-    return (type(cls) is UndefinedFunction and cls.__bases__ == (AppliedUndef,)
-            and not (set(cls.__dict__)
-                     - {"__module__", "__dict__", "__weakref__", "__doc__"}))
+    The factory's identity/arity attributes are data, not additional symbolic
+    implementations. Its process-local record binds them to the actual class;
+    copying those attributes onto a same-named class grants no admission.
+    Assumption-bearing and arbitrary metadata declarations remain outside this
+    ordinary scalar ODE lane.
+    """
+    if type(cls) is not _OdeUndefinedFunction:
+        return False
+    record = _ODE_FUNCTION_RECORDS.get(id(cls))
+    if record is None or record[0] is not cls or record[4] is not False:
+        return False
+    bases = _ODE_BASES.__get__(cls)
+    if len(bases) != 1 or bases[0] is not _OdeAppliedUndef:
+        return False
+    declaration = record[3]
+    if any(name != "nargs" for name, _ in declaration):
+        return False
+    namespace = _ODE_DICT.__get__(cls)
+    if (len(namespace) > len(_ODE_FUNCTION_MEMBERS)
+            or any(type(name) is not str or name not in _ODE_FUNCTION_MEMBERS
+                   for name in namespace)):
+        return False
+    name = _ODE_NAME.__get__(cls)
+    module = namespace.get("__module__", _ODE_MISSING)
+    if (type(name) is not str or name != record[1]
+            or type(module) is not str or module != "sympy.core.function"
+            or namespace.get("__doc__", _ODE_MISSING) is not None):
+        return False
+    for name in ("__dict__", "__weakref__"):
+        if name in namespace:
+            descriptor = namespace[name]
+            if (type(descriptor) is not GetSetDescriptorType
+                    or descriptor.__objclass__ is not cls or descriptor.__name__ != name):
+                return False
+    if (namespace.get("_undefined_function_identity", _ODE_MISSING) is not record[2]
+            or namespace.get("_undefined_function_options", _ODE_MISSING) is not declaration
+            or namespace.get("_undefined_function_arity_list", _ODE_MISSING) is not False):
+        return False
+    options = namespace.get("_kwargs", _ODE_MISSING)
+    if (type(options) is not dict or len(options) != len(declaration)
+            or any(type(name) is not str for name in options)
+            or any(options.get(name, _ODE_MISSING) is not value
+                   for name, value in declaration)):
+        return False
+    declared_arity = declaration[0][1] if declaration else None
+    arities = namespace.get("_nargs", _ODE_MISSING)
+    if declared_arity is None:
+        return arities is None
+    expected = tuple(sorted(set(declared_arity if type(declared_arity) is tuple
+                                else (declared_arity,))))
+    # Only exact bounded integers are compared. A modified tuple, value, or
+    # mapping cannot execute an equality/iteration hook during admission.
+    return (type(arities) is tuple and len(arities) == len(expected)
+            and all(type(value) is int and value.bit_length() <= 4096 for value in arities)
+            and 1 in expected and arities == expected)
 
 
 def _checkodesol_function(function):
@@ -909,13 +971,12 @@ def _exact_ode_source(equation, function, variable, *, values=None):
     """
     from math import comb
     from ..core import (
-        Add, AppliedUndef, Derivative, Dummy, Eq, Integer, Mul, Pow, Rational,
-        S, Symbol, UndefinedFunction,
+        Add, Derivative, Dummy, Eq, Integer, Mul, Pow, Rational, S, Symbol,
     )
 
+    _checkodesol_function_protocol()
     cls = type(function)
-    if (type(cls) is not UndefinedFunction or cls.__bases__ != (AppliedUndef,)
-            or set(cls.__dict__) - {"__module__", "__dict__", "__weakref__", "__doc__"}):
+    if not _plain_ode_function_class(cls):
         return False
     if type(variable) not in (Symbol, Dummy):
         return False
