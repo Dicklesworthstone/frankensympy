@@ -595,6 +595,48 @@ non-telescoping rational series.
 
 ---
 
+## Gaussian error functions (development API)
+
+The native numerical compiler supports `erf` and `erfc` through
+`compile_numeric`, native `lambdify`, checked residual/Jacobian programs,
+checked objective/Hessian programs, and supervised hybrid composition.
+Complementary tails are evaluated directly, so a tiny positive `erfc(x)`
+does not disappear merely because the binary64 value of `erf(x)` rounds
+to one.
+
+Original-source interval evaluation independently supports both functions,
+their complete first and second derivatives, root-box checks, and local
+stationary-point checks:
+
+```python
+from sympy import Symbol, compile_numeric, enclose_objective, erfc
+
+x = Symbol("x")
+numeric_tail = compile_numeric(x, erfc(x))
+# numeric_tail(20.0) is approximately 5.3958656116079e-176.
+
+bounds = enclose_objective(erfc(x), x, [(20, 20)], precision=24)
+lower, upper = bounds.value
+assert 0 < lower <= upper
+assert bounds.gradient[0][1] < 0
+assert bounds.hessian[0][0][0] > 0
+```
+
+Binary64 results remain approximate. Certified bounds use exact rational
+series or continued-fraction inequalities with outward rounding and an exact
+final width check. Positive complementary tails through `x=32` retain
+relative precision; larger positive arguments use a rigorous absolute
+saturation enclosure. Tiny nonzero `erf` arguments retain relative accuracy.
+The direct `RealBall` methods accept up to 256 requested decimal digits;
+source-certification APIs retain their own precision and work limits.
+
+Checked derivatives preserve typed coordinates and all original domain
+obligations, including reciprocals hidden by held zero arithmetic. Work
+charges accumulate on the caller's ledger, and failed or cancelled evaluation
+does not publish partial output buffers or certificates.
+
+---
+
 ## First-order linear PDE families (development API)
 
 `pdsolve` now connects the Python shell to a native characteristic solver for

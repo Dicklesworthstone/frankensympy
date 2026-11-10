@@ -819,9 +819,90 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
         )?;
         checked(a.pow(k)?)
     }
+    /// Reserve the actual absolute-exp schedule for one exact endpoint.
+    /// The elementary allowance alone does not cover the magnitude guard:
+    /// exp(400) needs many more Taylor terms/grid digits than exp(1).
+    fn reserve_exp_endpoint(&mut self, value: &BigRational) -> Result<(), RootBoxError> {
+        self.arithmetic(&[], &[value])?;
+        if value.is_zero() {
+            return self.step();
+        }
+        let failure = || RootBoxError::ResourceLimit("exponential work schedule");
+        // The rational height check/charge above bounds these shifted
+        // temporaries by the existing input height plus one bit. This finds
+        // the same minimal s with |value|/2^s <= 1/2 without an uncharged loop.
+        let mut squarings =
+            u32::try_from((value.numer().bits() + 1).saturating_sub(value.denom().bits()))
+                .map_err(|_| failure())?;
+        if (value.numer().abs() << 1u32) > (value.denom() << squarings) {
+            squarings += 1;
+        }
+        let magnitude_guard = if value.is_positive() {
+            let quotient = value.numer() / value.denom();
+            let remainder = value.numer() % value.denom();
+            quotient
+                .to_u64()
+                .and_then(|whole| whole.checked_add(u64::from(!remainder.is_zero())))
+                .ok_or_else(failure)?
+        } else {
+            0
+        };
+        // Match RealBall::exp and exp_series_interval. The initial degree
+        // n=D+8 already suffices: 2^n*(n+1)! >= 10^(n-4) > 10^(D+2).
+        let series_digits = u64::from(self.precision)
+            .checked_add(3 + 2 * u64::from(squarings))
+            .and_then(|digits| digits.checked_add(magnitude_guard))
+            .ok_or_else(failure)?;
+        let terms = series_digits.checked_add(8).ok_or_else(failure)?;
+        let grid = series_digits.checked_add(12).ok_or_else(failure)?;
+        let input_bits = value
+            .height()
+            .max_bits()
+            .checked_add(u64::from(squarings))
+            .ok_or_else(failure)?;
+        let series_bits = grid
+            .checked_mul(4)
+            .and_then(|bits| bits.checked_add(32))
+            .map(|bits| bits.max(input_bits))
+            .ok_or_else(failure)?;
+        // exp(q) < 10^ceil(q) for q>0, so the final numerator may also
+        // carry magnitude_guard digits. Negative endpoints stay below one.
+        let square_bits = grid
+            .checked_add(magnitude_guard)
+            .and_then(|digits| digits.checked_mul(4))
+            .and_then(|bits| bits.checked_add(32))
+            .map(|bits| bits.max(input_bits))
+            .ok_or_else(failure)?;
+        // Four limb-weighted arithmetic allowances per recurrence, matching
+        // the Gaussian kernel's policy. Allocation/byte counts accumulate
+        // over every term; they cover factorial/tail and rounding temporaries.
+        let price = |count: u64, bits: u64| -> Option<(u64, u64, u64)> {
+            let width = bits.div_ceil(64).checked_add(2)?;
+            Some((
+                count
+                    .checked_mul(256)?
+                    .checked_mul(width)?
+                    .checked_mul(width)?,
+                count.checked_mul(1024)?.checked_mul(width)?,
+                count.checked_mul(128)?,
+            ))
+        };
+        let (term_steps, term_bytes, term_allocations) =
+            price(terms, series_bits).ok_or_else(failure)?;
+        let (square_steps, square_bytes, square_allocations) =
+            price(u64::from(squarings) + 2, square_bits).ok_or_else(failure)?;
+        self.charge(
+            term_steps.checked_add(square_steps).ok_or_else(failure)?,
+            term_bytes.checked_add(square_bytes).ok_or_else(failure)?,
+            term_allocations
+                .checked_add(square_allocations)
+                .ok_or_else(failure)?,
+        )
+    }
+
     fn exp(&mut self, a: &RealBall) -> Result<RealBall, RootBoxError> {
         self.elementary(a)?;
-        interval_exp(a, self.precision)
+        interval_exp(a, self)
     }
     /// Entire real error functions and their Gaussian first derivative.
     /// The original argument is evaluated before a zero chain factor can
@@ -1238,12 +1319,22 @@ fn preflight_expressions(
 /// RealBall::exp promises an absolute output-radius target and therefore
 /// refuses wide input balls. The interval extension instead uses monotonicity
 /// and certified exact-endpoint evaluations; it retains the full range width.
-fn interval_exp(argument: &RealBall, digits: u32) -> Result<RealBall, RootBoxError> {
+fn interval_exp(
+    argument: &RealBall,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<RealBall, RootBoxError> {
+    let digits = work.precision;
     if argument.radius().is_zero() {
+        work.reserve_exp_endpoint(argument.midpoint())?;
         return checked(argument.exp(digits)?);
     }
-    let lower = RealBall::exact(argument.lower()).exp(digits)?.lower();
-    let upper = RealBall::exact(argument.upper()).exp(digits)?.upper();
+    let lower = argument.lower();
+    work.reserve_exp_endpoint(&lower)?;
+    let lower = RealBall::exact(lower).exp(digits)?.lower();
+    let upper = argument.upper();
+    work.reserve_exp_endpoint(&upper)?;
+    let upper = RealBall::exact(upper).exp(digits)?.upper();
+    work.arithmetic(&[], &[&lower, &upper])?;
     let two = BigRational::from_integer(2.into());
     checked(RealBall::new(
         (&lower + &upper) / &two,

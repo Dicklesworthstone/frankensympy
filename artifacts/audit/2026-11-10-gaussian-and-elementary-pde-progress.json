@@ -1,0 +1,370 @@
+{
+  "date_utc": "2026-11-10",
+  "scope": "Gaussian numerical/checked consumers, elementary first-order linear PDE families, and magnitude-sensitive interval-exp resource accounting",
+  "published_feature_commits": [
+    {
+      "sha": "b0a45bfe39ff3ef872e6c388fd435beaf8147d4a",
+      "scope": "native checked elementary/resonant PDE forcing"
+    },
+    {
+      "sha": "885f995faa485dba9f923948c32c58de541549db",
+      "scope": "public pdsolve integration and original-surface checks"
+    },
+    {
+      "sha": "f366572c144f950fd1be055b6640fd3ec4c56a6f",
+      "scope": "rational Gaussian enclosures and original-source C1/C2"
+    },
+    {
+      "sha": "2bab95028411a20d3924290e9933c56f3fd9aa7f",
+      "scope": "Gaussian compiler/consumer integration and exact PDE test parity normalization"
+    }
+  ],
+  "toolchain": "nightly-2026-08-20; rustc 1.100.0-nightly (f7d782a3b 2026-08-19); official manifest digests verified",
+  "execution_configuration": {
+    "cargo_jobs": 1,
+    "dev_debug": 0,
+    "test_debug": 0,
+    "incremental": false,
+    "locked_dependencies": true,
+    "production_dependency_and_feature_graph": "unchanged"
+  },
+  "capability_bounds": {
+    "gaussian": "Real erf/erfc; exact rational monotone enclosures, complete original-source first/second derivative chains, direct requested precision at most 256 decimal digits. Positive complementary tails through 32 retain relative precision; larger positive arguments have absolute saturation bounds. Approximate binary64 compilation remains distinct from exact rational certification.",
+    "pde": "Rational constant a*u_x+b*u_y+c*u with nonzero transport and at most 16 affine exponential/trigonometric modes; rational polynomial amplitudes of degree at most 16 and at most 192 monomials. Exact resonance uses characteristic integration. Independent source-bound coefficient checking validates a solution family, not general PDE completeness or boundary/initial conditions.",
+    "exponential_budget": "Prepay magnitude-dependent Taylor/rounding/squaring work for every exact endpoint on the original ledger. Unchanged intrinsic and caller limits can refuse expensive absolute enclosures before the kernel runs; protected verifier reserve is unchanged."
+  },
+  "native_feature_runs_at_2bab950": {
+    "error_function_certificates": 11,
+    "error_function_programs": 7,
+    "linear_pde": 11,
+    "linear_pde_elementary": 10,
+    "failed": 0,
+    "ignored": 0
+  },
+  "native_after_pricing_fix": {
+    "error_function_certificates": 11,
+    "exponential_budget": 2,
+    "objective_enclosure": 13,
+    "root_box_general": 15,
+    "failed": 0,
+    "ignored": 0
+  },
+  "baseline_validation": {
+    "source_commit": "f22cc5a7c5d03259fe312e81cbc8dee5b444b27f",
+    "proof_kernel_rational_sums": 11,
+    "calculus_rational_summation": 15,
+    "linear_pde": 11,
+    "failed": 0,
+    "ignored": 0,
+    "log_sha256": "89a759056fc42676de681562629407c2347b2b970f4e366fe78fec218928e9e2",
+    "scope_note": "Resolves previously pending baseline scopes. These executions are separate from current-source feature runs; overlapping PDE cases are not additional unique coverage."
+  },
+  "quality_checks": {
+    "scoped_strict_clippy": "passed core/calculus/solvers libraries and named new regression targets with -D warnings",
+    "formatting": "pinned Rustfmt with edition 2024 and skip_children=true on changed Rust files; passed",
+    "python_syntax": "py_compile passed pde.py, hybrid.py and the three affected public test modules",
+    "diff_whitespace": "git diff --check passed"
+  },
+  "full_python_bridge_check": {
+    "command": "cargo check --locked -p fsym-python --features extension-module -j1",
+    "exit_code": 101,
+    "sha256": "d499ea883b43523d20787ac53e405a382b0f50bff745dd8d07e70c26d83ad85b",
+    "source_snapshot": "pricing-validation-before.json",
+    "blocker": "rustc compiling unchanged asupersync was killed by signal9/SIGKILL; no Rust source diagnostic",
+    "status": "blocked",
+    "metadata_only": true,
+    "fsym_python_reached": false
+  },
+  "full_extension_builds": [
+    {
+      "command": "cargo build --locked -p fsym-python --features extension-module -j1",
+      "exit_code": 101,
+      "failure": "rustc compiling unchanged asupersync library was killed by signal 9 (SIGKILL)",
+      "extension_produced": false
+    },
+    {
+      "command": "cargo build --locked -p fsym-python --features extension-module -j1 --config 'profile.dev.package.asupersync.codegen-units=256'",
+      "exit_code": 101,
+      "failure": "same unchanged asupersync library SIGKILL; log confirms codegen-units=256",
+      "extension_produced": false
+    }
+  ],
+  "public_python_tests": {
+    "runtime_cases_executed": 0,
+    "gaussian_cases_authored": 15,
+    "elementary_pde_cases_authored": 17,
+    "state": "source/API reviewed, syntax checked, selected by full-extension CI; actual execution remains blocked by extension build"
+  },
+  "discrepancies": [
+    "Initial Gaussian execution passed 6 and failed 5. Positive absolute-exp precision lost range-reduction accuracy at large arguments; its Taylor/grid magnitude guard was corrected. Gaussian derivatives now use a separate metered positive relative-exp path. The final 11 Gaussian cases pass, including tiny arguments, far complementary tails, requested precision 256, derivatives, root checks, budgets and cancellation.",
+    "Initial elementary PDE execution passed 9 and failed 1 because the independent simplifier retained -2*sin(x-y)-2*sin(y-x). The original case remains. The test-only reference normalizer applies exact odd/even circular parity and still requires exact symbolic zero. The corrected 10-test suite passes."
+  ],
+  "source_blobs_after_pricing_fix": {
+    "crates/fsym-calculus/src/compile.rs": {
+      "sha256": "f108469f8b47d8b2a0892110245afd316268cd1691b3e5a391e46686f5da47eb",
+      "git_blob": "e535c3c16595052e3d8a4b1e1d479e37fb0ba2b3"
+    },
+    "crates/fsym-calculus/src/compile/error_functions.rs": {
+      "sha256": "2ac4562cff6b132460897c247311847dfc9d14a12072ef60469aac66ae2c9e5e",
+      "git_blob": "8eed1d48505e6e5e3cd35556d8e0ad16cb7841ef"
+    },
+    "crates/fsym-calculus/src/sparse_jacobian.rs": {
+      "sha256": "d04d2f40d9fad909ea8284074041430377c99d9a501dd3f390b81d64b0e2b74b",
+      "git_blob": "a1c8c6a6d9d3e37d8ce7ea719f9b2a33110f1ce8"
+    },
+    "crates/fsym-calculus/tests/error_function_programs.rs": {
+      "sha256": "77d521d33a729ffa7105a59aaecf522f1dabbdd27f56091e5f838e5cc34d5be7",
+      "git_blob": "d7f090bd647de311092c114ad239380f53fd8f20"
+    },
+    "crates/fsym-core/src/ball.rs": {
+      "sha256": "86d0cb84b5077f12c1573049436f9f6a93b3ef0adc048ea301c3579c9c1f3577",
+      "git_blob": "923de9331af066e7cab9f6e6868982b04807c4cf"
+    },
+    "crates/fsym-core/src/ball/error_functions.rs": {
+      "sha256": "6c7b954e3e22c497b2224e6df8cec7391654b044eb4d82c985e2598e328fd1b9",
+      "git_blob": "026a6d66257c7de66795aee025f588c459c8994d"
+    },
+    "crates/fsym-core/src/lib.rs": {
+      "sha256": "13b58fd16c187a4ad17f2c28265a7cf6be9abea4479a68b67162cbe1058e6989",
+      "git_blob": "0d238721c32bc25be0fa4b99913e4ee8482a3c77"
+    },
+    "crates/fsym-core/src/root_certificate.rs": {
+      "sha256": "07c9a7ab4f01e2996c93a5d55a5f8899aeb5ae22f24759ebf8f9de29e74892b4",
+      "git_blob": "4d35b57d75eba0587edd3846355ea413aaead0b4"
+    },
+    "crates/fsym-core/src/root_certificate/objective.rs": {
+      "sha256": "1528b8c27da67389ce916d48c3628d71b26eb2835f666969a3e384af817c9310",
+      "git_blob": "e3114438ed287e50ac8e1721a2f9de6bf33f1b08"
+    },
+    "crates/fsym-core/tests/error_function_certificates.rs": {
+      "sha256": "aa94e5b85728d713744d8ff8ae8c2f3b52c22d044f71a827d8bb11af27e6a690",
+      "git_blob": "346c6d42a0afc0602aa76deef1fb076898438d54"
+    },
+    "crates/fsym-core/tests/exponential_budget.rs": {
+      "sha256": "6fceddeed9353aeb8a2a425d3c4ba5871d2bee7fac518c659a3e189b26359294",
+      "git_blob": "00dacebbb4c25d4212074ed30a603b34a3075d1d"
+    },
+    "crates/fsym-python/src/pde.rs": {
+      "sha256": "4bec5de665741da0e8c50a0680d773cb13eb7e085ab7ed6b6dae2117c031265e",
+      "git_blob": "ff4a4a54d07acae173328a754a42d8d88d7a6023"
+    },
+    "crates/fsym-solvers/src/pde.rs": {
+      "sha256": "a3cf9b55d2b09f3c5877b6f619eb93e5e15dbfeab3eacb4950c561185dd61382",
+      "git_blob": "b2affe06da8c09815e91dd654d6a35abd04ba6b2"
+    },
+    "crates/fsym-solvers/tests/linear_pde.rs": {
+      "sha256": "f2326f3e1de518078874284a85d580f3eebc0f2d46282725f8944aafbe5bfa51",
+      "git_blob": "aa91621e05ad68c45da7c168162ab04210b19f1d"
+    },
+    "crates/fsym-solvers/tests/linear_pde_elementary.rs": {
+      "sha256": "28927ea6194432cb4bb491b68848f06b4b14004d096eb47784d25b6cd2d72fcd",
+      "git_blob": "30006bd5d9180458f26b370048a2fef6c9ad61dd"
+    },
+    "python/sympy/utilities/hybrid.py": {
+      "sha256": "4035142db214dea0e1e108fdcd788a3b62961610ea8c6639a5250c2953d0ac78",
+      "git_blob": "209d68a3a1535f581f43913b6a8ecf3c81559f7e"
+    },
+    "python/tests/test_error_function_numeric.py": {
+      "sha256": "cefbde24f29f51471794c090ddff2a584cace1949efc0b620cc5a712793eb47f",
+      "git_blob": "4309ddc0f58d317eccacad9abaa26bce173bac7d"
+    },
+    "python/tests/test_linear_pde.py": {
+      "sha256": "11e39909e60fe85be74143f0755689667c99698981f60e1d86e5cbc60c45489c",
+      "git_blob": "bd222282a238eaa205b24bddd24163a736690677"
+    },
+    "python/tests/test_linear_pde_elementary.py": {
+      "sha256": "d05c1f4caf6ad02dfeb7238612270b5585bfd46d445c3618cde1427a17074c8a",
+      "git_blob": "0952548e4a60b4120a4c2083e4a132ecf813f39a"
+    },
+    "python/sympy/solvers/pde.py": {
+      "sha256": "f7714904bf07f6c51f64c1a20979aff6e05ad938862c4cd5a216c658d47fce81",
+      "git_blob": "deda7461d935313f540f1b1f624f2db190c54ba6"
+    },
+    "crates/fsym-python/src/lib.rs": {
+      "sha256": "9444d945f5f5a8d6d246f68fef7794c95084b2cb157e2c43f084d4da9548e18c",
+      "git_blob": "0a91d294f86dd05e6ab3820646dc988115806c1a"
+    }
+  },
+  "logs": {
+    "core-pricing-regressions.log": {
+      "command": "cargo test --locked -p fsym-core --test exponential_budget --test error_function_certificates --test objective_enclosure --test root_box_general",
+      "sha256": "661542539c06f3d2c96dad7b0decc9fe230a71fbac71b1e659b1c5a9a22507a2",
+      "terminal_excerpts": [
+        "    Finished `test` profile [unoptimized] target(s) in 5.43s",
+        "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 88.77s",
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s",
+        "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+        "test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.13s"
+      ],
+      "exit_code": 0,
+      "source_snapshot": "pricing-validation-before.json",
+      "tests": {
+        "passed": 41,
+        "failed": 0,
+        "targets": {
+          "exponential_budget": 2,
+          "error_function_certificates": 11,
+          "objective_enclosure": 13,
+          "root_box_general": 15
+        }
+      }
+    },
+    "calculus-error-function-programs.log": {
+      "command": "cargo test --locked -p fsym-calculus --test error_function_programs",
+      "sha256": "c5586aa4e63933a54a992d96b513626eb1af75ded1ccca3aa68ad598ca6d4930",
+      "terminal_excerpts": [
+        "    Finished `test` profile [unoptimized] target(s) in 14.94s",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s"
+      ],
+      "exit_code": 0,
+      "source_snapshot": "current-native-before.json",
+      "tests": {
+        "passed": 7,
+        "failed": 0
+      }
+    },
+    "solver-linear-pde-corrected.log": {
+      "command": "cargo test --locked -p fsym-solvers --test linear_pde --test linear_pde_elementary",
+      "sha256": "97a902e2e0dac4f1a2f4ed8cbc8a3acfe5cccb49a76c3961c9ec88f3bcb95e52",
+      "terminal_excerpts": [
+        "    Finished `test` profile [unoptimized] target(s) in 0.58s",
+        "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s",
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.73s"
+      ],
+      "exit_code": 0,
+      "source_snapshot": "full-extension-before.json",
+      "tests": {
+        "passed": 21,
+        "failed": 0
+      }
+    },
+    "clippy-core-changed.log": {
+      "command": "cargo clippy --locked -p fsym-core --lib --test exponential_budget --test error_function_certificates -- -D warnings",
+      "sha256": "c9d033be7800be9555cfbeaf7a17069c66354cdc93b93046725512d2322d7175",
+      "terminal_excerpts": [
+        "    Finished `dev` profile [unoptimized] target(s) in 14.65s"
+      ],
+      "exit_code": 0,
+      "source_snapshot": "pricing-validation-before.json"
+    },
+    "clippy-calculus-changed.log": {
+      "command": "cargo clippy --locked -p fsym-calculus --lib --test error_function_programs -- -D warnings",
+      "sha256": "f04d46d552a461bfd4323bacec5bdadfb0605d5ca9d693a6cdad645a78f31e7a",
+      "terminal_excerpts": [
+        "    Finished `dev` profile [unoptimized] target(s) in 8.46s"
+      ],
+      "exit_code": 0,
+      "source_snapshot": "pricing-validation-before.json"
+    },
+    "clippy-solvers-changed.log": {
+      "command": "cargo clippy --locked -p fsym-solvers --lib --test linear_pde --test linear_pde_elementary -- -D warnings",
+      "sha256": "5c32d466412c658afc64f5c34a1b68c6260ec75929659021954fe0f6f4dc35d4",
+      "terminal_excerpts": [
+        "    Finished `dev` profile [unoptimized] target(s) in 1.79s"
+      ],
+      "exit_code": 0,
+      "source_snapshot": "pricing-validation-before.json"
+    },
+    "full-python-extension.log": {
+      "command": "cargo build --locked -p fsym-python --features extension-module -j1",
+      "sha256": "1cc24693b2b8831d966ff69866da64479f8dc57830b1edc9fb06c22f28ba2e04",
+      "terminal_excerpts": [
+        "error: could not compile `asupersync` (lib)"
+      ],
+      "exit_code": 101,
+      "source_snapshot": "full-extension-before.json",
+      "blocker": "rustc compiling unchanged asupersync was killed by signal9/SIGKILL; no Rust source diagnostic"
+    },
+    "full-python-extension-cgu256.log": {
+      "command": "cargo build --locked -p fsym-python --features extension-module -j1 --config 'profile.dev.package.asupersync.codegen-units=256'",
+      "sha256": "2a957d0318f7e25df8a53f1dfe2d8b262b2dfa2b4763fa53c0cc54fa313bebca",
+      "terminal_excerpts": [
+        "error: could not compile `asupersync` (lib)"
+      ],
+      "exit_code": 101,
+      "source_snapshot": "full-extension-before.json",
+      "blocker": "rustc compiling unchanged asupersync was killed by signal9/SIGKILL; no Rust source diagnostic"
+    },
+    "core-error-function-certificates.log": {
+      "command": "cargo test --locked -p fsym-core --test error_function_certificates",
+      "exit_code": 0,
+      "sha256": "0915ff92cbe0e7f8f85bda723a0d2dfd7301a3c4e2481fec161d14a48ca8e53f",
+      "source_snapshot": "current-native-before.json",
+      "tests": {
+        "passed": 11,
+        "failed": 0
+      },
+      "terminal_excerpts": [
+        "    Finished `test` profile [unoptimized] target(s) in 36.75s",
+        "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 87.19s"
+      ]
+    },
+    "solver-linear-pde.log": {
+      "command": "cargo test --locked -p fsym-solvers --test linear_pde --test linear_pde_elementary",
+      "exit_code": 101,
+      "sha256": "7e9bda3b5d4627885f1bb09703cecd724e897d57a154679682b56f1084f163f6",
+      "source_snapshot": "current-native-before.json",
+      "tests": {
+        "passed": 20,
+        "failed": 1
+      },
+      "terminal_excerpts": [
+        "    Finished `test` profile [unoptimized] target(s) in 7.86s",
+        "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s",
+        "test result: FAILED. 9 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.70s",
+        "error: test failed, to rerun pass `-p fsym-solvers --test linear_pde_elementary`"
+      ]
+    },
+    "check-full-python-extension.log": {
+      "command": "cargo check --locked -p fsym-python --features extension-module -j1",
+      "exit_code": 101,
+      "sha256": "d499ea883b43523d20787ac53e405a382b0f50bff745dd8d07e70c26d83ad85b",
+      "source_snapshot": "pricing-validation-before.json",
+      "blocker": "rustc compiling unchanged asupersync was killed by signal9/SIGKILL; no Rust source diagnostic",
+      "terminal_excerpts": [
+        "error: could not compile `asupersync` (lib)"
+      ]
+    }
+  },
+  "remaining_gates": [
+    "actual Python-extension execution",
+    "full current workspace checks/tests",
+    "public compatibility/profile gates",
+    "portable proof-kernel PDE certificate and protected runtime verifier reservation",
+    "broad WS18/WS19 completion"
+  ],
+  "status_policy": "Beads remain open; statuses, priorities, dependency edges, profile definitions and claim tiers are unchanged.",
+  "dependency_heads": {
+    "asupersync": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+    "franken_numpy-pin": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+    "frankenscipy-pin": "213a417c739025ed865a3875c89a7d86726ecb5a"
+  },
+  "source_snapshot_digests": {
+    "current-native-before.json": {
+      "sha256": "2975e862c4e697e8fbeed75155e66ce6b5fea5551d796d02defdb1367dfcd073"
+    },
+    "full-extension-before.json": {
+      "sha256": "7b4b6d984a8a9bc8eaa158ae15269d5c3fa3a5fc1a92a3aea8a8185305582acd"
+    },
+    "pricing-validation-before.json": {
+      "sha256": "11f81971240a0eefccb03b01abed2effbea93e104c31ca7e17e3e6b4fa4c1e6a"
+    },
+    "check-full-python-extension-after.json": {
+      "sha256": "11f81971240a0eefccb03b01abed2effbea93e104c31ca7e17e3e6b4fa4c1e6a"
+    },
+    "Cargo.lock": {
+      "sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2"
+    },
+    "rust-toolchain.toml": {
+      "sha256": "cdaedf5d65db22fa32d18beadab465c1b7653285dfb2e14d23f7dfd9677f9848"
+    }
+  },
+  "final_source_unchanged": true,
+  "validation_source_note": "The final pricing correction changed only original-source generic exp resource reservations; core41 and strictClippy ran after it. The compiler7 and PDE21 native runs are tied to their earlier explicit source snapshots.",
+  "environment": {
+    "CARGO_BUILD_JOBS": "1",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0"
+  }
+}
