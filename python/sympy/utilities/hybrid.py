@@ -31,7 +31,10 @@ _MAX_GRAPH_ACTIONS = 4096
 _FUNCTION_ARGS = Function.__dict__["_args"]
 _BASIC_VALUE = Basic.__dict__["_value"]
 _SURFACE_ARGS = Basic.__dict__["_surface_args"]
-_NATIVE_FUNCTION_NAMES = ("sin", "cos", "tan", "sinh", "cosh", "tanh", "exp", "ln", "log", "sqrt", "abs")
+_NATIVE_FUNCTION_NAMES = (
+    "sin", "cos", "tan", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh",
+    "exp", "ln", "log", "sqrt", "abs",
+)
 _request_state = threading.local()
 
 

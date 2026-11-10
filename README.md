@@ -476,12 +476,13 @@ partial receipt, and one budget spans both numerical search and verification.
 
 ---
 
-## Principal inverse circular functions (development API)
+## Principal inverse functions (development API)
 
 Native scalar programs, checked residual/Jacobian programs and checked
-objective/Hessian programs support `asin`, `acos` and `atan`, including sparse
+objective/Hessian programs support `asin`, `acos`, `atan`, `asinh`, `acosh` and
+`atanh`, including sparse
 products and saved-program replay. The independent original-source interval
-checker also supports all three functions through its first- and second-order
+checker also supports all six functions through its first- and second-order
 rules, so they compose into root-box and stationary-point certificates:
 
 ```python
@@ -508,6 +509,22 @@ C1/C2 regularity. Held zero products and powers retain those obligations.
 No outside point is rounded or clipped into the domain. Stable Piecewise
 selection remains lazy for inactive values, and exact work shares the caller's
 cumulative resource and cancellation budget.
+
+Inverse hyperbolic values use certified square roots and logarithms with exact
+rational endpoints. Their real-domain requirements are:
+
+| Function | Scalar/interval values | Whole-box first/second derivatives |
+| --- | --- | --- |
+| `asinh` | All finite real inputs | Any bounded real argument interval |
+| `acosh` | `[1, +infinity)` | Complete argument interval strictly above `1` |
+| `atanh` | `(-1, 1)` | Complete argument interval strictly inside `(-1, 1)` |
+
+For example, `enclose_objective(asinh(Rational(3, 4) + 2*x + 3*x**2),
+x, [(0, 0)])` encloses the value `log(2)`, gradient `8/5` and Hessian `408/125`.
+The symbolic `acosh` derivative keeps `sqrt(u - 1)` and `sqrt(u + 1)` separate
+to preserve its principal complex branch; the certified numerical lane above
+remains real. Saved programs replay the source and derivative checks, and
+undefined user functions with the same names do not acquire native capability.
 
 ---
 

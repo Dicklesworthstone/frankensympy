@@ -315,6 +315,7 @@ jobs:
               "python/tests/test_undefined_function_identity.py",
               "python/tests/test_inverse_circular_numeric.py",
               "python/tests/test_inverse_circular_certification.py",
+              "python/tests/test_inverse_hyperbolic_numeric.py",
               "python/tests/test_exact_dsolve.py",
               "python/tests/test_recurrence_integrity.py",
               "python/tests/test_recurrence_forcing.py",

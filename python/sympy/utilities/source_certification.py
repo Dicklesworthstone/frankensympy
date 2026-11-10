@@ -100,6 +100,8 @@ def enclose_residual_system(residuals, args, box, *, precision=32, budget=None):
     Every evaluated source operation must be C1, including held operations.
     Principal asin and acos require their complete argument intervals strictly
     inside (-1, 1); atan accepts every bounded real argument interval.
+    Principal asinh accepts every bounded real argument interval; acosh requires
+    the complete interval strictly above one, and atanh strictly inside (-1, 1).
 
     The returned ``ResidualJacobianEnclosure`` retains the original source,
     typed coordinates and box. It makes no root-existence claim. Source
@@ -161,6 +163,8 @@ def enclose_objective(objective, args, box, *, precision=32, budget=None):
     Principal asin and acos require their whole argument intervals strictly
     inside (-1, 1), even under held zero factors or powers. Atan is supported
     on every bounded real argument interval.
+    Asinh has no additional real domain restriction; acosh requires the whole
+    argument interval strictly above one, and atanh strictly inside (-1, 1).
     Crossing or touching an unresolved seam, a missing branch, Float source,
     incompatible assumptions or unsupported source grammar refuses explicitly.
 

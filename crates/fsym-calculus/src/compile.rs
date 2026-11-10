@@ -309,6 +309,11 @@ pub enum CompiledOp {
     Sinh,
     Cosh,
     Tanh,
+    /// Principal real inverse hyperbolic functions. Finite evaluation rejects
+    /// acosh below one and atanh at/outside its poles before later operations.
+    Asinh,
+    Acosh,
+    Atanh,
     Exp,
     Ln,
     Sqrt,
@@ -570,6 +575,9 @@ impl CompiledExpr {
             | CompiledOp::Sinh
             | CompiledOp::Cosh
             | CompiledOp::Tanh
+            | CompiledOp::Asinh
+            | CompiledOp::Acosh
+            | CompiledOp::Atanh
             | CompiledOp::Exp
             | CompiledOp::Ln
             | CompiledOp::Sqrt
@@ -872,26 +880,34 @@ impl CompiledExpr {
                 }
                 charge_compilation_work(meter, name.len() + 1, 0, 0)?;
                 Self::compile_recursive(&args[0], var_map, ops, depth + 1, meter)?;
-                match name.as_str() {
-                    "sin" => Self::push_op(ops, CompiledOp::Sin, meter)?,
-                    "cos" => Self::push_op(ops, CompiledOp::Cos, meter)?,
-                    "tan" => Self::push_op(ops, CompiledOp::Tan, meter)?,
-                    "asin" => Self::push_op(ops, CompiledOp::Asin, meter)?,
-                    "acos" => Self::push_op(ops, CompiledOp::Acos, meter)?,
-                    "atan" => Self::push_op(ops, CompiledOp::Atan, meter)?,
-                    "sinh" => Self::push_op(ops, CompiledOp::Sinh, meter)?,
-                    "cosh" => Self::push_op(ops, CompiledOp::Cosh, meter)?,
-                    "tanh" => Self::push_op(ops, CompiledOp::Tanh, meter)?,
-                    "exp" => Self::push_op(ops, CompiledOp::Exp, meter)?,
-                    "ln" | "log" => Self::push_op(ops, CompiledOp::Ln, meter)?,
-                    "sqrt" => Self::push_op(ops, CompiledOp::Sqrt, meter)?,
-                    "abs" => Self::push_op(ops, CompiledOp::Abs, meter)?,
+                // Share instruction emission across unary functions. A
+                // separate fallible call in every arm inflates this recursive
+                // frame enough to overflow a normal test-thread stack before
+                // MAX_COMPILE_DEPTH can reject a deeply nested source.
+                let operation = match name.as_str() {
+                    "sin" => CompiledOp::Sin,
+                    "cos" => CompiledOp::Cos,
+                    "tan" => CompiledOp::Tan,
+                    "asin" => CompiledOp::Asin,
+                    "acos" => CompiledOp::Acos,
+                    "atan" => CompiledOp::Atan,
+                    "sinh" => CompiledOp::Sinh,
+                    "cosh" => CompiledOp::Cosh,
+                    "tanh" => CompiledOp::Tanh,
+                    "asinh" => CompiledOp::Asinh,
+                    "acosh" => CompiledOp::Acosh,
+                    "atanh" => CompiledOp::Atanh,
+                    "exp" => CompiledOp::Exp,
+                    "ln" | "log" => CompiledOp::Ln,
+                    "sqrt" => CompiledOp::Sqrt,
+                    "abs" => CompiledOp::Abs,
                     other => {
                         return Err(CompileError::UnsupportedFunction(compilation_diagnostic(
                             other, meter,
                         )?));
                     }
-                }
+                };
+                Self::push_op(ops, operation, meter)?;
             }
         }
         Ok(())
@@ -1243,6 +1259,18 @@ impl CompiledExpr {
                 CompiledOp::Tanh => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
                     stack.push(v.tanh());
+                }
+                CompiledOp::Asinh => {
+                    let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    stack.push(v.asinh());
+                }
+                CompiledOp::Acosh => {
+                    let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    stack.push(v.acosh());
+                }
+                CompiledOp::Atanh => {
+                    let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    stack.push(v.atanh());
                 }
                 CompiledOp::Exp => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;

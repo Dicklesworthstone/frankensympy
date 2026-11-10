@@ -34,6 +34,11 @@ pub const RULE_DIFF_LOG: &str = "diff_log";
 pub const RULE_DIFF_ASIN: &str = "diff_asin";
 pub const RULE_DIFF_ACOS: &str = "diff_acos";
 pub const RULE_DIFF_ATAN: &str = "diff_atan";
+/// Principal-branch rules on their common smooth domains. These derivations
+/// do not discharge whole-box domain or differentiability obligations.
+pub const RULE_DIFF_ASINH: &str = "diff_asinh";
+pub const RULE_DIFF_ACOSH: &str = "diff_acosh";
+pub const RULE_DIFF_ATANH: &str = "diff_atanh";
 pub const RULE_DIFF_ERF: &str = "diff_erf";
 pub const RULE_DIFF_ERFC: &str = "diff_erfc";
 pub const RULE_DIFF_SINC: &str = "diff_sinc";
@@ -76,6 +81,9 @@ pub fn classify_diff_rule(expr: &Expr, var: &Symbol) -> &'static str {
             ("asin", 1) => RULE_DIFF_ASIN,
             ("acos", 1) => RULE_DIFF_ACOS,
             ("atan", 1) => RULE_DIFF_ATAN,
+            ("asinh", 1) => RULE_DIFF_ASINH,
+            ("acosh", 1) => RULE_DIFF_ACOSH,
+            ("atanh", 1) => RULE_DIFF_ATANH,
             ("erf", 1) => RULE_DIFF_ERF,
             ("erfc", 1) => RULE_DIFF_ERFC,
             ("sinc", 1) => RULE_DIFF_SINC,
@@ -449,6 +457,35 @@ fn reference_unsimplified_diff(expr: &Expr, var: &Symbol) -> Expr {
                         Expr::pow(u.clone(), Expr::from_i64(2)),
                     ]);
                     Expr::Mul(vec![Expr::pow(denom, Expr::from_i64(-1)), du])
+                }
+                "asinh" => {
+                    let denominator = Expr::Add(vec![
+                        Expr::from_i64(1),
+                        Expr::pow(u.clone(), Expr::from_i64(2)),
+                    ]);
+                    let exponent = Expr::Rational(BigRational::new((-1).into(), 2.into()));
+                    Expr::Mul(vec![Expr::pow(denominator, exponent), du])
+                }
+                "acosh" => {
+                    let exponent = Expr::Rational(BigRational::new((-1).into(), 2.into()));
+                    Expr::Mul(vec![
+                        Expr::pow(
+                            Expr::Add(vec![u.clone(), Expr::from_i64(-1)]),
+                            exponent.clone(),
+                        ),
+                        Expr::pow(Expr::Add(vec![u.clone(), Expr::from_i64(1)]), exponent),
+                        du,
+                    ])
+                }
+                "atanh" => {
+                    let denominator = Expr::Add(vec![
+                        Expr::from_i64(1),
+                        Expr::Mul(vec![
+                            Expr::from_i64(-1),
+                            Expr::pow(u.clone(), Expr::from_i64(2)),
+                        ]),
+                    ]);
+                    Expr::Mul(vec![Expr::pow(denominator, Expr::from_i64(-1)), du])
                 }
                 "erf" => {
                     let pi = Expr::Const(Constant::Pi);
@@ -915,6 +952,31 @@ fn verify_rule_reduction_semantics(
                 return Err(KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected atan(u) for diff_atan".to_string(),
+                });
+            }
+        }
+        RULE_DIFF_ASINH | RULE_DIFF_ACOSH | RULE_DIFF_ATANH => {
+            let expected_name = match rule_name {
+                RULE_DIFF_ASINH => "asinh",
+                RULE_DIFF_ACOSH => "acosh",
+                _ => "atanh",
+            };
+            if !matches!(expr, Expr::Function(name, args) if name == expected_name && args.len() == 1)
+            {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: format!("Expected unary {expected_name} for {rule_name}"),
+                });
+            }
+            // The reference recurrence is independent of diff_unsimplified;
+            // it rechecks the whole chain rule, including the inner source.
+            let expected_rhs = reference_unsimplified_diff(expr, var);
+            if deriv != &expected_rhs {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: format!(
+                        "{expected_name} derivative mismatch: expected {expected_rhs}, got {deriv}"
+                    ),
                 });
             }
         }

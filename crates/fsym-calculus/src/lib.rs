@@ -264,12 +264,18 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
             } else if name == "acosh" && args.len() == 1 {
                 let u = &args[0];
                 let du = diff(u, var);
-                let u_sq_minus_one = Expr::Add(vec![
-                    Expr::pow(u.clone(), Expr::from_i64(2)),
-                    Expr::from_i64(-1),
-                ]);
                 let neg_half = Expr::Rational(BigRational::new(BigInt::from(-1), BigInt::from(2)));
-                Expr::Mul(vec![Expr::pow(u_sq_minus_one, neg_half), du])
+                // Separate principal square roots retain the acosh branch.
+                // Replacing their product by sqrt(u^2-1) reverses the sign
+                // on parts of the complex domain, including Re(u) < 0.
+                Expr::Mul(vec![
+                    Expr::pow(
+                        Expr::Add(vec![u.clone(), Expr::from_i64(-1)]),
+                        neg_half.clone(),
+                    ),
+                    Expr::pow(Expr::Add(vec![u.clone(), Expr::from_i64(1)]), neg_half),
+                    du,
+                ])
             } else if name == "atanh" && args.len() == 1 {
                 let u = &args[0];
                 let du = diff(u, var);
