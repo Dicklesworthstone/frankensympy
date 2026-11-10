@@ -14,12 +14,15 @@ use fsym_core::{
     RootIsolationWorkspace, Symbol,
 };
 use num_traits::{One, Zero};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+
+pub use fsym_core::RootIsolationCounters;
 
 type Result<T> = std::result::Result<T, RootIsolationError>;
 
 /// Search limits do not weaken the independent completeness obligations.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RootIsolationOptions {
     pub precision_digits: u32,
     pub max_leaves: usize,
@@ -47,6 +50,20 @@ pub struct RootIsolationProgress {
     pub excluded_cells: usize,
     pub leaf_count: usize,
     pub ready_for_verification: bool,
+}
+
+/// Normalized, untrusted continuation of an incremental root search.
+/// Pending cells are deliberately absent: the independent core checker
+/// reconstructs them from this exact dyadic prefix and the expected domain.
+/// Portable transports must additionally bind the original source, ordered
+/// typed coordinates, domain and context before calling `from_checkpoint`.
+/// The counters are consumed work, never proof of remote history or budget
+/// allowances. This object and all restored progress remain candidates.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RootIsolationSearchCheckpoint {
+    pub options: RootIsolationOptions,
+    pub witness: RootIsolationWitness,
+    pub counters: RootIsolationCounters,
 }
 
 struct Cell {
@@ -315,6 +332,156 @@ impl RootIsolationSearch {
     pub fn options(&self) -> RootIsolationOptions {
         self.options
     }
+
+    /// Intrinsic consumption includes failed attempts and checkpoint copies.
+    pub fn counters(&self) -> RootIsolationCounters {
+        self.prepared.counters()
+    }
+
+    /// Copy a bounded normalized candidate while charging the same caller
+    /// ledger and intrinsic counters. The returned history includes this
+    /// snapshot copy; exporting repeatedly never refunds consumed work.
+    pub fn checkpoint(
+        &mut self,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<RootIsolationSearchCheckpoint> {
+        let witness = self.prepared.with_workspace(meter, |workspace| {
+            copy_witness(workspace, &self.frontier.witness)
+        })?;
+        Ok(RootIsolationSearchCheckpoint {
+            options: self.options,
+            witness,
+            counters: self.prepared.counters(),
+        })
+    }
+
+    /// Reconstruct candidate search state for the caller's expected source.
+    ///
+    /// All imported roots and exclusions are independently rechecked, and
+    /// every pending region is reconstructed from the bounded prefix. No
+    /// partial completeness receipt is created. Preparation, validation and
+    /// copying consume the receiver's meter; prior intrinsic work is added,
+    /// not substituted, and can exhaust the unchanged lifetime limits.
+    /// Header/structure lower bounds detect impossible understatements, but
+    /// no unauthenticated checkpoint can prove its sender's full work history.
+    /// Failure leaves both the checkpoint and the caller's searches untouched.
+    pub fn from_checkpoint(
+        residuals: &[Expr],
+        variables: &[Symbol],
+        domain: &[RealBall],
+        checkpoint: &RootIsolationSearchCheckpoint,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<Self> {
+        meter.checkpoint().map_err(RootBoxError::from)?;
+        check_options(checkpoint.options)?;
+        let witness = &checkpoint.witness;
+        if witness.partition.len() > 2 * checkpoint.options.max_leaves - 1
+            || witness.roots.len() > MAX_ROOT_ISOLATION_ROOTS
+            || witness.precision_digits != checkpoint.options.precision_digits
+        {
+            return Err(RootIsolationError::InvalidPartition(
+                "checkpoint header disagrees with its bounded search options",
+            ));
+        }
+        let mut search = Self::new(residuals, variables, domain, checkpoint.options, meter)?;
+        let baseline = search.counters();
+        // Every committed transition charges at least preparation and commit.
+        // Every split/exclusion performs a source enclosure; discovering a
+        // new root also encloses its midpoint and performs two local checks.
+        // Covered leaves may reuse an earlier root without a new evaluation.
+        let evaluated_cells = witness
+            .partition
+            .iter()
+            .filter(|step| !matches!(step, RootIsolationStep::Root { .. }))
+            .count();
+        let minimum_evaluations = evaluated_cells + 4 * witness.roots.len();
+        let minimum_steps = baseline.steps + 2 * witness.partition.len() as u64;
+        if checkpoint.counters.steps < minimum_steps
+            || checkpoint.counters.evaluations < minimum_evaluations
+        {
+            return Err(RootIsolationError::InvalidPartition(
+                "checkpoint understates committed traversal work",
+            ));
+        }
+        search.prepared.include_prior_work(checkpoint.counters)?;
+        let (prefix, copied_witness, pending) =
+            search.prepared.with_workspace(meter, |workspace| {
+                let prefix = workspace.validate_prefix(witness, checkpoint.options.max_leaves)?;
+                let copied_witness = copy_witness(workspace, witness)?;
+                workspace.account(
+                    1,
+                    ((MAX_ROOT_ISOLATION_DEPTH + 1) * std::mem::size_of::<Cell>()) as u64,
+                    1,
+                )?;
+                let pending = reserve(
+                    MAX_ROOT_ISOLATION_DEPTH + 1,
+                    "restored root-isolation traversal allocation",
+                )?;
+                Ok((prefix, copied_witness, pending))
+            })?;
+        search.frontier.leaves = prefix.leaf_count();
+        search.frontier.excluded = prefix.excluded_leaf_count();
+        search.frontier.witness = copied_witness;
+        search.frontier.pending = pending;
+        for (domain, depth) in prefix.into_pending() {
+            search.frontier.pending.push(Cell { domain, depth });
+        }
+        Ok(search)
+    }
+}
+
+fn copy_witness(
+    workspace: &mut RootIsolationWorkspace<'_, impl BudgetMeter>,
+    witness: &RootIsolationWitness,
+) -> Result<RootIsolationWitness> {
+    // Private search data or independently validated witness data only.
+    let payload_bytes: u64 = witness
+        .roots
+        .iter()
+        .map(|root| {
+            (std::mem::size_of_val(root.domain.as_slice())
+                + std::mem::size_of_val(root.center.as_slice())
+                + std::mem::size_of_val(root.preconditioner.as_slice())) as u64
+                + root
+                    .domain
+                    .iter()
+                    .flat_map(|value| [value.midpoint(), value.radius()])
+                    .chain(root.center.iter())
+                    .chain(root.preconditioner.iter().flatten())
+                    .map(rational_bytes)
+                    .sum::<u64>()
+        })
+        .sum();
+    workspace.account(
+        1,
+        payload_bytes
+            + (MAX_ROOT_ISOLATION_ROOTS * std::mem::size_of::<RootBoxWitness>()) as u64
+            + (MAX_ROOT_ISOLATION_NODES * std::mem::size_of::<RootIsolationStep>()) as u64,
+        2 + witness
+            .roots
+            .iter()
+            .map(|root| {
+                (root.domain.len() * 4
+                    + root.center.len() * 2
+                    + root.preconditioner.iter().map(Vec::len).sum::<usize>() * 2
+                    + root.preconditioner.len()
+                    + 3) as u64
+            })
+            .sum::<u64>(),
+    )?;
+    // Preserve the fixed spare capacity used by future atomic transitions.
+    let mut partition = reserve(
+        MAX_ROOT_ISOLATION_NODES,
+        "root-checkpoint partition allocation",
+    )?;
+    partition.extend_from_slice(&witness.partition);
+    let mut roots = reserve(MAX_ROOT_ISOLATION_ROOTS, "root-checkpoint roots allocation")?;
+    roots.extend(witness.roots.iter().cloned());
+    Ok(RootIsolationWitness {
+        roots,
+        partition,
+        precision_digits: witness.precision_digits,
+    })
 }
 
 fn reserve<T>(capacity: usize, label: &'static str) -> Result<Vec<T>> {

@@ -18,6 +18,7 @@ use super::{
 use crate::{BigRational, Expr, RealBall, Symbol};
 use fsym_budget::{BudgetMeter, Unbounded};
 use num_traits::Zero;
+use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, mem::size_of, sync::Arc};
 use thiserror::Error;
 
@@ -137,6 +138,29 @@ pub struct RootIsolationWorkspace<'a, M> {
     domain: &'a [RealBall],
     work: Work<'a, M>,
     evaluations: usize,
+}
+
+/// Independently reconstructed pending regions of a candidate cover prefix.
+/// This is traversal state, never a complete-root acceptance receipt.
+pub struct RootIsolationPrefix {
+    pending: Vec<(Vec<RealBall>, usize)>,
+    leaf_count: usize,
+    excluded_leaf_count: usize,
+}
+
+impl RootIsolationPrefix {
+    pub fn leaf_count(&self) -> usize {
+        self.leaf_count
+    }
+
+    pub fn excluded_leaf_count(&self) -> usize {
+        self.excluded_leaf_count
+    }
+
+    /// Pending cells are in LIFO order, with the next leftmost cell last.
+    pub fn into_pending(self) -> Vec<(Vec<RealBall>, usize)> {
+        self.pending
+    }
 }
 
 impl<'a, M: BudgetMeter> RootIsolationWorkspace<'a, M> {
@@ -370,6 +394,121 @@ impl<'a, M: BudgetMeter> RootIsolationWorkspace<'a, M> {
         }
         Ok(false)
     }
+
+    /// Validate a normalized candidate prefix without trusting serialized
+    /// pending boxes, values, derivatives, or acceptance flags. All local
+    /// roots and exclusions are replayed against the original frozen source.
+    /// An empty prefix is valid, and leaves every point unresolved.
+    pub fn validate_prefix(
+        &mut self,
+        witness: &RootIsolationWitness,
+        max_leaves: usize,
+    ) -> Result<RootIsolationPrefix> {
+        if !(1..=MAX_ROOT_ISOLATION_LEAVES).contains(&max_leaves)
+            || witness.partition.len() > 2 * max_leaves - 1
+            || witness.roots.len() > MAX_ROOT_ISOLATION_ROOTS
+        {
+            return Err(RootIsolationError::InvalidPartition(
+                "checkpoint node, root or leaf limit",
+            ));
+        }
+        if witness.precision_digits != self.work.precision {
+            return Err(RootBoxError::InvalidPrecision.into());
+        }
+        for (index, root) in witness.roots.iter().enumerate() {
+            // Discard the local receipt: it authorizes no complete result.
+            self.verify_local(root)?;
+            for (previous, other) in witness.roots[..index].iter().enumerate() {
+                if !self.separated(&root.domain, &other.domain)? {
+                    return Err(RootIsolationError::OverlappingRoots {
+                        first: previous,
+                        second: index,
+                    });
+                }
+            }
+        }
+        self.account(
+            1,
+            binding_bytes(self.variables, self.domain)
+                + ((MAX_ROOT_ISOLATION_DEPTH + 1) * size_of::<(Vec<RealBall>, usize)>()) as u64,
+            self.domain.len() as u64 + 2,
+        )?;
+        let mut pending = Vec::new();
+        pending
+            .try_reserve_exact(MAX_ROOT_ISOLATION_DEPTH + 1)
+            .map_err(|_| RootBoxError::ResourceLimit("root-prefix stack allocation"))?;
+        pending.push((self.domain.to_vec(), 0usize));
+        let mut leaf_count = 1usize;
+        let mut excluded_leaf_count = 0usize;
+        let mut introduced_roots = 0usize;
+        for step in &witness.partition {
+            self.account(1, 0, 0)?;
+            let (cell, depth) = pending.pop().ok_or(RootIsolationError::InvalidPartition(
+                "trailing checkpoint partition tokens",
+            ))?;
+            match *step {
+                RootIsolationStep::Split { axis } => {
+                    if depth >= MAX_ROOT_ISOLATION_DEPTH || leaf_count >= max_leaves {
+                        return Err(RootIsolationError::InvalidPartition(
+                            "checkpoint split exceeds depth or leaf limit",
+                        ));
+                    }
+                    let (left, right) = self.bisect(&cell, axis)?;
+                    pending.push((right, depth + 1));
+                    pending.push((left, depth + 1));
+                    leaf_count += 1;
+                }
+                RootIsolationStep::Exclude => {
+                    let enclosure = self.enclose_cell(&cell)?;
+                    let mut excluded = false;
+                    for value in enclosure.residual_values() {
+                        self.work.arithmetic(&[value], &[])?;
+                        excluded |= value.lower() > BigRational::zero()
+                            || value.upper() < BigRational::zero();
+                    }
+                    if !excluded {
+                        return Err(RootIsolationError::Incomplete(
+                            "checkpoint exclusion still admits a zero residual vector",
+                        ));
+                    }
+                    excluded_leaf_count += 1;
+                }
+                RootIsolationStep::Root { index } => {
+                    let root =
+                        witness
+                            .roots
+                            .get(index)
+                            .ok_or(RootIsolationError::InvalidPartition(
+                                "checkpoint root reference is out of range",
+                            ))?;
+                    if index > introduced_roots {
+                        return Err(RootIsolationError::InvalidPartition(
+                            "checkpoint root introduction order",
+                        ));
+                    }
+                    if !self.contains(&root.domain, &cell)? {
+                        return Err(RootIsolationError::InvalidPartition(
+                            "checkpoint root leaf escapes its verified root box",
+                        ));
+                    }
+                    if index == introduced_roots {
+                        introduced_roots += 1;
+                    }
+                }
+            }
+        }
+        if introduced_roots != witness.roots.len() {
+            return Err(RootIsolationError::InvalidPartition(
+                "checkpoint has an unreferenced root proposal",
+            ));
+        }
+        self.account(1, 0, 0)?;
+        Ok(RootIsolationPrefix {
+            pending,
+            leaf_count,
+            excluded_leaf_count,
+        })
+    }
 }
 
 /// Owned, preflighted input and cumulative work for a paused root search.
@@ -388,11 +527,16 @@ pub struct RootIsolationPrepared {
     counters: RootIsolationCounters,
 }
 
-struct RootIsolationCounters {
-    steps: u64,
-    allocation_bytes: u64,
-    source_bytes: u64,
-    evaluations: usize,
+/// Consumed intrinsic work, not a transferable allowance or an authenticated
+/// statement of remote history. Import adds these values to fresh receiver
+/// work; the receiver's own caller ledger remains authoritative.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RootIsolationCounters {
+    pub steps: u64,
+    pub allocation_bytes: u64,
+    pub source_bytes: u64,
+    pub evaluations: usize,
 }
 
 struct PreparedWorkspace<'a, 'state, M> {
@@ -472,6 +616,51 @@ impl RootIsolationPrepared {
     /// All attempted interval traversals, including attempts that refused.
     pub fn evaluation_count(&self) -> usize {
         self.counters.evaluations
+    }
+
+    pub fn counters(&self) -> RootIsolationCounters {
+        self.counters
+    }
+
+    /// Carry forward a prior candidate's intrinsic work after header
+    /// admission. Exact history cannot be authenticated by a checkpoint;
+    /// callers also check independently provable structural lower bounds.
+    /// No imported value credits or replenishes the receiving caller meter.
+    /// Current preparation, later prefix verification and all future work
+    /// remain additional consumption under the unchanged intrinsic caps.
+    pub fn include_prior_work(&mut self, prior: RootIsolationCounters) -> Result<()> {
+        if prior.source_bytes != self.counters.source_bytes
+            || prior.steps < self.counters.steps
+            || prior.allocation_bytes < self.counters.allocation_bytes
+        {
+            return Err(RootIsolationError::InvalidPartition(
+                "checkpoint understates preparation work or changes source accounting",
+            ));
+        }
+        let steps = prior
+            .steps
+            .checked_add(self.counters.steps)
+            .filter(|total| *total <= super::MAX_ROOT_BOX_STEPS)
+            .ok_or(RootBoxError::ResourceLimit("cumulative arithmetic work"))?;
+        let allocation_bytes = prior
+            .allocation_bytes
+            .checked_add(self.counters.allocation_bytes)
+            .filter(|total| *total <= super::MAX_ROOT_BOX_ALLOCATION_BYTES)
+            .ok_or(RootBoxError::ResourceLimit("cumulative allocation"))?;
+        let evaluations = prior
+            .evaluations
+            .checked_add(self.counters.evaluations)
+            .filter(|total| *total <= MAX_EVALUATIONS)
+            .ok_or(RootBoxError::ResourceLimit(
+                "root-isolation evaluation count",
+            ))?;
+        self.counters = RootIsolationCounters {
+            steps,
+            allocation_bytes,
+            source_bytes: self.counters.source_bytes,
+            evaluations,
+        };
+        Ok(())
     }
 
     /// Borrow the frozen input and all previously admitted work with a caller's
