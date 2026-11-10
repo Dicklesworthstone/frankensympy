@@ -15,6 +15,7 @@ from .ode import (
     verify_const_coeff_second_order_solution,
     verify_linear_first_order_solution,
 )
+from .pde import pdsolve
 from .polysys import nonlinsolve, solve_poly_system
 from .solvers import linsolve, nsolve, solve_linear, solve_linear_system, solve_linear_system_LU
 
@@ -33,6 +34,7 @@ __all__ = [
     "nsolve",
     "nsolve_certified",
     "RootSearchError",
+    "pdsolve",
     "solve",
     "solve_linear",
     "solve_linear_system",

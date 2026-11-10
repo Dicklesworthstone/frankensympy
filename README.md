@@ -595,6 +595,49 @@ non-telescoping rational series.
 
 ---
 
+## First-order linear PDE families (development API)
+
+`pdsolve` now connects the Python shell to a native characteristic solver for
+
+```text
+a*u_x + b*u_y + c*u = f(x, y)
+```
+
+where `a`, `b`, and `c` are exact rational constants, at least one derivative
+coefficient is nonzero, and `f` is a rational polynomial of total degree at
+most 16. For example:
+
+```python
+from sympy import Eq, Function, Symbol, diff, pdsolve
+
+x, y = Symbol("x"), Symbol("y")
+u = Function("u")(x, y)
+solution = pdsolve(Eq(diff(u, x) + diff(u, y) + u, x), u)
+# A family equivalent to Eq(u, exp(-x)*F(y - x) + x - 1).
+```
+
+The generator constructs affine characteristic coordinates `s,t` and a
+polynomial particular solution `q`. A separate coefficient recurrence checks
+the original residual, the identities `D(s)=1` and `D(t)=0`, and a nonzero
+coordinate determinant before publishing `exp(-c*s)*F(t) + q`. Here
+`D = a*d/dx + b*d/dy`, and `F` is an arbitrary differentiable function.
+The native result explicitly reports `VerifiedSolutionFamily`.
+
+The shell retains the original dependent-function owner and typed
+`Symbol`/`Dummy` coordinates, including same-name coordinates with distinct
+identities. `solvefun=Function("Phi")` supplies an ordinary unary arbitrary
+function. Original source storage is checked before cancellation and again
+after native evaluation and result construction. Nonlinear equations, variable
+coefficients, higher derivatives, custom hooks, inexact coefficients and
+original coordinate reciprocals are refused by this lane.
+
+The native API uses bounded exact arithmetic and cumulative cancellation/work
+accounting. This development API does not impose initial or boundary
+conditions, cover other PDE classes, establish a complete compatibility
+profile, or provide a portable proof-kernel/runtime-reservation receipt.
+
+---
+
 ## Custom functions in residual systems (development API)
 
 Ordinary arithmetic retains the actual Python function applications, including

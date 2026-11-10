@@ -217,6 +217,7 @@ jobs:
               "python/tests/test_algebraic_matrix_spectra.py",
               "python/tests/test_quartic_radicals.py",
               "python/tests/test_quartic_ode_roots.py",
+              "python/tests/test_linear_pde.py",
               "python/tests/test_exact_dsolve.py",
               "python/tests/test_surface.py::SurfaceTests::test_ode_checkodesol_and_verifiers",
               "python/tests/test_surface.py::SurfaceTests::test_calculus_and_series_advanced",
