@@ -11,9 +11,7 @@ from sympy import (
     Add, Derivative, Dummy, Eq, Float, Function, Integer, Mul, Pow, Rational,
     Symbol, cos, diff, dsolve, exp, expand, log, simplify, sin,
 )
-from sympy.core import (
-    AppliedUndef, UndefinedFunction, _native, _native_expr, _symbol_binding,
-)
+from sympy.core import _native, _native_expr, _symbol_binding
 
 
 class ElementaryForcedOdeSystemTests(unittest.TestCase):
@@ -200,8 +198,9 @@ class ElementaryForcedOdeSystemTests(unittest.TestCase):
                 self.assertTrue(any(symbol is time for symbol in values[0].free_symbols))
 
     def test_same_named_function_owners_follow_inferred_and_explicit_coordinate_order(self):
-        first = type.__new__(UndefinedFunction, "elementary_same", (AppliedUndef,), {})
-        second = type.__new__(UndefinedFunction, "elementary_same", (AppliedUndef,), {})
+        # Distinct admitted unary declarations share their printed name.
+        first = Function("elementary_same", nargs=1)
+        second = Function("elementary_same", nargs=(1,))
         owners = [first, second]
         equations, functions = self.equations(
             [[0, 0], [0, 0]], [exp(self.t), sin(self.t)], owners=owners,

@@ -11,9 +11,7 @@ from sympy import (
     Add, Derivative, Dummy, Eq, Float, Function, Mul, Pow, Rational, Symbol,
     cos, cosh, diff, dsolve, exp, expand, simplify, sin, sinh, sqrt,
 )
-from sympy.core import (
-    AppliedUndef, UndefinedFunction, _native, _native_expr, _symbol_binding,
-)
+from sympy.core import _native, _native_expr, _symbol_binding
 
 
 class GeneralOdeSystemTests(unittest.TestCase):
@@ -187,8 +185,9 @@ class GeneralOdeSystemTests(unittest.TestCase):
                     self.assert_zero(value - wanted)
 
     def test_same_named_distinct_function_owners_follow_source_and_explicit_order(self):
-        first = type.__new__(UndefinedFunction, "general_same", (AppliedUndef,), {})
-        second = type.__new__(UndefinedFunction, "general_same", (AppliedUndef,), {})
+        # Distinct admitted unary declarations share their printed name.
+        first = Function("general_same", nargs=1)
+        second = Function("general_same", nargs=(1,))
         owners = [first, second, self.owners[2]]
         self.assertIsNot(first, second)
         equations, functions = self.equations([[0]*3 for _ in range(3)], [2, 5, 11], owners=owners)

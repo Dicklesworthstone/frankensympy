@@ -202,12 +202,12 @@ def test_retained_field_metadata_cannot_route_a_quotient_into_qq(monkeypatch, at
             other.quotient(ideal)
 
 
-@pytest.mark.parametrize("kind", ["reciprocal", "rational", "float", "unknown"])
+@pytest.mark.parametrize("kind", ["reciprocal", "float", "unknown"])
 @pytest.mark.parametrize("shape", ["zero_product", "zero_power"])
 def test_every_original_source_is_admitted_before_zero_or_unit_shortcuts(kind, shape):
     x = sp.Symbol("modular_quotient_hidden_" + kind + "_" + shape)
     bad = {"reciprocal": sp.Pow(x, -1, evaluate=False),
-           "rational": sp.Rational(1, 2), "float": sp.Float("1.0"),
+           "float": sp.Float("1.0"),
            "unknown": sp.sin(x)}[kind]
     hidden = (sp.Mul(0, bad, evaluate=False) if shape == "zero_product"
               else sp.Pow(bad, 0, evaluate=False))
@@ -217,6 +217,71 @@ def test_every_original_source_is_admitted_before_zero_or_unit_shortcuts(kind, s
     unit = sp.groebner([1], x, modulus=5)
     for left, right in ((first, zero), (unit, first), (zero, first)):
         with pytest.raises((ValueError, CoercionFailed)):
+            left.quotient(right)
+
+
+@pytest.mark.parametrize("prime", [2, 5])
+@pytest.mark.parametrize("shape", ["zero_product", "zero_power"])
+def test_held_rational_integer_identities_preserve_zero_and_unit_quotients(prime, shape):
+    x = sp.Symbol("modular_quotient_integral_identity_" + shape)
+    half = sp.Rational(1, 2)
+    source = (sp.Mul(0, half, evaluate=False) if shape == "zero_product"
+              else sp.Pow(half, 0, evaluate=False))
+    original = sp.groebner([x], x, modulus=prime)
+    original.exprs[:] = [source]
+    zero = sp.groebner([], x, modulus=prime)
+    unit = sp.groebner([1], x, modulus=prime)
+    ideal = sp.groebner([x], x, modulus=prime)
+    # The complete original sources are 0 and 1 over ZZ. Their rational
+    # intermediates are not independently embedded into the finite field.
+    assert original.quotient(zero).exprs == [1]
+    assert unit.quotient(original).exprs == [1]
+    assert zero.quotient(original).exprs == ([1] if shape == "zero_product" else [])
+    assert original.quotient(unit).exprs == ([] if shape == "zero_product" else [1])
+    assert ideal.quotient(original).exprs == ([1] if shape == "zero_product" else [x])
+    assert original.exprs[0] is source
+
+
+@pytest.mark.parametrize("prime", [2, 5])
+@pytest.mark.parametrize("shape", ["product", "sum", "characteristic_denominator"])
+def test_finite_quotient_preserves_rational_cancellation_and_multiplicity(prime, shape):
+    x, y = sp.symbols("modular_quotient_cancellation_x modular_quotient_cancellation_y")
+    half = sp.Rational(1, 2)
+
+    def held_integer_source(polynomial):
+        if shape == "product":
+            return sp.Mul(2, half, polynomial, evaluate=False)
+        if shape == "sum":
+            term = sp.Mul(half, polynomial, evaluate=False)
+            return sp.Add(term, term, evaluate=False)
+        return sp.Mul(prime, sp.Pow(prime, -1, evaluate=False), polynomial, evaluate=False)
+
+    numerator = held_integer_source(x**3*y)
+    divisor = held_integer_source(x)
+    original = sp.groebner([x**3*y], x, y, modulus=prime)
+    original.exprs[:] = [numerator]
+    other = sp.groebner([x], y, x, modulus=prime)
+    other.exprs[:] = [divisor]
+    result = original.quotient(other)
+    assert result.exprs == [x**2*y]
+    assert result.domain == "GF(%d)" % prime
+    assert original.exprs[0] is numerator and other.exprs[0] is divisor
+
+
+@pytest.mark.parametrize("prime", [2, 5])
+@pytest.mark.parametrize("shape", ["scalar", "monomial"])
+def test_nonintegral_final_coefficients_refuse_in_both_quotient_operands(prime, shape):
+    x = sp.Symbol("modular_quotient_nonintegral_" + shape)
+    half = sp.Rational(1, 2)
+    source = half if shape == "scalar" else sp.Mul(half, x, evaluate=False)
+    original = sp.groebner([1], x, modulus=prime)
+    original.exprs[:] = [1, source]
+    zero = sp.groebner([], x, modulus=prime)
+    unit = sp.groebner([1], x, modulus=prime)
+    # Unit/zero laws cannot skip a nonintegral original coefficient in either
+    # operand, even when its denominator has an inverse in the retained field.
+    for left, right in ((original, zero), (unit, original), (zero, original)):
+        with pytest.raises(CoercionFailed):
             left.quotient(right)
 
 

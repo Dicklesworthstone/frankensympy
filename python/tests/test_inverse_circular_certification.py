@@ -96,10 +96,22 @@ def test_held_zero_operations_cannot_erase_inverse_derivative_domains(operation,
     for point in (-1, 1, 2):
         with pytest.raises(ValueError):
             operation(source, x, [(point, point)])
-    result = operation(source, x, [(0, 0)])
+    # Both inverse values are nonzero here. At x=0, held asin(x)**0
+    # instead has the independently forbidden original-source form 0**0.
+    interior = s.Rational(1, 2)
+    result = operation(source, x, [(interior, interior)])
     expected = 0 if held == "zero_product" else 1
     value = result.residual_values[0] if operation is s.enclose_residual_system else result.value
     assert value == (expected, expected)
+
+
+@pytest.mark.parametrize("operation", ENCLOSERS)
+@pytest.mark.parametrize("name", ["asin", "atan"])
+def test_held_inverse_zero_powers_preserve_indeterminate_zero_base(operation, name):
+    x = s.Symbol("inverse_zero_base_x")
+    source = s.Pow(getattr(s, name)(x), 0, evaluate=False)
+    with pytest.raises(ValueError, match="zero exponent"):
+        operation(source, x, [(0, 0)])
 
 
 @pytest.mark.parametrize("operation", ENCLOSERS)

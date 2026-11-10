@@ -232,11 +232,11 @@ def test_current_sources_need_not_already_be_a_groebner_basis():
     assert first.eliminate(x).exprs == []
 
 
-@pytest.mark.parametrize("bad_kind", ["reciprocal", "rational", "float", "unknown"])
+@pytest.mark.parametrize("bad_kind", ["reciprocal", "float", "unknown"])
 def test_original_invalid_sources_survive_zero_and_unit_shortcuts(bad_kind):
     x = sp.Symbol("modular_original_" + bad_kind)
     bad = {"reciprocal": sp.Pow(x, -1, evaluate=False),
-           "rational": sp.Rational(1, 2), "float": sp.Float("1.0"),
+           "float": sp.Float("1.0"),
            "unknown": sp.sin(x)}[bad_kind]
     hidden = sp.Mul(0, bad, evaluate=False)
     first = sp.groebner([1], x, modulus=5)
@@ -246,6 +246,69 @@ def test_original_invalid_sources_survive_zero_and_unit_shortcuts(bad_kind):
                       lambda: other.intersection(first), lambda: first.saturate(0),
                       lambda: other.saturate(hidden)):
         with pytest.raises((ValueError, CoercionFailed)):
+            operation()
+
+
+@pytest.mark.parametrize("prime", [2, 5])
+@pytest.mark.parametrize("shape", ["zero_product", "zero_power"])
+def test_held_rational_zero_and_one_are_admitted_as_integer_sources(prime, shape):
+    x = sp.Symbol("modular_integral_identity_" + shape)
+    half = sp.Rational(1, 2)
+    source = (sp.Mul(0, half, evaluate=False) if shape == "zero_product"
+              else sp.Pow(half, 0, evaluate=False))
+    original = sp.groebner([x], x, modulus=prime)
+    original.exprs[:] = [source]
+    zero = sp.groebner([], x, modulus=prime)
+    unit = sp.groebner([1], x, modulus=prime)
+    expected = [] if shape == "zero_product" else [1]
+    # Admission expands the original source over QQ before projecting its
+    # integer coefficients. Neither identity requires an image of 1/2 in F_2.
+    assert original.eliminate(x).exprs == expected
+    assert original.intersection(unit).exprs == expected
+    assert unit.intersection(original).exprs == expected
+    assert original.saturate(1).exprs == expected
+    assert original.saturate(0).exprs == [1]
+    assert zero.saturate(source).exprs == ([1] if shape == "zero_product" else [])
+    assert original.exprs[0] is source
+
+
+@pytest.mark.parametrize("prime", [2, 5])
+@pytest.mark.parametrize("shape", ["product", "sum", "characteristic_denominator"])
+def test_ideal_operations_preserve_exact_rational_cancellation_before_projection(prime, shape):
+    x, y = sp.symbols("modular_cancellation_x modular_cancellation_y")
+    half = sp.Rational(1, 2)
+    if shape == "product":
+        source = sp.Mul(2, half, x*y, evaluate=False)
+    elif shape == "sum":
+        term = sp.Mul(half, x*y, evaluate=False)
+        source = sp.Add(term, term, evaluate=False)
+    else:
+        source = sp.Mul(prime, sp.Pow(prime, -1, evaluate=False), x*y, evaluate=False)
+    original = sp.groebner([x*y], x, y, modulus=prime)
+    original.exprs[:] = [source]
+    other = sp.groebner([y], y, x, modulus=prime)
+    assert original.eliminate(x).exprs == []
+    assert original.intersection(other).exprs == [x*y]
+    assert other.intersection(original).exprs == [x*y]
+    assert original.saturate(x).exprs == [y]
+    assert other.saturate(source).exprs == [1]
+    assert original.exprs[0] is source
+
+
+@pytest.mark.parametrize("prime", [2, 5])
+@pytest.mark.parametrize("shape", ["scalar", "monomial"])
+def test_nonintegral_final_coefficients_refuse_before_ideal_shortcuts(prime, shape):
+    x = sp.Symbol("modular_nonintegral_" + shape)
+    half = sp.Rational(1, 2)
+    source = half if shape == "scalar" else sp.Mul(half, x, evaluate=False)
+    original = sp.groebner([1], x, modulus=prime)
+    original.exprs[:] = [1, source]
+    zero = sp.groebner([], x, modulus=prime)
+    # A final 1/2 coefficient is outside ZZ even when 2 is invertible in F_5.
+    for operation in (lambda: original.eliminate(x), lambda: original.intersection(zero),
+                      lambda: zero.intersection(original), lambda: original.saturate(0),
+                      lambda: zero.saturate(source)):
+        with pytest.raises(CoercionFailed):
             operation()
 
 

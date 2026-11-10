@@ -4950,6 +4950,21 @@ class AppliedUndef(Function):
 
     __slots__ = ()
 
+    # Supported declarations remain unknown until the defining class supplies
+    # a fact. Keep these on the base so unknowns do not alter factory identity.
+    is_algebraic = None
+    is_antihermitian = None
+    is_extended_negative = None
+    is_extended_nonnegative = None
+    is_extended_nonpositive = None
+    is_extended_nonzero = None
+    is_extended_positive = None
+    is_extended_real = None
+    is_hermitian = None
+    is_noninteger = None
+    is_polar = None
+    is_transcendental = None
+
     def __new__(cls, *args: Any, **options: Any):
         if cls is AppliedUndef:
             if not args or not isinstance(args[0], str):

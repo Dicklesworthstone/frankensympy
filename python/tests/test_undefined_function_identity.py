@@ -114,6 +114,19 @@ def test_invalid_arities_fail_before_a_class_is_cached(value):
     assert s.Function("bad_arity")(1).args == (s.Integer(1),)
 
 
+@pytest.mark.parametrize("name", [
+    "algebraic", "antihermitian", "extended_negative", "extended_nonnegative",
+    "extended_nonpositive", "extended_nonzero", "extended_positive", "extended_real",
+    "hermitian", "noninteger", "polar", "transcendental",
+])
+def test_undeclared_function_assumptions_remain_unknown(name):
+    function = s.Function("unknown_assumption_function")
+    node = function(s.Symbol("unknown_assumption_x"))
+    assert getattr(function, "is_" + name) is None
+    assert getattr(node, "is_" + name) is None
+    assert name not in function._kwargs
+
+
 @pytest.mark.parametrize("declarations, expected", [
     ({"real": True}, {"real": True, "complex": True, "finite": True,
                       "imaginary": False, "positive": None}),

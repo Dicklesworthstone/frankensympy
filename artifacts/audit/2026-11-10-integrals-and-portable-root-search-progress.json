@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "recorded_at_utc": "2026-11-10T03:42:51.915735+00:00",
+  "recorded_at_utc": "2026-11-10T04:10:30.786588+00:00",
   "repository": "https://github.com/Dicklesworthstone/frankensympy",
   "base_commit": "cfc86ce1d54922d3779664ffb2171797821b537e",
   "native_checkpoint_commit": "9ac8ffebdd2b1a99fbeaa86e4a3b10f204b7a75b",
@@ -233,7 +233,7 @@
       }
     },
     "pending_at_record_time": [
-      "Actual-extension G3 rerun after adversarial fixture cleanup correction; Rust production sources are unchanged from the 3136-test passing revision."
+      "Actual-extension focused and extended G3 regressions for these Python source and fixture corrections. All production Rust sources remain unchanged from the 3136-test passing revision."
     ],
     "planning": {
       "command": "python3 tools/validate_planning.py",
@@ -446,6 +446,47 @@
         "2026-11-10T03:35:59.6537953Z E           TypeError: cannot delete '__name__' attribute of immutable type 'renamed_ode_metadata'",
         "2026-11-10T03:35:59.6539575Z FAILED python/tests/test_exact_dsolve.py::ExactDsolveTests::test_factory_metadata_mutations_refuse_without_running_user_hooks - TypeError: cannot delete '__name__' attribute of immutable type 'renamed_ode_metadata'",
         "2026-11-10T03:35:59.6540251Z 1 failed, 757 passed in 46.22s"
+      ]
+    },
+    "extended_public_ci": {
+      "commit": "152a4b2a8ac0406713e38dd16a543d2a9cd7354e",
+      "run_url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/42751315825",
+      "job_id": 129615406728,
+      "planning": "passed",
+      "fmt_check_clippy": "passed",
+      "native_feature_regressions": "passed",
+      "full_extension_build": "passed",
+      "focused_python": {
+        "passed": 758,
+        "failed": 0,
+        "seconds": 38.88
+      },
+      "extended_python": {
+        "passed": 2881,
+        "failed": 9,
+        "seconds": 320.97
+      },
+      "failure_groups": [
+        {
+          "count": 1,
+          "area": "Recurrence original-source affine power resource admission"
+        },
+        {
+          "count": 1,
+          "area": "Missing unknown assumption predicate on AppliedUndef"
+        },
+        {
+          "count": 3,
+          "area": "Finite-field fixtures incorrectly reject rational intermediates that expand to integer polynomials"
+        },
+        {
+          "count": 2,
+          "area": "ODE fixtures manufacture unregistered owners instead of using admitted factory declarations"
+        },
+        {
+          "count": 2,
+          "area": "Held asin(x)**0 fixtures incorrectly use the forbidden 0**0 point as a valid control"
+        }
       ]
     }
   },
@@ -1018,6 +1059,16 @@
       "reviewer": "repository_lookup",
       "scope": "Native checkpoint transport and Session acceptance; request examples matched against actual request types",
       "result": "No blocking issue found; all 32 NDJSON examples structurally matched the 27 request variants and exact payload fields."
+    },
+    {
+      "reviewer": "build_environment",
+      "scope": "AppliedUndef unknown-predicate inheritance, factory metadata/cache and same-named ODE owner fixtures",
+      "result": "No blocking issue found; no computed predicate is overridden and typed nargs declarations remain distinct admitted unary owners. Source/AST review only, pending actual-extension execution."
+    },
+    {
+      "reviewer": "math_gap_audit",
+      "scope": "Original recurrence power admission, nested rewrite ordering, bounds and terminal failures",
+      "result": "Identified preorder admission of outer exponents before nested power bounds. Corrected to descendant-first admission and added guarded nested regressions. No other blocking issue found; syntax/source review only, pending actual-extension execution."
     }
   ],
   "limitations": [
@@ -1069,5 +1120,89 @@
       "observed_source_probe": "The actual extracted loop retained 22 refusal assertions, ran no hostile/native hooks, restored every original attribute identity, preserved the post-loop _kwargs adversary, and restored __name__ even when an assertion deliberately failed.",
       "scope": "Source-level fixture/admission checks; the updated actual-extension test is pending CI."
     }
+  },
+  "public_math_repairs": {
+    "recurrence": {
+      "problem": "Substitution and expansion could erase oversized affine exponent slopes and offsets before the existing forcing admission ran.",
+      "change": "Check original affine powers and rational scalar growth before recurrence rewriting. Admit nested powers before rewriting their parents. Share the exact power bound with subsequent normalization; propagate operational refusals unchanged.",
+      "regressions": "Keep the original failing regression and add five methods for cancellation/index normalization, guarded nested exponent admission, scalar growth, valid exact forcing, and terminal failure checks."
+    },
+    "unknown_function_assumptions": {
+      "problem": "Supported predicates absent from AppliedUndef raised AttributeError when assumption closure left their truth value unknown.",
+      "change": "Provide None for 12 supported predicates with no inherited implementation. Existing computed predicates, factory normalization, declaration metadata and admission guards remain unchanged.",
+      "regressions": "Twelve parameterized checks require unknown class and instance predicates without adding defining metadata."
+    },
+    "fixture_contract_corrections": [
+      {
+        "area": "Finite-field source admission",
+        "contract": "Expand exact sources over QQ, then require integer polynomial coefficients before projection into the retained prime field; rational intermediates may cancel.",
+        "evidence": [
+          "crates/fsym-polys/src/finite_field_multivariate_source.rs",
+          "crates/fsym-polys/tests/finite_field_multivariate_source.rs",
+          "python/tests/test_finite_field_groebner.py",
+          "artifacts/audit/2026-11-07-prime-field-ideals-public-progress.json"
+        ],
+        "change": "Replace three contradictory rational-source negatives with 20 positive rational-identity/cancellation cases and eight final-nonintegral-coefficient refusal cases in characteristics 2 and 5. Preserve all nine genuinely unsupported held-source cases; no production admission changes."
+      },
+      {
+        "area": "Undefined-function ODE owner identity",
+        "contract": "ODE owners must be admitted defining classes from the Function factory; an unregistered class made with type.__new__ is refused.",
+        "change": "Use distinct same-named public unary declarations with nargs=1 and nargs=(1,). All original coordinate order, initial value and owner identity assertions remain; no production ODE guard changes."
+      },
+      {
+        "area": "Held inverse-function zero powers",
+        "contract": "Original-source 0**0 is refused, including asin(0)**0, even when the inverse function itself is defined.",
+        "evidence": [
+          "crates/fsym-core/src/ball.rs",
+          "crates/fsym-core/tests/objective_enclosure.rs"
+        ],
+        "change": "Move the valid interior control from 0 to 1/2. Preserve every derivative-endpoint/domain refusal and add four explicit held asin/atan zero-base refusal cases."
+      }
+    ],
+    "source_inputs": [
+      {
+        "path": "python/sympy/core/__init__.py",
+        "sha256": "37bf050452a68a0c31b9e67f16c9488ea886aec5dd60f177920bd0554762772c"
+      },
+      {
+        "path": "python/sympy/solvers/recurr.py",
+        "sha256": "fee13579f5fb70f0fa271d8438bb0c6ac92bdfb51408ccbb760e5a455a5a0032"
+      },
+      {
+        "path": "python/tests/test_elementary_forced_ode_system.py",
+        "sha256": "6291c9c710bfe253317c1e6177722780133478df9e628a9c35c5a453ee67b8b6"
+      },
+      {
+        "path": "python/tests/test_finite_field_ideal_operations.py",
+        "sha256": "e9649ab7354d9e6311aa91d3c4d225e5d110e3c1181056715f8f9f5d26c386e5"
+      },
+      {
+        "path": "python/tests/test_finite_field_ideal_quotient.py",
+        "sha256": "5bfc63ac8b4c088c62b2bd40df1688341ca7f40ff1bb13373a7a2a65cf79982d"
+      },
+      {
+        "path": "python/tests/test_general_ode_system.py",
+        "sha256": "90d809f66eb7306682fe4c1c2f72ec41452db895fd2450824788f2e930841bea"
+      },
+      {
+        "path": "python/tests/test_inverse_circular_certification.py",
+        "sha256": "46a0d8d6701d5c61b4c115a4e259e36be1738f4a03120454d5dddefdf647ff4e"
+      },
+      {
+        "path": "python/tests/test_recurrence_integrity.py",
+        "sha256": "0803eef14e9bd18b1c33f35aeae2a45defea6f61b588d78c7e5e3412d6327da8"
+      },
+      {
+        "path": "python/tests/test_undefined_function_identity.py",
+        "sha256": "814498af1d0dd4c8a4d737a9e0de611d5b37d53dcae41aa720822e4a6d88ca8f"
+      }
+    ],
+    "observed_checks": [
+      "All nine modified Python files pass AST parsing and compile(source, path, exec) without importing the native extension.",
+      "git diff --check passes.",
+      "Isolated actual-source factory/owner probes and extracted recurrence helper probes passed; these do not execute the native extension or constitute the public regression suite.",
+      "The new recurrence positive formulas were independently checked with upstream SymPy 1.14.0; this is oracle evidence only."
+    ],
+    "not_executed_locally": "The production native extension build previously exhausted local storage. No further Cargo or native build was attempted; actual-extension regression execution is pending GitHub CI."
   }
 }

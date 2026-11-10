@@ -94,7 +94,7 @@ def _expand(expression: Any) -> Any:
     return result
 
 
-def _admit_source(expression: Any, func: Any) -> None:
+def _admit_source(expression: Any, func: Any, index: Any = None) -> None:
     """Keep original domains and closed source owners before any rewriting."""
     from ..core import Derivative, Float, Function, Integer, Pow, Rational, S
     from ..functions import exp, factorial
@@ -103,6 +103,7 @@ def _admit_source(expression: Any, func: Any) -> None:
     if not _checkodesol_surface(expression):
         raise NotImplementedError("rsolve: original source domain cannot be preserved")
     pending = [expression]
+    powers = []
     while pending:
         node = pending.pop()
         if node in (S.NaN, S.Infinity, S.NegativeInfinity, S.ComplexInfinity):
@@ -120,11 +121,30 @@ def _admit_source(expression: Any, func: Any) -> None:
         if isinstance(node, (Integer, Rational)):
             if max(abs(node.p).bit_length(), node.q.bit_length()) > _MAX_EXACT_BITS:
                 raise NotImplementedError("rsolve: exact literal exceeds 4096 bits")
-        if isinstance(node, Pow) and isinstance(node.args[1], Integer):
-            if abs(node.args[1].p) > _MAX_SHIFT:
-                raise NotImplementedError("rsolve: integer power exceeds the bounded envelope")
+        if isinstance(node, Pow):
+            base, exponent = node.args
+            if isinstance(exponent, Integer):
+                if abs(exponent.p) > _MAX_SHIFT:
+                    raise NotImplementedError("rsolve: integer power exceeds the bounded envelope")
+                if isinstance(base, Rational):
+                    _rational_power_exponent(base, exponent)
+            elif index is not None and index in exponent.free_symbols:
+                powers.append((base, exponent))
         pending.extend(_checkodesol_children(node))
     _expansion_envelope(expression)
+    # Substitution and expansion can turn b**(k*n+r) into b**r*(b**k)**n.
+    # Admit the original affine exponents before those rewrites erase their
+    # slope/offset or materialize an oversized exact scalar. Finish the whole
+    # literal/shape preflight first, including powers inside the exponents.
+    # Collection is preorder: admit descendants before substituting or
+    # differentiating an outer exponent that could evaluate those powers.
+    for base, exponent in reversed(powers):
+        slope, offset = _affine_argument(exponent, index)
+        _integer_offset(slope)
+        _integer_offset(offset)
+        if isinstance(base, Rational):
+            _rational_power_exponent(base, slope)
+            _rational_power_exponent(base, offset)
 
 
 def _admit_candidate(expression: Any, func: Any) -> None:
@@ -355,16 +375,22 @@ def _linear_product(p: Any, n: Any, k: Any) -> Any:
     return product(p.subs(n, k), (k, 0, n - 1))
 
 
+def _rational_power_exponent(base: Any, exponent: Any) -> int:
+    """Admit rational exponentiation without constructing the resulting scalar."""
+    power = _integer_offset(exponent)
+    bits = max(abs(base.p).bit_length(), base.q.bit_length())
+    if bits*abs(power) > _MAX_EXACT_BITS:
+        raise NotImplementedError("rsolve: geometric power exceeds the exact scalar envelope")
+    return power
+
+
 def _rational_power(base: Any, exponent: Any) -> Any:
     """Bound exact rational work before materializing integer powers."""
     from ..core import Rational
 
     if not isinstance(base, Rational) or base == 0:
         raise NotImplementedError("rsolve: geometric normalization requires nonzero rational bases")
-    power = _integer_offset(exponent)
-    bits = max(abs(base.p).bit_length(), base.q.bit_length())
-    if bits*abs(power) > _MAX_EXACT_BITS:
-        raise NotImplementedError("rsolve: geometric power exceeds the exact scalar envelope")
+    power = _rational_power_exponent(base, exponent)
     return base**power
 
 
@@ -678,7 +704,7 @@ def rsolve(f: Any, y: Any, init: Any = None) -> Any:
     if n.is_integer is False:
         raise ValueError("rsolve: the sequence index cannot be declared noninteger")
     original = sympify(f)
-    _admit_source(original, func)
+    _admit_source(original, func, n)
     conditions = _initial_conditions(init, func, n)
     # Keep the original Eq and held source intact for independent replay.
     f = original.lhs-original.rhs if type(original) is Eq else original

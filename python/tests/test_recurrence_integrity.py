@@ -107,6 +107,93 @@ class RecurrenceIntegrityTests(unittest.TestCase):
                 with self.assertRaises(NotImplementedError):
                     rsolve(source, y(n))
 
+    def test_original_power_limits_survive_cancellation_and_index_normalization(self):
+        n, y = self.n, self.y
+        for exponent in (-1025*n, Add(n, -1025, evaluate=False),
+                         1025*n+1, Add(2*n, 1025, evaluate=False)):
+            forcing = Pow(2, exponent, evaluate=False)
+            # The same original source occurs on both sides. Admission must
+            # precede cancellation as well as the shift of n+1 down to n.
+            source = Eq(Add(y(n+2)-3*y(n+1), forcing, evaluate=False),
+                        forcing, evaluate=False)
+            with self.subTest(exponent=exponent):
+                with self.assertRaises(NotImplementedError):
+                    rsolve(source, y(n))
+
+    def test_nested_power_limits_precede_outer_exponent_rewriting(self):
+        from sympy.core import _native, _wrap
+        from sympy.solvers import recurr
+
+        n, y = self.n, self.y
+        native_power = _native.py_pow
+        affine_argument = recurr._affine_argument
+
+        def reject_oversized_power(base, exponent):
+            b, e = _wrap(base), _wrap(exponent)
+            if b == 2 and isinstance(e, Integer) and abs(e.p) > 1024:
+                raise AssertionError("nested unadmitted power was materialized")
+            return native_power(base, exponent)
+
+        for exponent in (1025*n, Add(n, 1025, evaluate=False)):
+            inner = Pow(2, exponent, evaluate=False)
+            forcing = Pow(2, inner, evaluate=False)
+            source = Add(y(n+1)-3*y(n),
+                         Mul(-1, forcing, evaluate=False), evaluate=False)
+
+            def admit_inner_first(argument, index):
+                self.assertIs(argument, exponent,
+                              "outer exponent was rewritten before nested power admission")
+                return affine_argument(argument, index)
+
+            with self.subTest(exponent=exponent), patch.object(
+                _native, "py_pow", side_effect=reject_oversized_power,
+            ), patch.object(recurr, "_affine_argument", side_effect=admit_inner_first) as admission:
+                with self.assertRaisesRegex(NotImplementedError, "shift envelope"):
+                    rsolve(source, y(n))
+                self.assertEqual(admission.call_count, 1)
+
+    def test_original_geometric_scalar_work_is_bounded_before_rewriting(self):
+        n, y = self.n, self.y
+        base = Integer(2**100)
+        for exponent in (100*n, Add(n, 100, evaluate=False)):
+            forcing = Pow(base, exponent, evaluate=False)
+            source = Add(y(n+1)-3*y(n),
+                         Mul(-1, forcing, evaluate=False), evaluate=False)
+            with self.subTest(exponent=exponent):
+                with self.assertRaisesRegex(NotImplementedError, "exact scalar envelope"):
+                    rsolve(source, y(n))
+
+    def test_admitted_affine_forcing_keeps_exact_closed_forms(self):
+        n, y = self.n, self.y
+        cases = (
+            (2*n+3, 8*(4**n-3**n)),
+            (-n-2, (3**n-Rational(1, 2)**n)/10),
+        )
+        for exponent, expected in cases:
+            forcing = Pow(2, exponent, evaluate=False)
+            source = Add(y(n+1)-3*y(n),
+                         Mul(-1, forcing, evaluate=False), evaluate=False)
+            with self.subTest(exponent=exponent):
+                answer = rsolve(source, y(n), {y(0): 0})
+                self.assert_zero(answer-expected)
+                self.check_original(source, answer, (0, 1), {0: 0})
+
+    def test_power_admission_resource_failures_are_terminal(self):
+        n, y = self.n, self.y
+        source = Add(y(n+1)-3*y(n),
+                     Mul(-1, Pow(2, n+1, evaluate=False), evaluate=False),
+                     evaluate=False)
+        for failure in (MemoryError("power admission allocation failed"),
+                        RuntimeError("power admission resource exhausted"),
+                        NotImplementedError("power admission refused")):
+            with self.subTest(failure=type(failure)), patch(
+                "sympy.core.expand", side_effect=failure,
+            ) as operation:
+                with self.assertRaises(type(failure)) as caught:
+                    rsolve(source, y(n))
+                self.assertIs(caught.exception, failure)
+                self.assertEqual(operation.call_count, 1)
+
     def test_original_unshifted_recurrences_and_initial_values_are_preserved(self):
         n, y = self.n, self.y
         cases = (
