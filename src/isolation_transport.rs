@@ -89,7 +89,7 @@ impl Serialize for Steps<'_> {
 }
 
 #[derive(Serialize)]
-struct WitnessView<'a> {
+pub(crate) struct WitnessView<'a> {
     roots: &'a [RootBoxWitness],
     partition: Steps<'a>,
     precision_digits: u32,
@@ -159,7 +159,7 @@ struct WitnessInput<'a> {
     precision_digits: u32,
 }
 
-fn check_domain(
+pub(crate) fn check_domain(
     domain: &[RealBall],
     dimensions: usize,
     meter: &mut impl BudgetMeter,
@@ -275,7 +275,33 @@ pub fn replay_root_isolation(
     if domain.as_slice() != wire.domain.get().as_bytes() {
         return Err(CertificationError::DomainMismatch);
     }
-    let length = wire.witness.get().len() as u64;
+    let witness = decode_witness(wire.witness.get(), meter)?;
+    let canonical = encode(
+        &Artifact {
+            schema_version: ROOT_ISOLATION_ARTIFACT_SCHEMA_VERSION,
+            context_digest: expected_context,
+            residuals: expected_problem.residuals(),
+            variables: expected_problem.variables(),
+            domain: expected_domain,
+            witness: (&witness).into(),
+        },
+        meter,
+    )?;
+    charge(meter, bytes.len() as u64 + 1, 0, 0)?;
+    if canonical.as_slice() != bytes {
+        return Err(CertificationError::NonCanonical);
+    }
+    expected_problem.verify_isolation(expected_domain, &witness, meter)
+}
+
+/// Decode one bounded complete cover or unfinished traversal prefix. This
+/// supplies untrusted witness data only; the caller still binds the source,
+/// validates its own schema and independently checks the appropriate claim.
+pub(crate) fn decode_witness(
+    raw: &str,
+    meter: &mut impl BudgetMeter,
+) -> Result<RootIsolationWitness, CertificationError> {
+    let length = raw.len() as u64;
     let storage = MAX_ROOT_ISOLATION_ROOTS * (size_of::<&RawValue>() + size_of::<RootBoxWitness>())
         + MAX_ROOT_ISOLATION_NODES * (size_of::<Step>() + size_of::<RootIsolationStep>());
     charge(
@@ -285,7 +311,7 @@ pub fn replay_root_isolation(
         (MAX_ROOT_ISOLATION_ROOTS + MAX_ROOT_ISOLATION_NODES + 8) as u64,
     )?;
     let input: WitnessInput<'_> =
-        serde_json::from_str(wire.witness.get()).map_err(|error| encoding_error(&error))?;
+        serde_json::from_str(raw).map_err(|error| encoding_error(&error))?;
     let mut roots = Vec::new();
     roots
         .try_reserve_exact(input.roots.0.len())
@@ -306,25 +332,9 @@ pub fn replay_root_isolation(
         .try_reserve_exact(input.partition.0.len())
         .map_err(|_| CertificationError::AllocationFailure)?;
     partition.extend(input.partition.0.into_iter().map(RootIsolationStep::from));
-    let witness = RootIsolationWitness {
+    Ok(RootIsolationWitness {
         roots,
         partition,
         precision_digits: input.precision_digits,
-    };
-    let canonical = encode(
-        &Artifact {
-            schema_version: ROOT_ISOLATION_ARTIFACT_SCHEMA_VERSION,
-            context_digest: expected_context,
-            residuals: expected_problem.residuals(),
-            variables: expected_problem.variables(),
-            domain: expected_domain,
-            witness: (&witness).into(),
-        },
-        meter,
-    )?;
-    charge(meter, bytes.len() as u64 + 1, 0, 0)?;
-    if canonical.as_slice() != bytes {
-        return Err(CertificationError::NonCanonical);
-    }
-    expected_problem.verify_isolation(expected_domain, &witness, meter)
+    })
 }

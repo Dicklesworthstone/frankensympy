@@ -112,6 +112,8 @@ impl<'de> Deserialize<'de> for ArtifactContentId {
 pub enum ArtifactKind {
     RootCertificate,
     RootIsolation,
+    IntegralCertificate,
+    RootSearchCheckpoint,
 }
 
 impl ArtifactKind {
@@ -119,6 +121,8 @@ impl ArtifactKind {
         match self {
             Self::RootCertificate => 1,
             Self::RootIsolation => 2,
+            Self::IntegralCertificate => 3,
+            Self::RootSearchCheckpoint => 4,
         }
     }
 }

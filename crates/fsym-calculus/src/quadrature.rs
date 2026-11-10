@@ -84,6 +84,44 @@ pub fn metered_certified_integral(
     generator_meter: &mut impl BudgetMeter,
     verifier_meter: &mut impl BudgetMeter,
 ) -> Result<IntegralEnclosureReceipt, QuadratureError> {
+    let witness = propose_integral_enclosure(
+        expression,
+        variable,
+        lower,
+        upper,
+        absolute_tolerance,
+        options,
+        generator_meter,
+    )?;
+    let receipt = verify_integral_enclosure(
+        expression,
+        variable,
+        lower,
+        upper,
+        absolute_tolerance,
+        &witness,
+        verifier_meter,
+    )?;
+    generator_meter.checkpoint().map_err(RootBoxError::from)?;
+    Ok(receipt)
+}
+
+/// Propose a bounded adaptive partition without granting integral evidence.
+///
+/// Separating proposal from verification lets a coordinator use one cumulative
+/// budget sequentially: ordinary work first, then the protected verifier pool.
+/// The returned partition must pass [`verify_integral_enclosure`] against the
+/// receiver's original source, ordered bounds and absolute tolerance.
+#[allow(clippy::too_many_arguments)]
+pub fn propose_integral_enclosure(
+    expression: &Expr,
+    variable: &Symbol,
+    lower: &BigRational,
+    upper: &BigRational,
+    absolute_tolerance: &BigRational,
+    options: QuadratureOptions,
+    generator_meter: &mut impl BudgetMeter,
+) -> Result<QuadratureWitness, QuadratureError> {
     generator_meter.checkpoint().map_err(RootBoxError::from)?;
     validate_integral_request(lower, upper, absolute_tolerance)?;
     if !(1..=MAX_QUADRATURE_INTERVALS).contains(&options.max_intervals) {
@@ -152,15 +190,6 @@ pub fn metered_certified_integral(
             precision_digits: options.precision_digits,
         }
     };
-    let receipt = verify_integral_enclosure(
-        expression,
-        variable,
-        lower,
-        upper,
-        absolute_tolerance,
-        &witness,
-        verifier_meter,
-    )?;
     generator_meter.checkpoint().map_err(RootBoxError::from)?;
-    Ok(receipt)
+    Ok(witness)
 }

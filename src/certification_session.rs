@@ -12,15 +12,20 @@ use crate::artifact_stream::{
 use crate::certification::{
     CertificationError, ResidualProblem, export_root_certificate, replay_root_certificate,
 };
+use crate::integration::{
+    IntegrationError, export_integral_certificate, replay_integral_certificate,
+};
 use crate::isolation_transport::{export_root_isolation, replay_root_isolation};
+use crate::search_checkpoint::{export_root_search_checkpoint, restore_root_search_checkpoint};
 use fsym_budget::{Budget, BudgetError, BudgetMeter, Dimension, MeterError, VerifierLease};
+use fsym_calculus::quadrature::QuadratureOptions;
 use fsym_calculus::root_isolation::{
     MAX_ROOT_ISOLATION_ADVANCE_CELLS, RootIsolationOptions, RootIsolationProgress,
     RootIsolationSearch,
 };
 use fsym_core::{
-    BigInt, BigRational, RealBall, RootBoxError, RootBoxReceipt, RootBoxWitness,
-    RootIsolationError, RootIsolationReceipt, Symbol,
+    BigInt, BigRational, IntegralEnclosureReceipt, QuadratureError, RealBall, RootBoxError,
+    RootBoxReceipt, RootBoxWitness, RootIsolationError, RootIsolationReceipt, Symbol,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
@@ -34,6 +39,7 @@ pub const MAX_CERTIFICATION_RESPONSE_BYTES: usize = 1024 * 1024;
 const MAX_SYSTEMS: usize = 32;
 const MAX_CERTIFICATES: usize = 128;
 const MAX_ISOLATIONS: usize = 32;
+const MAX_INTEGRALS: usize = 32;
 /// Imports and exports share this resident bound; releasing a transfer does not
 /// refund any work or allocation already charged to the session ledger.
 pub const MAX_SESSION_ARTIFACT_TRANSFERS: usize = 8;
@@ -165,6 +171,31 @@ impl<'de> Deserialize<'de> for RootIsolationSearchId {
     }
 }
 
+/// A source-bound, independently checked proper real integral enclosure.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct IntegralCertificateId(Box<str>);
+
+impl IntegralCertificateId {
+    pub fn new(value: impl Into<String>) -> Result<Self, CertificationSessionError> {
+        let value = value.into();
+        if !valid_label(&value, "integral:") {
+            return Err(CertificationSessionError::InvalidLabel);
+        }
+        Ok(Self(value.into_boxed_str()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for IntegralCertificateId {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::new(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
 /// One member of a verified complete root set. Its label also supports the
 /// ordinary root-certificate export/replay operations.
 #[derive(Debug, Serialize)]
@@ -193,13 +224,15 @@ pub struct ExactRootWitness {
     pub precision_digits: u32,
 }
 
-/// An accepted object to export. The transfer remains a byte container, not a
-/// second source of mathematical authority.
+/// A typed object to export. Search checkpoints stay candidates; accepted
+/// certificates retain their own replay requirements. Transfers grant no evidence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum ArtifactSource {
     RootCertificate(RootCertificateId),
     RootIsolation(RootIsolationId),
+    IntegralCertificate(IntegralCertificateId),
+    RootIsolationSearch(RootIsolationSearchId),
 }
 
 /// Bounded certification operations accepted by the native session and NDJSON
@@ -259,6 +292,19 @@ pub enum CertificationRequest {
         schema_version: u32,
         search: RootIsolationSearchId,
     },
+    ExportRootIsolationSearch {
+        schema_version: u32,
+        search: RootIsolationSearchId,
+    },
+    RestoreRootIsolationSearch {
+        schema_version: u32,
+        system: ResidualSystemId,
+        search: RootIsolationSearchId,
+        domain: Vec<ExactInterval>,
+        precision_digits: u32,
+        max_leaves: usize,
+        artifact: String,
+    },
     ExportRootIsolation {
         schema_version: u32,
         isolation: RootIsolationId,
@@ -278,6 +324,29 @@ pub enum CertificationRequest {
         schema_version: u32,
         system: ResidualSystemId,
         certificate: RootCertificateId,
+        artifact: String,
+    },
+    CertifyIntegral {
+        schema_version: u32,
+        system: ResidualSystemId,
+        integral: IntegralCertificateId,
+        lower: String,
+        upper: String,
+        absolute_tolerance: String,
+        precision_digits: u32,
+        max_intervals: usize,
+    },
+    ExportIntegralCertificate {
+        schema_version: u32,
+        integral: IntegralCertificateId,
+    },
+    ReplayIntegralCertificate {
+        schema_version: u32,
+        system: ResidualSystemId,
+        integral: IntegralCertificateId,
+        lower: String,
+        upper: String,
+        absolute_tolerance: String,
         artifact: String,
     },
     BeginArtifactExport {
@@ -317,6 +386,24 @@ pub enum CertificationRequest {
         domain: Vec<ExactInterval>,
         transfer: ArtifactTransferId,
     },
+    ReplayIntegralCertificateFromArtifact {
+        schema_version: u32,
+        system: ResidualSystemId,
+        integral: IntegralCertificateId,
+        lower: String,
+        upper: String,
+        absolute_tolerance: String,
+        transfer: ArtifactTransferId,
+    },
+    RestoreRootIsolationSearchFromArtifact {
+        schema_version: u32,
+        system: ResidualSystemId,
+        search: RootIsolationSearchId,
+        domain: Vec<ExactInterval>,
+        precision_digits: u32,
+        max_leaves: usize,
+        transfer: ArtifactTransferId,
+    },
 }
 
 impl CertificationRequest {
@@ -331,6 +418,9 @@ impl CertificationRequest {
             | Self::InspectRootIsolationSearch { schema_version, .. }
             | Self::FinishRootIsolationSearch { schema_version, .. }
             | Self::ReleaseRootIsolationSearch { schema_version, .. }
+            | Self::ExportRootIsolationSearch { schema_version, .. }
+            | Self::RestoreRootIsolationSearch { schema_version, .. }
+            | Self::RestoreRootIsolationSearchFromArtifact { schema_version, .. }
             | Self::ExportRootIsolation { schema_version, .. }
             | Self::ReplayRootIsolation { schema_version, .. }
             | Self::ExportRootCertificate { schema_version, .. }
@@ -341,7 +431,11 @@ impl CertificationRequest {
             | Self::AppendArtifactChunk { schema_version, .. }
             | Self::ReleaseArtifactTransfer { schema_version, .. }
             | Self::ReplayRootCertificateFromArtifact { schema_version, .. }
-            | Self::ReplayRootIsolationFromArtifact { schema_version, .. } => *schema_version,
+            | Self::ReplayRootIsolationFromArtifact { schema_version, .. }
+            | Self::CertifyIntegral { schema_version, .. }
+            | Self::ExportIntegralCertificate { schema_version, .. }
+            | Self::ReplayIntegralCertificate { schema_version, .. }
+            | Self::ReplayIntegralCertificateFromArtifact { schema_version, .. } => *schema_version,
         }
     }
 }
@@ -453,6 +547,21 @@ pub enum CertificationResponse {
         schema_version: u32,
         search: RootIsolationSearchId,
     },
+    RootIsolationSearchExported {
+        schema_version: u32,
+        system: ResidualSystemId,
+        search: RootIsolationSearchId,
+        evidence: &'static str,
+        artifact: String,
+    },
+    RootIsolationSearchRestored {
+        schema_version: u32,
+        system: ResidualSystemId,
+        search: RootIsolationSearchId,
+        evidence: &'static str,
+        progress: RootIsolationProgress,
+        context_digest: [u8; 32],
+    },
     RootCertificateExported {
         schema_version: u32,
         system: ResidualSystemId,
@@ -463,6 +572,26 @@ pub enum CertificationResponse {
         schema_version: u32,
         system: ResidualSystemId,
         isolation: RootIsolationId,
+        artifact: String,
+    },
+    IntegralCertified {
+        schema_version: u32,
+        system: ResidualSystemId,
+        integral: IntegralCertificateId,
+        evidence: &'static str,
+        claim: &'static str,
+        lower: String,
+        upper: String,
+        absolute_tolerance: String,
+        enclosure: ExactInterval,
+        interval_count: usize,
+        precision_digits: u32,
+        context_digest: [u8; 32],
+    },
+    IntegralCertificateExported {
+        schema_version: u32,
+        system: ResidualSystemId,
+        integral: IntegralCertificateId,
         artifact: String,
     },
     ArtifactExportStarted {
@@ -497,7 +626,7 @@ pub enum CertificationSessionError {
     #[error("unsupported certification request schema {0}")]
     UnsupportedVersion(u32),
     #[error(
-        "object label must have the proper system:, certificate:, isolation: or search: kind and a bounded identifier"
+        "object label must have the proper system:, certificate:, isolation:, search: or integral: kind and a bounded identifier"
     )]
     InvalidLabel,
     #[error("object label already exists in this session")]
@@ -510,6 +639,8 @@ pub enum CertificationSessionError {
     UnknownIsolation,
     #[error("unknown root isolation search")]
     UnknownSearch,
+    #[error("unknown accepted integral certificate")]
+    UnknownIntegral,
     #[error("root isolation search still has pending cells")]
     SearchNotReady,
     #[error("root search work quantum is outside the supported range")]
@@ -538,6 +669,8 @@ pub enum CertificationSessionError {
     Meter(#[from] MeterError),
     #[error("certification refused: {0}")]
     Certification(#[from] CertificationError),
+    #[error("integral certification refused: {0}")]
+    Integration(#[from] IntegrationError),
     #[error("artifact transfer refused: {0}")]
     Transfer(#[from] ArtifactTransferError),
 }
@@ -557,6 +690,7 @@ impl CertificationSessionError {
             | Self::UnknownCertificate
             | Self::UnknownIsolation
             | Self::UnknownSearch
+            | Self::UnknownIntegral
             | Self::UnknownTransfer => "unknown_object",
             Self::SearchNotReady => "search_not_ready",
             Self::WrongTransferMode => "wrong_transfer_mode",
@@ -566,8 +700,35 @@ impl CertificationSessionError {
             Self::Meter(MeterError::Cancelled) => "cancelled",
             Self::Meter(MeterError::Budget(_)) => "budget_exhausted",
             Self::Certification(error) => certification_error_code(error),
+            Self::Integration(error) => integration_error_code(error),
             Self::Transfer(error) => transfer_error_code(error),
         }
+    }
+}
+
+fn integration_error_code(error: &IntegrationError) -> &'static str {
+    match error {
+        IntegrationError::Certification(error) => certification_error_code(error),
+        IntegrationError::ProblemDimension => "invalid_input",
+        IntegrationError::StatementMismatch => "statement_mismatch",
+        IntegrationError::Quadrature(QuadratureError::Enclosure(error)) => {
+            // Preserve cancellation, budgets and source-domain failure categories.
+            match error {
+                RootBoxError::Meter(MeterError::Cancelled) => "cancelled",
+                RootBoxError::Meter(MeterError::Budget(_)) => "budget_exhausted",
+                RootBoxError::Domain(_) => "domain_not_certified",
+                RootBoxError::Unsupported(_) => "unsupported_operation",
+                RootBoxError::ResourceLimit(_) => "resource_limit_exceeded",
+                _ => "refused",
+            }
+        }
+        IntegrationError::Quadrature(QuadratureError::InvalidTolerance) => "invalid_input",
+        IntegrationError::Quadrature(QuadratureError::InvalidPartition(_)) => "invalid_artifact",
+        IntegrationError::Quadrature(QuadratureError::ResourceLimit(_)) => {
+            "resource_limit_exceeded"
+        }
+        IntegrationError::Quadrature(QuadratureError::AccuracyNotReached) => "inconclusive",
+        IntegrationError::Quadrature(QuadratureError::InconsistentEnclosure) => "refused",
     }
 }
 
@@ -898,6 +1059,12 @@ struct ResidentRootSearch {
     search: RootIsolationSearch,
 }
 
+struct ResidentIntegral {
+    system: ResidualSystemId,
+    context_digest: [u8; 32],
+    receipt: IntegralEnclosureReceipt,
+}
+
 impl ResidentRootSearch {
     fn response(
         &self,
@@ -929,6 +1096,7 @@ pub(crate) struct CertificationState {
     // Candidate frontiers are not accepted-object stores. Their immutable
     // source/domain and receiving context survive every advance and retry.
     searches: BTreeMap<RootIsolationSearchId, ResidentRootSearch>,
+    integrals: BTreeMap<IntegralCertificateId, ResidentIntegral>,
 }
 
 impl CertificationState {
@@ -941,6 +1109,63 @@ impl CertificationState {
 
     pub(crate) fn isolation(&self, id: &RootIsolationId) -> Option<&RootIsolationReceipt> {
         self.isolations.get(id).map(|(_, receipt)| receipt)
+    }
+
+    pub(crate) fn integral(&self, id: &IntegralCertificateId) -> Option<&IntegralEnclosureReceipt> {
+        self.integrals.get(id).map(|slot| &slot.receipt)
+    }
+
+    fn admit_integral_id(
+        &self,
+        id: &IntegralCertificateId,
+    ) -> Result<(), CertificationSessionError> {
+        if self.integrals.contains_key(id) {
+            return Err(CertificationSessionError::DuplicateObject);
+        }
+        if self.integrals.len() >= MAX_INTEGRALS {
+            return Err(CertificationSessionError::ObjectLimit);
+        }
+        Ok(())
+    }
+
+    fn publish_integral(
+        &mut self,
+        system: ResidualSystemId,
+        integral: IntegralCertificateId,
+        receipt: IntegralEnclosureReceipt,
+        context_digest: [u8; 32],
+        budget: &mut Budget,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        self.admit_integral_id(&integral)?;
+        charge(budget, 1, 4096)?;
+        let mut enclosure = render_domain(std::slice::from_ref(receipt.enclosure()), budget)?;
+        let response = CertificationResponse::IntegralCertified {
+            schema_version: CERTIFICATION_REQUEST_SCHEMA,
+            system: system.clone(),
+            integral: integral.clone(),
+            evidence: "certified_numeric",
+            claim: "proper_real_definite_integral_with_absolute_enclosure_width_bound",
+            lower: render_scalar(receipt.lower(), budget)?,
+            upper: render_scalar(receipt.upper(), budget)?,
+            absolute_tolerance: render_scalar(receipt.absolute_tolerance(), budget)?,
+            enclosure: enclosure
+                .pop()
+                .expect("one integral enclosure was rendered"),
+            interval_count: receipt.interval_count(),
+            precision_digits: receipt.witness().precision_digits,
+            context_digest,
+        };
+        admit_response(&response, budget)?;
+        // Receipt, response and storage admission precede the only publication.
+        self.integrals.insert(
+            integral,
+            ResidentIntegral {
+                system,
+                context_digest,
+                receipt,
+            },
+        );
+        Ok(response)
     }
 
     pub(crate) fn search_progress(
@@ -1095,6 +1320,34 @@ impl CertificationState {
             (Dimension::AllocationCount, 8),
         ])?;
         Ok(())
+    }
+
+    fn publish_restored_search(
+        &mut self,
+        system: ResidualSystemId,
+        id: RootIsolationSearchId,
+        search: RootIsolationSearch,
+        context_digest: [u8; 32],
+        budget: &mut Budget,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        let response = CertificationResponse::RootIsolationSearchRestored {
+            schema_version: CERTIFICATION_REQUEST_SCHEMA,
+            system: system.clone(),
+            search: id.clone(),
+            evidence: "heuristic_candidate",
+            progress: search.progress(),
+            context_digest,
+        };
+        admit_response(&response, budget)?;
+        self.searches.insert(
+            id,
+            ResidentRootSearch {
+                system,
+                context_digest,
+                search,
+            },
+        );
+        Ok(response)
     }
 
     fn artifact_import(
@@ -1384,6 +1637,61 @@ impl CertificationState {
                 self.searches.remove(&search);
                 Ok(response)
             }
+            CertificationRequest::ExportRootIsolationSearch { search, .. } => {
+                let slot = self
+                    .searches
+                    .get_mut(&search)
+                    .ok_or(CertificationSessionError::UnknownSearch)?;
+                let bytes =
+                    export_root_search_checkpoint(&mut slot.search, slot.context_digest, budget)?;
+                if bytes.len() > MAX_SESSION_ROOT_ARTIFACT_BYTES {
+                    return Err(CertificationSessionError::ArtifactLimit);
+                }
+                let artifact = String::from_utf8(bytes)
+                    .map_err(|error| CertificationSessionError::Serialization(error.to_string()))?;
+                let response = CertificationResponse::RootIsolationSearchExported {
+                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                    system: slot.system.clone(),
+                    search,
+                    evidence: "heuristic_candidate",
+                    artifact,
+                };
+                admit_response(&response, budget)?;
+                Ok(response)
+            }
+            CertificationRequest::RestoreRootIsolationSearch {
+                system,
+                search,
+                domain,
+                precision_digits,
+                max_leaves,
+                artifact,
+                ..
+            } => {
+                self.admit_search_id(&search, budget)?;
+                if artifact.len() > MAX_SESSION_ROOT_ARTIFACT_BYTES {
+                    return Err(CertificationSessionError::ArtifactLimit);
+                }
+                let problem = self
+                    .systems
+                    .get(&system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                let domain = parse_domain(&domain, problem.variables().len(), budget)?;
+                // Restoring checked partial work still creates only a candidate.
+                // Its receiver-side cost cannot consume the protected finish pool.
+                let restored = restore_root_search_checkpoint(
+                    artifact.as_bytes(),
+                    problem,
+                    &domain,
+                    RootIsolationOptions {
+                        precision_digits,
+                        max_leaves,
+                    },
+                    context_digest,
+                    budget,
+                )?;
+                self.publish_restored_search(system, search, restored, context_digest, budget)
+            }
             CertificationRequest::ExportRootIsolation { isolation, .. } => {
                 let (system, receipt) = self
                     .isolations
@@ -1483,6 +1791,108 @@ impl CertificationState {
                 self.certificates.insert(certificate, (system, receipt));
                 Ok(response)
             }
+            CertificationRequest::CertifyIntegral {
+                system,
+                integral,
+                lower,
+                upper,
+                absolute_tolerance,
+                precision_digits,
+                max_intervals,
+                ..
+            } => {
+                self.admit_integral_id(&integral)?;
+                let problem = self
+                    .systems
+                    .get(&system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                let lower = parse_scalar(&lower, budget)?;
+                let upper = parse_scalar(&upper, budget)?;
+                let tolerance = parse_scalar(&absolute_tolerance, budget)?;
+                // Require the protected pool before spending any generation work.
+                let lease =
+                    lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+                let witness = problem.propose_integral(
+                    &lower,
+                    &upper,
+                    &tolerance,
+                    QuadratureOptions {
+                        precision_digits,
+                        max_intervals,
+                    },
+                    budget,
+                )?;
+                let receipt = problem.verify_integral(
+                    &lower,
+                    &upper,
+                    &tolerance,
+                    &witness,
+                    &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+                )?;
+                self.publish_integral(system, integral, receipt, context_digest, budget)
+            }
+            CertificationRequest::ExportIntegralCertificate { integral, .. } => {
+                let slot = self
+                    .integrals
+                    .get(&integral)
+                    .ok_or(CertificationSessionError::UnknownIntegral)?;
+                let problem = self
+                    .systems
+                    .get(&slot.system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                let bytes = export_integral_certificate(
+                    problem,
+                    &slot.receipt,
+                    slot.context_digest,
+                    budget,
+                )?;
+                if bytes.len() > MAX_SESSION_ROOT_ARTIFACT_BYTES {
+                    return Err(CertificationSessionError::ArtifactLimit);
+                }
+                let artifact = String::from_utf8(bytes)
+                    .map_err(|error| CertificationSessionError::Serialization(error.to_string()))?;
+                let response = CertificationResponse::IntegralCertificateExported {
+                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                    system: slot.system.clone(),
+                    integral,
+                    artifact,
+                };
+                admit_response(&response, budget)?;
+                Ok(response)
+            }
+            CertificationRequest::ReplayIntegralCertificate {
+                system,
+                integral,
+                lower,
+                upper,
+                absolute_tolerance,
+                artifact,
+                ..
+            } => {
+                self.admit_integral_id(&integral)?;
+                if artifact.len() > MAX_SESSION_ROOT_ARTIFACT_BYTES {
+                    return Err(CertificationSessionError::ArtifactLimit);
+                }
+                let problem = self
+                    .systems
+                    .get(&system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                let lower = parse_scalar(&lower, budget)?;
+                let upper = parse_scalar(&upper, budget)?;
+                let tolerance = parse_scalar(&absolute_tolerance, budget)?;
+                let lease =
+                    lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+                let receipt = replay_integral_certificate(
+                    artifact.as_bytes(),
+                    problem,
+                    &lower,
+                    &upper,
+                    &tolerance,
+                    context_digest,
+                    &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+                )?;
+                self.publish_integral(system, integral, receipt, context_digest, budget)
+            }
             CertificationRequest::BeginArtifactExport {
                 transfer, source, ..
             } => {
@@ -1505,6 +1915,39 @@ impl CertificationState {
                         (
                             ArtifactKind::RootIsolation,
                             export_root_isolation(receipt, context_digest, budget)?,
+                        )
+                    }
+                    ArtifactSource::IntegralCertificate(integral) => {
+                        let slot = self
+                            .integrals
+                            .get(&integral)
+                            .ok_or(CertificationSessionError::UnknownIntegral)?;
+                        let problem = self
+                            .systems
+                            .get(&slot.system)
+                            .ok_or(CertificationSessionError::UnknownSystem)?;
+                        (
+                            ArtifactKind::IntegralCertificate,
+                            export_integral_certificate(
+                                problem,
+                                &slot.receipt,
+                                slot.context_digest,
+                                budget,
+                            )?,
+                        )
+                    }
+                    ArtifactSource::RootIsolationSearch(search) => {
+                        let slot = self
+                            .searches
+                            .get_mut(&search)
+                            .ok_or(CertificationSessionError::UnknownSearch)?;
+                        (
+                            ArtifactKind::RootSearchCheckpoint,
+                            export_root_search_checkpoint(
+                                &mut slot.search,
+                                slot.context_digest,
+                                budget,
+                            )?,
                         )
                     }
                 };
@@ -1646,6 +2089,70 @@ impl CertificationState {
                     &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
                 )?;
                 self.publish_isolation(system, isolation, receipt, context_digest, budget)
+            }
+            CertificationRequest::ReplayIntegralCertificateFromArtifact {
+                system,
+                integral,
+                lower,
+                upper,
+                absolute_tolerance,
+                transfer,
+                ..
+            } => {
+                self.admit_integral_id(&integral)?;
+                let problem = self
+                    .systems
+                    .get(&system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                let lower = parse_scalar(&lower, budget)?;
+                let upper = parse_scalar(&upper, budget)?;
+                let tolerance = parse_scalar(&absolute_tolerance, budget)?;
+                let bytes = self
+                    .artifact_import(&transfer)?
+                    .checked_bytes(ArtifactKind::IntegralCertificate, budget)?;
+                let lease =
+                    lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+                let receipt = replay_integral_certificate(
+                    bytes,
+                    problem,
+                    &lower,
+                    &upper,
+                    &tolerance,
+                    context_digest,
+                    &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+                )?;
+                self.publish_integral(system, integral, receipt, context_digest, budget)
+            }
+            CertificationRequest::RestoreRootIsolationSearchFromArtifact {
+                system,
+                search,
+                domain,
+                precision_digits,
+                max_leaves,
+                transfer,
+                ..
+            } => {
+                self.admit_search_id(&search, budget)?;
+                let problem = self
+                    .systems
+                    .get(&system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                let domain = parse_domain(&domain, problem.variables().len(), budget)?;
+                let bytes = self
+                    .artifact_import(&transfer)?
+                    .checked_bytes(ArtifactKind::RootSearchCheckpoint, budget)?;
+                let restored = restore_root_search_checkpoint(
+                    bytes,
+                    problem,
+                    &domain,
+                    RootIsolationOptions {
+                        precision_digits,
+                        max_leaves,
+                    },
+                    context_digest,
+                    budget,
+                )?;
+                self.publish_restored_search(system, search, restored, context_digest, budget)
             }
         }
     }

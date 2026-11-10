@@ -703,6 +703,18 @@ fn fresh_cli_exchanges_both_proof_kinds_above_the_inline_limit_in_bounded_frames
                             certificate: certificate.clone(),
                         }
                     }
+                    ArtifactSource::IntegralCertificate(integral) => {
+                        CertificationRequest::ExportIntegralCertificate {
+                            schema_version: 1,
+                            integral: integral.clone(),
+                        }
+                    }
+                    ArtifactSource::RootIsolationSearch(search) => {
+                        CertificationRequest::ExportRootIsolationSearch {
+                            schema_version: 1,
+                            search: search.clone(),
+                        }
+                    }
                 };
                 assert_eq!(sender.send(wire(inline))["code"], "resource_limit_exceeded");
             }

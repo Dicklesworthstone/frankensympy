@@ -165,7 +165,7 @@ See [`docs/EVIDENCE_PROOFS_AND_REWRITES.md`](docs/EVIDENCE_PROOFS_AND_REWRITES.m
 
 ---
 
-## Exact residual certification through the native session
+## Exact roots and integrals through the native session
 
 The root Rust library and `frankensympy` NDJSON command expose immutable
 residual-system registration, exact residual/Jacobian box enclosures,
@@ -174,6 +174,16 @@ The receiver checks its own typed sources, ordered variables and context before
 recomputing a transported claim. Verification draws from a protected cumulative
 budget, and source parsing retains original domain obligations such as
 `0*(1/x)`.
+
+`CertifyIntegral` also computes a proper finite real definite integral from one
+registered scalar source and one variable. Exact rational endpoints and a
+positive absolute enclosure-width tolerance define the request. Adaptive
+partitioning spends ordinary resources; an independent C2 interval checker
+uses the protected verifier pool before publishing `certified_numeric` evidence.
+Reversed limits negate the enclosure, while endpoint poles and unresolved
+domains refuse. `ExportIntegralCertificate` and `ReplayIntegralCertificate`
+bind the original source, axis, ordered bounds, tolerance and context, and
+recompute the enclosure from the partition witness.
 
 Automatic complete root isolation connects the existing exact subdivision search
 to an independent coverage check. A session can find every nonsingular root in a
@@ -188,7 +198,15 @@ progress. `FinishRootIsolationSearch` independently verifies the complete
 proposal before publishing any accepted roots. The native `RootIsolationSearch`
 uses the same engine as one-shot search and preserves cumulative work across
 yields and cancellation; `ReleaseRootIsolationSearch` frees a live search slot
-without refunding its budget. This is an in-process continuation.
+without refunding its budget. `ExportRootIsolationSearch` saves a canonical
+candidate checkpoint that a client can persist and restore in another process
+with `RestoreRootIsolationSearch`. Restoration checks the expected source,
+domain, options and context, reconstructs the frontier, and retains prior
+intrinsic consumption plus new validation work. Restored progress remains a
+candidate until protected complete-cover verification succeeds. Repeated
+restores can exhaust the search's 256 MiB cumulative intrinsic allocation cap;
+checkpoints do not authenticate a sender's full resource history or enlarge
+the receiver's allowance.
 
 `ExportRootIsolation` and `ReplayRootIsolation` transport the complete coverage
 proof, including a proved empty root set. A fresh receiving process binds the
@@ -196,19 +214,22 @@ artifact to its own equations, typed coordinate order, context and requested
 box, then independently verifies every root and exclusion before publishing
 the complete result and its child certificate handles.
 
-Both proof kinds also support bounded chunked transfer up to 1 MiB through
+Root proofs, integral certificates and candidate checkpoints support bounded
+chunked transfer up to 1 MiB through
 `BeginArtifactExport`, `ReadArtifactChunk`, `BeginArtifactImport` and
 `AppendArtifactChunk`. Chunks fit the existing 64 KiB NDJSON frame limit and
-support exact retries. `ReplayRootCertificateFromArtifact` and
-`ReplayRootIsolationFromArtifact` check complete content integrity and then run
-independent protected verification before publishing accepted results. Staged
-bytes never authorize a root claim; `ReleaseArtifactTransfer` frees a transfer
-slot without resetting spent budgets.
+support exact retries. Root and integral replay operations ending in
+`FromArtifact` check content integrity and run independent protected verification.
+`RestoreRootIsolationSearchFromArtifact` checks a candidate prefix on ordinary
+resources; its distinct artifact kind cannot authorize an accepted root claim.
+`ReleaseArtifactTransfer` frees a transfer slot without resetting spent budgets.
 
 See [Native certification sessions](docs/NATIVE_CERTIFICATION_SESSION.md) for a
 complete CLI example, typed Rust APIs, budget controls and precise limits.
 This is a bounded development interface; complete campaign and profile gates
-remain open.
+remain open. Clients manage checkpoint files explicitly; automatic durable-store
+publication, recovery, RaptorQ repair and asynchronous cancellation remain
+separate integration obligations.
 
 ## Compiled sparse residuals (development API)
 

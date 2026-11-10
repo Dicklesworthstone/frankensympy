@@ -17,7 +17,9 @@ pub const IMPLEMENTATION_STATUS: &str = "implemented_uncertified";
 pub mod artifact_stream;
 pub mod certification;
 pub mod certification_session;
+pub mod integration;
 pub mod isolation_transport;
+pub mod search_checkpoint;
 pub mod session;
 
 pub use artifact_stream::{
@@ -31,19 +33,20 @@ pub use certification::{
 };
 pub use certification_session::{
     ArtifactSource, CERTIFICATION_REQUEST_SCHEMA, CertificationRequest, CertificationResponse,
-    CertificationSessionError, ExactInterval, ExactRootWitness, IsolatedRoot,
-    MAX_SESSION_ARTIFACT_TRANSFERS, MAX_SESSION_ROOT_SEARCHES, ResidualSystemId, RootCertificateId,
-    RootIsolationId, RootIsolationSearchId,
+    CertificationSessionError, ExactInterval, ExactRootWitness, IntegralCertificateId,
+    IsolatedRoot, MAX_SESSION_ARTIFACT_TRANSFERS, MAX_SESSION_ROOT_SEARCHES, ResidualSystemId,
+    RootCertificateId, RootIsolationId, RootIsolationSearchId,
 };
 pub use fsym_budget::{Budget, BudgetLimits, BudgetMeter, BudgetSnapshot, Dimension, MeterError};
+pub use fsym_calculus::quadrature::QuadratureOptions;
 pub use fsym_calculus::root_isolation::{
-    MAX_ROOT_ISOLATION_ADVANCE_CELLS, RootIsolationOptions, RootIsolationProgress,
-    RootIsolationSearch,
+    MAX_ROOT_ISOLATION_ADVANCE_CELLS, RootIsolationCounters, RootIsolationOptions,
+    RootIsolationProgress, RootIsolationSearch, RootIsolationSearchCheckpoint,
 };
 pub use fsym_core::{
-    BigInt, BigRational, Expr, RealBall, ResidualJacobianEnclosure, RootBoxReceipt, RootBoxWitness,
-    RootIsolationError, RootIsolationReceipt, RootIsolationStep, RootIsolationWitness, Symbol,
-    SymbolIdentity,
+    BigInt, BigRational, Expr, IntegralEnclosureReceipt, QuadratureError, QuadratureWitness,
+    RealBall, ResidualJacobianEnclosure, RootBoxReceipt, RootBoxWitness, RootIsolationError,
+    RootIsolationReceipt, RootIsolationStep, RootIsolationWitness, Symbol, SymbolIdentity,
 };
 pub use fsym_proof_kernel::{
     MergeCertError, MergePolicy, SemanticMergeCertificate, WitnessKind, verify_merge_certificate,
@@ -56,8 +59,16 @@ pub use fsym_runtime::publication::{PublicationError, PublicationGate};
 pub use fsym_runtime::workspace::{
     MergeReceipt, SemanticWorkspace, WorkspaceError, WorkspacePatch,
 };
+pub use integration::{
+    INTEGRAL_CERTIFICATE_SCHEMA_VERSION, IntegrationError, MAX_INTEGRAL_CERTIFICATE_BYTES,
+    export_integral_certificate, replay_integral_certificate,
+};
 pub use isolation_transport::{
     ROOT_ISOLATION_ARTIFACT_SCHEMA_VERSION, export_root_isolation, replay_root_isolation,
+};
+pub use search_checkpoint::{
+    MAX_ROOT_SEARCH_CHECKPOINT_BYTES, ROOT_SEARCH_CHECKPOINT_SCHEMA_VERSION,
+    export_root_search_checkpoint, restore_root_search_checkpoint,
 };
 
 pub use session::{

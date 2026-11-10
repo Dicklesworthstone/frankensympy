@@ -516,6 +516,14 @@ impl Session {
         self.certification.isolation(id)
     }
 
+    /// An independently checked proper definite-integral enclosure.
+    pub fn integral_certificate(
+        &self,
+        id: &crate::IntegralCertificateId,
+    ) -> Option<&fsym_core::IntegralEnclosureReceipt> {
+        self.certification.integral(id)
+    }
+
     /// Read-only candidate progress; readiness is not mathematical acceptance.
     pub fn root_isolation_search_progress(
         &self,
@@ -1030,6 +1038,9 @@ impl Session {
                     | "InspectRootIsolationSearch"
                     | "FinishRootIsolationSearch"
                     | "ReleaseRootIsolationSearch"
+                    | "ExportRootIsolationSearch"
+                    | "RestoreRootIsolationSearch"
+                    | "RestoreRootIsolationSearchFromArtifact"
                     | "ExportRootIsolation"
                     | "ReplayRootIsolation"
                     | "ExportRootCertificate"
@@ -1041,6 +1052,10 @@ impl Session {
                     | "ReleaseArtifactTransfer"
                     | "ReplayRootCertificateFromArtifact"
                     | "ReplayRootIsolationFromArtifact"
+                    | "CertifyIntegral"
+                    | "ExportIntegralCertificate"
+                    | "ReplayIntegralCertificate"
+                    | "ReplayIntegralCertificateFromArtifact"
             )
         ) {
             // Bound envelope metadata before the request can publish anything.
