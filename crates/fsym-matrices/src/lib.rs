@@ -13,6 +13,11 @@ pub mod sparse;
 pub use sparse::*;
 pub mod structured;
 pub use structured::*;
+mod sparse_rref;
+pub use sparse_rref::{
+    SparseRrefCandidate, VerifiedSparseRref, generate_sparse_rref_candidate,
+    verify_sparse_rref_candidate,
+};
 mod pseudoinverse;
 pub use pseudoinverse::{PseudoinverseCertificate, verify_pseudoinverse_certificate};
 mod least_squares;
