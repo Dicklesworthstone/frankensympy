@@ -15,7 +15,8 @@ pub mod structured;
 pub use structured::*;
 mod sparse_rref;
 pub use sparse_rref::{
-    SparseRrefCandidate, VerifiedSparseRref, generate_sparse_rref_candidate,
+    SparseAffineSolutionCandidate, SparseRrefCandidate, VerifiedSparseAffineSolution,
+    VerifiedSparseRref, generate_sparse_rref_candidate, verify_sparse_affine_solution_candidate,
     verify_sparse_rref_candidate,
 };
 mod pseudoinverse;

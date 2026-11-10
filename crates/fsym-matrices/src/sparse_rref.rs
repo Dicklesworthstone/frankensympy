@@ -19,14 +19,18 @@ use fsym_core::{BigRational, Expr};
 use fsym_proof_kernel::linear_system::LinearRowOperation;
 use fsym_proof_kernel::sparse_rref::{
     MAX_SPARSE_RREF_COEFFICIENT_BITS, MAX_SPARSE_RREF_DIMENSION, MAX_SPARSE_RREF_ENTRIES,
-    MAX_SPARSE_RREF_OPERATIONS, RationalSparseMatrix, SPARSE_RREF_SCHEMA_VERSION,
-    SparseRationalEntry, SparseRrefError, SparseRrefReceipt, SparseRrefWitness, verify_sparse_rref,
+    MAX_SPARSE_RREF_OPERATIONS, RationalSparseMatrix, SPARSE_AFFINE_SCHEMA_VERSION,
+    SPARSE_RREF_SCHEMA_VERSION, SparseAffineOutcome, SparseAffineReceipt, SparseAffineWitness,
+    SparseRationalEntry, SparseRrefError, SparseRrefReceipt, SparseRrefWitness, verify_sparse_affine,
+    verify_sparse_rref,
 };
 use num_traits::{One, Zero};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write;
 
 const MAX_WORK: u64 = 20_000_000;
 const MAX_ALLOCATION_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_AFFINE_PARAMETER_TERMS: usize = 1_000_000;
 type Row = BTreeMap<usize, BigRational>;
 
 /// Untrusted row-reduction proposal. Its source is checked against the actual
@@ -64,6 +68,84 @@ impl VerifiedSparseRref {
     }
     pub fn receipt(&self) -> &SparseRrefReceipt {
         &self.receipt
+    }
+}
+
+/// Untrusted complete-family proposal for the original sparse system `A X = B`.
+/// Every right-hand side shares one augmented row-reduction witness and kernel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SparseAffineSolutionCandidate {
+    pub coefficients: RationalSparseMatrix,
+    pub rhs: RationalSparseMatrix,
+    pub witness: SparseAffineWitness,
+}
+
+/// Complete sparse affine family accepted against both original matrices.
+/// The proof kernel checks consistency, coefficient rank, the complete kernel,
+/// and every original-source residual before these sparse parts are lifted.
+/// This type has no public unchecked constructor or deserializer.
+#[derive(Debug)]
+pub struct VerifiedSparseAffineSolution {
+    coefficients: RationalSparseMatrix,
+    rhs: RationalSparseMatrix,
+    witness: SparseAffineWitness,
+    receipt: SparseAffineReceipt,
+    parts: Option<(SparseMatrix, SparseMatrix, Vec<usize>)>,
+}
+
+impl VerifiedSparseAffineSolution {
+    pub fn coefficients(&self) -> &RationalSparseMatrix {
+        &self.coefficients
+    }
+
+    pub fn rhs(&self) -> &RationalSparseMatrix {
+        &self.rhs
+    }
+
+    pub fn witness(&self) -> &SparseAffineWitness {
+        &self.witness
+    }
+
+    pub fn receipt(&self) -> &SparseAffineReceipt {
+        &self.receipt
+    }
+
+    pub fn rank(&self) -> usize {
+        self.receipt.rank()
+    }
+
+    /// Dimension of the coefficient kernel, independently of the RHS count.
+    pub fn nullity(&self) -> usize {
+        self.receipt.free_columns().len()
+    }
+
+    pub fn is_consistent(&self) -> bool {
+        self.receipt.is_consistent()
+    }
+
+    /// Whether the whole matrix equation has exactly one solution. In
+    /// particular, the sole `n x 0` matrix is unique even when A has a kernel.
+    pub fn is_unique(&self) -> bool {
+        self.is_consistent() && (self.rhs.columns == 0 || self.nullity() == 0)
+    }
+
+    pub fn particular(&self) -> Option<&SparseMatrix> {
+        self.parts.as_ref().map(|(particular, _, _)| particular)
+    }
+
+    pub fn kernel(&self) -> Option<&SparseMatrix> {
+        self.parts.as_ref().map(|(_, kernel, _)| kernel)
+    }
+
+    pub fn free_columns(&self) -> &[usize] {
+        self.receipt.free_columns()
+    }
+
+    /// Move the already checked and metered `(P, N, free_columns)` out without
+    /// cloning. Every solution is `P + N T`, where T has one row per free
+    /// column and one column per original RHS. `None` is checked inconsistency.
+    pub fn into_parts(self) -> Option<(SparseMatrix, SparseMatrix, Vec<usize>)> {
+        self.parts
     }
 }
 
@@ -536,19 +618,26 @@ fn lift<M: BudgetMeter>(
         work.tick(1)?;
         // SparseMatrix::new owns a second canonical map; include both maps.
         work.reserve(512)?;
-        let value = if entry.value.is_integer() {
-            let numerator = entry.value.numer();
-            work.tick(numerator.limb_count().max(1))?;
-            work.reserve(numerator.limb_count().max(1) as usize * 8)?;
-            Expr::Integer(numerator.clone())
-        } else {
-            Expr::Rational(work.clone_value(&entry.value)?)
-        };
+        let value = rational_expression(&entry.value, work)?;
         entries.insert((entry.row, entry.column), value);
     }
     let matrix = SparseMatrix::new(rational.rows, rational.columns, entries)?;
     work.tick(1)?;
     Ok(matrix)
+}
+
+fn rational_expression<M: BudgetMeter>(
+    value: &BigRational,
+    work: &mut Work<'_, M>,
+) -> Result<Expr, MatrixError> {
+    if value.is_integer() {
+        let numerator = value.numer();
+        work.tick(numerator.limb_count().max(1))?;
+        work.reserve(numerator.limb_count().max(1) as usize * 8)?;
+        Ok(Expr::Integer(numerator.clone()))
+    } else {
+        Ok(Expr::Rational(work.clone_value(value)?))
+    }
 }
 
 fn nullspace<M: BudgetMeter>(
@@ -883,7 +972,508 @@ pub(crate) fn solve_rectangular<M: BudgetMeter>(
     lift(&solution, &mut work)
 }
 
+fn affine_sources<M: BudgetMeter>(
+    matrix: &SparseMatrix,
+    rhs: &SparseMatrix,
+    work: &mut Work<'_, M>,
+) -> Result<(RationalSparseMatrix, RationalSparseMatrix), MatrixError> {
+    work.tick(1)?;
+    if matrix.rows() != rhs.rows() {
+        return Err(MatrixError::ShapeMismatch(
+            matrix.rows(),
+            matrix.cols(),
+            rhs.rows(),
+            rhs.cols(),
+        ));
+    }
+    let width = matrix
+        .cols()
+        .checked_add(rhs.cols())
+        .ok_or_else(|| limit("affine augmented column count overflow"))?;
+    if width > MAX_SPARSE_RREF_DIMENSION {
+        return Err(limit("affine augmented dimension exceeds 8192"));
+    }
+    let entries = matrix
+        .nnz()
+        .checked_add(rhs.nnz())
+        .ok_or_else(|| limit("affine augmented stored-entry count overflow"))?;
+    if entries > MAX_SPARSE_RREF_ENTRIES {
+        return Err(limit("affine augmented stored-entry limit exceeded"));
+    }
+    // Both whole original domains are admitted even with zero equations,
+    // zero RHS columns, or coefficients which cannot have full column rank.
+    Ok((source_snapshot(matrix, work)?, source_snapshot(rhs, work)?))
+}
+
+fn affine_outcome<M: BudgetMeter>(
+    coefficients: &RationalSparseMatrix,
+    rhs: &RationalSparseMatrix,
+    reduction: &SparseRrefWitness,
+    work: &mut Work<'_, M>,
+) -> Result<SparseAffineOutcome, MatrixError> {
+    let columns = coefficients.columns;
+    let mut previous = None;
+    for (row, &column) in reduction.pivots.iter().enumerate() {
+        work.tick(1)?;
+        if previous.is_some_and(|prior| prior >= column) {
+            return Err(invalid("affine generator pivots are not strictly increasing"));
+        }
+        if column >= columns {
+            return Ok(SparseAffineOutcome::Inconsistent { row });
+        }
+        previous = Some(column);
+    }
+    let nullity = columns
+        .checked_sub(reduction.pivots.len())
+        .ok_or_else(|| invalid("affine generator rank exceeds its variable count"))?;
+    let mut free_columns = work.vector(nullity)?;
+    let mut free_indices: Vec<Option<usize>> = work.vector(columns)?;
+    free_indices.resize(columns, None);
+    let mut pivot_row = 0;
+    for (column, index) in free_indices.iter_mut().enumerate() {
+        work.tick(1)?;
+        if reduction.pivots.get(pivot_row) == Some(&column) {
+            pivot_row += 1;
+        } else {
+            *index = Some(free_columns.len());
+            free_columns.push(column);
+        }
+    }
+
+    // Bound total stored output before allocating either part. A sparse input
+    // may still have a large complete kernel; that fill is never implicit.
+    let mut particular_count = 0usize;
+    let mut kernel_count = nullity;
+    for entry in &reduction.reduced.entries {
+        work.tick(1)?;
+        let counter = if entry.column >= columns {
+            &mut particular_count
+        } else if free_indices[entry.column].is_some() {
+            &mut kernel_count
+        } else {
+            continue;
+        };
+        *counter = counter
+            .checked_add(1)
+            .ok_or_else(|| limit("affine output stored-entry count overflow"))?;
+        if particular_count
+            .checked_add(kernel_count)
+            .is_none_or(|count| count > MAX_SPARSE_RREF_ENTRIES)
+        {
+            return Err(limit("aggregate affine output stored-entry limit exceeded"));
+        }
+    }
+    let mut particular_entries = work.vector(particular_count)?;
+    let mut kernel_entries = BTreeMap::new();
+    work.reserve(16)?;
+    let one = BigRational::one();
+    for (index, &column) in free_columns.iter().enumerate() {
+        work.tick(1)?;
+        work.reserve(256)?;
+        kernel_entries.insert((column, index), work.clone_value(&one)?);
+    }
+    for entry in &reduction.reduced.entries {
+        work.tick(1)?;
+        if entry.column >= columns {
+            let variable = *reduction
+                .pivots
+                .get(entry.row)
+                .ok_or_else(|| invalid("affine RHS row has no coefficient pivot"))?;
+            particular_entries.push(SparseRationalEntry {
+                row: variable,
+                column: entry.column - columns,
+                value: work.clone_value(&entry.value)?,
+            });
+        } else if let Some(index) = free_indices[entry.column] {
+            let variable = *reduction
+                .pivots
+                .get(entry.row)
+                .ok_or_else(|| invalid("affine kernel row has no coefficient pivot"))?;
+            work.reserve(256)?;
+            kernel_entries.insert((variable, index), work.negate(&entry.value)?);
+        }
+    }
+    let mut kernel = work.vector(kernel_count)?;
+    for ((row, column), value) in kernel_entries {
+        work.tick(1)?;
+        kernel.push(SparseRationalEntry { row, column, value });
+    }
+    Ok(SparseAffineOutcome::Solvable {
+        particular: RationalSparseMatrix {
+            rows: columns,
+            columns: rhs.columns,
+            entries: particular_entries,
+        },
+        kernel: RationalSparseMatrix {
+            rows: columns,
+            columns: nullity,
+            entries: kernel,
+        },
+        free_columns,
+    })
+}
+
+fn generate_affine<M: BudgetMeter>(
+    matrix: &SparseMatrix,
+    rhs: &SparseMatrix,
+    work: &mut Work<'_, M>,
+) -> Result<SparseAffineSolutionCandidate, MatrixError> {
+    let (coefficients, rhs) = affine_sources(matrix, rhs, work)?;
+    let source = augmented_source(&coefficients, &rhs, work)?;
+    let reduction = generate(source, work)?.witness;
+    let outcome = affine_outcome(&coefficients, &rhs, &reduction, work)?;
+    work.tick(1)?;
+    Ok(SparseAffineSolutionCandidate {
+        coefficients,
+        rhs,
+        witness: SparseAffineWitness {
+            schema_version: SPARSE_AFFINE_SCHEMA_VERSION,
+            reduction,
+            outcome,
+        },
+    })
+}
+
+fn bind_affine_source<M: BudgetMeter>(
+    original: &RationalSparseMatrix,
+    proposed: &RationalSparseMatrix,
+    work: &mut Work<'_, M>,
+) -> Result<(), MatrixError> {
+    work.tick(1)?;
+    if original.rows != proposed.rows
+        || original.columns != proposed.columns
+        || original.entries.len() != proposed.entries.len()
+    {
+        return Err(invalid("affine candidate source differs from the original matrix"));
+    }
+    for (expected, actual) in original.entries.iter().zip(&proposed.entries) {
+        check_value(&actual.value)?;
+        work.tick(
+            1 + expected.value.numer().limb_count()
+                + expected.value.denom().limb_count()
+                + actual.value.numer().limb_count()
+                + actual.value.denom().limb_count(),
+        )?;
+        if expected != actual {
+            return Err(invalid("affine candidate source differs from the original matrix"));
+        }
+    }
+    Ok(())
+}
+
+fn accept_affine<M: BudgetMeter>(
+    candidate: SparseAffineSolutionCandidate,
+    work: &mut Work<'_, M>,
+) -> Result<VerifiedSparseAffineSolution, MatrixError> {
+    let receipt = verify_sparse_affine(
+        &candidate.coefficients,
+        &candidate.rhs,
+        &candidate.witness,
+        work,
+    )
+    .map_err(verification_error)?;
+    let parts = match &candidate.witness.outcome {
+        SparseAffineOutcome::Inconsistent { .. } => None,
+        SparseAffineOutcome::Solvable {
+            particular,
+            kernel,
+            free_columns,
+        } => {
+            let particular = lift(particular, work)?;
+            let kernel = lift(kernel, work)?;
+            let mut free = work.vector(free_columns.len())?;
+            for &column in free_columns {
+                work.tick(1)?;
+                free.push(column);
+            }
+            Some((particular, kernel, free))
+        }
+    };
+    work.tick(1)?;
+    Ok(VerifiedSparseAffineSolution {
+        coefficients: candidate.coefficients,
+        rhs: candidate.rhs,
+        witness: candidate.witness,
+        receipt,
+        parts,
+    })
+}
+
+/// Bind both original matrices before independent complete-family acceptance.
+/// Verification, sparse output lifting, and final publication use one ledger.
+pub fn verify_sparse_affine_solution_candidate<M: BudgetMeter>(
+    matrix: &SparseMatrix,
+    rhs: &SparseMatrix,
+    candidate: SparseAffineSolutionCandidate,
+    meter: &mut M,
+) -> Result<VerifiedSparseAffineSolution, MatrixError> {
+    let mut work = Work::new(meter);
+    let (coefficients, original_rhs) = affine_sources(matrix, rhs, &mut work)?;
+    bind_affine_source(&coefficients, &candidate.coefficients, &mut work)?;
+    bind_affine_source(&original_rhs, &candidate.rhs, &mut work)?;
+    accept_affine(candidate, &mut work)
+}
+
+fn affine_parameter<M: BudgetMeter>(
+    index: usize,
+    work: &mut Work<'_, M>,
+) -> Result<Expr, MatrixError> {
+    let digits = if index == 0 {
+        1
+    } else {
+        index.ilog10() as usize + 1
+    };
+    work.tick((digits + 3) as u64)?;
+    work.reserve(digits + 3)?;
+    let mut name = String::new();
+    name.try_reserve_exact(digits + 3)
+        .map_err(|_| limit("affine parameter name allocation refused"))?;
+    write!(name, "tau{index}").map_err(|_| limit("affine parameter name construction failed"))?;
+    Ok(Expr::symbol(name))
+}
+
+fn affine_expression<M: BudgetMeter>(
+    mut terms: Vec<Expr>,
+    coefficient_bits: u64,
+    work: &mut Work<'_, M>,
+) -> Result<Expr, MatrixError> {
+    work.tick(1)?;
+    if terms.len() == 1 {
+        return terms
+            .pop()
+            .ok_or_else(|| invalid("affine expression lost its only term"));
+    }
+    if terms.is_empty() {
+        return Err(invalid("affine expression has no nonzero terms"));
+    }
+    // All terms have distinct plain parameter symbols, plus at most one
+    // rational constant. No collection, expansion, or numeric arithmetic is
+    // needed. Account conservatively for the core canonical comparator's
+    // temporary scalar renderings and sorting before entering this bounded
+    // canonicalization step; output terms have depth at most two.
+    let levels = u64::from(usize::BITS - (terms.len() - 1).leading_zeros());
+    let comparisons = 4 * terms.len() as u64 * levels;
+    let limbs = coefficient_bits.max(1).div_ceil(64) + 1;
+    work.tick(comparisons * limbs * limbs)?;
+    work.charge_batch(&[
+        (
+            Dimension::MemoryBytes,
+            comparisons * (4 * coefficient_bits.max(1) + 128)
+                + (terms.len() * std::mem::size_of::<Expr>()) as u64,
+        ),
+        (Dimension::AllocationCount, comparisons * (2 * limbs + 8) + 1),
+    ])
+    .map_err(stopped)?;
+    fsym_core::canonicalize_add_args(&mut terms);
+    work.tick(1)?;
+    Ok(Expr::Add(terms))
+}
+
+fn render_affine<M: BudgetMeter>(
+    verified: VerifiedSparseAffineSolution,
+    work: &mut Work<'_, M>,
+) -> Result<Option<(SparseMatrix, SparseMatrix, Vec<usize>)>, MatrixError> {
+    let SparseAffineOutcome::Solvable {
+        particular,
+        kernel,
+        free_columns,
+    } = &verified.witness.outcome
+    else {
+        work.tick(1)?;
+        return Ok(None);
+    };
+    let rhs_columns = particular.columns;
+    let parameter_count = free_columns
+        .len()
+        .checked_mul(rhs_columns)
+        .ok_or_else(|| limit("affine parameter count overflow"))?;
+    if parameter_count > MAX_SPARSE_RREF_ENTRIES {
+        return Err(limit("affine parameter stored-entry limit exceeded"));
+    }
+    let term_count = kernel
+        .entries
+        .len()
+        .checked_mul(rhs_columns)
+        .and_then(|count| count.checked_add(particular.entries.len()))
+        .ok_or_else(|| limit("affine symbolic term count overflow"))?;
+    if term_count > MAX_AFFINE_PARAMETER_TERMS {
+        return Err(limit("affine symbolic term limit exceeded"));
+    }
+    let mut active_rows: Vec<bool> = work.vector(kernel.rows)?;
+    active_rows.resize(kernel.rows, false);
+    let mut active_count = 0usize;
+    for entry in &kernel.entries {
+        work.tick(1)?;
+        if !active_rows[entry.row] {
+            active_rows[entry.row] = true;
+            active_count += 1;
+        }
+    }
+    let mut output_count = active_count
+        .checked_mul(rhs_columns)
+        .and_then(|count| count.checked_add(parameter_count))
+        .ok_or_else(|| limit("affine symbolic output count overflow"))?;
+    for entry in &particular.entries {
+        work.tick(1)?;
+        if !active_rows[entry.row] {
+            output_count = output_count
+                .checked_add(1)
+                .ok_or_else(|| limit("affine symbolic output count overflow"))?;
+        }
+    }
+    if output_count > MAX_SPARSE_RREF_ENTRIES {
+        return Err(limit("aggregate affine symbolic stored-entry limit exceeded"));
+    }
+
+    let mut parameter_entries = BTreeMap::new();
+    for row in 0..free_columns.len() {
+        for column in 0..rhs_columns {
+            work.tick(1)?;
+            work.reserve(512)?;
+            parameter_entries.insert(
+                (row, column),
+                affine_parameter(row * rhs_columns + column, work)?,
+            );
+        }
+    }
+    let parameters = SparseMatrix::new(free_columns.len(), rhs_columns, parameter_entries)?;
+    let mut solution_entries = BTreeMap::new();
+    let (mut particular_index, mut kernel_index) = (0, 0);
+    for row in 0..particular.rows {
+        work.tick(1)?;
+        let particular_start = particular_index;
+        while particular_index < particular.entries.len()
+            && particular.entries[particular_index].row == row
+        {
+            work.tick(1)?;
+            particular_index += 1;
+        }
+        let kernel_start = kernel_index;
+        while kernel_index < kernel.entries.len() && kernel.entries[kernel_index].row == row {
+            work.tick(1)?;
+            kernel_index += 1;
+        }
+        let particular_row = &particular.entries[particular_start..particular_index];
+        let kernel_row = &kernel.entries[kernel_start..kernel_index];
+        if kernel_row.is_empty() {
+            for entry in particular_row {
+                work.tick(1)?;
+                work.reserve(512)?;
+                solution_entries.insert(
+                    (row, entry.column),
+                    rational_expression(&entry.value, work)?,
+                );
+            }
+            continue;
+        }
+        let mut constant_index = 0;
+        for column in 0..rhs_columns {
+            work.tick(1)?;
+            let constant = particular_row
+                .get(constant_index)
+                .filter(|entry| entry.column == column);
+            let mut terms = work.vector(kernel_row.len() + usize::from(constant.is_some()))?;
+            let mut coefficient_bits = 1;
+            if let Some(entry) = constant {
+                coefficient_bits = entry.value.numer().bits().max(entry.value.denom().bits());
+                terms.push(rational_expression(&entry.value, work)?);
+                constant_index += 1;
+            }
+            for entry in kernel_row {
+                work.tick(1)?;
+                let parameter = affine_parameter(entry.column * rhs_columns + column, work)?;
+                if entry.value.is_one() {
+                    terms.push(parameter);
+                } else {
+                    coefficient_bits = coefficient_bits
+                        .max(entry.value.numer().bits())
+                        .max(entry.value.denom().bits());
+                    let mut factors = work.vector(2)?;
+                    factors.push(rational_expression(&entry.value, work)?);
+                    factors.push(parameter);
+                    terms.push(Expr::Mul(factors));
+                }
+            }
+            let expression = affine_expression(terms, coefficient_bits, work)?;
+            work.reserve(512)?;
+            solution_entries.insert((row, column), expression);
+        }
+    }
+    let solution = SparseMatrix::new(particular.rows, rhs_columns, solution_entries)?;
+    let (_, _, free_columns) = verified
+        .into_parts()
+        .ok_or_else(|| invalid("accepted affine family lost its sparse parts"))?;
+    work.tick(1)?;
+    Ok(Some((solution, parameters, free_columns)))
+}
+
 impl SparseMatrix {
+    /// Generate a complete-family proposal without an acceptance receipt.
+    pub fn affine_solution_candidate_with_meter<M: BudgetMeter>(
+        &self,
+        rhs: &Self,
+        meter: &mut M,
+    ) -> Result<SparseAffineSolutionCandidate, MatrixError> {
+        generate_affine(self, rhs, &mut Work::new(meter))
+    }
+
+    /// Complete exact affine solution family with separately owned phase meters.
+    /// A runtime may supply a protected verifier meter; this synchronous API
+    /// does not create a reservation. Neither phase retries with fresh budgets.
+    pub fn solve_affine_with_meters<G: BudgetMeter, V: BudgetMeter>(
+        &self,
+        rhs: &Self,
+        generator: &mut G,
+        verifier: &mut V,
+    ) -> Result<VerifiedSparseAffineSolution, MatrixError> {
+        let candidate = self.affine_solution_candidate_with_meter(rhs, generator)?;
+        verify_sparse_affine_solution_candidate(self, rhs, candidate, verifier)
+    }
+
+    /// Solve all RHS columns together with one cumulative caller ledger.
+    /// Admission, generation, independent verification, and sparse lifting are
+    /// included. Singular, rectangular, and empty systems retain their complete
+    /// solution sets, and inconsistency is an accepted mathematical outcome.
+    pub fn metered_solve_affine<M: BudgetMeter>(
+        &self,
+        rhs: &Self,
+        meter: &mut M,
+    ) -> Result<VerifiedSparseAffineSolution, MatrixError> {
+        let mut work = Work::new(meter);
+        let candidate = generate_affine(self, rhs, &mut work)?;
+        accept_affine(candidate, &mut work)
+    }
+
+    /// Return the complete exact rational family `X = P + N T` without dense
+    /// conversion. P is `self.cols() x rhs.cols()` and N is the complete kernel
+    /// in ascending free-column order. All sparse and arithmetic limits remain
+    /// active even with this unbounded outer meter.
+    pub fn solve_affine(&self, rhs: &Self) -> Result<VerifiedSparseAffineSolution, MatrixError> {
+        self.metered_solve_affine(rhs, &mut Unbounded)
+    }
+
+    /// Complete parameterized sparse solution with one ledger through native
+    /// symbol construction. Parameters are plain `tau0`, `tau1`, ... in
+    /// row-major order. Parameter, term, and total stored-output amplification
+    /// are bounded before construction; no Python arithmetic participates.
+    pub fn metered_gauss_jordan_solve<M: BudgetMeter>(
+        &self,
+        rhs: &Self,
+        meter: &mut M,
+    ) -> Result<Option<(Self, Self, Vec<usize>)>, MatrixError> {
+        let mut work = Work::new(meter);
+        let candidate = generate_affine(self, rhs, &mut work)?;
+        let verified = accept_affine(candidate, &mut work)?;
+        render_affine(verified, &mut work)
+    }
+
+    pub fn gauss_jordan_solve(
+        &self,
+        rhs: &Self,
+    ) -> Result<Option<(Self, Self, Vec<usize>)>, MatrixError> {
+        self.metered_gauss_jordan_solve(rhs, &mut Unbounded)
+    }
+
     /// Independently checked sparse RREF with separately owned phase meters.
     pub fn rref_checked_with_meters<G: BudgetMeter, V: BudgetMeter>(
         &self,
