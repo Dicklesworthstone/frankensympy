@@ -1,10 +1,12 @@
 //! Checked characteristic families for a bounded first-order linear PDE.
 //!
 //! For rational constants a, b, c with (a,b) != (0,0), this lane solves
-//! a*u_x + b*u_y + c*u = f(x,y) with rational polynomial forcing. Its output
-//! describes exp(-c*s)*F(t) + q for an arbitrary differentiable function F.
+//! a*u_x + b*u_y + c*u = f(x,y) with bounded elementary forcing. Each
+//! forcing mode is exp(E)*(P*cos(T)+Q*sin(T)), where E and T are rational
+//! affine forms and P and Q are rational polynomials. Its output describes
+//! exp(-c*s)*F(t) + q for an arbitrary differentiable function F.
 //! The separate checker establishes Ds=1, Dt=0, an invertible affine
-//! coordinate map, and every coefficient of the original residual Dq+cq-f.
+//! coordinate map, and every coefficient of each original residual mode.
 //! This is a verified solution family, not a general PDE-completeness,
 //! boundary-value, portable-proof, or asynchronous-runtime certificate.
 
@@ -12,16 +14,17 @@
 
 use fsym_budget::{BudgetError, BudgetMeter, Dimension, MeterError, Unbounded};
 use fsym_core::elementary::rational_expr;
-use fsym_core::{BigRational, Expr, Symbol};
+use fsym_core::{BigRational, Constant, Expr, Symbol};
 use fsym_polys::{PolyError, bounded_polynomial_from_expr};
 use num_traits::{One, Zero};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use thiserror::Error;
 
 const MAX_FORCING_DEGREE: u32 = 16;
 const MAX_PARTICULAR_DEGREE: u32 = 17;
 const MAX_TERMS: usize = 192;
+const MAX_MODES: usize = 16;
 const MAX_BITS: u64 = 4096;
 const MAX_NODES: usize = 4096;
 const MAX_DEPTH: usize = 64;
@@ -32,6 +35,32 @@ const MAX_COMPUTE: u64 = 20_000_000;
 const MAX_MEMORY: u64 = 128 * 1024 * 1024;
 
 type Polynomial = BTreeMap<[u32; 2], BigRational>;
+
+// Affine triples are [x coefficient, y coefficient, constant]. A zero phase
+// denotes a plain exponential (or polynomial when the exponential is zero).
+// For a nonzero phase its first nonzero entry is positive; changing its sign
+// changes the sine amplitude's sign and leaves the cosine amplitude intact.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct Mode {
+    exponential: [BigRational; 3],
+    phase: [BigRational; 3],
+}
+
+impl Mode {
+    fn polynomial() -> Self {
+        Self {
+            exponential: std::array::from_fn(|_| BigRational::zero()),
+            phase: std::array::from_fn(|_| BigRational::zero()),
+        }
+    }
+
+    fn has_phase(&self) -> bool {
+        self.phase.iter().any(|value| !value.is_zero())
+    }
+}
+
+type Amplitudes = [Polynomial; 2];
+type Modes = BTreeMap<Mode, Amplitudes>;
 type Result<T> = std::result::Result<T, PdeError>;
 
 #[derive(Debug, Error)]
@@ -56,7 +85,7 @@ pub enum PdeCompleteness {
     VerifiedSolutionFamily,
 }
 
-/// Untrusted polynomial expressions in the original two coordinates.
+/// Untrusted affine coordinates and an elementary particular expression.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinearFirstOrderPdeCertificate {
     pub time_coordinate: Expr,
@@ -135,7 +164,10 @@ impl<M: BudgetMeter> BudgetMeter for Work<'_, M> {
         self.charge_batch(&[(dimension, amount)])
     }
 
-    fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> std::result::Result<(), MeterError> {
+    fn charge_batch(
+        &mut self,
+        charges: &[(Dimension, u64)],
+    ) -> std::result::Result<(), MeterError> {
         let result = (|| {
             self.checkpoint()?;
             let mut next = self.used;
@@ -206,10 +238,8 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
     }
 
     fn arithmetic_error(&self, error: impl std::fmt::Display) -> PdeError {
-        self.stopped.map_or_else(
-            || PdeError::Arithmetic(error.to_string()),
-            PdeError::Meter,
-        )
+        self.stopped
+            .map_or_else(|| PdeError::Arithmetic(error.to_string()), PdeError::Meter)
     }
 
     fn add(&mut self, a: &BigRational, b: &BigRational) -> Result<BigRational> {
@@ -280,6 +310,7 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
         expression: &Expr,
         variables: [&Symbol; 2],
         max_degree: u32,
+        elementary: bool,
         depth: usize,
         observed: &mut [usize; 2],
     ) -> Result<u32> {
@@ -293,9 +324,7 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
         let degree = match expression {
             Expr::Integer(value) => {
                 if value.bits() > MAX_BITS {
-                    return Err(PdeError::ResourceLimit(
-                        "integer literal exceeds 4096 bits",
-                    ));
+                    return Err(PdeError::ResourceLimit("integer literal exceeds 4096 bits"));
                 }
                 0
             }
@@ -303,6 +332,7 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
                 scalar_ok(value)?;
                 0
             }
+            Expr::Const(Constant::E) if elementary => 0,
             Expr::Sym(symbol) if variables.contains(&symbol) => {
                 observed[1] = observed[1].saturating_add(symbol.name.len());
                 if observed[1] > MAX_TEXT {
@@ -321,8 +351,14 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
                 let mut degree = 0;
                 for child in children {
                     // Every original child is inspected, including after zero.
-                    let next =
-                        self.preflight(child, variables, max_degree, depth + 1, observed)?;
+                    let next = self.preflight(
+                        child,
+                        variables,
+                        max_degree,
+                        elementary,
+                        depth + 1,
+                        observed,
+                    )?;
                     degree = if matches!(expression, Expr::Add(_)) {
                         degree.max(next)
                     } else {
@@ -338,8 +374,8 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
             }
             Expr::Pow(base, exponent) => {
                 let base_degree =
-                    self.preflight(base, variables, max_degree, depth + 1, observed)?;
-                self.preflight(exponent, variables, max_degree, depth + 1, observed)?;
+                    self.preflight(base, variables, max_degree, false, depth + 1, observed)?;
+                self.preflight(exponent, variables, max_degree, false, depth + 1, observed)?;
                 let Expr::Integer(power) = exponent.as_ref() else {
                     return Err(PdeError::InvalidSource(
                         "polynomial exponents must be literal integers",
@@ -354,12 +390,30 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
                         "a nonpositive held power needs a nonzero rational literal base",
                     ));
                 }
-                base_degree
-                    * u32::try_from(power.max(0)).expect("bounded nonnegative exponent")
+                base_degree * u32::try_from(power.max(0)).expect("bounded nonnegative exponent")
+            }
+            Expr::Function(name, arguments)
+                if elementary && matches!(name.as_str(), "exp" | "sin" | "cos") =>
+            {
+                observed[1] = observed[1].saturating_add(name.len());
+                if observed[1] > MAX_TEXT {
+                    return Err(PdeError::ResourceLimit(
+                        "expression exceeds the text envelope",
+                    ));
+                }
+                if arguments.len() != 1 {
+                    return Err(PdeError::InvalidSource(
+                        "elementary forcing functions must have exactly one argument",
+                    ));
+                }
+                // Function arguments have their own affine bound. Polynomial
+                // powers never recurse with elementary=true, even at power zero.
+                self.preflight(&arguments[0], variables, 1, false, depth + 1, observed)?;
+                0
             }
             _ => {
                 return Err(PdeError::InvalidSource(
-                    "forcing and candidates must be rational polynomials in the two coordinates",
+                    "expected rational polynomials and exponentials or trigonometric functions of rational affine forms",
                 ));
             }
         };
@@ -377,7 +431,7 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
         variables: [&Symbol; 2],
         max_degree: u32,
     ) -> Result<Polynomial> {
-        self.preflight(expression, variables, max_degree, 0, &mut [0, 0])?;
+        self.preflight(expression, variables, max_degree, false, 0, &mut [0, 0])?;
         self.charge_storage(1, MAX_TEXT + 256)?;
         let parsed = bounded_polynomial_from_expr(
             expression,
@@ -402,6 +456,219 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
             .into_iter()
             .map(|(powers, value)| ([powers[0], powers[1]], value))
             .collect())
+    }
+
+    fn parse_modes(
+        &mut self,
+        expression: &Expr,
+        variables: [&Symbol; 2],
+        max_degree: u32,
+    ) -> Result<Modes> {
+        // This complete original-graph pass precedes all arithmetic, expansion,
+        // mode merging, and removal of zero amplitudes.
+        self.preflight(expression, variables, max_degree, true, 0, &mut [0, 0])?;
+        self.trigonometric_factors(expression)?;
+        self.parse_modes_inner(expression, variables, max_degree)
+    }
+
+    fn trigonometric_factors(&mut self, expression: &Expr) -> Result<usize> {
+        self.charge(Dimension::ComputeSteps, 1)?;
+        let mut count = 0;
+        match expression {
+            Expr::Add(children) | Expr::Mul(children) => {
+                for child in children {
+                    let next = self.trigonometric_factors(child)?;
+                    count = if matches!(expression, Expr::Add(_)) {
+                        count.max(next)
+                    } else {
+                        count + next
+                    };
+                    if count > 1 {
+                        return Err(PdeError::InvalidSource(
+                            "each elementary term supports at most one trigonometric factor",
+                        ));
+                    }
+                }
+            }
+            Expr::Function(name, _) if matches!(name.as_str(), "sin" | "cos") => {
+                count = 1;
+            }
+            _ => {}
+        }
+        Ok(count)
+    }
+
+    fn parse_modes_inner(
+        &mut self,
+        expression: &Expr,
+        variables: [&Symbol; 2],
+        max_degree: u32,
+    ) -> Result<Modes> {
+        self.charge_storage(1, 256)?;
+        let mut output = Modes::new();
+        match expression {
+            Expr::Const(Constant::E) => {
+                let mut mode = Mode::polynomial();
+                mode.exponential[2] = BigRational::one();
+                let one = BTreeMap::from([([0, 0], BigRational::one())]);
+                self.insert_mode(&mut output, mode, [one, Polynomial::new()])?;
+            }
+            Expr::Add(children) => {
+                for child in children {
+                    for (mode, amplitudes) in
+                        self.parse_modes_inner(child, variables, max_degree)?
+                    {
+                        self.insert_mode(&mut output, mode, amplitudes)?;
+                    }
+                }
+            }
+            Expr::Mul(children) => {
+                let one = BTreeMap::from([([0, 0], BigRational::one())]);
+                self.insert_mode(&mut output, Mode::polynomial(), [one, Polynomial::new()])?;
+                for child in children {
+                    let factor = self.parse_modes_inner(child, variables, max_degree)?;
+                    output = self.multiply_modes(&output, &factor)?;
+                }
+            }
+            Expr::Function(name, arguments) => {
+                let argument = self.parse(&arguments[0], variables, 1)?;
+                self.charge_storage(1, 8192)?;
+                let mut affine = [
+                    argument
+                        .get(&[1, 0])
+                        .cloned()
+                        .unwrap_or_else(BigRational::zero),
+                    argument
+                        .get(&[0, 1])
+                        .cloned()
+                        .unwrap_or_else(BigRational::zero),
+                    argument
+                        .get(&[0, 0])
+                        .cloned()
+                        .unwrap_or_else(BigRational::zero),
+                ];
+                let mut mode = Mode::polynomial();
+                let mut amplitudes = [Polynomial::new(), Polynomial::new()];
+                match name.as_str() {
+                    "exp" => {
+                        mode.exponential = affine;
+                        self.insert(&mut amplitudes[0], [0, 0], BigRational::one())?;
+                    }
+                    "sin" | "cos" => {
+                        let negative = affine
+                            .iter()
+                            .find(|value| !value.is_zero())
+                            .is_some_and(|value| value < &BigRational::zero());
+                        if negative {
+                            affine = affine.map(|value| -value);
+                        }
+                        mode.phase = affine;
+                        let channel = usize::from(name == "sin");
+                        if channel == 0 || mode.has_phase() {
+                            let unit = if channel == 1 && negative {
+                                -BigRational::one()
+                            } else {
+                                BigRational::one()
+                            };
+                            self.insert(&mut amplitudes[channel], [0, 0], unit)?;
+                        }
+                    }
+                    _ => {
+                        return Err(PdeError::InvalidSource(
+                            "unsupported elementary forcing function",
+                        ));
+                    }
+                }
+                self.insert_mode(&mut output, mode, amplitudes)?;
+            }
+            _ => {
+                let polynomial = self.parse(expression, variables, max_degree)?;
+                self.insert_mode(
+                    &mut output,
+                    Mode::polynomial(),
+                    [polynomial, Polynomial::new()],
+                )?;
+            }
+        }
+        Ok(output)
+    }
+
+    fn insert_mode(
+        &mut self,
+        output: &mut Modes,
+        mode: Mode,
+        amplitudes: Amplitudes,
+    ) -> Result<()> {
+        self.charge_storage(1, 8192)?;
+        let target = output
+            .entry(mode)
+            .or_insert_with(|| [Polynomial::new(), Polynomial::new()]);
+        for (channel, polynomial) in amplitudes.into_iter().enumerate() {
+            for (powers, coefficient) in polynomial {
+                self.insert(&mut target[channel], powers, coefficient)?;
+            }
+        }
+        output.retain(|_, pair| !pair[0].is_empty() || !pair[1].is_empty());
+        if output.len() > MAX_MODES {
+            return Err(PdeError::ResourceLimit(
+                "elementary forcing exceeds sixteen distinct modes",
+            ));
+        }
+        Ok(())
+    }
+
+    fn multiply_polynomials(
+        &mut self,
+        left: &Polynomial,
+        right: &Polynomial,
+    ) -> Result<Polynomial> {
+        let mut output = Polynomial::new();
+        for (lp, lc) in left {
+            for (rp, rc) in right {
+                let coefficient = self.mul(lc, rc)?;
+                self.insert(&mut output, [lp[0] + rp[0], lp[1] + rp[1]], coefficient)?;
+            }
+        }
+        Ok(output)
+    }
+
+    fn multiply_modes(&mut self, left: &Modes, right: &Modes) -> Result<Modes> {
+        let mut output = Modes::new();
+        for (lm, la) in left {
+            for (rm, ra) in right {
+                if lm.has_phase() && rm.has_phase() {
+                    return Err(PdeError::InvalidSource(
+                        "each elementary term supports at most one trigonometric factor",
+                    ));
+                }
+                self.charge_storage(1, 8192)?;
+                let mode = Mode {
+                    exponential: [
+                        self.add(&lm.exponential[0], &rm.exponential[0])?,
+                        self.add(&lm.exponential[1], &rm.exponential[1])?,
+                        self.add(&lm.exponential[2], &rm.exponential[2])?,
+                    ],
+                    phase: if lm.has_phase() {
+                        lm.phase.clone()
+                    } else {
+                        rm.phase.clone()
+                    },
+                };
+                let pair = if lm.has_phase() {
+                    [
+                        self.multiply_polynomials(&la[0], &ra[0])?,
+                        self.multiply_polynomials(&la[1], &ra[0])?,
+                    ]
+                } else {
+                    [
+                        self.multiply_polynomials(&la[0], &ra[0])?,
+                        self.multiply_polynomials(&la[0], &ra[1])?,
+                    ]
+                };
+                self.insert_mode(&mut output, mode, pair)?;
+            }
+        }
+        Ok(output)
     }
 
     fn insert(
@@ -434,11 +701,7 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
         Ok(())
     }
 
-    fn scaled(
-        &mut self,
-        polynomial: &Polynomial,
-        scale: &BigRational,
-    ) -> Result<Polynomial> {
+    fn scaled(&mut self, polynomial: &Polynomial, scale: &BigRational) -> Result<Polynomial> {
         let mut output = Polynomial::new();
         for (&powers, coefficient) in polynomial {
             let value = self.mul(coefficient, scale)?;
@@ -457,10 +720,8 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
         for (&powers, coefficient) in polynomial {
             for (axis, speed) in [a, b].into_iter().enumerate() {
                 if powers[axis] != 0 {
-                    let factor = self.mul(
-                        speed,
-                        &BigRational::from_integer(powers[axis].into()),
-                    )?;
+                    let factor =
+                        self.mul(speed, &BigRational::from_integer(powers[axis].into()))?;
                     let value = self.mul(coefficient, &factor)?;
                     let mut derivative = powers;
                     derivative[axis] -= 1;
@@ -481,25 +742,15 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
         for (&powers, coefficient) in polynomial {
             let mut integrated = powers;
             integrated[axis] += 1;
-            let divisor = self.mul(
-                speed,
-                &BigRational::from_integer(integrated[axis].into()),
-            )?;
+            let divisor = self.mul(speed, &BigRational::from_integer(integrated[axis].into()))?;
             let value = self.div(coefficient, &divisor)?;
             self.insert(&mut output, integrated, value)?;
         }
         Ok(output)
     }
 
-    fn expression(
-        &mut self,
-        polynomial: &Polynomial,
-        variables: [&Symbol; 2],
-    ) -> Result<Expr> {
-        self.charge_storage(
-            polynomial.len(),
-            polynomial.len() * (MAX_TEXT + 2048),
-        )?;
+    fn expression(&mut self, polynomial: &Polynomial, variables: [&Symbol; 2]) -> Result<Expr> {
+        self.charge_storage(polynomial.len(), polynomial.len() * (MAX_TEXT + 2048))?;
         let mut terms = Vec::with_capacity(polynomial.len());
         for (powers, coefficient) in polynomial {
             let mut factors = vec![rational_expr(coefficient.clone())];
@@ -528,6 +779,171 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
             _ => Expr::Add(terms),
         })
     }
+
+    fn affine_expression(
+        &mut self,
+        affine: &[BigRational; 3],
+        variables: [&Symbol; 2],
+    ) -> Result<Expr> {
+        self.charge_storage(3, 4096)?;
+        let mut polynomial = Polynomial::new();
+        for (powers, coefficient) in [[1, 0], [0, 1], [0, 0]].into_iter().zip(affine) {
+            self.insert(&mut polynomial, powers, coefficient.clone())?;
+        }
+        self.expression(&polynomial, variables)
+    }
+
+    fn modes_expression(&mut self, modes: &Modes, variables: [&Symbol; 2]) -> Result<Expr> {
+        self.charge_storage(modes.len(), modes.len() * 16_384)?;
+        let mut terms = Vec::with_capacity(modes.len());
+        for (mode, amplitudes) in modes {
+            let wave = if mode.has_phase() {
+                let phase = self.affine_expression(&mode.phase, variables)?;
+                let mut pair = Vec::with_capacity(2);
+                for (channel, polynomial) in amplitudes.iter().enumerate() {
+                    if !polynomial.is_empty() {
+                        pair.push(Expr::Mul(vec![
+                            self.expression(polynomial, variables)?,
+                            Expr::Function(
+                                if channel == 0 { "cos" } else { "sin" }.into(),
+                                vec![phase.clone()],
+                            ),
+                        ]));
+                    }
+                }
+                match pair.len() {
+                    0 => continue,
+                    1 => pair.remove(0),
+                    _ => Expr::Add(pair),
+                }
+            } else {
+                if !amplitudes[1].is_empty() {
+                    return Err(PdeError::Verification(
+                        "a zero phase has an invalid sine amplitude",
+                    ));
+                }
+                self.expression(&amplitudes[0], variables)?
+            };
+            terms.push(if mode.exponential.iter().all(BigRational::is_zero) {
+                wave
+            } else {
+                Expr::Mul(vec![
+                    Expr::Function(
+                        "exp".into(),
+                        vec![self.affine_expression(&mode.exponential, variables)?],
+                    ),
+                    wave,
+                ])
+            });
+        }
+        Ok(match terms.len() {
+            0 => Expr::from_i64(0),
+            1 => terms.remove(0),
+            _ => Expr::Add(terms),
+        })
+    }
+
+    fn paired_scale(
+        &mut self,
+        amplitudes: &Amplitudes,
+        real: &BigRational,
+        imaginary: &BigRational,
+    ) -> Result<Amplitudes> {
+        // [[real,-imaginary],[imaginary,real]] times [cosine,sine].
+        let mut cosine = self.scaled(&amplitudes[0], real)?;
+        for (powers, coefficient) in self.scaled(&amplitudes[1], &(-imaginary))? {
+            self.insert(&mut cosine, powers, coefficient)?;
+        }
+        let mut sine = self.scaled(&amplitudes[0], imaginary)?;
+        for (powers, coefficient) in self.scaled(&amplitudes[1], real)? {
+            self.insert(&mut sine, powers, coefficient)?;
+        }
+        Ok([cosine, sine])
+    }
+}
+
+fn transport_integral<M: BudgetMeter>(
+    source: Polynomial,
+    a: &BigRational,
+    b: &BigRational,
+    work: &mut Work<'_, M>,
+) -> Result<Polynomial> {
+    let axis = usize::from(a.is_zero());
+    let (speed, other) = if axis == 0 { (a, b) } else { (b, a) };
+    let (dx, dy) = if axis == 0 {
+        (BigRational::zero(), -other)
+    } else {
+        (-other, BigRational::zero())
+    };
+    let mut remainder = source;
+    let mut particular = Polynomial::new();
+    // Triangular integration is the finite characteristic antiderivative,
+    // expressed directly in the original coordinates.
+    for _ in 0..=MAX_FORCING_DEGREE {
+        let integrated = work.integrate(&remainder, axis, speed)?;
+        remainder = work.directional(&integrated, &dx, &dy)?;
+        for (powers, coefficient) in integrated {
+            work.insert(&mut particular, powers, coefficient)?;
+        }
+        if remainder.is_empty() {
+            return Ok(particular);
+        }
+    }
+    Err(PdeError::ResourceLimit(
+        "characteristic integration did not terminate",
+    ))
+}
+
+fn mode_particular<M: BudgetMeter>(
+    source: Amplitudes,
+    mode: &Mode,
+    coefficients: [&BigRational; 3],
+    work: &mut Work<'_, M>,
+) -> Result<Amplitudes> {
+    let [a, b, c] = coefficients;
+    let ex = work.mul(a, &mode.exponential[0])?;
+    let ey = work.mul(b, &mode.exponential[1])?;
+    let rate = work.add(&ex, &ey)?;
+    let lambda = work.add(c, &rate)?;
+    let px = work.mul(a, &mode.phase[0])?;
+    let py = work.mul(b, &mode.phase[1])?;
+    let omega = work.add(&px, &py)?;
+    if lambda.is_zero() && omega.is_zero() {
+        let [cosine, sine] = source;
+        return Ok([
+            transport_integral(cosine, a, b, work)?,
+            transport_integral(sine, a, b, work)?,
+        ]);
+    }
+    let lambda_squared = work.mul(&lambda, &lambda)?;
+    let omega_squared = work.mul(&omega, &omega)?;
+    let determinant = work.add(&lambda_squared, &omega_squared)?;
+    // All rates are rational. This determinant is nonzero exactly when one
+    // of lambda or omega is nonzero; no branch or numerical decision occurs.
+    let real = work.div(&lambda, &determinant)?;
+    let imaginary = work.div(&omega, &determinant)?;
+    let mut term = work.paired_scale(&source, &real, &imaginary)?;
+    let mut particular = [Polynomial::new(), Polynomial::new()];
+    // D is nilpotent on the admitted polynomial degree envelope. A^{-1}
+    // commutes with D, so (D+A)^{-1}=sum_k (-A^{-1}D)^k A^{-1}.
+    for _ in 0..=MAX_FORCING_DEGREE {
+        let derivative = [
+            work.directional(&term[0], a, b)?,
+            work.directional(&term[1], a, b)?,
+        ];
+        for (channel, polynomial) in term.into_iter().enumerate() {
+            for (powers, coefficient) in polynomial {
+                work.insert(&mut particular[channel], powers, coefficient)?;
+            }
+        }
+        if derivative.iter().all(Polynomial::is_empty) {
+            return Ok(particular);
+        }
+        term = work.paired_scale(&derivative, &(-&real), &(-&imaginary))?;
+    }
+    Err(PdeError::ResourceLimit(
+        "elementary directional inverse did not terminate",
+    ))
 }
 
 fn generate<M: BudgetMeter>(
@@ -537,9 +953,8 @@ fn generate<M: BudgetMeter>(
     work: &mut Work<'_, M>,
 ) -> Result<LinearFirstOrderPdeCertificate> {
     work.admit_source(coefficients, variables)?;
-    let [a, b, c] = coefficients;
-    let source = work.parse(forcing, variables, MAX_FORCING_DEGREE)?;
-    let axis = usize::from(a.is_zero());
+    let source = work.parse_modes(forcing, variables, MAX_FORCING_DEGREE)?;
+    let axis = usize::from(coefficients[0].is_zero());
     let speed = coefficients[axis];
     let other = coefficients[1 - axis];
     let inverse = work.div(&BigRational::one(), speed)?;
@@ -554,56 +969,15 @@ fn generate<M: BudgetMeter>(
     unit[1 - axis] = 1;
     work.insert(&mut invariant, unit, BigRational::one())?;
 
-    let mut particular = Polynomial::new();
-    if c.is_zero() {
-        // Triangular integration is the finite characteristic-coordinate
-        // antiderivative, expressed directly in the original coordinates.
-        let mut remainder = source;
-        for _ in 0..=MAX_FORCING_DEGREE {
-            let integrated = work.integrate(&remainder, axis, speed)?;
-            for (&powers, coefficient) in &integrated {
-                work.insert(&mut particular, powers, coefficient.clone())?;
-            }
-            let (dx, dy) = if axis == 0 {
-                (BigRational::zero(), -other)
-            } else {
-                (-other, BigRational::zero())
-            };
-            remainder = work.directional(&integrated, &dx, &dy)?;
-            if remainder.is_empty() {
-                break;
-            }
-        }
-        if !remainder.is_empty() {
-            return Err(PdeError::ResourceLimit(
-                "characteristic integration did not terminate",
-            ));
-        }
-    } else {
-        // On degree-d polynomials, D^(d+1)=0. The finite geometric inverse
-        // of c+D is sum_k (-D)^k/c^(k+1).
-        let inverse = work.div(&BigRational::one(), c)?;
-        let mut term = work.scaled(&source, &inverse)?;
-        for _ in 0..=MAX_FORCING_DEGREE {
-            for (&powers, coefficient) in &term {
-                work.insert(&mut particular, powers, coefficient.clone())?;
-            }
-            let derivative = work.directional(&term, a, b)?;
-            term = work.scaled(&derivative, &(-&inverse))?;
-            if term.is_empty() {
-                break;
-            }
-        }
-        if !term.is_empty() {
-            return Err(PdeError::ResourceLimit(
-                "polynomial directional inverse did not terminate",
-            ));
-        }
+    let mut particular = Modes::new();
+    for (mode, amplitudes) in source {
+        let solved = mode_particular(amplitudes, &mode, coefficients, work)?;
+        work.insert_mode(&mut particular, mode, solved)?;
     }
     Ok(LinearFirstOrderPdeCertificate {
         time_coordinate: work.expression(&time, variables)?,
         invariant_coordinate: work.expression(&invariant, variables)?,
-        particular: work.expression(&particular, variables)?,
+        particular: work.modes_expression(&particular, variables)?,
     })
 }
 
@@ -616,14 +990,10 @@ fn check<M: BudgetMeter>(
 ) -> Result<VerifiedLinearPde> {
     work.admit_source(coefficients, variables)?;
     let [a, b, c] = coefficients;
-    let source = work.parse(forcing, variables, MAX_FORCING_DEGREE)?;
+    let source = work.parse_modes(forcing, variables, MAX_FORCING_DEGREE)?;
     let time = work.parse(&candidate.time_coordinate, variables, 1)?;
     let invariant = work.parse(&candidate.invariant_coordinate, variables, 1)?;
-    let particular = work.parse(
-        &candidate.particular,
-        variables,
-        MAX_PARTICULAR_DEGREE,
-    )?;
+    let particular = work.parse_modes(&candidate.particular, variables, MAX_PARTICULAR_DEGREE)?;
     let zero = BigRational::zero();
     let sx = time.get(&[1, 0]).unwrap_or(&zero);
     let sy = time.get(&[0, 1]).unwrap_or(&zero);
@@ -633,9 +1003,7 @@ fn check<M: BudgetMeter>(
     let bsy = work.mul(b, sy)?;
     let atx = work.mul(a, tx)?;
     let bty = work.mul(b, ty)?;
-    if work.add(&asx, &bsy)? != BigRational::one()
-        || !work.add(&atx, &bty)?.is_zero()
-    {
+    if work.add(&asx, &bsy)? != BigRational::one() || !work.add(&atx, &bty)?.is_zero() {
         return Err(PdeError::Verification(
             "characteristic directional identities failed",
         ));
@@ -648,32 +1016,54 @@ fn check<M: BudgetMeter>(
         ));
     }
 
-    // Independent scalar coefficient recurrence. This does not call the
-    // generator's directional derivative, integration, or polynomial inverse.
-    // Checking the full degree envelope also detects spurious high-degree q.
-    for i in 0..=MAX_PARTICULAR_DEGREE {
-        for j in 0..=MAX_PARTICULAR_DEGREE - i {
-            let qx = particular.get(&[i + 1, j]).unwrap_or(&zero);
-            let qy = particular.get(&[i, j + 1]).unwrap_or(&zero);
-            let q0 = particular.get(&[i, j]).unwrap_or(&zero);
-            let dx = work.mul(qx, &BigRational::from_integer((i + 1).into()))?;
-            let dy = work.mul(qy, &BigRational::from_integer((j + 1).into()))?;
-            let dx = work.mul(a, &dx)?;
-            let dy = work.mul(b, &dy)?;
-            let reaction = work.mul(c, q0)?;
-            let transport = work.add(&dx, &dy)?;
-            let residual = work.add(&transport, &reaction)?;
-            if &residual != source.get(&[i, j]).unwrap_or(&zero) {
-                return Err(PdeError::Verification(
-                    "particular solution fails the original PDE coefficient identity",
-                ));
+    // A separate scalar recurrence checks both amplitudes of every original
+    // or candidate mode. It does not call the generator's directional
+    // derivative, paired inverse, integration, or mode-particular helpers.
+    // Candidate-only modes are permitted only when their original residual
+    // is exactly zero (for example, an additional homogeneous solution).
+    work.charge_storage(source.len() + particular.len(), 32 * 1024)?;
+    let modes: BTreeSet<_> = source.keys().chain(particular.keys()).collect();
+    let empty = [Polynomial::new(), Polynomial::new()];
+    for mode in modes {
+        let original = source.get(mode).unwrap_or(&empty);
+        let proposed = particular.get(mode).unwrap_or(&empty);
+        let ex = work.mul(a, &mode.exponential[0])?;
+        let ey = work.mul(b, &mode.exponential[1])?;
+        let rate = work.add(&ex, &ey)?;
+        let reaction_rate = work.add(c, &rate)?;
+        let tx = work.mul(a, &mode.phase[0])?;
+        let ty = work.mul(b, &mode.phase[1])?;
+        let frequency = work.add(&tx, &ty)?;
+        for channel in 0..2 {
+            for i in 0..=MAX_PARTICULAR_DEGREE {
+                for j in 0..=MAX_PARTICULAR_DEGREE - i {
+                    let qx = proposed[channel].get(&[i + 1, j]).unwrap_or(&zero);
+                    let qy = proposed[channel].get(&[i, j + 1]).unwrap_or(&zero);
+                    let q0 = proposed[channel].get(&[i, j]).unwrap_or(&zero);
+                    let paired = proposed[1 - channel].get(&[i, j]).unwrap_or(&zero);
+                    let dx = work.mul(qx, &BigRational::from_integer((i + 1).into()))?;
+                    let dy = work.mul(qy, &BigRational::from_integer((j + 1).into()))?;
+                    let dx = work.mul(a, &dx)?;
+                    let dy = work.mul(b, &dy)?;
+                    let reaction = work.mul(&reaction_rate, q0)?;
+                    let coupling = work.mul(&frequency, paired)?;
+                    let coupling = if channel == 0 { coupling } else { -coupling };
+                    let transport = work.add(&dx, &dy)?;
+                    let diagonal = work.add(&transport, &reaction)?;
+                    let residual = work.add(&diagonal, &coupling)?;
+                    if &residual != original[channel].get(&[i, j]).unwrap_or(&zero) {
+                        return Err(PdeError::Verification(
+                            "particular solution fails an original PDE mode coefficient identity",
+                        ));
+                    }
+                }
             }
         }
     }
 
     let time_coordinate = work.expression(&time, variables)?;
     let invariant_coordinate = work.expression(&invariant, variables)?;
-    let particular = work.expression(&particular, variables)?;
+    let particular = work.modes_expression(&particular, variables)?;
     work.charge_storage(MAX_NODES, MAX_NODES * 2048 + MAX_TEXT)?;
     let homogeneous_coefficient = if c.is_zero() {
         Expr::from_i64(1)
@@ -700,7 +1090,7 @@ fn check<M: BudgetMeter>(
 
 /// Verify a proposal against the original coefficients, forcing, and axes.
 ///
-/// The polynomial coefficient recurrence and affine determinant are exact;
+/// The two mode coefficient recurrences and affine determinant are exact;
 /// no numerical observations, simplifier zero guesses, or generator calls
 /// participate in acceptance. The caller's meter is cumulative throughout.
 pub fn verify_linear_first_order_pde(
@@ -721,9 +1111,15 @@ pub fn verify_linear_first_order_pde(
 
 /// Construct and check a rational constant-coefficient characteristic family.
 ///
-/// Forcing has total degree at most sixteen; the particular polynomial has
-/// degree at most seventeen. Every original node is admitted before any zero
-/// cancellation. All source and derived scalars are bounded to 4096 bits.
+/// Forcing is a sum of at most sixteen exp(E)*(P*cos(T)+Q*sin(T)) modes,
+/// including pure polynomials, exponentials, and trigonometric terms. E and T
+/// are affine in the original axes with exact rational rates and offsets.
+/// The built-in constant E is admitted as the canonical form of exp(1).
+/// P and Q have degree at most sixteen; particular amplitudes have degree at
+/// most seventeen. Add/Mul may distribute these forms and combine exponentials,
+/// but two trigonometric factors in a product and elementary-function powers
+/// are refused. Every original node is admitted before zero cancellation.
+/// Each amplitude has at most 192 terms, and every scalar at most 4096 bits.
 /// Generation and independent verification share the same cumulative caller
 /// meter and a fixed twenty-million-step/128-MiB logical allocation envelope.
 /// This synchronous API does not reserve a protected runtime verifier pool.
