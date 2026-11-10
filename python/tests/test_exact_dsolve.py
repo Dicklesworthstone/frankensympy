@@ -514,16 +514,20 @@ class ExactDsolveTests(unittest.TestCase):
             ("__name__", "renamed_ode_metadata"),
         )
         for attribute, replacement in mutations:
-            with self.subTest(attribute=attribute), patch.object(
-                function, attribute, replacement,
-            ), patch(
+            with self.subTest(attribute=attribute), patch(
                 "sympy.solvers.ode._native.exact_ode_potential_native",
                 side_effect=AssertionError("modified metadata reached native ODE generation"),
             ):
-                with self.assertRaisesRegex(NotImplementedError, "ordinary undefined function"):
-                    checkodesol(equation, solution, target)
-                with self.assertRaisesRegex(ValueError, "1st_exact requires"):
-                    dsolve(equation, target, hint="1st_exact")
+                # A class's __name__ descriptor cannot be deleted by mock cleanup.
+                original = getattr(function, attribute)
+                try:
+                    setattr(function, attribute, replacement)
+                    with self.assertRaisesRegex(NotImplementedError, "ordinary undefined function"):
+                        checkodesol(equation, solution, target)
+                    with self.assertRaisesRegex(ValueError, "1st_exact requires"):
+                        dsolve(equation, target, hint="1st_exact")
+                finally:
+                    setattr(function, attribute, original)
         with patch.dict(function._kwargs, {"nargs": hostile}):
             with self.assertRaisesRegex(NotImplementedError, "ordinary undefined function"):
                 checkodesol(equation, solution, target)

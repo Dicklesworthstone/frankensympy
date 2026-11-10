@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "recorded_at_utc": "2026-11-10T03:21:45.179179+00:00",
+  "recorded_at_utc": "2026-11-10T03:42:51.915735+00:00",
   "repository": "https://github.com/Dicklesworthstone/frankensympy",
   "base_commit": "cfc86ce1d54922d3779664ffb2171797821b537e",
   "native_checkpoint_commit": "9ac8ffebdd2b1a99fbeaa86e4a3b10f204b7a75b",
@@ -233,7 +233,7 @@
       }
     },
     "pending_at_record_time": [
-      "GitHub CI on the combined native interface and Python constructor repair revision"
+      "Actual-extension G3 rerun after adversarial fixture cleanup correction; Rust production sources are unchanged from the 3136-test passing revision."
     ],
     "planning": {
       "command": "python3 tools/validate_planning.py",
@@ -427,6 +427,26 @@
       "passed_tests": 9,
       "failed_tests": 0,
       "log_sha256": "d8c9b39a72010e10864ca595e7e319770665ebe32271948e9f99791caef23251"
+    },
+    "production_interface_ci": {
+      "commit": "bcdc2ff1066e9fe5b72518da400f9cf95ab0090e",
+      "run_url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/42749097536",
+      "workspace_job_id": 129611001586,
+      "workspace_passed_test_executions": 3136,
+      "workspace_ignored": 1,
+      "workspace_test_blocks": 246,
+      "fmt_check_clippy": "passed",
+      "native_feature_regressions": "passed",
+      "full_extension_build": "passed",
+      "public_math_passed": 757,
+      "public_math_failed": 1,
+      "extended_python_suite": "skipped",
+      "failure_excerpts": [
+        "2026-11-10T03:35:59.6536077Z exc_info = (None, None, None)",
+        "2026-11-10T03:35:59.6537953Z E           TypeError: cannot delete '__name__' attribute of immutable type 'renamed_ode_metadata'",
+        "2026-11-10T03:35:59.6539575Z FAILED python/tests/test_exact_dsolve.py::ExactDsolveTests::test_factory_metadata_mutations_refuse_without_running_user_hooks - TypeError: cannot delete '__name__' attribute of immutable type 'renamed_ode_metadata'",
+        "2026-11-10T03:35:59.6540251Z 1 failed, 757 passed in 46.22s"
+      ]
     }
   },
   "scoped_frontend_validation": {
@@ -954,7 +974,7 @@
     },
     {
       "command": "initial focused frontend build",
-      "result": "Stopped during slow dependency compilation, then restarted with an in-process resource monitor and the same source/feature/lock snapshot. The completed45-test monitored run above supplies the result.",
+      "result": "Stopped during slow dependency compilation, then restarted with an in-process resource monitor and the same source/feature/lock snapshot. The completed 45-test monitored run above supplies the result.",
       "log_sha256": "d912f20b9feed8ce41c9768d1309e8024e6c982565af702fc9dd81662b3f63e5"
     },
     {
@@ -980,6 +1000,12 @@
         }
       ],
       "log_sha256": "c89827e6607b101794a25921b1ca921ce1932f5eeee5353a74cec389384335e2"
+    },
+    {
+      "command": "cargo build --locked -p fsym-python --features extension-module -j1",
+      "exit_code": 101,
+      "log_sha256": "acd07135ecacd225e2f28522b91e4935f7c5471b339edd54d3fbba2fe8936e30",
+      "result": "The single local full production extension attempt failed with No space left on device (os error 28). Inputs stayed unchanged; no retry, dependency substitution or Python test execution followed. Actual-extension execution is supplied by GitHub CI."
     }
   ],
   "independent_source_reviews": [
@@ -991,15 +1017,15 @@
     {
       "reviewer": "repository_lookup",
       "scope": "Native checkpoint transport and Session acceptance; request examples matched against actual request types",
-      "result": "No blocking issue found; all32 NDJSON examples structurally matched the27 request variants and exact payload fields."
+      "result": "No blocking issue found; all 32 NDJSON examples structurally matched the 27 request variants and exact payload fields."
     }
   ],
   "limitations": [
     "Integral claims cover one supported scalar source and variable on finite proper real C2 intervals. Improper integrals, principal values and complex contours are not added.",
     "Root isolation retains existing finite-box, nonsingular-root, precision, cell and resource restrictions. Singular/boundary roots or unresolved source domains can refuse or remain inconclusive.",
     "Client-managed checkpoint files are portable, but automatic durable-store publication, crash recovery, RaptorQ repair, asynchronous cancellation endpoints and persistence of partially transferred chunks are not added.",
-    "Restored checkpoints carry prior intrinsic consumption and new validation work under the existing256MiB lifetime allocation cap. Repeated restores can exhaust it. Unauthenticated sender history is checked only against independently provable minima and cannot enlarge the receiver budget.",
-    "The first-commit full Rust CI passed3091 test executions with1 existing ignored test. Its separate Python step failed4 tests in unchanged UndefinedFunction keyword initialization, with754 passing. The following Python repair addresses that constructor defect; the failed historical CI run is not labelled green, and actual-extension CI on the repair is pending at this record time."
+    "Restored checkpoints carry prior intrinsic consumption and new validation work under the existing 256 MiB lifetime allocation cap. Repeated restores can exhaust it. Unauthenticated sender history is checked only against independently provable minima and cannot enlarge the receiver budget.",
+    "The first-commit full Rust CI passed 3091 test executions with 1 existing ignored test. Its separate Python step failed 4 tests in unchanged UndefinedFunction keyword initialization, with 754 passing. The following Python repair addresses that constructor defect; the failed historical CI run is not labelled green, and actual-extension CI on the repair is pending at this record time."
   ],
   "governance": {
     "beads": [
@@ -1030,9 +1056,18 @@
     "existing_regressions": "The four failing test_exact_dsolve tests remain unchanged. Both affected Python test files are exercised by the existing actual-extension G3 workflow.",
     "observed_checks": {
       "syntax": "Both complete files parse successfully; git diff --check passes.",
-      "source_probes": "Actual extracted factory methods with an inert inheritance fixture reproduce the original TypeError and pass11 declaration/cache cases,6 invalid-declaration safeguards, ordinary/custom/cooperative metaclass paths, and the actual ODE admission predicate checks (5 admissions,3 refusals,copied identity refusal,10 mutation refusals). Removing keyword forwarding makes the cooperative regression fail.",
+      "source_probes": "Actual extracted factory methods with an inert inheritance fixture reproduce the original TypeError and pass 11 declaration/cache cases, 6 invalid-declaration safeguards, ordinary/custom/cooperative metaclass paths, and the actual ODE admission predicate checks (5 admissions, 3 refusals, copied identity refusal, 10 mutation refusals). Removing keyword forwarding makes the cooperative regression fail.",
       "independent_review": "math_gap_audit identified and verified repair of initially dropped cooperative keywords; no remaining blocker found.",
       "scope": "Source-level Python probes only. No local native extension, native assumption closure, full pytest or ODE mathematics is claimed; actual-extension CI on this repair remains pending at record time."
+    },
+    "actual_extension_result": "The original keyword-constructor exceptions are resolved. CI bcdc2ff passed 757 focused public mathematical tests, including the other three formerly failing ODE tests. One remaining test failed only in unittest.mock cleanup of the intentionally renamed class, after its refusal assertions succeeded; the extended Python suite was skipped.",
+    "adversarial_fixture_repair": {
+      "path": "python/tests/test_exact_dsolve.py",
+      "sha256": "ca27f9bc18f60679d5e64fbf00864569480eb499b2e610c1b7b8f4af3bbc0d3c",
+      "change": "Save each original metadata attribute and restore it explicitly in finally. Python permits setting the class __name__ descriptor but forbids deleting it, which patch.object attempted during cleanup.",
+      "assertions": "AST comparison preserves all 11 mutation cases, every assertion and solver call, the native-generator guard and final valid checkodesol. No test or mathematical acceptance condition was weakened.",
+      "observed_source_probe": "The actual extracted loop retained 22 refusal assertions, ran no hostile/native hooks, restored every original attribute identity, preserved the post-loop _kwargs adversary, and restored __name__ even when an assertion deliberately failed.",
+      "scope": "Source-level fixture/admission checks; the updated actual-extension test is pending CI."
     }
   }
 }
