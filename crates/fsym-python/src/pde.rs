@@ -4,10 +4,122 @@ use crate::binding::PySymbolBinding;
 use crate::expr::PyExpr;
 use crate::to_value_error;
 use fsym_budget::{Budget, BudgetLimits};
-use fsym_core::{BigRational, Expr};
+use fsym_core::{BigRational, Constant, Expr};
 use fsym_solvers::pde::metered_linear_first_order_pde;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyList;
+
+/// Borrow every original native node before Python recovers its children.
+/// This is bounded shape admission, not a solution or affine-phase proof.
+#[pyfunction]
+pub fn pde_source_preflight_native(source: &PyExpr) -> PyResult<()> {
+    let mut pending = vec![(&source.inner, 0usize)];
+    let mut visited = 0usize;
+    let mut text_bytes = 0usize;
+    while let Some((node, depth)) = pending.pop() {
+        visited += 1;
+        if visited > 4096 || depth > 64 {
+            return Err(PyValueError::new_err(
+                "PDE source exceeds its node or depth bound",
+            ));
+        }
+        match node {
+            Expr::Const(Constant::E) => {}
+            Expr::Integer(value) if value.bits() <= 4096 => {}
+            Expr::Rational(value)
+                if value.numer().bits() <= 4096 && value.denom().bits() <= 4096 => {}
+            Expr::Integer(_) | Expr::Rational(_) => {
+                return Err(PyValueError::new_err("PDE literal exceeds 4096 bits"));
+            }
+            Expr::Sym(symbol) => {
+                text_bytes = text_bytes.saturating_add(symbol.name.len());
+                if text_bytes > 16_384 {
+                    return Err(PyValueError::new_err(
+                        "PDE coordinate text exceeds its bound",
+                    ));
+                }
+            }
+            Expr::Add(children) | Expr::Mul(children) => {
+                if children.len() > 256 || visited + pending.len() + children.len() > 4096 {
+                    return Err(PyValueError::new_err(
+                        "PDE source exceeds its arity or node bound",
+                    ));
+                }
+                pending.extend(children.iter().map(|child| (child, depth + 1)));
+            }
+            Expr::Pow(base, exponent) => {
+                if visited + pending.len() + 2 > 4096 {
+                    return Err(PyValueError::new_err("PDE source exceeds its node bound"));
+                }
+                pending.push((base, depth + 1));
+                pending.push((exponent, depth + 1));
+            }
+            Expr::Function(name, children)
+                if matches!(name.as_str(), "exp" | "cos" | "sin") && children.len() == 1 =>
+            {
+                text_bytes = text_bytes.saturating_add(name.len());
+                if text_bytes > 16_384 {
+                    return Err(PyValueError::new_err("PDE source text exceeds its bound"));
+                }
+                if visited + pending.len() + 1 > 4096 {
+                    return Err(PyValueError::new_err("PDE source exceeds its node bound"));
+                }
+                pending.push((&children[0], depth + 1));
+            }
+            _ => {
+                return Err(PyValueError::new_err(
+                    "PDE source requires exact polynomial/elementary expressions",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Retained Python arguments must agree with the borrowed native source.
+#[pyfunction]
+pub fn pde_source_arguments_native(
+    source: &PyExpr,
+    operator: &str,
+    children: &Bound<'_, PyList>,
+) -> PyResult<()> {
+    if children.len() > 256 {
+        return Err(PyValueError::new_err(
+            "PDE source arguments exceed their arity bound",
+        ));
+    }
+    pde_source_preflight_native(source)?;
+    let borrowed = children
+        .iter()
+        .map(|value| value.extract::<PyRef<'_, PyExpr>>())
+        .collect::<PyResult<Vec<_>>>()?;
+    let same = match (&source.inner, operator) {
+        (Expr::Const(Constant::E), "e") => borrowed.is_empty(),
+        (Expr::Add(expected), "add") | (Expr::Mul(expected), "mul") => {
+            expected.len() == borrowed.len()
+                && expected.iter().zip(&borrowed).all(|(a, b)| a == &b.inner)
+        }
+        (Expr::Pow(base, exponent), "pow") => {
+            borrowed.len() == 2
+                && base.as_ref() == &borrowed[0].inner
+                && exponent.as_ref() == &borrowed[1].inner
+        }
+        (Expr::Function(name, expected), "exp" | "cos" | "sin") => {
+            name == operator
+                && expected.len() == 1
+                && borrowed.len() == 1
+                && expected[0] == borrowed[0].inner
+        }
+        _ => false,
+    };
+    if !same {
+        return Err(PyValueError::new_err(
+            "PDE source disagrees with its retained arguments",
+        ));
+    }
+    Ok(())
+}
 
 fn rational(expression: &Expr) -> PyResult<BigRational> {
     match expression {
@@ -26,7 +138,7 @@ fn rational(expression: &Expr) -> PyResult<BigRational> {
 }
 
 /// Borrow source arguments before bounded native admission. The receiving
-/// solver independently checks the original polynomial and characteristic
+/// solver independently checks the original forcing and characteristic
 /// identities before these four expressions can reach the Python shell.
 #[pyfunction]
 pub fn linear_first_order_pde_native(

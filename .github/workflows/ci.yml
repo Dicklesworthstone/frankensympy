@@ -155,6 +155,7 @@ jobs:
           cargo test --locked -p fsym-calculus --test rational_laplace --test delayed_laplace --test distributional_laplace --test delayed_distributional_laplace --test rational_mellin --test fourier_catalog -j1
           cargo test --locked -p fsym-calculus --test geometric_summation --test rational_summation -j1
           cargo test --locked -p fsym-solvers --test linear_ode_system --test polynomial_ode_system --test general_ode_system --test forced_ode_system --test exact_ode --test ode_radicals -j1
+          cargo test --locked -p fsym-solvers --test linear_pde --test linear_pde_elementary -j1
           cargo test --locked -p fsym-calculus --test general_power_programs --test directional_series --test generalized_series -j1
           cargo test --locked -p fsym-calculus --test piecewise_programs -j1
           cargo test --locked -p fsym-calculus --test sparse_hessian -j1
@@ -218,6 +219,7 @@ jobs:
               "python/tests/test_quartic_radicals.py",
               "python/tests/test_quartic_ode_roots.py",
               "python/tests/test_linear_pde.py",
+              "python/tests/test_linear_pde_elementary.py",
               "python/tests/test_exact_dsolve.py",
               "python/tests/test_surface.py::SurfaceTests::test_ode_checkodesol_and_verifiers",
               "python/tests/test_surface.py::SurfaceTests::test_calculus_and_series_advanced",

@@ -152,7 +152,7 @@ def test_nonpolynomial_nonlinear_higher_order_and_variable_coefficients_refuse_b
     u = s.Function("pde_refuse_u")(x, y)
     dx, dy = s.Derivative(u, x), s.Derivative(u, y)
     sources = [
-        dx + s.sin(x), dx + s.Float(0.5), dx + parameter,
+        dx + s.sin(x*x), dx + s.Float(0.5), dx + parameter,
         x*dx + dy, dx + x*u, dx + u*u, dx*dy + u,
         s.Derivative(u, x, y), s.Derivative(u, x, 2),
         dx + s.Pow(x, s.Rational(1, 2), evaluate=False),

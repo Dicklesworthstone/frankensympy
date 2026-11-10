@@ -2177,6 +2177,8 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(exact_ode_potential_native, m)?)?;
     m.add_function(wrap_pyfunction!(verify_exact_ode_potential_native, m)?)?;
     m.add_function(wrap_pyfunction!(pde::linear_first_order_pde_native, m)?)?;
+    m.add_function(wrap_pyfunction!(pde::pde_source_preflight_native, m)?)?;
+    m.add_function(wrap_pyfunction!(pde::pde_source_arguments_native, m)?)?;
     m.add_function(wrap_pyfunction!(ode_system::linear_ode_system_native, m)?)?;
     m.add_function(wrap_pyfunction!(ode_system::general_ode_system_native, m)?)?;
     m.add_function(wrap_pyfunction!(ode_system::forced_ode_system_native, m)?)?;

@@ -604,22 +604,32 @@ a*u_x + b*u_y + c*u = f(x, y)
 ```
 
 where `a`, `b`, and `c` are exact rational constants, at least one derivative
-coefficient is nonzero, and `f` is a rational polynomial of total degree at
-most 16. For example:
+coefficient is nonzero. The forcing is a sum of up to sixteen modes of the
+form `exp(E)*(P*cos(T) + Q*sin(T))`: `E` and `T` are rational affine forms,
+and `P,Q` are rational polynomials of total degree at most 16. Plain
+polynomial, exponential and trigonometric forcing are included. For example:
 
 ```python
-from sympy import Eq, Function, Symbol, diff, pdsolve
+from sympy import Eq, Function, Symbol, cos, diff, exp, pdsolve
 
 x, y = Symbol("x"), Symbol("y")
 u = Function("u")(x, y)
 solution = pdsolve(Eq(diff(u, x) + diff(u, y) + u, x), u)
 # A family equivalent to Eq(u, exp(-x)*F(y - x) + x - 1).
+
+resonant = pdsolve(
+    Eq(diff(u, x) + diff(u, y) + 2*u, exp(-x-y)*cos(x-y)), u,
+)
+# Eq(u, exp(-2*x)*F(y-x) + x*exp(-x-y)*cos(x-y)).
 ```
 
-The generator constructs affine characteristic coordinates `s,t` and a
-polynomial particular solution `q`. A separate coefficient recurrence checks
-the original residual, the identities `D(s)=1` and `D(t)=0`, and a nonzero
-coordinate determinant before publishing `exp(-c*s)*F(t) + q`. Here
+The generator constructs affine characteristic coordinates `s,t` and an
+elementary particular solution `q`. It solves each cosine/sine amplitude
+pair with exact rational arithmetic. When both the effective reaction and
+frequency vanish, characteristic integration handles the resonant mode.
+Separate scalar coefficient recurrences check both channels of the original
+residual, the identities `D(s)=1` and `D(t)=0`, and a nonzero coordinate
+determinant before publishing `exp(-c*s)*F(t) + q`. Here
 `D = a*d/dx + b*d/dy`, and `F` is an arbitrary differentiable function.
 The native result explicitly reports `VerifiedSolutionFamily`.
 
@@ -629,7 +639,12 @@ identities. `solvefun=Function("Phi")` supplies an ordinary unary arbitrary
 function. Original source storage is checked before cancellation and again
 after native evaluation and result construction. Nonlinear equations, variable
 coefficients, higher derivatives, custom hooks, inexact coefficients and
-original coordinate reciprocals are refused by this lane.
+original coordinate reciprocals are refused by this lane. Elementary phases
+must be rational affine expressions; products of trigonometric factors and
+powers of elementary factors are outside this bounded grammar. These checks
+apply to held original expressions before zero factors or cancellation can
+remove a source obligation. The native constant `E`, including freshly lifted
+`exp(1)`, is admitted by its exact native type and value.
 
 The native API uses bounded exact arithmetic and cumulative cancellation/work
 accounting. This development API does not impose initial or boundary

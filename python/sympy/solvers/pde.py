@@ -1,22 +1,24 @@
 """Checked characteristic families for bounded first-order linear PDEs.
 
 The shell retains the original dependent-function owner and typed coordinates.
-Only exact rational coefficients and polynomial forcing cross the native
-boundary. The native checker establishes the characteristic identities and
-the particular-solution residual before an arbitrary function is attached.
+Exact rational coefficients and bounded polynomial/elementary forcing cross
+the native boundary. The native checker establishes the characteristic
+identities and the particular-solution residual before an arbitrary function
+is attached.
 """
 
 from fractions import Fraction
 from types import GetSetDescriptorType, MemberDescriptorType
 
 from ..core import (
-    Add, AppliedUndef, Basic, Derivative, Dummy, Eq, Function, Integer, Mul,
+    Add, AppliedUndef, Basic, Derivative, Dummy, Eq, Expr, Function, Integer, Mul,
     Pow, Rational, S, Symbol, UndefinedFunction, _dummy_intern_name,
     _is_closed_function_class, _lift_native_result, _native, _native_expr,
     _require_default_function_identity, _surface_binding_key, _symbol_binding,
     _undefined_function_records,
 )
 from ..functions.elementary.exponential import exp
+from ..functions.elementary.trigonometric import cos, sin
 from ._ode_system import _require_original_surface
 from .ode import _checkodesol_children, _checkodesol_function_protocol
 
@@ -33,6 +35,9 @@ _MAX_TERMS = 192
 _MAX_NODES = 4096
 _MAX_DEPTH = 64
 _MAX_TEXT = 16_384
+_ELEMENTARY = (exp, cos, sin)
+_ZERO_AFFINE = (Fraction(0), Fraction(0), Fraction(0))
+_PLAIN_MODE = (_ZERO_AFFINE, _ZERO_AFFINE)
 _FUNCTION_MEMBERS = frozenset({
     "__module__", "__dict__", "__weakref__", "__doc__", "_nargs", "_kwargs",
     "_undefined_function_options", "_undefined_function_identity",
@@ -92,8 +97,8 @@ def _protocol():
     _require_original_surface()
     _checkodesol_function_protocol()
     _require_default_function_identity()
-    if not _is_closed_function_class(exp):
-        raise NotImplementedError("pdsolve requires the original exponential implementation")
+    if any(not _is_closed_function_class(owner) for owner in _ELEMENTARY):
+        raise NotImplementedError("pdsolve requires the original exponential and trigonometric implementations")
 
 
 def _bounded(value):
@@ -148,7 +153,7 @@ class _Source:
         elif kind is Eq:
             from ..core import Relational
             self.retain(node, Relational, "_relational_sides")
-        elif type(kind) is UndefinedFunction:
+        elif type(kind) is UndefinedFunction or any(kind is owner for owner in _ELEMENTARY):
             self.retain(node, Function, "_args")
         if kind is Symbol or kind is Dummy:
             facts = self.retain(node, Symbol, "_assumptions")
@@ -181,9 +186,12 @@ class _Source:
                 raise ValueError("pdsolve: rational coefficient exceeds 4096 bits")
             return ("number", Fraction(node), (), node)
         number = any(kind is owner for owner in _NUMBERS)
-        tag = next((name for owner, name in (
+        # Native lifting creates fresh Expr wrappers for E. Admission below
+        # proves precisely Const(E), rather than trusting a spelling or singleton.
+        tag = "e" if kind is Expr else next((name for owner, name in (
             (Symbol, "symbol"), (Dummy, "symbol"), (Add, "add"), (Mul, "mul"),
             (Pow, "pow"), (Derivative, "derivative"), (Eq, "equation"),
+            (exp, "exp"), (cos, "cos"), (sin, "sin"),
         ) if kind is owner), None)
         if not number and tag is None:
             if not _plain_function(kind, 2):
@@ -202,12 +210,18 @@ class _Source:
         if native is not None:
             if type(native) is not _native.Expr:
                 raise ValueError("pdsolve: malformed native source storage")
-            _native.ideal_source_preflight_native(native)
+            _native.pde_source_preflight_native(native)
         if number:
             self.arguments_match(node, ())
             if native is None or not (native.is_integer or native.is_rational):
                 raise ValueError("pdsolve: malformed exact rational source")
             return ("number", _bounded(Fraction(native.exact_numerator(), native.exact_denominator())), (), node)
+        if tag == "e":
+            self.arguments_match(node, ())
+            if native is None:
+                raise ValueError("pdsolve: missing original exponential constant storage")
+            _native.pde_source_arguments_native(native, "e", [])
+            return (tag, None, (), node)
         if tag == "symbol":
             self.arguments_match(node, ())
             if native is None or not native.is_symbol:
@@ -241,8 +255,8 @@ class _Source:
             if self.text > _MAX_TEXT:
                 raise ValueError("pdsolve: original source exceeds its text bound")
             self.functions.append((kind, tuple(child[1] for child in tree), node, tree))
-        if native is not None and tag in ("add", "mul", "pow"):
-            _native.ideal_source_arguments_native(native, tag, [_native_expr(child) for child in children])
+        if native is not None and tag in ("add", "mul", "pow", "exp", "cos", "sin"):
+            _native.pde_source_arguments_native(native, tag, [_native_expr(child) for child in children])
         return (tag, kind, tree, node)
 
     def unchanged(self):
@@ -328,7 +342,141 @@ class _Polynomials:
         return result
 
 
-class _LinearSource(_Polynomials):
+def _forcing_shape(tree):
+    """Inspect the original grammar before zero weights or cancellation."""
+    tag, value, children, _ = tree
+    if tag == "number":
+        return 0, False, 0
+    if tag == "symbol":
+        return 1, False, 0
+    if tag == "e":
+        return None, True, 0
+    shapes = [_forcing_shape(child) for child in children]
+    elementary = any(shape[1] for shape in shapes)
+    trig = max((shape[2] for shape in shapes), default=0)
+    if tag in ("function", "derivative", "equation"):
+        return None, elementary, trig
+    if tag in ("exp", "cos", "sin"):
+        if len(shapes) != 1 or shapes[0][0] is None or shapes[0][0] > 1 or elementary:
+            raise NotImplementedError("pdsolve requires exact rational affine elementary arguments")
+        return None, True, int(tag != "exp")
+    if tag == "pow":
+        if elementary:
+            raise NotImplementedError("pdsolve does not admit powers of elementary forcing factors")
+        if len(children) != 2 or children[1][0] != "number":
+            return None, False, trig
+        power = children[1][1]
+        if power.denominator != 1 or abs(power.numerator) > 64:
+            return None, False, trig
+        power = power.numerator
+        if power <= 0:
+            if children[0][0] != "number" or children[0][1] == 0:
+                return None, False, trig
+            return 0, False, trig
+        degree = shapes[0][0]
+        return (degree*power if degree is not None else None), False, trig
+    if tag == "mul":
+        trig = sum(shape[2] for shape in shapes)
+        if trig > 1:
+            raise NotImplementedError("pdsolve supports at most one trigonometric factor per original term")
+        degree = sum(shape[0] for shape in shapes) if all(shape[0] is not None for shape in shapes) else None
+    elif tag == "add":
+        degree = max((shape[0] for shape in shapes), default=0) if all(shape[0] is not None for shape in shapes) else None
+    else:
+        degree = None
+    return degree, elementary, trig
+
+
+class _Modes:
+    """Bounded polynomial amplitudes grouped by exact exp/phase triples."""
+
+    def __init__(self):
+        self.poly = _Polynomials()
+
+    def step(self, amount=1):
+        self.poly.step(amount)
+
+    @staticmethod
+    def polynomial(value):
+        return {_PLAIN_MODE: (value, {})} if value else {}
+
+    def constant(self, value):
+        return self.polynomial(self.poly.constant(value))
+
+    def scalar(self, modes):
+        if any(key != _PLAIN_MODE for key in modes):
+            raise NotImplementedError("pdsolve requires constant rational derivative and function coefficients")
+        return self.poly.scalar(modes.get(_PLAIN_MODE, ({}, {}))[0])
+
+    @staticmethod
+    def check_count(modes):
+        if len(modes) > 16:
+            raise ValueError("pdsolve supports at most sixteen elementary forcing modes")
+        return modes
+
+    def add(self, left, right):
+        self.step(len(left) + len(right))
+        out = left.copy()
+        for key, (cosine, sine) in right.items():
+            previous = out.get(key, ({}, {}))
+            pair = (self.poly.add(previous[0], cosine), self.poly.add(previous[1], sine))
+            if pair[0] or pair[1]:
+                out[key] = pair
+            else:
+                out.pop(key, None)
+            self.check_count(out)
+        return out
+
+    def scale(self, modes, scalar):
+        self.step(len(modes))
+        return {key: (self.poly.scale(pair[0], scalar), self.poly.scale(pair[1], scalar))
+                for key, pair in modes.items() if scalar}
+
+    def multiply(self, left, right):
+        self.step(len(left)*len(right))
+        out = {}
+        for (first_exp, first_phase), first in left.items():
+            for (second_exp, second_phase), second in right.items():
+                if first_phase != _ZERO_AFFINE and second_phase != _ZERO_AFFINE:
+                    raise NotImplementedError("pdsolve supports at most one trigonometric factor per term")
+                exponential = tuple(_bounded(a+b) for a, b in zip(first_exp, second_exp))
+                if first_phase == _ZERO_AFFINE:
+                    pair = (self.poly.multiply(first[0], second[0]),
+                            self.poly.multiply(first[0], second[1]))
+                    phase = second_phase
+                else:
+                    pair = (self.poly.multiply(first[0], second[0]),
+                            self.poly.multiply(first[1], second[0]))
+                    phase = first_phase
+                if pair[0] or pair[1]:
+                    out = self.add(out, {(exponential, phase): pair})
+        return out
+
+    def power(self, modes, power):
+        if any(key != _PLAIN_MODE for key in modes):
+            raise NotImplementedError("pdsolve requires polynomial power bases")
+        return self.polynomial(self.poly.power(modes.get(_PLAIN_MODE, ({}, {}))[0], power))
+
+    def elementary(self, name, modes):
+        if any(key != _PLAIN_MODE for key in modes):
+            raise NotImplementedError("pdsolve requires rational affine elementary arguments")
+        polynomial = modes.get(_PLAIN_MODE, ({}, {}))[0]
+        if any(sum(powers) > 1 for powers in polynomial):
+            raise NotImplementedError("pdsolve requires affine elementary arguments")
+        affine = tuple(polynomial.get(power, Fraction(0)) for power in ((1, 0), (0, 1), (0, 0)))
+        unit = self.poly.constant(Fraction(1))
+        if name == "exp":
+            return {(affine, _ZERO_AFFINE): (unit, {})}
+        if affine == _ZERO_AFFINE:
+            return self.constant(Fraction(1)) if name == "cos" else {}
+        sign = next(value for value in affine if value)
+        if sign < 0:
+            affine = tuple(-value for value in affine)
+        pair = (unit, {}) if name == "cos" else ({}, self.poly.constant(Fraction(-1 if sign < 0 else 1)))
+        return {(_ZERO_AFFINE, affine): pair}
+
+
+class _LinearSource(_Modes):
     def __init__(self, function, axes):
         super().__init__()
         self.function = function
@@ -345,10 +493,12 @@ class _LinearSource(_Polynomials):
         tag, value, children, _ = tree
         if tag == "number":
             return self.constant_row(self.constant(value))
+        if tag == "e":
+            return self.constant_row(self.elementary("exp", self.constant(Fraction(1))))
         if tag == "symbol":
             if value not in self.axes:
                 raise NotImplementedError("pdsolve: forcing contains a foreign parameter")
-            return self.constant_row({(1, 0) if value == self.axes[0] else (0, 1): Fraction(1)})
+            return self.constant_row(self.polynomial({(1, 0) if value == self.axes[0] else (0, 1): Fraction(1)}))
         if tag == "function":
             if value is not self.function or tuple(child[1] for child in children) != self.axes:
                 raise ValueError("pdsolve: dependent-function applications do not share one typed coordinate pair")
@@ -365,6 +515,10 @@ class _LinearSource(_Polynomials):
         # Every child is visited before multiplication, cancellation or a
         # zeroth power can discard any original source obligation.
         rows = [self.visit(child) for child in children]
+        if tag in ("exp", "cos", "sin"):
+            if len(rows) != 1 or rows[0][4]:
+                raise NotImplementedError("pdsolve requires elementary forcing independent of the dependent function")
+            return self.constant_row(self.elementary(tag, rows[0][0]))
         if tag in ("add", "equation"):
             if tag == "equation" and len(rows) != 2:
                 raise ValueError("pdsolve: malformed equation")
@@ -413,6 +567,7 @@ def _prepare(equation, function=None):
     _protocol()
     source = _Source()
     tree = source.read(equation)
+    _forcing_shape(tree)
     original = tuple(source.functions)
     if not original:
         raise ValueError("pdsolve could not find a dependent function of two variables")
@@ -445,6 +600,25 @@ def _polynomial_expression(polynomial, axes):
     return result
 
 
+def _affine_expression(affine, axes):
+    return _polynomial_expression(
+        {power: value for power, value in zip(((1, 0), (0, 1), (0, 0)), affine) if value}, axes
+    )
+
+
+def _forcing_expression(modes, axes):
+    result = Integer(0)
+    for (exponential, phase), (cosine, sine) in sorted(modes.items()):
+        term = _polynomial_expression(cosine, axes)
+        if phase != _ZERO_AFFINE:
+            angle = _affine_expression(phase, axes)
+            term = term*cos(angle) + _polynomial_expression(sine, axes)*sin(angle)
+        if exponential != _ZERO_AFFINE:
+            term = term*exp(_affine_expression(exponential, axes))
+        result = result + term
+    return result
+
+
 def _arbitrary_function(supplied, dependent, axes):
     if supplied is not None:
         if supplied is type(dependent) or not _plain_function(supplied, 1):
@@ -464,9 +638,12 @@ def pdsolve(eq, func=None, hint="default", dict=False, solvefun=None, **kwargs):
     """Return a checked family for a*u_x + b*u_y + c*u = f(x, y).
 
     a, b and c are exact rational constants with (a, b) != (0, 0).
-    The forcing is an exact polynomial of total degree at most 16. The result
+    The forcing is a finite sum of polynomial amplitudes times exponentials
+    and a sine or cosine of exact rational affine arguments. Polynomial
+    degree is at most 16, with at most sixteen exp/phase modes. Resonant
+    forcing is supported by characteristic integration. The result
     is Eq(u, exp(-c*s)*F(t) + q): the native checker verifies the affine
-    characteristic map, its invertibility, and the original polynomial
+    characteristic map, its invertibility, and the original elementary
     residual. F is an arbitrary differentiable function; setting
     solvefun=Function('Phi') supplies its name and exact Python owner.
 
@@ -489,7 +666,7 @@ def pdsolve(eq, func=None, hint="default", dict=False, solvefun=None, **kwargs):
         raise ValueError("pdsolve: the homogeneous hint requires zero forcing")
     arbitrary = _arbitrary_function(solvefun, function, axes)
     source.classes.append((arbitrary, 1))
-    forcing = _polynomial_expression(polynomial, axes)
+    forcing = _forcing_expression(polynomial, axes)
     source.unchanged()
     raw = _native.linear_first_order_pde_native(
         *(_native_expr(Rational(value.numerator, value.denominator)) for value in coefficients),
