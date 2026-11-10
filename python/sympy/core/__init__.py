@@ -5274,6 +5274,13 @@ class UndefinedFunction(FunctionClass):
         _undefined_function_records[id(cls)] = (cls, name, identity, normalized, arity_list)
         return cls
 
+    def __init__(cls, name: str, bases=(AppliedUndef,), namespace=None, **options):
+        # __new__ validates and freezes declarations, and may return a cached
+        # class. Normalize the single-name factory call to type's three-argument
+        # form, which accepts keywords, preserving cooperative metaclass options
+        # without applying the declaration again.
+        super().__init__(name, bases, {} if namespace is None else namespace, **options)
+
     @property
     def nargs(cls):
         arities = getattr(cls, "_nargs", None)

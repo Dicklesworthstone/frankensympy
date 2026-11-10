@@ -302,6 +302,33 @@ def test_undefined_function_custom_metaclasses_preserve_arity_dispatch():
             Bounded(*([x] * count))
 
 
+def test_undefined_function_cooperative_metaclasses_receive_class_keywords():
+    from sympy.core.function import UndefinedFunction
+
+    calls = []
+
+    class AuditMeta(type):
+        def __new__(mcls, name, bases, namespace, *, declaration, **options):
+            calls.append(("new", declaration))
+            return super().__new__(mcls, name, bases, namespace, **options)
+
+        def __init__(cls, name, bases, namespace, *, declaration, **options):
+            calls.append(("init", declaration))
+            super().__init__(name, bases, namespace, **options)
+
+    class CooperativeMeta(UndefinedFunction, AuditMeta):
+        pass
+
+    parent = s.Function("cooperative_factory_parent")
+
+    class Declared(parent, metaclass=CooperativeMeta, declaration="unary"):
+        nargs = 1
+
+    assert calls == [("new", "unary"), ("init", "unary")]
+    assert issubclass(Declared, parent)
+    assert Declared._nargs == (1,)
+
+
 def test_native_capabilities_cannot_be_acquired_from_an_undefined_name_or_fact():
     from sympy.core import Basic, _native_expr
 

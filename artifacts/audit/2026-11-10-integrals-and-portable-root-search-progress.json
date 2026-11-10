@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "recorded_at_utc": "2026-11-10T03:11:13.445409+00:00",
+  "recorded_at_utc": "2026-11-10T03:21:45.179179+00:00",
   "repository": "https://github.com/Dicklesworthstone/frankensympy",
   "base_commit": "cfc86ce1d54922d3779664ffb2171797821b537e",
   "native_checkpoint_commit": "9ac8ffebdd2b1a99fbeaa86e4a3b10f204b7a75b",
@@ -233,13 +233,200 @@
       }
     },
     "pending_at_record_time": [
-      "all-root integration regression run and scoped strict Clippy",
-      "full GitHub CI on the new Session/transport source revision"
+      "GitHub CI on the combined native interface and Python constructor repair revision"
     ],
     "planning": {
       "command": "python3 tools/validate_planning.py",
       "exit_code": 0,
       "evidence": "Observed terminal exec session42621; all executable planning registries and relative links passed."
+    },
+    "all_root_regressions": {
+      "label": "final-all-root-tests",
+      "scope": "supplementary exact-production-source root/CLI tests with five runtime modules; not full production runtime/workspace",
+      "argv": [
+        "cargo",
+        "test",
+        "--locked",
+        "--manifest-path",
+        "/workspace/scratch/7dbee68e7f08/scoped-integration-validation/Cargo.toml",
+        "-p",
+        "frankensympy-session-validation",
+        "--tests",
+        "-j1"
+      ],
+      "source_head": "58c6841d92e4397e7ec18d0380ab6ff087f9d9e6",
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 16.020097255706787,
+      "inputs_unchanged": true,
+      "changed_inputs": [],
+      "log_sha256": "f8107077a269ee66e52b8987cb3f95b639f054378d9e19539c10e36cb0e3e9a6",
+      "test_blocks": [
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 13,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 14,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 10,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "passed_tests": 148,
+      "failed_tests": 0,
+      "input_manifest_sha256": "ce7399c808ecf05247362b749f2fa30bc21022f647b1d444119f5578d45e54a1",
+      "input_manifest_entries": 206
+    },
+    "strict_scoped_clippy": {
+      "label": "final-root-strict-clippy",
+      "scope": "supplementary exact-production-source root/CLI tests with five runtime modules; not full production runtime/workspace",
+      "argv": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--manifest-path",
+        "/workspace/scratch/7dbee68e7f08/scoped-integration-validation/Cargo.toml",
+        "-p",
+        "frankensympy-session-validation",
+        "--all-targets",
+        "-j1",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "source_head": "58c6841d92e4397e7ec18d0380ab6ff087f9d9e6",
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 4.016317844390869,
+      "inputs_unchanged": true,
+      "changed_inputs": [],
+      "log_sha256": "e4aed71ebaeda6cdcafd4b40d5f7162414cd1ae4da916fa456080eec9e22ccea",
+      "test_blocks": [],
+      "passed_tests": 0,
+      "failed_tests": 0,
+      "input_manifest_sha256": "ce7399c808ecf05247362b749f2fa30bc21022f647b1d444119f5578d45e54a1",
+      "input_manifest_entries": 206
+    },
+    "original_native_quadrature": {
+      "scope": "original production fsym-calculus certified_quadrature integration target; no scoped runtime harness",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "fsym-calculus",
+        "--test",
+        "certified_quadrature",
+        "--locked"
+      ],
+      "source_head_at_start": "58c6841d92e4397e7ec18d0380ab6ff087f9d9e6",
+      "source_head_at_end": "58c6841d92e4397e7ec18d0380ab6ff087f9d9e6",
+      "exit_code": 0,
+      "elapsed_seconds": 3.0152177810668945,
+      "inputs_unchanged": true,
+      "test_blocks": [
+        {
+          "status": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "passed_tests": 9,
+      "failed_tests": 0,
+      "log_sha256": "d8c9b39a72010e10864ca595e7e319770665ebe32271948e9f99791caef23251"
     }
   },
   "scoped_frontend_validation": {
@@ -775,6 +962,24 @@
       "exit_code": 101,
       "log_sha256": "c78280d0d04cb4f0f8dad2714b49fab9f32c27a4c7f915b932bb55d0558203cb",
       "result": "No tests executed: existing tests/artifact_transfer_session.rs had an exhaustive ArtifactSource match for the old two proof kinds. Added the two new variants with their corresponding export requests, preserving every existing assertion and case. Rerun pending at this record time."
+    },
+    {
+      "command": "cargo clippy --locked --manifest-path /workspace/scratch/7dbee68e7f08/scoped-integration-validation/Cargo.toml -p frankensympy-session-validation --all-targets -j1 -- -D warnings",
+      "exit_code": 0,
+      "result": "Initial strict Clippy returned0 while the existing fixture match changed. The final unchanged-source strict Clippy run above supersedes this ambiguous snapshot.",
+      "changed_inputs": [
+        {
+          "before": {
+            "path": "frankensympy/tests/artifact_transfer_session.rs",
+            "sha256": "3ce78f97b59b9963ecdec10ae209887fb0b6ebb7099a03fe3989ead19556af5e"
+          },
+          "after": {
+            "path": "frankensympy/tests/artifact_transfer_session.rs",
+            "sha256": "64b397003300a5783986df0908e13bb2d613d46cb32c151935b8497cc0a4d9ad"
+          }
+        }
+      ],
+      "log_sha256": "c89827e6607b101794a25921b1ca921ce1932f5eeee5353a74cec389384335e2"
     }
   ],
   "independent_source_reviews": [
@@ -794,7 +999,7 @@
     "Root isolation retains existing finite-box, nonsingular-root, precision, cell and resource restrictions. Singular/boundary roots or unresolved source domains can refuse or remain inconclusive.",
     "Client-managed checkpoint files are portable, but automatic durable-store publication, crash recovery, RaptorQ repair, asynchronous cancellation endpoints and persistence of partially transferred chunks are not added.",
     "Restored checkpoints carry prior intrinsic consumption and new validation work under the existing256MiB lifetime allocation cap. Repeated restores can exhaust it. Unauthenticated sender history is checked only against independently provable minima and cannot enlarge the receiver budget.",
-    "The first-commit full Rust CI passed3091 test executions with1 existing ignored test. Its separate Python regression step failed4 tests in unchanged UndefinedFunction keyword initialization, with754 passing; that public API defect is being repaired separately. This record does not label the overall first CI run green."
+    "The first-commit full Rust CI passed3091 test executions with1 existing ignored test. Its separate Python step failed4 tests in unchanged UndefinedFunction keyword initialization, with754 passing. The following Python repair addresses that constructor defect; the failed historical CI run is not labelled green, and actual-extension CI on the repair is pending at this record time."
   ],
   "governance": {
     "beads": [
@@ -806,5 +1011,28 @@
     "claim_tiers_profiles_campaign_and_workstream_gates": "not promoted",
     "production_dependencies_and_lock": "unchanged",
     "unsafe_code": "none added"
+  },
+  "native_interface_commit": "58c6841d92e4397e7ec18d0380ab6ff087f9d9e6",
+  "python_factory_repair": {
+    "problem": "G3 on9ac8ffe failed four ODE tests because keyword-aware UndefinedFunction.__new__ was followed by inherited type.__init__ in its keyword-rejecting single-name form.",
+    "change": "Normalize initialization to the standard three positional class-construction arguments and forward declaration keywords through cooperative metaclasses. Existing __new__ retains sole ownership of validation, frozen identity, cache lookup and arity normalization.",
+    "source_inputs": [
+      {
+        "path": "python/sympy/core/__init__.py",
+        "sha256": "5dcf93a13fdc86eddf22bb0969334eb8170ce1d15b7d82767b7f14ef497e933a"
+      },
+      {
+        "path": "python/tests/test_undefined_function_identity.py",
+        "sha256": "44bfd1e2a69648507d7282d54f8daee48c3d86e5dfeb5d48238a15a80f693aff"
+      }
+    ],
+    "new_regression": "python/tests/test_undefined_function_identity.py::test_undefined_function_cooperative_metaclasses_receive_class_keywords",
+    "existing_regressions": "The four failing test_exact_dsolve tests remain unchanged. Both affected Python test files are exercised by the existing actual-extension G3 workflow.",
+    "observed_checks": {
+      "syntax": "Both complete files parse successfully; git diff --check passes.",
+      "source_probes": "Actual extracted factory methods with an inert inheritance fixture reproduce the original TypeError and pass11 declaration/cache cases,6 invalid-declaration safeguards, ordinary/custom/cooperative metaclass paths, and the actual ODE admission predicate checks (5 admissions,3 refusals,copied identity refusal,10 mutation refusals). Removing keyword forwarding makes the cooperative regression fail.",
+      "independent_review": "math_gap_audit identified and verified repair of initially dropped cooperative keywords; no remaining blocker found.",
+      "scope": "Source-level Python probes only. No local native extension, native assumption closure, full pytest or ODE mathematics is claimed; actual-extension CI on this repair remains pending at record time."
+    }
   }
 }
