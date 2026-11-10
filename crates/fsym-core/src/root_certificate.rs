@@ -823,6 +823,38 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
         self.elementary(a)?;
         interval_exp(a, self.precision)
     }
+    /// Entire real error functions and their Gaussian first derivative.
+    /// The original argument is evaluated before a zero chain factor can
+    /// erase one of its own domain obligations.
+    fn error_function(
+        &mut self,
+        argument: &RealBall,
+        complementary: bool,
+    ) -> Result<(RealBall, RealBall), RootBoxError> {
+        self.arithmetic(&[argument], &[])?;
+        let digits = self.precision;
+        let value = checked(argument.error_function_with_work(
+            digits,
+            complementary,
+            &mut |steps, bytes, allocations| self.charge(steps, bytes, allocations),
+        )?)?;
+        let square = self.power(argument, 2)?;
+        // Evaluate the reciprocal of positive exp, so a small Gaussian
+        // derivative keeps a positive relative enclosure in the tail.
+        let exponential = checked(square.positive_exp_with_work(
+            self.precision,
+            &mut |steps, bytes, allocations| self.charge(steps, bytes, allocations),
+        )?)?;
+        let gaussian = self.inv(&exponential)?;
+        self.elementary(&RealBall::from_i64(4))?;
+        let pi = checked(RealBall::pi(self.precision + 4)?)?;
+        self.elementary(&pi)?;
+        let root_pi = checked(pi.sqrt(self.precision.saturating_mul(4).saturating_add(80))?)?;
+        let scale = self.div(&RealBall::from_i64(2), &root_pi)?;
+        let slope = self.mul(&scale, &gaussian)?;
+        self.step()?;
+        Ok((value, if complementary { slope.neg() } else { slope }))
+    }
     /// Principal real inverse circular value and first derivative. Scalar
     /// values at +/-1 exist, but no C1/C2 neighborhood does. This whole-box
     /// obligation survives even when a caller's chain multiplier is zero.
@@ -1085,6 +1117,7 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
                     }
                     "asin" | "acos" => self.inverse_circular(&a.value, name == "acos")?,
                     "asinh" | "acosh" | "atanh" => self.inverse_hyperbolic(&a.value, name)?,
+                    "erf" | "erfc" => self.error_function(&a.value, name == "erfc")?,
                     "atan" => {
                         let square = self.power(&a.value, 2)?;
                         let denominator = self.add(&RealBall::from_i64(1), &square)?;

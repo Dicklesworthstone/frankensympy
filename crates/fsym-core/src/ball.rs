@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+mod error_functions;
 mod inverse_circular;
 mod inverse_hyperbolic;
 
@@ -647,13 +648,17 @@ impl RealBall {
             .to_u64()
             .and_then(|value| u32::try_from(value).ok())
             .ok_or_else(transcendental_arithmetic_overflow)?;
-        let grid = series_digits + magnitude_guard + 12;
+        // The Taylor remainder is amplified by the same squarings as grid
+        // roundoff. Guarding only the grid leaves a correct but excessively
+        // wide enclosure for exp(400), exp(1024), and other positive tails.
+        let guarded_series_digits = series_digits + magnitude_guard;
+        let grid = guarded_series_digits + 12;
         let two_pow_s = two
             .pow(s as i32)
             .map_err(|_| transcendental_arithmetic_overflow())?;
         let scaled =
             round_outward_onto_grid(self.div(&Self::new(two_pow_s, BigRational::zero())?)?, grid)?;
-        let mut value = exp_series_interval(&scaled, series_digits, grid)?;
+        let mut value = exp_series_interval(&scaled, guarded_series_digits, grid)?;
         for _ in 0..s {
             value = round_outward_onto_grid(value.mul(&value), grid)?;
         }

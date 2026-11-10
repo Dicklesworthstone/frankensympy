@@ -426,6 +426,14 @@ fn evaluate_inner(
                     let curvature = work.mul(&numerator, &square)?;
                     (value, slope, curvature)
                 }
+                "erf" | "erfc" => {
+                    let (value, slope) = work.error_function(&argument.value, name == "erfc")?;
+                    // The signed first derivative handles both complements:
+                    // f''(u) = -2*u*f'(u).
+                    let factor = work.mul(&RealBall::from_i64(-2), &argument.value)?;
+                    let curvature = work.mul(&factor, &slope)?;
+                    (value, slope, curvature)
+                }
                 "atan" => {
                     let square = work.power(&argument.value, 2)?;
                     let denominator = work.add(&RealBall::from_i64(1), &square)?;
