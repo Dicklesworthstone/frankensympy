@@ -25,10 +25,53 @@ fn power(base: Expr, exponent: i64) -> Expr {
     Expr::Pow(Arc::new(base), Arc::new(Expr::from_i64(exponent)))
 }
 
+fn normalize_circular_parity(expression: &Expr) -> Expr {
+    // Construction deliberately leaves balanced sums such as x-y and y-x
+    // unoriented. For this independent residual check, use only the exact
+    // identities sin(-u)=-sin(u), cos(-u)=cos(u). Structural ordering chooses
+    // a representative; it asserts nothing about the mathematical sign of u.
+    match expression {
+        Expr::Add(children) => Expr::Add(children.iter().map(normalize_circular_parity).collect()),
+        Expr::Mul(children) => Expr::Mul(children.iter().map(normalize_circular_parity).collect()),
+        Expr::Pow(base, exponent) => Expr::Pow(
+            Arc::new(normalize_circular_parity(base)),
+            Arc::new(normalize_circular_parity(exponent)),
+        ),
+        Expr::Function(name, arguments) => {
+            let arguments: Vec<_> = arguments.iter().map(normalize_circular_parity).collect();
+            if matches!(name.as_str(), "sin" | "cos") && arguments.len() == 1 {
+                let argument =
+                    fsym_simplify::try_simplify(&fsym_simplify::try_expand(&arguments[0]).unwrap())
+                        .unwrap();
+                let opposite = fsym_core::elementary::negate(&argument);
+                let opposite =
+                    fsym_simplify::try_simplify(&fsym_simplify::try_expand(&opposite).unwrap())
+                        .unwrap();
+                if opposite < argument {
+                    let opposite_function = Expr::Function(name.clone(), vec![opposite]);
+                    return if name == "sin" {
+                        -opposite_function
+                    } else {
+                        opposite_function
+                    };
+                }
+                return Expr::Function(name.clone(), vec![argument]);
+            }
+            Expr::Function(name.clone(), arguments)
+        }
+        _ => expression.clone(),
+    }
+}
+
 fn exact_equal(actual: &Expr, expected: &Expr) {
     let difference = actual.clone() - expected.clone();
     let expanded = fsym_simplify::try_expand(&difference).unwrap();
-    let reduced = fsym_simplify::try_simplify(&expanded).unwrap();
+    let mut reduced = fsym_simplify::try_simplify(&expanded).unwrap();
+    if !reduced.is_zero() {
+        let normalized = normalize_circular_parity(&reduced);
+        reduced =
+            fsym_simplify::try_simplify(&fsym_simplify::try_expand(&normalized).unwrap()).unwrap();
+    }
     assert!(
         reduced.is_zero(),
         "{actual} != {expected}; residual {reduced}"

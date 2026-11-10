@@ -1434,6 +1434,8 @@ pub fn compiled_expression_matches_with_meter<M: BudgetMeter + ?Sized>(
                         "asinh" => CompiledOp::Asinh,
                         "acosh" => CompiledOp::Acosh,
                         "atanh" => CompiledOp::Atanh,
+                        "erf" => CompiledOp::Erf,
+                        "erfc" => CompiledOp::Erfc,
                         "exp" => CompiledOp::Exp,
                         "log" | "ln" => CompiledOp::Ln,
                         "sqrt" => CompiledOp::Sqrt,

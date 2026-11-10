@@ -126,9 +126,7 @@ fn rational(expression: &Expr) -> PyResult<BigRational> {
         Expr::Integer(value) if value.bits() <= 1_024 => {
             Ok(BigRational::from_integer(value.clone()))
         }
-        Expr::Rational(value)
-            if value.numer().bits() <= 1_024 && value.denom().bits() <= 1_024 =>
-        {
+        Expr::Rational(value) if value.numer().bits() <= 1_024 && value.denom().bits() <= 1_024 => {
             Ok(value.clone())
         }
         _ => Err(PyValueError::new_err(
@@ -154,7 +152,11 @@ pub fn linear_first_order_pde_native(
             "PDE coordinate identifiers exceed the text bound",
         ));
     }
-    let coefficients = [rational(&a.inner)?, rational(&b.inner)?, rational(&c.inner)?];
+    let coefficients = [
+        rational(&a.inner)?,
+        rational(&b.inner)?,
+        rational(&c.inner)?,
+    ];
     let variables = [x.to_symbol(), y.to_symbol()];
     let mut meter = Budget::new(BudgetLimits::uniform(512 * 1024 * 1024, 0));
     let checked = metered_linear_first_order_pde(

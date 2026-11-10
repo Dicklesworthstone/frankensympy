@@ -33,7 +33,7 @@ _BASIC_VALUE = Basic.__dict__["_value"]
 _SURFACE_ARGS = Basic.__dict__["_surface_args"]
 _NATIVE_FUNCTION_NAMES = (
     "sin", "cos", "tan", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh",
-    "exp", "ln", "log", "sqrt", "abs",
+    "exp", "ln", "log", "sqrt", "abs", "erf", "erfc",
 )
 _request_state = threading.local()
 

@@ -38,7 +38,9 @@ impl RealBall {
     /// 10^-(precision_digits+2). Near zero the normalized series also retains
     /// relative accuracy instead of rounding a tiny nonzero argument away.
     pub fn erf(&self, precision_digits: u32) -> Result<Self, BallError> {
-        error_function(self, precision_digits, false, &mut |_, _, _| Ok::<(), BallError>(()))
+        error_function(self, precision_digits, false, &mut |_, _, _| {
+            Ok::<(), BallError>(())
+        })
     }
 
     /// Enclose erfc on the complete real input ball.
@@ -48,7 +50,9 @@ impl RealBall {
     /// [0, erfc(32).upper]; this retains the requested absolute accuracy,
     /// without asserting a positive lower bound below the bounded tail lane.
     pub fn erfc(&self, precision_digits: u32) -> Result<Self, BallError> {
-        error_function(self, precision_digits, true, &mut |_, _, _| Ok::<(), BallError>(()))
+        error_function(self, precision_digits, true, &mut |_, _, _| {
+            Ok::<(), BallError>(())
+        })
     }
 
     /// Internal entry point for original-source checkers. The new Taylor and
@@ -113,7 +117,10 @@ impl RealBall {
             }
             let mut result = round_interval(Self::exact(reduced).exp(working)?, &grid)?;
             for _ in 0..squarings {
-                let height = result.midpoint().height().max_bits()
+                let height = result
+                    .midpoint()
+                    .height()
+                    .max_bits()
                     .max(result.radius().height().max_bits());
                 checked_work_bits(
                     "RealBall relative Gaussian exponential square",
@@ -277,8 +284,7 @@ fn positive_pair<E: From<BallError>>(
     if erf.lower() <= BigRational::zero()
         || erf.width() > erf.lower() * &target
         || (x <= &cutoff
-            && (erfc.lower() <= BigRational::zero()
-                || erfc.width() > erfc.lower() * &target))
+            && (erfc.lower() <= BigRational::zero() || erfc.width() > erfc.lower() * &target))
     {
         return Err(refusal("error-function relative enclosure target was not met").into());
     }
@@ -293,8 +299,10 @@ fn recurrence_work<E>(
     input_bits: u64,
     digits: u32,
 ) -> Result<(), E> {
-    let width = input_bits.max(u64::from(digits + GUARD_DIGITS) * 4 + 32)
-        .div_ceil(64) + 1;
+    let width = input_bits
+        .max(u64::from(digits + GUARD_DIGITS) * 4 + 32)
+        .div_ceil(64)
+        + 1;
     work(256 * (width + 1).pow(2), 1024 * (width + 1), 128)
 }
 
@@ -343,13 +351,10 @@ fn taylor_erf<E: From<BallError>>(
             },
             &grid,
         )?;
-        let coefficient = BigRational::new(
-            BigInt::from(2 * n + 1),
-            BigInt::from((n + 1) * (2 * n + 3)),
-        );
+        let coefficient =
+            BigRational::new(BigInt::from(2 * n + 1), BigInt::from((n + 1) * (2 * n + 3)));
         let next = round_interval(
-            term.mul(&square_ball)
-                .mul(&RealBall::exact(coefficient)),
+            term.mul(&square_ball).mul(&RealBall::exact(coefficient)),
             &grid,
         )?;
         let omitted = next.upper();
@@ -357,10 +362,8 @@ fn taylor_erf<E: From<BallError>>(
         // Only then is the first omitted term an alternating-tail bound.
         if square <= BigRational::from_integer(BigInt::from(n + 2)) && omitted <= target {
             elementary_work(work, 4, digits + GUARD_DIGITS, 2)?;
-            let bounded_sum = RealBall::new(
-                sum.midpoint().clone(),
-                sum.radius().clone() + omitted,
-            )?;
+            let bounded_sum =
+                RealBall::new(sum.midpoint().clone(), sum.radius().clone() + omitted)?;
             return Ok(bounded_sum
                 .mul(&normalization(digits)?)
                 .mul(&RealBall::exact(x.clone())));
@@ -412,9 +415,7 @@ fn gaussian_mills_ratio<E: From<BallError>>(
         }
         recurrence_work(work, x.height().max_bits(), digits)?;
         let ratio = round_interval(argument.add(&tail).inv()?, &grid)?;
-        if ratio.lower() > BigRational::zero()
-            && ratio.width() <= ratio.lower() * &target
-        {
+        if ratio.lower() > BigRational::zero() && ratio.width() <= ratio.lower() * &target {
             return Ok(ratio);
         }
         depth *= 2;

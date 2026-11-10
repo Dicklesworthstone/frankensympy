@@ -3,6 +3,9 @@
 
 #![forbid(unsafe_code)]
 
+mod error_functions;
+
+use self::error_functions::evaluate_error_function;
 use crate::diff;
 use fsym_budget::{BudgetMeter, Dimension, MeterError, Unbounded};
 use fsym_core::{BigInt, Constant, Expr, Symbol};
@@ -234,6 +237,8 @@ pub enum EvalError {
     NonCanonicalConstant,
     #[error("Compiled numerical evaluation encountered a non-finite input or intermediate value")]
     NonFiniteValue,
+    #[error("Gaussian error-function evaluation exceeded its bounded iteration limit")]
+    ErrorFunctionConvergenceLimit,
     #[error(
         "Bytecode jump from instruction {instruction} to {target} is not a bounded forward jump"
     )]
@@ -314,6 +319,9 @@ pub enum CompiledOp {
     Asinh,
     Acosh,
     Atanh,
+    /// Approximate real Gaussian error functions; proof receipts use rational balls.
+    Erf,
+    Erfc,
     Exp,
     Ln,
     Sqrt,
@@ -578,6 +586,8 @@ impl CompiledExpr {
             | CompiledOp::Asinh
             | CompiledOp::Acosh
             | CompiledOp::Atanh
+            | CompiledOp::Erf
+            | CompiledOp::Erfc
             | CompiledOp::Exp
             | CompiledOp::Ln
             | CompiledOp::Sqrt
@@ -897,6 +907,8 @@ impl CompiledExpr {
                     "asinh" => CompiledOp::Asinh,
                     "acosh" => CompiledOp::Acosh,
                     "atanh" => CompiledOp::Atanh,
+                    "erf" => CompiledOp::Erf,
+                    "erfc" => CompiledOp::Erfc,
                     "exp" => CompiledOp::Exp,
                     "ln" | "log" => CompiledOp::Ln,
                     "sqrt" => CompiledOp::Sqrt,
@@ -1271,6 +1283,14 @@ impl CompiledExpr {
                 CompiledOp::Atanh => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
                     stack.push(v.atanh());
+                }
+                CompiledOp::Erf | CompiledOp::Erfc => {
+                    let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    stack.push(evaluate_error_function(
+                        v,
+                        matches!(op, CompiledOp::Erfc),
+                        meter,
+                    )?);
                 }
                 CompiledOp::Exp => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;

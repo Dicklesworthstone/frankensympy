@@ -841,10 +841,11 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
         let square = self.power(argument, 2)?;
         // Evaluate the reciprocal of positive exp, so a small Gaussian
         // derivative keeps a positive relative enclosure in the tail.
-        let exponential = checked(square.positive_exp_with_work(
-            self.precision,
-            &mut |steps, bytes, allocations| self.charge(steps, bytes, allocations),
-        )?)?;
+        let exponential = checked(
+            square.positive_exp_with_work(self.precision, &mut |steps, bytes, allocations| {
+                self.charge(steps, bytes, allocations)
+            })?,
+        )?;
         let gaussian = self.inv(&exponential)?;
         self.elementary(&RealBall::from_i64(4))?;
         let pi = checked(RealBall::pi(self.precision + 4)?)?;

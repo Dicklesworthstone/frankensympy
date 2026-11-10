@@ -72,13 +72,22 @@ fn scalar_values_match_an_independent_positive_series_across_both_algorithms() {
         assert!(complement.width() <= complement.lower() * decimal_unit(26));
         for name in ["erf", "erfc"] {
             let expression = function(name, Expr::Rational(x.clone()));
-            assert!(!expression.eval_real_ball(24).unwrap().is_disjoint(
-                &value(name, &RealBall::exact(x.clone()), 24).unwrap()
-            ));
+            assert!(
+                !expression
+                    .eval_real_ball(24)
+                    .unwrap()
+                    .is_disjoint(&value(name, &RealBall::exact(x.clone()), 24).unwrap())
+            );
         }
     }
-    assert_eq!(RealBall::from_i64(0).erf(24).unwrap(), RealBall::from_i64(0));
-    assert_eq!(RealBall::from_i64(0).erfc(24).unwrap(), RealBall::from_i64(1));
+    assert_eq!(
+        RealBall::from_i64(0).erf(24).unwrap(),
+        RealBall::from_i64(0)
+    );
+    assert_eq!(
+        RealBall::from_i64(0).erfc(24).unwrap(),
+        RealBall::from_i64(1)
+    );
 }
 
 #[test]
@@ -145,16 +154,18 @@ fn maximum_precision_at_the_continued_fraction_boundary_is_checked_exactly() {
     assert!(maximum.lower() > q(0, 1));
     assert!(maximum.width() <= maximum.lower() * decimal_unit(258));
     for name in ["erf", "erfc"] {
-        for digits in [0, RealBall::MAX_ERROR_FUNCTION_PRECISION_DIGITS + 1, u32::MAX] {
+        for digits in [
+            0,
+            RealBall::MAX_ERROR_FUNCTION_PRECISION_DIGITS + 1,
+            u32::MAX,
+        ] {
             assert!(matches!(
                 value_for_precision(name, digits),
                 Err(BallError::ArgumentOutsideDeclaredEnvelope(_))
             ));
         }
-        let oversized = RealBall::exact(BigRational::new(
-            BigInt::one(),
-            BigInt::one() << 70_000u32,
-        ));
+        let oversized =
+            RealBall::exact(BigRational::new(BigInt::one(), BigInt::one() << 70_000u32));
         assert!(matches!(
             value(name, &oversized, 18),
             Err(BallError::ResourceLimitExceeded { .. })
@@ -201,9 +212,9 @@ fn original_source_first_and_second_derivatives_keep_complement_signs() {
                 slope = slope.neg();
             }
             let curvature = slope.mul(&RealBall::from_i64(-2 * point));
-            let c1 = enclose_residual_jacobian(
-                std::slice::from_ref(&source), &variables, &domain, 24,
-            ).unwrap();
+            let c1 =
+                enclose_residual_jacobian(std::slice::from_ref(&source), &variables, &domain, 24)
+                    .unwrap();
             assert!(!c1.jacobian()[0][0].is_disjoint(&slope));
             assert!(!c1.jacobian()[0][0].contains_zero());
             let c2 = enclose_objective(&source, &variables, &domain, 24).unwrap();
@@ -251,7 +262,8 @@ fn gaussian_quantiles_and_squared_residual_minima_accept_independent_witnesses()
             preconditioner: vec![vec![q(if name == "erf" { 1 } else { -1 }, 1)]],
             precision_digits: 24,
         };
-        let accepted = certify_root_box(std::slice::from_ref(&source), &variables, &proposal).unwrap();
+        let accepted =
+            certify_root_box(std::slice::from_ref(&source), &variables, &proposal).unwrap();
         assert!(accepted.contraction_bound() < &q(1, 1));
         assert!(accepted.root_enclosure()[0].lower() > q(9, 20));
         assert!(accepted.root_enclosure()[0].upper() < q(11, 20));
@@ -271,8 +283,8 @@ fn tiny_complementary_tail_roots_keep_a_nonzero_certified_jacobian() {
     let variables = [Symbol::new("x")];
     // Relative Gaussian enclosures keep this tail and its derivative even
     // though both are far smaller than the 24-digit absolute working target.
-    let source = function("erfc", Expr::Sym(variables[0].clone()))
-        - function("erfc", Expr::from_i64(20));
+    let source =
+        function("erfc", Expr::Sym(variables[0].clone())) - function("erfc", Expr::from_i64(20));
     let proposal = RootBoxWitness {
         domain: vec![RealBall::new(q(20, 1), q(1, 10_000)).unwrap()],
         center: vec![q(20, 1)],
@@ -355,7 +367,11 @@ fn cumulative_limits_and_cancellation_refuse_without_publishing_partial_receipts
     for second in [false, true] {
         let mut measured = Budget::new(BudgetLimits::uniform(LIMIT, RESERVE));
         metered_case(second, &mut measured).unwrap();
-        for dimension in [Dimension::ComputeSteps, Dimension::MemoryBytes, Dimension::AllocationCount] {
+        for dimension in [
+            Dimension::ComputeSteps,
+            Dimension::MemoryBytes,
+            Dimension::AllocationCount,
+        ] {
             let used = LIMIT - measured.remaining(dimension);
             assert!(used > 0);
             let mut limits = BudgetLimits::uniform(LIMIT, RESERVE);
@@ -365,12 +381,23 @@ fn cumulative_limits_and_cancellation_refuse_without_publishing_partial_receipts
             assert_eq!(exact.remaining(dimension), 0);
             limits.dimensions[dimension.index()] = used - 1;
             let mut short = Budget::new(limits);
-            assert!(matches!(metered_case(second, &mut short), Err(RootBoxError::Meter(_))));
+            assert!(matches!(
+                metered_case(second, &mut short),
+                Err(RootBoxError::Meter(_))
+            ));
         }
-        let mut count = Checkpoints { visits: 0, stop: None, stopped: false };
+        let mut count = Checkpoints {
+            visits: 0,
+            stop: None,
+            stopped: false,
+        };
         metered_case(second, &mut count).unwrap();
         for stop in [1, count.visits / 2, count.visits] {
-            let mut meter = Checkpoints { visits: 0, stop: Some(stop), stopped: false };
+            let mut meter = Checkpoints {
+                visits: 0,
+                stop: Some(stop),
+                stopped: false,
+            };
             assert_eq!(
                 metered_case(second, &mut meter),
                 Err(RootBoxError::Meter(MeterError::Cancelled))

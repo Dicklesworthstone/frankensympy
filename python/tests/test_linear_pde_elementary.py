@@ -9,7 +9,10 @@ from sympy.core import _native, _native_expr, _wrap
 
 
 def assert_zero(expression):
-    assert s.simplify(s.expand(expression)) == 0
+    # The public trig search supplies exact angle/parity identities beyond
+    # construction's deliberately incomplete normalization of balanced sums.
+    reduced = s.simplify(s.expand(expression))
+    assert reduced == 0 or s.trigsimp(reduced) == 0
 
 
 def assert_family(answer, u, x, y, a, b, c, forcing, particular):
