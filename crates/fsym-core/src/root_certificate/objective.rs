@@ -413,6 +413,19 @@ fn evaluate_inner(
                     let curvature = work.mul(&argument.value, &cube)?;
                     (value, slope, curvature)
                 }
+                "asinh" | "acosh" => {
+                    let (value, slope) = work.inverse_hyperbolic(&argument.value, name)?;
+                    let cube = work.power(&slope, 3)?;
+                    let curvature = work.mul(&argument.value, &cube)?.neg();
+                    (value, slope, curvature)
+                }
+                "atanh" => {
+                    let (value, slope) = work.inverse_hyperbolic(&argument.value, name)?;
+                    let square = work.power(&slope, 2)?;
+                    let numerator = work.mul(&RealBall::from_i64(2), &argument.value)?;
+                    let curvature = work.mul(&numerator, &square)?;
+                    (value, slope, curvature)
+                }
                 "atan" => {
                     let square = work.power(&argument.value, 2)?;
                     let denominator = work.add(&RealBall::from_i64(1), &square)?;

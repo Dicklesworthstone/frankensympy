@@ -856,6 +856,55 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
         Ok((value, slope))
     }
 
+    /// Principal real inverse hyperbolic value and derivative. Check the
+    /// complete original argument before any zero chain multiplier can erase
+    /// a pole or a nonsmooth endpoint. Shared by first- and second-order AD.
+    fn inverse_hyperbolic(
+        &mut self,
+        argument: &RealBall,
+        name: &str,
+    ) -> Result<(RealBall, RealBall), RootBoxError> {
+        self.arithmetic(&[argument], &[])?;
+        if name == "acosh" && argument.lower() <= BigRational::one() {
+            return Err(RootBoxError::Domain(
+                "acosh argument is not strictly above one",
+            ));
+        }
+        if name == "atanh"
+            && (argument.lower() <= -BigRational::one() || argument.upper() >= BigRational::one())
+        {
+            return Err(RootBoxError::Domain(
+                "atanh argument is not strictly inside (-1, 1)",
+            ));
+        }
+        // Prepay both monotone endpoint evaluations, their square roots or
+        // rational quotients, logarithms and enclosing compositions.
+        for _ in 0..8 {
+            self.elementary(argument)?;
+        }
+        let value = checked(match name {
+            "asinh" => argument.asinh(self.precision)?,
+            "acosh" => argument.acosh(self.precision)?,
+            "atanh" => argument.atanh(self.precision)?,
+            _ => return Err(RootBoxError::Unsupported("inverse hyperbolic function")),
+        })?;
+        let square = self.power(argument, 2)?;
+        let denominator = match name {
+            "asinh" => self.add(&RealBall::from_i64(1), &square)?,
+            "acosh" => self.sub(&square, &RealBall::from_i64(1))?,
+            _ => self.sub(&RealBall::from_i64(1), &square)?,
+        };
+        let slope = if name == "atanh" {
+            self.inv(&denominator)?
+        } else {
+            self.elementary(&denominator)?;
+            let root =
+                checked(denominator.sqrt(self.precision.saturating_mul(4).saturating_add(64))?)?;
+            self.inv(&root)?
+        };
+        Ok((value, slope))
+    }
+
     fn jet_add(&mut self, a: Jet, b: Jet) -> Result<Jet, RootBoxError> {
         let value = self.add(&a.value, &b.value)?;
         let mut gradient = Vec::with_capacity(a.gradient.len());
@@ -1035,6 +1084,7 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
                         (value, slope)
                     }
                     "asin" | "acos" => self.inverse_circular(&a.value, name == "acos")?,
+                    "asinh" | "acosh" | "atanh" => self.inverse_hyperbolic(&a.value, name)?,
                     "atan" => {
                         let square = self.power(&a.value, 2)?;
                         let denominator = self.add(&RealBall::from_i64(1), &square)?;

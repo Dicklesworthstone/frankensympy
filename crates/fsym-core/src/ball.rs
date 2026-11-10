@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 mod inverse_circular;
+mod inverse_hyperbolic;
 
 use crate::arith::RationalArithmeticError;
 use crate::{BigInt, BigRational};

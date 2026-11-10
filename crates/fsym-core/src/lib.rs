@@ -1047,6 +1047,9 @@ impl Expr {
                     "exp" => map(arg.exp(precision_digits)),
                     "log" | "ln" => map(arg.ln(precision_digits)),
                     "atan" => map(arg.atan(precision_digits)),
+                    "asinh" => map(arg.asinh(precision_digits)),
+                    "acosh" => map(arg.acosh(precision_digits)),
+                    "atanh" => map(arg.atanh(precision_digits)),
                     "tan" => {
                         let s = map(arg.sin(precision_digits + 4))?;
                         let c = map(arg.cos(precision_digits + 4))?;
