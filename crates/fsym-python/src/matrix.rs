@@ -22,6 +22,9 @@ use crate::to_value_error;
 /// These values are exposed only after the independent exact checker succeeds.
 type AffineSolutionParts = (Vec<PyExpr>, Vec<Vec<PyExpr>>, Vec<usize>);
 
+/// Complete sparse affine values, parameter matrix, and free columns.
+type SparseAffineSolutionParts = (PySparseMatrix, PySparseMatrix, Vec<usize>);
+
 fn rational_expr(value: &BigRational) -> PyExpr {
     PyExpr::from_expr(if value.is_integer() {
         Expr::Integer(value.to_integer())
@@ -958,6 +961,22 @@ impl PySparseMatrix {
         Ok(Self {
             inner: self.inner.solve(&rhs.inner).map_err(matrix_err)?,
         })
+    }
+
+    /// Complete checked affine family, rendered under the same native budget.
+    pub fn gauss_jordan_solve(&self, rhs: &Self) -> PyResult<Option<SparseAffineSolutionParts>> {
+        self.inner
+            .gauss_jordan_solve(&rhs.inner)
+            .map(|family| {
+                family.map(|(solution, parameters, free_columns)| {
+                    (
+                        Self { inner: solution },
+                        Self { inner: parameters },
+                        free_columns,
+                    )
+                })
+            })
+            .map_err(matrix_err)
     }
 
     /// Independently checked rational RREF, retaining sparse native storage.

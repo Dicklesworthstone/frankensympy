@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-10T06:01:22Z",
+  "scope": "Bounded complete exact rational sparse affine solution families and shared dense/sparse gauss_jordan_solve; no whole-workstream or compatibility-profile certification.",
+  "bead": "fra-kfo",
+  "implemented": {
+    "mathematics": "All consistent solutions of A*X=B are represented by X=P+N*T. All RHS columns share one sparse augmented row-reduction witness; P is n by k, N is n by nullity, T is nullity by k.",
+    "independent_verifier": "Dependency-separated proof kernel replays invertible exact row operations, binds both original matrices, verifies coefficient rank/free-column complement, A*P=B, A*N=0, zero particular free coordinates and identity kernel free coordinates. Inconsistency requires a genuine RHS pivot in the verified augmented RREF.",
+    "native": "Source-bound untrusted candidates and private accepted wrappers expose rational particular/kernel parts, receipt, rank, consistency and free columns. Single-ledger APIs cover admission through publication; optional separate phase meters do not themselves establish a protected runtime reservation.",
+    "symbolic_output": "Native construction of row-major plain tau parameters and the exact family stays in the same Work ledger with parameter, term and aggregate stored-output preflight limits.",
+    "public": "Dense/sparse mutable/immutable gauss_jordan_solve share the checked sparse engine across all RHS columns. Solution and parameter outputs retain the coefficient class. Original storage/interface/source snapshots and canonical parameter-cache ownership are checked; result construction uses captured storage descriptors.",
+    "expanded_scope": "The dense matrix method no longer has the old 128-dimension/per-RHS repeated-elimination restriction. Existing dense storage and new sparse/augmented/output bounds still apply. The separate linsolve 128-dimension lane is unchanged."
+  },
+  "verified_main_commits": [
+    {
+      "sha": "607921f54eb5f08ceee4ab493ac77b9c23d56a6e",
+      "purpose": "Independent complete-family certificates, recovered test-isolation repairs and actual 174-case baseline evidence"
+    },
+    {
+      "sha": "4dac026df98fada94da6a5261cea2763e45a35ef",
+      "purpose": "Complete native sparse affine families and bounded symbolic rendering"
+    }
+  ],
+  "public_commit": "The containing commit publishes the final public integration, regression selection and this record.",
+  "source_git_blobs": {
+    "crates/fsym-proof-kernel/src/sparse_rref.rs": "c366a228ed2c1e17ff6ccabe3221514572f08687",
+    "crates/fsym-proof-kernel/tests/sparse_affine.rs": "b35db6a6228277379b850282290e9f9101e60190",
+    "crates/fsym-matrices/src/sparse_rref.rs": "9943bd6bede3bd2483d727229abf0379ba46b767",
+    "crates/fsym-matrices/src/lib.rs": "e2961f0a8c6f9b124c686611274032ad02cb0e09",
+    "crates/fsym-matrices/tests/sparse_affine.rs": "21e8794c2e0154e435d37d6abd9c8e5fbb77945a",
+    "crates/fsym-python/src/matrix.rs": "19c57faf2051588c33cb3b4643f308be500cb4b7",
+    "python/sympy/matrices/dense.py": "7eff0b0019bad4a7caa83181115adfccc5423797",
+    "python/sympy/matrices/sparse.py": "60d02b0de9cfbef232eda38aa76286821887c7ac",
+    "python/tests/test_sparse_affine.py": "0cf75ffc0b63bdef2700145a58c908b2e513a02f",
+    "python/tests/test_affine_linear_systems.py": "5851bde665f6f623c36f68f7f51c2d6e44bcfc35"
+  },
+  "validation": {
+    "executed_baseline": {
+      "report": "artifacts/audit/2026-11-10-sparse-linear-algebra-174-validation.json",
+      "production_ref": "61a2f8fe91940e58457217c07b606aa55f25d601",
+      "result": "174 passed in 6.14s; exit 0",
+      "build_result": "Success in 1m36s with governed nightly-2026-08-20 and reduced compiler parallelism",
+      "native_binary_sha256": "e4d1140fcbefff5b0454548c9737e67024d2829fb0a05d2344d4356d4f564337",
+      "scope": "Actual-source mathematical PyO3 bridge, all 34 bridge sources refreshed, six enumerated unrelated runtime-only members omitted without replacement, exact shared budget implementation, all 56 retained registry dependencies matched production lock.",
+      "coverage": "Prior 108 public cases plus 15 final result-construction adversaries and 51 public rectangular LUsolve cases. Specific __new__ mutation probes execute in fresh subprocesses against the identical native binary and shell; all original assertions retained.",
+      "limitation": "Supplementary source-scoped execution, not the complete production runtime/workspace gate. This successful run predates the new affine feature and is not evidence that the new affine suites pass."
+    },
+    "new_affine_suites": [
+      {
+        "path": "crates/fsym-proof-kernel/tests/sparse_affine.rs",
+        "tests": 18,
+        "status": "authored_and_independently_source_reviewed_not_executed",
+        "coverage": "Complete/inconsistent/zero/multiple-RHS cases; source, witness, rank, free-coordinate, particular and kernel mutations; resource limits and cancellation"
+      },
+      {
+        "path": "crates/fsym-matrices/tests/sparse_affine.rs",
+        "tests": 14,
+        "status": "authored_and_independently_source_reviewed_not_executed",
+        "coverage": "729 small exact systems, 600x1200 sparse family and parameter renderer, zero and multiple RHS, source/candidate mutations, tiny exact pivots, output amplification, cumulative budgets and cancellation"
+      },
+      {
+        "path": "python/tests/test_sparse_affine.py",
+        "planned_cases": 70,
+        "status": "authored_and_independently_source_reviewed_not_executed",
+        "coverage": "Dense/sparse and mutable/immutable class combinations, complete families and free columns, large sparse shape, multiple RHS, native/source/result/interface/parameter-cache adversaries, terminal refusal"
+      },
+      {
+        "path": "python/tests/test_affine_linear_systems.py",
+        "test_methods": 16,
+        "status": "adjacent_regression_suite_updated_and_reviewed_not_reexecuted",
+        "coverage": "Only obsolete affine 128-dimension/per-RHS limit expectations replaced by expanded-support and actual augmented/output-bound assertions; unrelated linsolve limits retained"
+      }
+    ],
+    "attempted_native_command": "cargo test --locked -p fsym-proof-kernel --test sparse_affine --test sparse_rref",
+    "attempted_native_result": "Exit 137 during dependency compilation before changed proof sources or tests executed; executor subsequently unavailable.",
+    "final_affine_execution": "No compiler, formatter, Clippy, actual-extension, full workspace or registry gate pass is claimed for these final affine sources.",
+    "independent_review": "Independent proof-kernel and generator/public reviewers inspected the mathematical completeness argument, source binding, budgets, output ownership and regression fixtures; no concrete static defect remained. Static review is not an execution pass.",
+    "recovery": "Final source blobs were read back from GitHub. Proof source and proof-test recovery matched pre-outage SHA256 values; executed baseline test repairs matched the exact passing source hashes recorded in the separate 174-case report.",
+    "ci": "Both new public affine and adjacent affine-system suites are explicitly selected in actual-extension CI. Native suites are included by the existing workspace test gate; remote completion is pending."
+  },
+  "limits": {
+    "max_rows": 8192,
+    "max_augmented_columns": 8192,
+    "max_stored_entries": 262144,
+    "max_coefficient_component_bits": 8192,
+    "max_rendered_parameters": 262144,
+    "max_precombination_symbolic_terms": 1000000,
+    "max_aggregate_solution_and_parameter_entries": 262144,
+    "generator_and_renderer_local_work": 20000000,
+    "generator_and_renderer_logical_allocation_bytes": 268435456,
+    "note": "Independent checker and caller meters impose additional cumulative limits. Limits are preflight/terminal refusals, not promises that every shape below them completes."
+  },
+  "public_boundaries": [
+    "Exact rational built-in inputs only; symbolic/approximate coefficients and custom matrix subclasses are refused.",
+    "freevar must be a bool; zero RHS columns with unknowns remain an explicit public refusal, although the native family API represents the empty matrix equation.",
+    "Dense input/final output retain the dense storage bound; sparse computation does not materialize an implicit dense matrix.",
+    "Canonical tau cache ownership and original interfaces are required; no Python scalar-arithmetic or constructor fallback.",
+    "LUsolve remains the unique-solution interface and retains RHS class; gauss_jordan_solve retains coefficient class."
+  ],
+  "unchanged_gates": {
+    "bead_status": "open",
+    "MATH_001_status": "implemented_uncertified",
+    "MATH_001_present_tense_allowed": false,
+    "open": [
+      "gate://ws10-exact-linear",
+      "gate://proof-producing-transformations",
+      "full production runtime/workspace validation",
+      "compatibility/profile certification"
+    ]
+  }
+}

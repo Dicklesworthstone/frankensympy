@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import sys
+from collections import OrderedDict
 from types import MemberDescriptorType
 from typing import Any, Dict, Tuple
 from ..core import (
-    Basic, Expr, Half, Integer, NegativeOne, One, Rational, Zero,
-    _native, _native_expr, _wrap,
+    Basic, Expr, Half, Integer, NegativeOne, One, Rational, Symbol, Zero,
+    _native, _native_expr, _wrap, _SYMBOL_CACHE, _surface_symbols,
 )
 from .dense import Matrix, MatrixBase, ImmutableDenseMatrix, _matrix_dimensions, _surface_entry
 
@@ -26,11 +27,13 @@ _REDUCTION_DICT = type.__dict__["__dict__"]
 _REDUCTION_NATIVE_EXPR = _native.Expr
 _REDUCTION_NATIVE_EQUAL = _REDUCTION_NATIVE_EXPR.__eq__
 _REDUCTION_NATIVE_ZERO = _REDUCTION_VALUE_SLOT.__get__(_ZERO, Basic)
+_AFFINE_NATIVE_SYMBOL = _native.py_symbol
+_AFFINE_SYMBOL_ASSUMPTIONS = Symbol.__dict__["_assumptions"]
 _REDUCTION_NATIVE_MEMBERS = {
     name: _REDUCTION_DICT.__get__(_NativeSparseMatrix)[name]
     for name in (
         "shape", "is_exact_rational", "todok", "to_dense",
-        "rref", "rank", "nullspace", "columnspace", "solve",
+        "rref", "rank", "nullspace", "columnspace", "solve", "gauss_jordan_solve",
     )
 }
 _SOLVE_NATIVE_DENSE = _native.Matrix
@@ -253,6 +256,131 @@ def _checked_sparse_lift(native, cls):
     for slot, value in zip(slots, (payload, shape, None, 0)):
         slot.__set__(result, value)
     return result
+
+
+def _affine_symbol_interfaces():
+    if (type(Symbol) is not type or not _reduction_default_access(Symbol)
+            or any(_reduction_binding(Symbol, name) is not original
+                   for name, original in _AFFINE_SYMBOL_INTERFACES)):
+        raise NotImplementedError("affine parameters require original Symbol interfaces")
+
+
+def _affine_parameter_symbols(parameters):
+    """Bind native tau atoms to intact cached symbols without scalar callbacks."""
+    rows, cols = _REDUCTION_NATIVE_MEMBERS["shape"].__get__(parameters, _NativeSparseMatrix)
+    entries = _REDUCTION_NATIVE_MEMBERS["todok"](parameters)
+    count = rows*cols
+    if count > _MAX_SPARSE_ENTRIES or len(entries) != count:
+        raise RuntimeError("native affine parameter matrix has invalid storage")
+    if not count:
+        return ()
+    _affine_symbol_interfaces()
+    if type(_SYMBOL_CACHE) is not dict or type(_surface_symbols) is not OrderedDict:
+        raise NotImplementedError("affine parameters require original symbol registries")
+    bindings = []
+    for index in range(count):
+        name = f"tau{index}"
+        native = entries.get(divmod(index, cols))
+        expected = _AFFINE_NATIVE_SYMBOL(name)
+        if (type(native) is not _REDUCTION_NATIVE_EXPR
+                or _REDUCTION_NATIVE_EQUAL(native, expected) is not True):
+            raise RuntimeError("native affine parameter identity is invalid")
+        cached = dict.get(_SYMBOL_CACHE, (name, ()))
+        registered = OrderedDict.get(_surface_symbols, (name, None))
+        if cached is not None and registered is not None and cached is not registered:
+            raise RuntimeError("affine parameter registries disagree")
+        symbol = cached if cached is not None else registered
+        if symbol is None:
+            symbol = object.__new__(Symbol)
+            _REDUCTION_VALUE_SLOT.__set__(symbol, native)
+            _AFFINE_SYMBOL_ASSUMPTIONS.__set__(symbol, {})
+        if type(symbol) is not Symbol:
+            raise NotImplementedError("affine parameter cache requires exact Symbol atoms")
+        value = _REDUCTION_VALUE_SLOT.__get__(symbol, Basic)
+        assumptions = _AFFINE_SYMBOL_ASSUMPTIONS.__get__(symbol, Symbol)
+        if (type(value) is not _REDUCTION_NATIVE_EXPR
+                or _REDUCTION_NATIVE_EQUAL(value, expected) is not True
+                or type(assumptions) is not dict or len(assumptions) != 0):
+            raise RuntimeError("cached affine parameter differs from its native identity")
+        bindings.append((name, symbol, value, assumptions, cached, registered))
+    # Validate the complete cache before publishing any new parameter owner.
+    for name, symbol, value, assumptions, cached, registered in bindings:
+        if (dict.get(_SYMBOL_CACHE, (name, ())) is not cached
+                or OrderedDict.get(_surface_symbols, (name, None)) is not registered):
+            raise RuntimeError("affine parameter registry mutated during construction")
+    for name, symbol, _, _, _, _ in bindings:
+        dict.__setitem__(_SYMBOL_CACHE, (name, ()), symbol)
+        OrderedDict.__setitem__(_surface_symbols, (name, None), symbol)
+    return tuple(bindings)
+
+
+def _check_affine_parameters(bindings):
+    if not bindings:
+        return
+    _affine_symbol_interfaces()
+    for name, symbol, value, assumptions, _, _ in bindings:
+        if (_REDUCTION_VALUE_SLOT.__get__(symbol, Basic) is not value
+                or _AFFINE_SYMBOL_ASSUMPTIONS.__get__(symbol, Symbol) is not assumptions
+                or len(assumptions) != 0
+                or dict.get(_SYMBOL_CACHE, (name, ())) is not symbol
+                or OrderedDict.get(_surface_symbols, (name, None)) is not symbol):
+            raise RuntimeError("affine parameters mutated during construction")
+
+
+def _checked_gauss_jordan_solve(matrix, rhs, freevar=False):
+    """Shared dense/sparse affine entry point over one checked sparse family."""
+    if type(freevar) is not bool:
+        raise TypeError("freevar must be a bool value")
+    accepted = (Matrix, ImmutableDenseMatrix, SparseMatrix, ImmutableSparseMatrix)
+    if not any(type(matrix) is cls for cls in accepted):
+        raise NotImplementedError("custom matrix subclasses require a supervised override lane")
+    if not any(type(rhs) is cls for cls in accepted):
+        raise TypeError("gauss_jordan_solve requires a built-in Matrix right-hand side")
+    dense_left = type(matrix) is Matrix or type(matrix) is ImmutableDenseMatrix
+    dense_right = type(rhs) is Matrix or type(rhs) is ImmutableDenseMatrix
+    left = _rational_source_snapshot(matrix, dense=dense_left, context="exact affine solve")
+    right = _rational_source_snapshot(rhs, dense=dense_right, context="exact affine solve")
+    if left is None or right is None:
+        raise ValueError("exact affine solve supports exact rational entries only")
+    coefficients, source_snapshot = left
+    rhs_native, rhs_snapshot = right
+    rows, unknowns = source_snapshot[4]
+    rhs_rows, rhs_columns = rhs_snapshot[4]
+    if rows != rhs_rows:
+        raise ValueError("The matrices have incompatible number of rows")
+    if rhs_columns == 0 and unknowns:
+        # The pinned API refuses this surface, with different internal errors
+        # depending on rank. Keep the existing explicit bounded refusal.
+        raise ValueError("exact affine solve requires a nonempty right-hand side")
+    if dense_left:
+        coefficients = _SOLVE_DENSE_MEMBERS["to_sparse"](coefficients)
+    if dense_right:
+        rhs_native = _SOLVE_DENSE_MEMBERS["to_sparse"](rhs_native)
+    _check_rational_source(source_snapshot)
+    _check_rational_source(rhs_snapshot)
+    native_namespace = _REDUCTION_DICT.__get__(_NativeSparseMatrix)
+    if (not _reduction_default_access(_NativeSparseMatrix)
+            or any(native_namespace.get(name) is not descriptor
+                   for name, descriptor in _REDUCTION_NATIVE_MEMBERS.items())):
+        raise NotImplementedError("exact affine solve requires original native interfaces")
+    family = _REDUCTION_NATIVE_MEMBERS["gauss_jordan_solve"](coefficients, rhs_native)
+    _check_rational_source(source_snapshot)
+    _check_rational_source(rhs_snapshot)
+    if family is None:
+        raise ValueError("Linear system has no solution")
+    solution_native, parameters_native, free_columns = family
+    shape = _REDUCTION_NATIVE_MEMBERS["shape"]
+    if (shape.__get__(solution_native, _NativeSparseMatrix) != (unknowns, rhs_columns)
+            or shape.__get__(parameters_native, _NativeSparseMatrix) != (len(free_columns), rhs_columns)):
+        raise RuntimeError("native affine family has invalid output shapes")
+    bindings = _affine_parameter_symbols(parameters_native)
+    solution = _checked_sparse_lift(solution_native, type(matrix))
+    parameters = _checked_sparse_lift(parameters_native, type(matrix))
+    _check_rational_source(source_snapshot)
+    _check_rational_source(rhs_snapshot)
+    _check_affine_parameters(bindings)
+    return ((solution, parameters, list(free_columns)) if freevar
+            else (solution, parameters))
 
 
 class SparseMatrix(MatrixBase):
@@ -586,6 +714,15 @@ class SparseMatrix(MatrixBase):
         _check_rational_source(source_snapshot)
         _check_rational_source(rhs_snapshot)
         return result
+
+    def gauss_jordan_solve(self, B, freevar=False):
+        """Return the complete checked exact-rational family, retaining sparsity.
+
+        All right-hand sides share one elimination and one complete nullspace.
+        The solution and parameter matrices retain this coefficient class;
+        each RHS receives its own independent row-major tau parameters.
+        """
+        return _checked_gauss_jordan_solve(self, B, freevar)
 
     def rref(self, iszerofunc=None, simplify=False, pivots=True, normalize_last=True):
         """Checked rational reduction, with the profile's dense final result.
@@ -1029,4 +1166,9 @@ _REDUCTION_RESULT_LAYOUTS = tuple(
         (Matrix, Matrix), (ImmutableDenseMatrix, Matrix),
         (SparseMatrix, SparseMatrix), (ImmutableSparseMatrix, SparseMatrix),
     )
+)
+
+_AFFINE_SYMBOL_INTERFACES = tuple(
+    (name, _reduction_binding(Symbol, name))
+    for name in ("__new__", "__init__", "__setattr__", "__delattr__", "_value", "_assumptions")
 )

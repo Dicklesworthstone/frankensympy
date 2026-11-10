@@ -800,12 +800,73 @@ assert X == ImmutableMatrix([[2, 7], [3, 8]])
 ```
 
 The default public `SparseMatrix.solve()` keeps the pinned square-only contract;
-use `LUsolve()` for this tall exact rational case. Rectangular symbolic pivots
-and arbitrary free-parameter solutions are outside this bounded API. The
-augmented column count and intermediate fill must fit the same sparse bounds.
-Both original matrices are checked before and after native execution, and
-checked results are published through original storage descriptors rather
-than replaceable Python constructors.
+use `LUsolve()` for this tall exact rational case. The augmented column count
+and intermediate fill must fit the same sparse bounds. Both original matrices
+are checked before and after native execution, and checked results are
+published through original storage descriptors rather than replaceable Python
+constructors.
+
+### Complete exact affine solution families
+
+Both dense and sparse `gauss_jordan_solve()` use one checked sparse elimination
+for all right-hand sides. Consistent singular and underdetermined systems
+return the complete family of solutions, including every free variable.
+The solution and parameter matrices retain the coefficient matrix's
+mutable/immutable and dense/sparse class:
+
+```python
+from sympy import Matrix, SparseMatrix
+
+A = SparseMatrix([[1, 2, 0], [2, 4, 0]])
+B = Matrix([[3, 5], [6, 10]])
+solution, parameters, free_columns = A.gauss_jordan_solve(B, freevar=True)
+
+assert type(solution) is SparseMatrix
+assert type(parameters) is SparseMatrix
+assert parameters.shape == (2, 2)
+assert free_columns == [1, 2]
+# parameters = [[tau0, tau1], [tau2, tau3]]
+# solution = [[3 - 2*tau0, 5 - 2*tau1],
+#             [tau0,       tau1],
+#             [tau2,       tau3]]
+```
+
+Native Rust callers can retain the verified rational parts through
+`SparseMatrix::solve_affine()`: a particular solution `P`, a complete
+nullspace basis `N`, and ascending free-column indices. Every solution is
+`X = P + N*T`, with one parameter per free variable and RHS column.
+A dependency-separated proof-kernel checker replays the augmented row
+operations and independently checks the original `A*P == B`, `A*N == 0`,
+rank, and free-coordinate identities. Inconsistent systems have a checked
+contradiction; the public method raises `ValueError`.
+
+The native parameter renderer constructs plain `tau0`, `tau1`, ... symbols
+in row-major parameter order under the same cumulative work ledger. Source
+admission, generation, verification, lifting and publication stay bounded.
+Python validates the original source snapshots and canonical parameter
+identities and publishes results through captured storage descriptors.
+Neither replaceable constructors nor Python scalar arithmetic build the
+accepted solution.
+
+This exact rational lane replaces the old dense affine method's 128-dimension
+restriction; dense input and final output still obey the dense storage limit.
+Sparse elimination does not expand the implicit dense area. The augmented
+system has at most 8192 rows and 8192 columns. Symbolic rendering allows at
+most 262144 parameters, one million pre-combination terms, and 262144 stored
+entries across the solution and parameter matrices together; coefficient,
+fill, work and allocation limits can refuse earlier. Resource or cancellation
+errors remain terminal.
+
+`freevar` must be an actual `bool`. The Python method retains its explicit
+refusal of zero RHS columns when unknowns remain; native `solve_affine()`
+also represents that empty matrix equation and its coefficient kernel.
+Symbolic coefficients, approximate values, custom matrix subclasses and
+custom arithmetic hooks are outside this lane. This change does not extend
+the separate `linsolve()` dimension contract or certify a full compatibility
+profile. The new affine regression suites are committed for execution;
+[the affine progress record](artifacts/audit/2026-11-10-sparse-affine-progress.json)
+distinguishes pending affine execution from the earlier 174 passing
+source-scoped sparse tests.
 
 ## Prime-field polynomials (development API)
 

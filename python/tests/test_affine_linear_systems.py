@@ -141,12 +141,21 @@ class GaussJordanSolveTests(unittest.TestCase):
             Matrix([[Symbol("a")]]).gauss_jordan_solve(Matrix([1]))
         with self.assertRaisesRegex(ValueError, "rows"):
             Matrix([[1]]).gauss_jordan_solve(Matrix([1, 2]))
-        with self.assertRaisesRegex(ValueError, "128"):
-            zeros(1, 129).gauss_jordan_solve(zeros(1, 1))
-        with self.assertRaisesRegex(ValueError, "128"):
-            zeros(1, 1).gauss_jordan_solve(zeros(1, 129))
-        with self.assertRaisesRegex(ValueError, "aggregate"):
-            zeros(128, 128).gauss_jordan_solve(zeros(128, 3))
+        # One shared sparse elimination admits the former per-RHS limits.
+        for rows, columns, rhs_columns in ((1, 129, 1), (1, 1, 129), (128, 128, 3)):
+            solution, parameters, free = zeros(rows, columns).gauss_jordan_solve(
+                zeros(rows, rhs_columns), freevar=True,
+            )
+            self.assertEqual(solution.shape, (columns, rhs_columns))
+            self.assertEqual(parameters.shape, (columns, rhs_columns))
+            self.assertEqual(solution, parameters)
+            self.assertEqual(free, list(range(columns)))
+        with self.assertRaisesRegex(ValueError, "bound|limit"):
+            zeros(1, 8193).gauss_jordan_solve(zeros(1, 1))
+        with self.assertRaisesRegex(ValueError, "bound|limit"):
+            zeros(1, 1).gauss_jordan_solve(zeros(1, 8192))
+        with self.assertRaisesRegex(ValueError, "bound|limit"):
+            zeros(0, 600).gauss_jordan_solve(zeros(0, 600))
         with self.assertRaises(TypeError):
             Matrix([[1]]).gauss_jordan_solve([1])
 
