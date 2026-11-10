@@ -15,14 +15,14 @@
 use crate::{MatrixError, SparseMatrix};
 use fsym_budget::{BudgetError, BudgetMeter, Dimension, MeterError, Unbounded};
 use fsym_core::arith::RationalArithmeticError;
-use fsym_core::{BigRational, Expr};
+use fsym_core::{BigRational, Expr, Symbol};
 use fsym_proof_kernel::linear_system::LinearRowOperation;
 use fsym_proof_kernel::sparse_rref::{
     MAX_SPARSE_RREF_COEFFICIENT_BITS, MAX_SPARSE_RREF_DIMENSION, MAX_SPARSE_RREF_ENTRIES,
     MAX_SPARSE_RREF_OPERATIONS, RationalSparseMatrix, SPARSE_AFFINE_SCHEMA_VERSION,
     SPARSE_RREF_SCHEMA_VERSION, SparseAffineOutcome, SparseAffineReceipt, SparseAffineWitness,
-    SparseRationalEntry, SparseRrefError, SparseRrefReceipt, SparseRrefWitness, verify_sparse_affine,
-    verify_sparse_rref,
+    SparseRationalEntry, SparseRrefError, SparseRrefReceipt, SparseRrefWitness,
+    verify_sparse_affine, verify_sparse_rref,
 };
 use num_traits::{One, Zero};
 use std::collections::{BTreeMap, BTreeSet};
@@ -31,6 +31,10 @@ use std::fmt::Write;
 const MAX_WORK: u64 = 20_000_000;
 const MAX_ALLOCATION_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_AFFINE_PARAMETER_TERMS: usize = 1_000_000;
+/// Maximum UTF-8 byte length of one caller-owned affine coordinate name.
+pub const MAX_SPARSE_AFFINE_PARAMETER_NAME_BYTES: usize = 4_096;
+/// Maximum total UTF-8 name bytes in the original ordered coordinate list.
+pub const MAX_SPARSE_AFFINE_PARAMETER_TOTAL_BYTES: usize = 1_048_576;
 type Row = BTreeMap<usize, BigRational>;
 
 /// Untrusted row-reduction proposal. Its source is checked against the actual
@@ -953,9 +957,10 @@ pub(crate) fn solve_rectangular<M: BudgetMeter>(
     for entry in &verified.reduced().entries {
         work.tick(1)?;
         if entry.column >= coefficients.columns {
-            let variable = *verified.pivots().get(entry.row).ok_or_else(|| {
-                invalid("reduced solution row has no checked coefficient pivot")
-            })?;
+            let variable = *verified
+                .pivots()
+                .get(entry.row)
+                .ok_or_else(|| invalid("reduced solution row has no checked coefficient pivot"))?;
             entries.push(SparseRationalEntry {
                 row: variable,
                 column: entry.column - coefficients.columns,
@@ -1016,7 +1021,9 @@ fn affine_outcome<M: BudgetMeter>(
     for (row, &column) in reduction.pivots.iter().enumerate() {
         work.tick(1)?;
         if previous.is_some_and(|prior| prior >= column) {
-            return Err(invalid("affine generator pivots are not strictly increasing"));
+            return Err(invalid(
+                "affine generator pivots are not strictly increasing",
+            ));
         }
         if column >= columns {
             return Ok(SparseAffineOutcome::Inconsistent { row });
@@ -1119,6 +1126,14 @@ fn generate_affine<M: BudgetMeter>(
     work: &mut Work<'_, M>,
 ) -> Result<SparseAffineSolutionCandidate, MatrixError> {
     let (coefficients, rhs) = affine_sources(matrix, rhs, work)?;
+    generate_affine_sources(coefficients, rhs, work)
+}
+
+fn generate_affine_sources<M: BudgetMeter>(
+    coefficients: RationalSparseMatrix,
+    rhs: RationalSparseMatrix,
+    work: &mut Work<'_, M>,
+) -> Result<SparseAffineSolutionCandidate, MatrixError> {
     let source = augmented_source(&coefficients, &rhs, work)?;
     let reduction = generate(source, work)?.witness;
     let outcome = affine_outcome(&coefficients, &rhs, &reduction, work)?;
@@ -1134,6 +1149,48 @@ fn generate_affine<M: BudgetMeter>(
     })
 }
 
+fn split_augmented_source<M: BudgetMeter>(
+    matrix: &SparseMatrix,
+    work: &mut Work<'_, M>,
+) -> Result<(RationalSparseMatrix, RationalSparseMatrix), MatrixError> {
+    let source = source_snapshot(matrix, work)?;
+    let columns = source.columns.checked_sub(1).ok_or(
+        MatrixError::InvalidAffineParameters("an augmented system requires a right-hand-side column"),
+    )?;
+    let mut rhs_count = 0;
+    for entry in &source.entries {
+        work.tick(1)?;
+        if entry.column == columns {
+            rhs_count += 1;
+        }
+    }
+    let mut coefficients = work.vector(source.entries.len() - rhs_count)?;
+    let mut rhs = work.vector(rhs_count)?;
+    // Move the admitted exact cells into their two canonical blocks. No dense
+    // traversal, reparsing, or second input generation participates in this split.
+    for mut entry in source.entries {
+        work.tick(1)?;
+        if entry.column == columns {
+            entry.column = 0;
+            rhs.push(entry);
+        } else {
+            coefficients.push(entry);
+        }
+    }
+    Ok((
+        RationalSparseMatrix {
+            rows: source.rows,
+            columns,
+            entries: coefficients,
+        },
+        RationalSparseMatrix {
+            rows: source.rows,
+            columns: 1,
+            entries: rhs,
+        },
+    ))
+}
+
 fn bind_affine_source<M: BudgetMeter>(
     original: &RationalSparseMatrix,
     proposed: &RationalSparseMatrix,
@@ -1144,7 +1201,9 @@ fn bind_affine_source<M: BudgetMeter>(
         || original.columns != proposed.columns
         || original.entries.len() != proposed.entries.len()
     {
-        return Err(invalid("affine candidate source differs from the original matrix"));
+        return Err(invalid(
+            "affine candidate source differs from the original matrix",
+        ));
     }
     for (expected, actual) in original.entries.iter().zip(&proposed.entries) {
         check_value(&actual.value)?;
@@ -1155,7 +1214,9 @@ fn bind_affine_source<M: BudgetMeter>(
                 + actual.value.denom().limb_count(),
         )?;
         if expected != actual {
-            return Err(invalid("affine candidate source differs from the original matrix"));
+            return Err(invalid(
+                "affine candidate source differs from the original matrix",
+            ));
         }
     }
     Ok(())
@@ -1214,6 +1275,84 @@ pub fn verify_sparse_affine_solution_candidate<M: BudgetMeter>(
     accept_affine(candidate, &mut work)
 }
 
+fn copy_affine_symbol<M: BudgetMeter>(
+    symbol: &Symbol,
+    work: &mut Work<'_, M>,
+) -> Result<Symbol, MatrixError> {
+    work.tick((symbol.name.len() + std::mem::size_of::<Symbol>()) as u64)?;
+    work.reserve(symbol.name.len())?;
+    let mut name = String::new();
+    name.try_reserve_exact(symbol.name.len())
+        .map_err(|_| limit("affine coordinate name allocation refused"))?;
+    name.push_str(&symbol.name);
+    Ok(Symbol {
+        name,
+        identity: symbol.identity,
+    })
+}
+
+fn admit_affine_parameters<M: BudgetMeter>(
+    columns: usize,
+    variables: Option<&[Expr]>,
+    work: &mut Work<'_, M>,
+) -> Result<Option<Vec<Symbol>>, MatrixError> {
+    work.tick(1)?;
+    if columns > MAX_SPARSE_RREF_DIMENSION {
+        return Err(limit("affine coordinate count exceeds 8192"));
+    }
+    let Some(variables) = variables else {
+        return Ok(None);
+    };
+    if variables.len() != columns {
+        return Err(MatrixError::InvalidAffineParameters(
+            "the coordinate count must equal the number of unknowns",
+        ));
+    }
+    // Admit the entire original list before cloning any name or generating a
+    // solution. Even pivot-only, unused, and inconsistent-system coordinates
+    // must be exact distinct symbol atoms with bounded original UTF-8 names.
+    let mut total_bytes = 0usize;
+    for variable in variables {
+        work.tick(1)?;
+        let Expr::Sym(symbol) = variable else {
+            return Err(MatrixError::InvalidAffineParameters(
+                "every coordinate must be an exact symbol atom",
+            ));
+        };
+        if symbol.name.len() > MAX_SPARSE_AFFINE_PARAMETER_NAME_BYTES {
+            return Err(limit("affine coordinate name exceeds 4096 UTF-8 bytes"));
+        }
+        total_bytes = total_bytes
+            .checked_add(symbol.name.len())
+            .ok_or_else(|| limit("affine coordinate name storage overflow"))?;
+        if total_bytes > MAX_SPARSE_AFFINE_PARAMETER_TOTAL_BYTES {
+            return Err(limit("aggregate affine coordinate names exceed 1 MiB"));
+        }
+    }
+    let levels = u64::from(usize::BITS - variables.len().leading_zeros()) + 1;
+    let mut unique = BTreeSet::new();
+    let mut coordinates = work.vector(variables.len())?;
+    for variable in variables {
+        let Expr::Sym(symbol) = variable else {
+            return Err(MatrixError::InvalidAffineParameters(
+                "every coordinate must be an exact symbol atom",
+            ));
+        };
+        // BTreeSet compares the whole typed Symbol, including None versus
+        // Some(identity). Charge name-prefix and fixed identity comparisons;
+        // neither printed-name equality nor a digest alone defines a duplicate.
+        work.tick(4 * levels * (symbol.name.len() + std::mem::size_of::<Symbol>()) as u64)?;
+        work.reserve(128)?;
+        if !unique.insert(symbol) {
+            return Err(MatrixError::InvalidAffineParameters(
+                "duplicate typed affine coordinates",
+            ));
+        }
+        coordinates.push(copy_affine_symbol(symbol, work)?);
+    }
+    Ok(Some(coordinates))
+}
+
 fn affine_parameter<M: BudgetMeter>(
     index: usize,
     work: &mut Work<'_, M>,
@@ -1232,9 +1371,28 @@ fn affine_parameter<M: BudgetMeter>(
     Ok(Expr::symbol(name))
 }
 
+fn selected_affine_parameter<M: BudgetMeter>(
+    index: usize,
+    free_columns: &[usize],
+    coordinates: Option<&[Symbol]>,
+    work: &mut Work<'_, M>,
+) -> Result<Expr, MatrixError> {
+    let Some(coordinates) = coordinates else {
+        return affine_parameter(index, work);
+    };
+    let column = *free_columns
+        .get(index)
+        .ok_or_else(|| invalid("named affine parameter has no checked free column"))?;
+    let symbol = coordinates
+        .get(column)
+        .ok_or_else(|| invalid("checked free column has no original typed coordinate"))?;
+    Ok(Expr::Sym(copy_affine_symbol(symbol, work)?))
+}
+
 fn affine_expression<M: BudgetMeter>(
     mut terms: Vec<Expr>,
     coefficient_bits: u64,
+    parameter_bytes: u64,
     work: &mut Work<'_, M>,
 ) -> Result<Expr, MatrixError> {
     work.tick(1)?;
@@ -1246,22 +1404,26 @@ fn affine_expression<M: BudgetMeter>(
     if terms.is_empty() {
         return Err(invalid("affine expression has no nonzero terms"));
     }
-    // All terms have distinct plain parameter symbols, plus at most one
+    // All terms have distinct typed parameter symbols, plus at most one
     // rational constant. No collection, expansion, or numeric arithmetic is
     // needed. Account conservatively for the core canonical comparator's
-    // temporary scalar renderings and sorting before entering this bounded
-    // canonicalization step; output terms have depth at most two.
+    // temporary scalar/name renderings, typed identity comparisons and sorting
+    // before entering this bounded canonicalization step; output terms have
+    // depth at most two. The default fixed tau names fit the existing overhead.
     let levels = u64::from(usize::BITS - (terms.len() - 1).leading_zeros());
     let comparisons = 4 * terms.len() as u64 * levels;
     let limbs = coefficient_bits.max(1).div_ceil(64) + 1;
-    work.tick(comparisons * limbs * limbs)?;
+    work.tick(comparisons * (limbs * limbs + 2 * parameter_bytes))?;
     work.charge_batch(&[
         (
             Dimension::MemoryBytes,
-            comparisons * (4 * coefficient_bits.max(1) + 128)
+            comparisons * (4 * coefficient_bits.max(1) + 2 * parameter_bytes + 128)
                 + (terms.len() * std::mem::size_of::<Expr>()) as u64,
         ),
-        (Dimension::AllocationCount, comparisons * (2 * limbs + 8) + 1),
+        (
+            Dimension::AllocationCount,
+            comparisons * (2 * limbs + 8) + 1,
+        ),
     ])
     .map_err(stopped)?;
     fsym_core::canonicalize_add_args(&mut terms);
@@ -1271,6 +1433,7 @@ fn affine_expression<M: BudgetMeter>(
 
 fn render_affine<M: BudgetMeter>(
     verified: VerifiedSparseAffineSolution,
+    coordinates: Option<&[Symbol]>,
     work: &mut Work<'_, M>,
 ) -> Result<Option<(SparseMatrix, SparseMatrix, Vec<usize>)>, MatrixError> {
     let SparseAffineOutcome::Solvable {
@@ -1283,6 +1446,17 @@ fn render_affine<M: BudgetMeter>(
         return Ok(None);
     };
     let rhs_columns = particular.columns;
+    let mut parameter_bytes = 0;
+    if let Some(coordinates) = coordinates {
+        if rhs_columns != 1 || coordinates.len() != particular.rows {
+            return Err(invalid("named affine rendering has incompatible coordinate dimensions"));
+        }
+        for &column in free_columns {
+            work.tick(1)?;
+            parameter_bytes = parameter_bytes
+                .max((coordinates[column].name.len() + std::mem::size_of::<Symbol>()) as u64);
+        }
+    }
     let parameter_count = free_columns
         .len()
         .checked_mul(rhs_columns)
@@ -1322,7 +1496,9 @@ fn render_affine<M: BudgetMeter>(
         }
     }
     if output_count > MAX_SPARSE_RREF_ENTRIES {
-        return Err(limit("aggregate affine symbolic stored-entry limit exceeded"));
+        return Err(limit(
+            "aggregate affine symbolic stored-entry limit exceeded",
+        ));
     }
 
     let mut parameter_entries = BTreeMap::new();
@@ -1332,7 +1508,12 @@ fn render_affine<M: BudgetMeter>(
             work.reserve(512)?;
             parameter_entries.insert(
                 (row, column),
-                affine_parameter(row * rhs_columns + column, work)?,
+                selected_affine_parameter(
+                    row * rhs_columns + column,
+                    free_columns,
+                    coordinates,
+                    work,
+                )?,
             );
         }
     }
@@ -1381,7 +1562,12 @@ fn render_affine<M: BudgetMeter>(
             }
             for entry in kernel_row {
                 work.tick(1)?;
-                let parameter = affine_parameter(entry.column * rhs_columns + column, work)?;
+                let parameter = selected_affine_parameter(
+                    entry.column * rhs_columns + column,
+                    free_columns,
+                    coordinates,
+                    work,
+                )?;
                 if entry.value.is_one() {
                     terms.push(parameter);
                 } else {
@@ -1394,7 +1580,7 @@ fn render_affine<M: BudgetMeter>(
                     terms.push(Expr::Mul(factors));
                 }
             }
-            let expression = affine_expression(terms, coefficient_bits, work)?;
+            let expression = affine_expression(terms, coefficient_bits, parameter_bytes, work)?;
             work.reserve(512)?;
             solution_entries.insert((row, column), expression);
         }
@@ -1464,7 +1650,7 @@ impl SparseMatrix {
         let mut work = Work::new(meter);
         let candidate = generate_affine(self, rhs, &mut work)?;
         let verified = accept_affine(candidate, &mut work)?;
-        render_affine(verified, &mut work)
+        render_affine(verified, None, &mut work)
     }
 
     pub fn gauss_jordan_solve(
@@ -1472,6 +1658,71 @@ impl SparseMatrix {
         rhs: &Self,
     ) -> Result<Option<(Self, Self, Vec<usize>)>, MatrixError> {
         self.metered_gauss_jordan_solve(rhs, &mut Unbounded)
+    }
+
+    /// Complete single-RHS solution using the caller's ordered typed coordinates.
+    /// `Some` supplies exactly one distinct symbol atom for every unknown;
+    /// only coordinates selected by the independently checked free columns
+    /// become parameters. Names, assumption identities and encoded Dummy labels
+    /// are retained exactly. `None` selects the ordinary ascending tau names.
+    /// All coordinates are admitted before solving, even for unique, empty or
+    /// inconsistent systems. Admission, source work, proof replay and every
+    /// repeated symbol copy/comparison share the same caller ledger.
+    pub fn metered_solve_affine_parameters<M: BudgetMeter>(
+        &self,
+        rhs: &Self,
+        variables: Option<&[Expr]>,
+        meter: &mut M,
+    ) -> Result<Option<(Self, Self, Vec<usize>)>, MatrixError> {
+        let mut work = Work::new(meter);
+        work.tick(1)?;
+        if rhs.cols() != 1 {
+            return Err(MatrixError::InvalidAffineParameters(
+                "a named linear system requires exactly one right-hand-side column",
+            ));
+        }
+        let coordinates = admit_affine_parameters(self.cols(), variables, &mut work)?;
+        let candidate = generate_affine(self, rhs, &mut work)?;
+        let verified = accept_affine(candidate, &mut work)?;
+        render_affine(verified, coordinates.as_deref(), &mut work)
+    }
+
+    pub fn solve_affine_parameters(
+        &self,
+        rhs: &Self,
+        variables: Option<&[Expr]>,
+    ) -> Result<Option<(Self, Self, Vec<usize>)>, MatrixError> {
+        self.metered_solve_affine_parameters(rhs, variables, &mut Unbounded)
+    }
+
+    /// Solve a stored sparse augmented matrix `[A | b]`, interpreting its last
+    /// column as the single RHS. The split moves admitted stored entries and
+    /// never scans the implicit zero area. Coordinate admission, splitting,
+    /// independent complete-family verification and rendering share one ledger.
+    pub fn metered_solve_augmented_affine_parameters<M: BudgetMeter>(
+        &self,
+        variables: Option<&[Expr]>,
+        meter: &mut M,
+    ) -> Result<Option<(Self, Self, Vec<usize>)>, MatrixError> {
+        let mut work = Work::new(meter);
+        work.tick(1)?;
+        let columns = self.cols().checked_sub(1).ok_or(
+            MatrixError::InvalidAffineParameters(
+                "an augmented system requires a right-hand-side column",
+            ),
+        )?;
+        let coordinates = admit_affine_parameters(columns, variables, &mut work)?;
+        let (coefficients, rhs) = split_augmented_source(self, &mut work)?;
+        let candidate = generate_affine_sources(coefficients, rhs, &mut work)?;
+        let verified = accept_affine(candidate, &mut work)?;
+        render_affine(verified, coordinates.as_deref(), &mut work)
+    }
+
+    pub fn solve_augmented_affine_parameters(
+        &self,
+        variables: Option<&[Expr]>,
+    ) -> Result<Option<(Self, Self, Vec<usize>)>, MatrixError> {
+        self.metered_solve_augmented_affine_parameters(variables, &mut Unbounded)
     }
 
     /// Independently checked sparse RREF with separately owned phase meters.

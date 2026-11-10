@@ -15,6 +15,7 @@ pub mod structured;
 pub use structured::*;
 mod sparse_rref;
 pub use sparse_rref::{
+    MAX_SPARSE_AFFINE_PARAMETER_NAME_BYTES, MAX_SPARSE_AFFINE_PARAMETER_TOTAL_BYTES,
     SparseAffineSolutionCandidate, SparseRrefCandidate, VerifiedSparseAffineSolution,
     VerifiedSparseRref, generate_sparse_rref_candidate, verify_sparse_affine_solution_candidate,
     verify_sparse_rref_candidate,
@@ -72,6 +73,8 @@ pub enum MatrixError {
     SingularMatrix,
     #[error("The linear system is inconsistent")]
     InconsistentLinearSystem,
+    #[error("Invalid affine solution parameters: {0}")]
+    InvalidAffineParameters(&'static str),
     #[error("Index out of bounds ({0}, {1}) for shape {2}x{3}")]
     OutOfBounds(usize, usize, usize, usize),
     #[error(

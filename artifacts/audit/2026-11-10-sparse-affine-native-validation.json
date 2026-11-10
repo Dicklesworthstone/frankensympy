@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-10T06:29:14Z",
+  "scope": "Executed sparse-affine baseline at f22cc5a, plus new source-reviewed native named and augmented linear-system entry points.",
+  "baseline": {
+    "ref": "f22cc5a7c5d03259fe312e81cbc8dee5b444b27f",
+    "toolchain": "nightly-2026-08-20; official component archives verified against the pinned channel SHA256 manifest",
+    "toolchain_installation": "Verified component payloads were hardlinked into one executable prefix to avoid duplicate tmpfs payloads; no compiler or library code was replaced.",
+    "commands": [
+      {
+        "command": "cargo test --locked -p fsym-proof-kernel --test sparse_affine --test sparse_rref",
+        "build_seconds": 44.76,
+        "exit_code": 0,
+        "suites": [
+          {
+            "name": "sparse_affine",
+            "passed": 18,
+            "failed": 0,
+            "seconds": 9.06
+          },
+          {
+            "name": "sparse_rref",
+            "passed": 18,
+            "failed": 0,
+            "seconds": 0.01
+          }
+        ]
+      },
+      {
+        "command": "cargo test --locked -p fsym-matrices --test sparse_affine --test sparse_rref --test sparse_rectangular_solve",
+        "rustflags": "-Zunstable-options --jobs=1 -Ccodegen-units=256",
+        "build_seconds": 55.74,
+        "exit_code": 0,
+        "suites": [
+          {
+            "name": "sparse_affine",
+            "passed": 14,
+            "failed": 0,
+            "seconds": 0.36
+          },
+          {
+            "name": "sparse_rectangular_solve",
+            "passed": 11,
+            "failed": 0,
+            "seconds": 2.14
+          },
+          {
+            "name": "sparse_rref",
+            "passed": 12,
+            "failed": 0,
+            "seconds": 2.11
+          }
+        ]
+      }
+    ],
+    "passed_tests": 73,
+    "build_environment": "CARGO_BUILD_JOBS=1, CARGO_PROFILE_DEV_DEBUG=0, CARGO_PROFILE_TEST_DEBUG=0, CARGO_INCREMENTAL=0; production lock and actual native crates.",
+    "supersedes": "The 18 verifier and 14 native affine suites recorded as pending in 2026-11-10-sparse-affine-progress.json now have actual successful execution at f22cc5a. This evidence does not execute the subsequently added named-coordinate paths.",
+    "earlier_matrix_attempt": "Before the successful serial-codegen retry, the matrix test build exited101 because rustc compiling unchanged fsym-calculus was killed by SIGKILL.",
+    "format_gate": "cargo fmt --check at f22cc5a exited1 and reported eleven sparse-affine, PDE and rational-summation files. Subsequent local scoped formatting is distinct from the recovered named-source contents."
+  },
+  "public_baseline_attempt": {
+    "scope": "Actual production-source mathematical PyO3 bridge, 35 current bridge files including the concurrent PDE bridge, exactly the established six runtime-only member omissions without replacement.",
+    "omitted_members": [
+      "expr.rs::PyExpr.simplify",
+      "expr.rs::PyExpr.expand",
+      "lib.rs::eval_error",
+      "lib.rs::eval_region",
+      "lib.rs::simplify_expr",
+      "lib.rs::expand_expr"
+    ],
+    "dependencies": "All56 retained registry packages match production name/version/source/checksum; 26 missing pinned archives were checksum-verified before use.",
+    "result": "The scoped extension build exited101 because rustc compiling the final bridge crate was killed by SIGKILL after the mathematical dependencies compiled.",
+    "planned_cases": 260,
+    "executed_cases": 0,
+    "limitation": "The 260-case plan was not a collected or executed run. No new affine Python pass is claimed. The earlier successful174-case source-scoped baseline remains separate evidence in 2026-11-10-sparse-linear-algebra-174-validation.json."
+  },
+  "new_native_feature": {
+    "entry_points": [
+      "SparseMatrix::solve_affine_parameters",
+      "SparseMatrix::metered_solve_affine_parameters",
+      "SparseMatrix::solve_augmented_affine_parameters",
+      "SparseMatrix::metered_solve_augmented_affine_parameters"
+    ],
+    "input": "Exactly one RHS column. None selects canonical tau parameters; Some supplies exactly one distinct native symbol atom per unknown.",
+    "identity": "Exact name plus optional typed SymbolIdentity; preserves assumptions, encoded Dummy identities, None versus an explicitly present zero digest, and same-digest different-name symbols.",
+    "admission": "The entire caller coordinate list is checked before unique, inconsistent or empty shortcuts. Wrong counts, nonsymbols and duplicate typed coordinates are refused.",
+    "resource_contract": "At most4096 UTF-8 bytes per name and1048576 bytes across all supplied names, with existing sparse dimension/entry/output bounds. One cumulative Work ledger covers original-source admission, stored augmented splitting, generation, independent complete-family verification, and repeated name copying/comparison during rendering.",
+    "augmentation": "Splits canonical stored original entries into coefficients and the actual last-column RHS, without scanning implicit zero area or converting to dense storage.",
+    "source_git_blobs": {
+      "crates/fsym-matrices/src/sparse_rref.rs": "5e0a5ec2438aa68cd9c9717f2273b4e5d965ac8d",
+      "crates/fsym-matrices/src/lib.rs": "10709fa1ffa2932fd8d648545b306d62283063a0",
+      "crates/fsym-matrices/tests/sparse_named_affine.rs": "307d3a879c3221ff5714fe1314c66fb8ab0d3b67"
+    },
+    "tests": {
+      "path": "crates/fsym-matrices/tests/sparse_named_affine.rs",
+      "authored": 13,
+      "executed": 0,
+      "coverage": "Typed-coordinate selection/identity, generated parameters, original augmented RHS binding, malformed unused coordinates, single-RHS completeness, UTF-8 and aggregate limits, 700x702 sparse input, cancellation safe points and exact cumulative budgets."
+    },
+    "validation": "Implementation and all13 fixtures independently source-reviewed. The attempted new native test launch failed to create an executor process after the environment became unavailable; no named API compiler, test or Clippy pass was obtained.",
+    "recovery": "Native sparse_rref.rs was reconstructed from all19 exact captured diff hunks against the verified published base; its Git blob matches the captured diff hash. An independent reconstruction of17 semantic edits matched all12843 Rust tokens after captured formatting normalization. lib.rs also matches its captured diff hash. All three recovery blobs were fetched back.",
+    "formatting": "Pinned rustfmt exited0 on local production files before executor loss, but those final formatted bytes were not captured. Published recovery preserves the exact reviewed pre-final-formatting source. The13-test file was not formatted or executed."
+  },
+  "open_gates": [
+    "New named-coordinate native execution and final formatting",
+    "Actual final Python extension and affine/public regression execution",
+    "Full workspace check/Clippy/test and registry gates",
+    "WS10/WS19 and compatibility/profile certification"
+  ]
+}
