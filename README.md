@@ -861,12 +861,75 @@ errors remain terminal.
 refusal of zero RHS columns when unknowns remain; native `solve_affine()`
 also represents that empty matrix equation and its coefficient kernel.
 Symbolic coefficients, approximate values, custom matrix subclasses and
-custom arithmetic hooks are outside this lane. This change does not extend
-the separate `linsolve()` dimension contract or certify a full compatibility
-profile. The new affine regression suites are committed for execution;
-[the affine progress record](artifacts/audit/2026-11-10-sparse-affine-progress.json)
-distinguishes pending affine execution from the earlier 174 passing
-source-scoped sparse tests.
+custom arithmetic hooks are outside this lane. The
+[native execution record](artifacts/audit/2026-11-10-sparse-affine-native-validation.json)
+records 73 passing sparse native tests at `f22cc5a`, including all 18
+complete-family verifier tests and 14 native affine tests that were previously
+pending. Actual Python execution of the new affine extension remains pending;
+the earlier 174 passing source-scoped cases predate that feature. These
+bounded results do not certify a full compatibility profile.
+
+### Sparse top-level linear systems
+
+Exact rational matrix inputs to `linsolve()` and `solve_linear_system()` now
+use the checked sparse affine engine. Both `(A, b)` pairs and augmented
+`[A | b]` matrices retain sparse storage through solving; the pair route no
+longer converts `A` to a dense matrix or assembles a dense augmented matrix.
+The former 128-row/variable restriction is replaced by the same sparse
+dimension, fill, coefficient and work bounds.
+
+```python
+from sympy import Dummy, ImmutableMatrix, SparseMatrix, Symbol, linsolve
+from sympy import solve_linear_system
+
+x = Symbol("x", real=True)
+y, z = Dummy("free"), Dummy("free")
+A = SparseMatrix([[1, 2, 3], [2, 4, 6]])
+b = ImmutableMatrix([1, 2])
+
+answer = next(iter(linsolve((A, b), x, y, z)))
+assert answer[1] is y
+assert answer[2] is z
+# answer is the complete family (1 - 2*y - 3*z, y, z).
+
+augmented = SparseMatrix([[1, 2, 3, 1], [2, 4, 6, 2]])
+assignments = solve_linear_system(augmented, x, y, z)
+# assignments contains the pivot assignment for x; y and z stay free.
+```
+
+The native renderer retains the exact supplied free-coordinate identities,
+including assumptions and distinct same-name `Dummy` objects. Valid
+reconstructed `Dummy` copies remain the caller-owned free coordinates without
+replacing the existing registry owner. Omitting coordinates selects canonical
+`tau0`, `tau1`, ... parameters. Native pair and augmented entry points admit
+the entire ordered coordinate list, including pivot or otherwise unused
+coordinates, before solving.
+
+The public matrix routes accept the four built-in dense/sparse,
+mutable/immutable matrix classes. They support a single RHS, including the
+existing row-vector RHS convention. `linsolve()` returns a `FiniteSet` of one
+symbolic tuple, or `EmptySet` for inconsistency; `solve_linear_system()`
+returns pivot assignments only, or `None` for inconsistency. Original matrix
+storage, typed coordinates, scalar/result interfaces and parameter ownership
+are checked around native work and publication. Accepted exact families are
+lifted without Python scalar arithmetic or replaceable constructors.
+
+The augmented system remains bounded by 8192 rows and 8192 columns, with
+additional stored-entry, output, coefficient and cumulative resource limits.
+Supplied coordinate names are limited to 4096 UTF-8 bytes each and one MiB in
+total. Exact duplicate coordinates, nonsymbol coordinates and unsupported
+custom classes refuse explicitly. Sparse storage does not remove the final
+tuple/set output limits.
+
+Equation-list coefficient extraction retains its existing implementation.
+The existing generic symbolic-coefficient route remains available when exact
+rational admission declines before native solving; an error after entering
+the exact engine is terminal. This does not add generic symbolic-parameter
+completeness or a compatibility-profile certification.
+[The integration record](artifacts/audit/2026-11-10-sparse-linear-system-integration.json)
+separates the executed earlier native baseline from the new named-coordinate
+and public regression suites, whose execution remains pending after executor
+loss.
 
 ## Prime-field polynomials (development API)
 

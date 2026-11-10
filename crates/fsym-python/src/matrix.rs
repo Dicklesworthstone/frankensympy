@@ -12,7 +12,7 @@ use pyo3::exceptions::{
     PyIndexError, PyNotImplementedError, PyTypeError, PyValueError, PyZeroDivisionError,
 };
 use pyo3::prelude::*;
-use pyo3::types::PyTuple;
+use pyo3::types::{PyList, PyTuple};
 
 use crate::expr::{PyExpr, exact_python_integer};
 use crate::rational_laplace::validate_held_transform_domains;
@@ -24,6 +24,65 @@ type AffineSolutionParts = (Vec<PyExpr>, Vec<Vec<PyExpr>>, Vec<usize>);
 
 /// Complete sparse affine values, parameter matrix, and free columns.
 type SparseAffineSolutionParts = (PySparseMatrix, PySparseMatrix, Vec<usize>);
+
+/// Borrow and bound the Python coordinate list before cloning native atoms.
+/// The matrix engine independently checks every typed identity and duplicate.
+fn affine_coordinates(
+    variables: Option<&Bound<'_, PyAny>>,
+    unknowns: usize,
+) -> PyResult<Option<Vec<Expr>>> {
+    let Some(variables) = variables else {
+        return Ok(None);
+    };
+    if !variables.is_exact_instance_of::<PyList>()
+        && !variables.is_exact_instance_of::<PyTuple>()
+    {
+        return Err(PyTypeError::new_err(
+            "affine coordinates require an exact list or tuple of native symbols",
+        ));
+    }
+    let count = variables.len()?;
+    if count != unknowns || count > 8192 {
+        return Err(PyValueError::new_err(
+            "affine coordinate count must match the bounded matrix columns",
+        ));
+    }
+    let mut total_bytes = 0usize;
+    for value in variables.try_iter()? {
+        let value = value?;
+        if !value.is_exact_instance_of::<PyExpr>() {
+            return Err(PyTypeError::new_err(
+                "affine coordinates require exact native symbol expressions",
+            ));
+        }
+        let value = value.extract::<PyRef<'_, PyExpr>>()?;
+        let Expr::Sym(symbol) = &value.inner else {
+            return Err(PyValueError::new_err(
+                "affine coordinates must all be symbol atoms",
+            ));
+        };
+        total_bytes = total_bytes
+            .checked_add(symbol.name.len())
+            .filter(|&bytes| {
+                symbol.name.len() <= fsym_matrices::MAX_SPARSE_AFFINE_PARAMETER_NAME_BYTES
+                    && bytes <= fsym_matrices::MAX_SPARSE_AFFINE_PARAMETER_TOTAL_BYTES
+            })
+            .ok_or_else(|| PyValueError::new_err("affine coordinate names exceed their limit"))?;
+    }
+    let mut coordinates = Vec::new();
+    coordinates
+        .try_reserve_exact(count)
+        .map_err(|_| PyValueError::new_err("affine coordinates exceed the allocation limit"))?;
+    // Exact Python containers and exact native atoms have no callback between
+    // these passes. Admit the full original list before copying any symbol.
+    for value in variables.try_iter()? {
+        let value = value?;
+        let value = value.extract::<PyRef<'_, PyExpr>>()?;
+        coordinates.push(value.inner.clone());
+    }
+    Ok(Some(coordinates))
+}
+
 
 fn rational_expr(value: &BigRational) -> PyExpr {
     PyExpr::from_expr(if value.is_integer() {
@@ -967,6 +1026,52 @@ impl PySparseMatrix {
     pub fn gauss_jordan_solve(&self, rhs: &Self) -> PyResult<Option<SparseAffineSolutionParts>> {
         self.inner
             .gauss_jordan_solve(&rhs.inner)
+            .map(|family| {
+                family.map(|(solution, parameters, free_columns)| {
+                    (
+                        Self { inner: solution },
+                        Self { inner: parameters },
+                        free_columns,
+                    )
+                })
+            })
+            .map_err(matrix_err)
+    }
+
+    /// Render one checked affine family with caller-owned typed coordinates.
+    #[pyo3(signature = (rhs, variables=None))]
+    pub fn solve_affine_parameters(
+        &self,
+        rhs: &Self,
+        variables: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Option<SparseAffineSolutionParts>> {
+        let coordinates = affine_coordinates(variables, self.inner.cols())?;
+        self.inner
+            .solve_affine_parameters(&rhs.inner, coordinates.as_deref())
+            .map(|family| {
+                family.map(|(solution, parameters, free_columns)| {
+                    (
+                        Self { inner: solution },
+                        Self { inner: parameters },
+                        free_columns,
+                    )
+                })
+            })
+            .map_err(matrix_err)
+    }
+
+    /// Split an augmented source sparsely within the same native work ledger.
+    #[pyo3(signature = (variables=None))]
+    pub fn solve_augmented_affine_parameters(
+        &self,
+        variables: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Option<SparseAffineSolutionParts>> {
+        let unknowns = self.inner.cols().checked_sub(1).ok_or_else(|| {
+            PyValueError::new_err("an augmented linear system requires a right-hand-side column")
+        })?;
+        let coordinates = affine_coordinates(variables, unknowns)?;
+        self.inner
+            .solve_augmented_affine_parameters(coordinates.as_deref())
             .map(|family| {
                 family.map(|(solution, parameters, free_columns)| {
                     (

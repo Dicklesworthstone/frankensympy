@@ -35,8 +35,9 @@ class CheckedLinearSystemTests(unittest.TestCase):
         matrix = Matrix([[1, 2, 1], [2, 4, 3]])
         self.assertEqual(linsolve(matrix, x, y), EmptySet())
         self.assertIsNone(solve_linear_system(matrix, x, y))
-        with self.assertRaisesRegex(ValueError, "128"):
-            linsolve(zeros(129, 2), x)
+        self.assertEqual(self.solution(SparseMatrix.zeros(1000, 2), x), (x,))
+        with self.assertRaisesRegex(ValueError, "bound|limit"):
+            linsolve(SparseMatrix.zeros(8193, 2), x)
 
     def test_exact_tiny_perturbation_is_full_rank(self):
         x, y = symbols("x y")

@@ -318,6 +318,7 @@ jobs:
               "python/tests/test_sparse_rectangular_solve.py",
               "python/tests/test_sparse_affine.py",
               "python/tests/test_affine_linear_systems.py",
+              "python/tests/test_sparse_linear_systems.py",
               "python/tests/test_opaque_matrix_surface.py",
               "python/tests/test_dense_jacobian_boundary.py",
               "python/tests/test_undefined_function_identity.py",

@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-10T06:44:07Z",
+  "scope": "Checked exact rational top-level linear systems over the complete sparse affine engine.",
+  "native_commit": "9a1578d881898765533aa6fc161a2bffb11e6c85",
+  "public_commit": "This containing commit publishes the bridge, helper, dispatch and regression selection.",
+  "beads": [
+    "fra-kfo",
+    "fra-7kf"
+  ],
+  "implemented": {
+    "entry_points": [
+      "linsolve((A, b), *symbols)",
+      "linsolve(augmented, *symbols)",
+      "solve_linear_system(augmented, *symbols)"
+    ],
+    "mathematics": "Reuses the independently checked complete single-RHS affine family. Native rendering selects the original supplied free coordinates by the verified free-column indices.",
+    "matrix_forms": "Accepts the four built-in mutable/immutable dense/sparse classes. Exact sparse pair and augmented forms do not materialize a dense coefficient or augmented matrix; row-vector RHS adaptation uses captured native sparse transpose.",
+    "identity": "Preserves original Symbol/Dummy free-coordinate objects and full native assumption identities. Reconstructed Dummies retain the supplied caller object locally while an existing registry owner remains unchanged and independently validated. Automatic parameters follow the verified free-column order.",
+    "outputs": "linsolve publishes a typed FiniteSet containing one symbolic Tuple, or EmptySet for inconsistency. solve_linear_system publishes only verified pivot assignments, an empty dict for no constraints, or None for inconsistency.",
+    "admission": "Checks both original matrix sources, all supplied coordinates, exact native interfaces, scalar/result interfaces, assumptions, source storage and parameter owners around solving and publication.",
+    "publication": "Uses the native affine grammar plus captured original storage descriptors; no Python scalar arithmetic, printed-string reparsing or replaceable constructor builds an accepted exact family.",
+    "fallback": "Existing symbolic-coefficient behavior is selected only when exact rational admission declines before native entry. Native errors remain terminal. Equation-list coefficient extraction retains its previous implementation."
+  },
+  "source_git_blobs": {
+    "crates/fsym-python/src/matrix.rs": "753d55835dfad1bf1941ad727ddadc193ee61ecc",
+    "python/sympy/solvers/_sparse_linear.py": "69d845b90bd20d965ac2fdec8af201090a8b3375",
+    "python/sympy/solvers/solvers.py": "e74c3a9adcba8a148a81440515d3775358fa20a4",
+    "python/tests/test_sparse_linear_systems.py": "15bbe841f0eedca84d88f70e4a3df60c9c5ee6f9",
+    "python/tests/test_affine_linear_systems.py": "58340b5c2a8508d951e87f5fb9d7854f62467480"
+  },
+  "validation": {
+    "executed_native_baseline": {
+      "ref": "f22cc5a7c5d03259fe312e81cbc8dee5b444b27f",
+      "report": "artifacts/audit/2026-11-10-sparse-affine-native-validation.json",
+      "passed": 73,
+      "suites": "18 affine verifier +18 sparse RREF verifier +14 native affine +12 native RREF +11 rectangular solve",
+      "limitation": "Executed before the subsequently added named-coordinate APIs and this public integration; not a final-head execution pass."
+    },
+    "earlier_public_baseline": {
+      "report": "artifacts/audit/2026-11-10-sparse-linear-algebra-174-validation.json",
+      "passed": 174,
+      "limitation": "Actual source-scoped bridge execution predates both complete affine and named top-level integration; its six documented runtime-only omissions remain part of that evidence scope."
+    },
+    "new_named_native_tests": {
+      "path": "crates/fsym-matrices/tests/sparse_named_affine.rs",
+      "authored": 13,
+      "executed": 0,
+      "status": "independently source-reviewed; executor unavailable before test launch"
+    },
+    "new_public_tests": {
+      "path": "python/tests/test_sparse_linear_systems.py",
+      "functions": 25,
+      "source_derived_planned_cases": 85,
+      "collected": 0,
+      "executed": 0,
+      "coverage": "All16 coefficient/RHS class combinations; augmented/mapping/row-RHS forms;1000-row sparse and600x601 wide families; exact tiny and large coefficients; empty/inconsistent systems; caller Symbol/Dummy identities; both-source integrity; altered native, scalar and constructor interfaces; automatic-parameter/singleton poisoning; literal-assumption callback refusal."
+    },
+    "adjacent_suite": {
+      "path": "python/tests/test_affine_linear_systems.py",
+      "existing_methods": 16,
+      "change": "Replaces only the obsolete linsolve128-row refusal with an admitted1000-row sparse system and the actual8192-row bound.",
+      "execution": "not reexecuted against the new integration"
+    },
+    "independent_review": "Two independent reviewers and the primary agent inspected final production sources and fixtures. Concrete atomic-storage, Dummy-index, reconstructed-owner and assumption-recheck findings were repaired. Static review and GitHub readback are not compiler or execution passes.",
+    "final_gates": "No final named-API/public compiler, Python collection, test, Clippy, formatter or full-workspace gate pass is claimed."
+  },
+  "source_scoped_extension_attempt": {
+    "scope": "Supplementary actual-source PyO3 validation attempt; no replacement mathematical implementation",
+    "source_ref": "f22cc5a7c5d03259fe312e81cbc8dee5b444b27f",
+    "production_root": "/tmp/frankensympy-session3-baseline",
+    "scope_root": "/tmp/frankensympy-session3-python-scope",
+    "toolchain": "nightly-2026-08-20",
+    "command": [
+      "cargo",
+      "rustc",
+      "--manifest-path",
+      "/tmp/frankensympy-session3-python-scope/Cargo.toml",
+      "--offline",
+      "--locked",
+      "--features",
+      "extension-module",
+      "--lib"
+    ],
+    "environment": {
+      "CARGO_HOME": "/tmp/frankensympy-session3-cargo",
+      "CARGO_TARGET_DIR": "/dev/shm/frankensympy-session3-target",
+      "RUSTFLAGS": "-Zunstable-options --jobs=1 -Ccodegen-units=256",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "source_coverage": {
+      "production_bridge_rs_files": 35,
+      "byte_exact_except": [
+        "lib.rs",
+        "expr.rs"
+      ],
+      "concurrent_pde_module_and_registration_retained": true,
+      "math_dependencies": "Actual frozen production path crates and pinned donors",
+      "omitted_members": [
+        "expr.rs::PyExpr.simplify",
+        "expr.rs::PyExpr.expand",
+        "lib.rs::eval_error",
+        "lib.rs::eval_region",
+        "lib.rs::simplify_expr",
+        "lib.rs::expand_expr"
+      ],
+      "runtime_dependency_adjustment": "Remove runtime/asupersync dependency from external scope only; alias actual fsym-budget as fsym_runtime; remove corresponding runtime imports and the two omitted function registrations"
+    },
+    "dependency_verification": {
+      "production_registry_packages": 228,
+      "retained_registry_packages": 56,
+      "all_retained_name_version_source_checksum_match": true,
+      "production_lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2",
+      "scope_lock_sha256": "514f0059e5e67e29a55c02630ef7872dfa897c39951800b68f8cabfb28a12fe5",
+      "adjustment": "Production Cargo.lock copied, then cargo update --offline --workspace; all registry entries verified before compilation",
+      "missing_archives_downloaded": 26,
+      "download_bytes": 2877768,
+      "archive_checksums_verified_against_production_lock": true
+    },
+    "result": {
+      "cargo_exit_code": 101,
+      "rustc_termination_signal": 9,
+      "termination": "SIGKILL during final fsym-sparse-python-scope library compilation after all mathematical dependencies compiled",
+      "retry_after_failure": false,
+      "python_cases_collected": 0,
+      "python_cases_executed": 0,
+      "planned_cases": 260
+    },
+    "coverage_limit": "The adjacent unchanged symbolic-coefficient linsolve test calls omitted Expr.simplify; this is a known scope-only coverage boundary and was not skipped or replaced. No Python suite could run because the final extension build was killed.",
+    "execution_environment": {
+      "python": "3.12.14",
+      "isolated_pytest": "8.4.2",
+      "oracle_sympy": "1.14.0"
+    },
+    "provenance": "Recovered from actual command outputs and checked source/lock observations after executor became unavailable; this compact record does not claim a completed production extension or an executed260-case suite."
+  },
+  "limits": {
+    "domain": "Literal exact integer/rational coefficient and RHS cells in built-in matrix classes",
+    "rhs_columns": 1,
+    "max_rows": 8192,
+    "max_augmented_columns": 8192,
+    "max_coordinate_name_utf8_bytes": 4096,
+    "max_coordinate_name_total_utf8_bytes": 1048576,
+    "other": "Existing stored-entry, rational-height, fill, symbolic-term, aggregate output, native work/allocation and final tuple/set bounds remain active. These bounds are terminal refusals, not completion promises for every smaller input.",
+    "empty_input": "Top-level empty equation lists and empty augmented matrices retain their distinct EmptySet convention. Zero-row (A,b) pairs retain unconstrained-variable families."
+  },
+  "unchanged_certification": {
+    "MATH_001_status": "implemented_uncertified",
+    "MATH_001_present_tense_allowed": false,
+    "bead_statuses": "open",
+    "open_gates": [
+      "gate://ws10-exact-linear",
+      "gate://ws19-solvers",
+      "gate://proof-producing-transformations",
+      "full production workspace/runtime validation",
+      "compatibility profiles"
+    ]
+  }
+}
