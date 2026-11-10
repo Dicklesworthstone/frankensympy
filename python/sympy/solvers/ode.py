@@ -489,39 +489,67 @@ def _constants(start, count, exclude=()):
     return constants
 
 
+def _characteristic_root_groups(rts):
+    """Pair only established conjugates; keep every other exact root intact.
+
+    Setting I to zero is not a real-part operation inside a radical. The
+    structural complex splitter leaves such roots undecided. A trigonometric
+    pair additionally needs real parts, a nonzero imaginary part, and its
+    actual conjugate with the same multiplicity in the complete root map.
+    """
+    from ..core import expand
+    from ..functions.elementary.complexes import _ri
+
+    parts = {}
+    for root in rts:
+        part = _ri(root)
+        if part is not None and all(value.is_real is True for value in part):
+            parts[root] = tuple(expand(value) for value in part)
+    groups, consumed = [], set()
+    for root, mult in rts.items():
+        if root in consumed:
+            continue
+        consumed.add(root)
+        part = parts.get(root)
+        if part is not None:
+            real, imaginary = part
+            if imaginary == 0:
+                groups.append(("real", root, mult))
+                continue
+            if imaginary.is_nonzero is True:
+                conjugate_parts = (real, expand(-imaginary))
+                partner = next((
+                    other for other, other_mult in rts.items()
+                    if other != root and other not in consumed
+                    and other_mult == mult and parts.get(other) == conjugate_parts
+                ), None)
+                if partner is not None:
+                    consumed.update((root, partner))
+                    groups.append(("pair", (real, abs(imaginary)), mult))
+                    continue
+        # A root may be real even when its nested radical presentation does
+        # not establish that fact. Its exact exponential/power is valid in
+        # either case, without changing the number of independent solutions.
+        groups.append(("root", root, mult))
+    return groups
+
+
 def _homogeneous_basis(coeffs, x):
     """Fundamental solutions of sum a_k y^(k) = 0 with constant a_k."""
-    from ..core import Symbol as _S, I, Integer, Rational
-    from ..functions import exp, sin, cos
+    from ..core import Symbol as _S, Integer, expand
     from ..polys.polytools import Poly, roots
-    from ..core import expand
 
     r = _S("_fsym_r")
     char = sum((c * r**k for k, c in enumerate(coeffs)), Integer(0))
     rts = roots(Poly(expand(char), r))
     if sum(rts.values()) != len(coeffs) - 1:
         raise NotImplementedError("dsolve: characteristic roots are not all expressible")
-    real = []
-    pairs = []
-    seen = set()
-    for root, mult in rts.items():
-        re_part = expand(root.subs(I, 0))
-        im_part = expand((root - re_part) / I)
-        if im_part == 0:
-            real.append((root, mult))
-        else:
-            key = (str(re_part), str(abs(im_part)))
-            if key in seen:
-                continue
-            seen.add(key)
-            pairs.append((re_part, abs(im_part), mult))
-    real.sort(key=lambda rm: float(rm[0]))
-    groups = []
-    for root, mult in real:
-        groups.append(("real", root, mult))
-    for a, b, mult in pairs:
-        groups.append(("pair", (a, b), mult))
-    return groups
+    groups = _characteristic_root_groups(rts)
+    real = sorted(
+        (group for group in groups if group[0] == "real"),
+        key=lambda group: float(group[1]),
+    )
+    return real + [group for group in groups if group[0] != "real"]
 
 
 def _assemble(groups, x, start=1):
@@ -532,7 +560,7 @@ def _assemble(groups, x, start=1):
     basis = []
     idx = start
     for kind, data, mult in groups:
-        if kind == "real":
+        if kind in ("real", "root"):
             cs = _constants(idx, mult)
             idx += mult
             poly = sum((c * x**j for j, c in enumerate(cs)), Integer(0))
@@ -559,7 +587,7 @@ def _assemble(groups, x, start=1):
 def _char_solutions(coeffs, x):
     """Fundamental solutions and collect terms of sum a_k y^(k) = 0 with
     constant a_k (upstream ``_get_const_characteristic_eq_sols``)."""
-    from ..core import Symbol as _S, I, Integer, expand
+    from ..core import Symbol as _S, Integer, expand
     from ..functions import exp, sin, cos
     from ..polys.polytools import Poly, roots
 
@@ -568,29 +596,28 @@ def _char_solutions(coeffs, x):
     rts = roots(Poly(expand(char), r))
     if sum(rts.values()) != len(coeffs) - 1:
         raise NotImplementedError("dsolve: characteristic roots are not all expressible")
-    gensols, collectterms, seen = [], [], set()
-    for root, mult in rts.items():
-        re_part = expand(root.subs(I, 0))
-        im_part = expand((root - re_part) / I)
+    gensols, collectterms = [], []
+    for kind, data, mult in _characteristic_root_groups(rts):
         for i in range(mult):
-            if im_part == 0:
-                gensols.append(x**i * exp(re_part * x))
-                collectterms.insert(0, (i, re_part, Integer(0)))
+            if kind != "pair":
+                gensols.append(x**i * exp(data * x))
+                collectterms.insert(0, (i, data, Integer(0)))
                 continue
+            re_part, im_part = data
             collectterms.insert(0, (i, re_part, im_part))
-            key = (i, str(re_part), str(abs(im_part)))
-            if key in seen:
-                continue
-            seen.add(key)
-            gensols.append(x**i * exp(re_part * x) * sin(abs(im_part) * x))
+            gensols.append(x**i * exp(re_part * x) * sin(im_part * x))
             gensols.append(x**i * exp(re_part * x) * cos(im_part * x))
     return gensols, collectterms
 
 
 def _euler_solutions(coeffs, x):
     """Fundamental solutions of sum a_k x^k y^(k) = 0 (Cauchy-Euler):
-    x**r for each root of sum a_k r(r-1)...(r-k+1)."""
-    from ..core import Symbol as _S, I, Integer, expand
+    x**r for each root of sum a_k r(r-1)...(r-k+1).
+
+    Powers and logarithms share one branch away from x = 0, in particular
+    the ordinary real logarithm on x > 0. No family crosses the singularity.
+    """
+    from ..core import Symbol as _S, Integer, expand
     from ..functions import cos, log, sin
     from ..polys.polytools import Poly, roots
 
@@ -604,19 +631,14 @@ def _euler_solutions(coeffs, x):
     rts = roots(Poly(expand(char), r))
     if sum(rts.values()) != len(coeffs) - 1:
         raise NotImplementedError("dsolve: indicial roots are not all expressible")
-    gensols, seen = [], set()
-    for root, mult in rts.items():
-        re_part = expand(root.subs(I, 0))
-        im_part = expand((root - re_part) / I)
+    gensols = []
+    for kind, data, mult in _characteristic_root_groups(rts):
         for i in range(mult):
-            if im_part == 0:
-                gensols.append(log(x) ** i * x**re_part)
+            if kind != "pair":
+                gensols.append(log(x) ** i * x**data)
                 continue
-            key = (i, str(re_part), str(abs(im_part)))
-            if key in seen:
-                continue
-            seen.add(key)
-            gensols.append(log(x) ** i * x**re_part * sin(abs(im_part) * log(x)))
+            re_part, im_part = data
+            gensols.append(log(x) ** i * x**re_part * sin(im_part * log(x)))
             gensols.append(log(x) ** i * x**re_part * cos(im_part * log(x)))
     return gensols
 

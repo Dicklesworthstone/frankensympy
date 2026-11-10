@@ -528,6 +528,40 @@ undefined user functions with the same names do not acquire native capability.
 
 ---
 
+## Exact quartic radicals (development API)
+
+The native rational-polynomial solver supports bounded general quartics through
+Ferrari's construction, alongside its linear, quadratic, binomial, biquadratic
+and cubic cases. Existing `roots`, `Poly.roots`, equation-solving and matrix
+eigenvalue consumers reach this lane:
+
+```python
+from sympy import Symbol, roots
+
+x = Symbol("x")
+solutions = roots(x**4 + x + 1, x)
+assert len(solutions) == 4
+assert sum(solutions.values()) == 4
+```
+
+The generator proposes two quadratic factors. A separate bounded checker
+verifies the auxiliary cubic roots and reconstructs all five original quartic
+coefficients using exact rational arithmetic before constructing every quadratic
+branch. Repeated factors retain their original multiplicities; rational equations
+exclude original denominator poles. Numerical observations supply display
+ordering, never acceptance. Oversized or undecidable exact checks refuse.
+This publication guard is not a portable proof-kernel certificate, and literal
+radical form or ordering parity with upstream is not claimed.
+
+Scalar constant-coefficient and Cauchy-Euler ODE helpers preserve exact complex
+exponential or power bases when a nested radical's real and imaginary parts
+are unresolved. Real trigonometric pairs require an established nonzero
+imaginary part and a matching conjugate root with the same multiplicity.
+Euler powers and logarithms share a branch away from zero, including the real
+positive axis; no solution family is extended across that singularity.
+
+---
+
 ## Custom functions in residual systems (development API)
 
 Ordinary arithmetic retains the actual Python function applications, including

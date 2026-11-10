@@ -2,7 +2,7 @@
 //!
 //! * Polynomials over Q are factored completely; each irreducible factor is
 //!   solved exactly when it is linear, quadratic, a binomial `x**n - c`,
-//!   biquadratic, or a cubic (Cardano). Other irreducible factors refuse
+//!   biquadratic, a cubic (Cardano), or a quartic (Ferrari). Other irreducible factors refuse
 //!   (upstream answers with `CRootOf`), so a returned list is always complete.
 //! * Rational equations solve the numerator and drop roots of the
 //!   denominator.
@@ -77,17 +77,28 @@ fn certified_ball(e: &Expr) -> Option<fsym_core::ball::ComplexBall> {
 }
 
 /// Upstream root order: reals ascending, then complex by (re, im).
-pub fn sort_roots(mut roots: Vec<Expr>) -> Vec<Expr> {
-    if roots
+pub fn sort_roots(roots: Vec<Expr>) -> Vec<Expr> {
+    // A nested radical enclosure can be much more expensive than comparing
+    // two keys. Compute each pure ground observation once, retaining the
+    // existing exact-ball/approximation ordering policy.
+    let mut keyed = roots
+        .into_iter()
+        .map(|root| {
+            let ball = certified_ball(&root);
+            let approximate = approx(&root);
+            (root, ball, approximate)
+        })
+        .collect::<Vec<_>>();
+    if keyed
         .iter()
-        .any(|r| certified_ball(r).is_none() && approx(r).is_none())
+        .any(|(_, ball, approximate)| ball.is_none() && approximate.is_none())
     {
         // Symbolic roots keep their construction order (upstream lists the
         // minus branch of a symbolic radical first).
-        return roots;
+        return keyed.into_iter().map(|(root, _, _)| root).collect();
     }
-    roots.sort_by(|a, b| {
-        if let (Some(ba), Some(bb)) = (certified_ball(a), certified_ball(b)) {
+    keyed.sort_by(|a, b| {
+        if let (Some(ba), Some(bb)) = (&a.1, &b.1) {
             let a_real = ba.imag().contains_zero();
             let b_real = bb.imag().contains_zero();
             let real_tag_a = if a_real { 0u8 } else { 1u8 };
@@ -97,17 +108,17 @@ pub fn sort_roots(mut roots: Vec<Expr>) -> Vec<Expr> {
                 .then_with(|| ba.real().midpoint().cmp(bb.real().midpoint()))
                 .then_with(|| ba.imag().midpoint().cmp(bb.imag().midpoint()));
         }
-        let key = |e: &Expr| {
-            let (re, im) = approx(e).unwrap_or((f64::NAN, 0.0));
+        let key = |value: Option<(f64, f64)>| {
+            let (re, im) = value.unwrap_or((f64::NAN, 0.0));
             let is_real = im.abs() < 1e-12;
             (if is_real { 0 } else { 1 }, re, im)
         };
-        let (ka, kb) = (key(a), key(b));
+        let (ka, kb) = (key(a.2), key(b.2));
         ka.0.cmp(&kb.0)
             .then(ka.1.partial_cmp(&kb.1).unwrap_or(std::cmp::Ordering::Equal))
             .then(ka.2.partial_cmp(&kb.2).unwrap_or(std::cmp::Ordering::Equal))
     });
-    roots
+    keyed.into_iter().map(|(root, _, _)| root).collect()
 }
 
 fn dedup(roots: Vec<Expr>) -> Vec<Expr> {
@@ -201,9 +212,273 @@ fn factor_roots(p: &UnivariatePoly) -> Result<Vec<Expr>, SolverError> {
                 check_cubic_root_set(p, &roots)?;
                 return Ok(roots);
             }
+            if d == 4 {
+                return quartic_roots(p);
+            }
             Err(SolverError::UnsupportedDegree(d))
         }
     }
+}
+
+/// A polynomial of degree below six in one auxiliary radical. Fixed-size
+/// arithmetic avoids expanding nested Cardano/Ferrari radicals just to
+/// reconstruct a quartic's five rational coefficients.
+type QuarticElement = [BigRational; 6];
+
+#[derive(Clone)]
+enum QuarticParameter {
+    RationalSquareRoot(BigRational),
+    CubicRootSquareRoot {
+        polynomial: UnivariatePoly,
+        roots: Vec<Expr>,
+        index: usize,
+    },
+}
+
+/// Untrusted monic factors x² + linear*x + constant. The checker does not
+/// use Ferrari's depressed coefficients; it multiplies these exact factors
+/// and compares every coefficient with the ORIGINAL input polynomial.
+#[derive(Clone)]
+struct QuarticDecomposition {
+    parameter: QuarticParameter,
+    factors: [(QuarticElement, QuarticElement); 2],
+}
+
+fn quartic_refusal() -> SolverError {
+    SolverError::IncompleteSolutionSet(
+        "the quartic quadratic factors could not be reconstructed as the original polynomial exactly"
+            .into(),
+    )
+}
+
+fn quartic_zero() -> QuarticElement {
+    std::array::from_fn(|_| BigRational::zero())
+}
+
+fn quartic_coefficient_ok(value: &BigRational) -> bool {
+    value.numer().bits().max(value.denom().bits()) <= MAX_CUBIC_CHECK_COEFFICIENT_BITS
+}
+
+/// Ferrari's candidate generator. Divisions involve rational coefficients
+/// only: from u*(u²+2*p*u+p²-4*r)=q² and s²=u, q/s equals
+/// s*(u²+2*p*u+p²-4*r)/q. There is no undecidable symbolic denominator.
+fn quartic_decomposition(p: &UnivariatePoly) -> Result<QuarticDecomposition, SolverError> {
+    p.validate_shape()
+        .map_err(|error| SolverError::InvalidSystem(error.to_string()))?;
+    if p.degree() != Some(4) || !p.coeffs.iter().all(quartic_coefficient_ok) {
+        return Err(quartic_refusal());
+    }
+    let c = &p.coeffs;
+    let b = &c[3] / &c[4];
+    let cc = &c[2] / &c[4];
+    let d = &c[1] / &c[4];
+    let e = &c[0] / &c[4];
+    let rat = |n: i64, d: i64| BigRational::new(n.into(), d.into());
+    let pp = cc.clone() - rat(3, 8) * &b * &b;
+    let qq = d.clone() - &b * &cc * rat(1, 2) + &b * &b * &b * rat(1, 8);
+    let rr = e - &b * d * rat(1, 4) + &b * &b * cc * rat(1, 16) - &b * &b * &b * &b * rat(3, 256);
+    let mut left_linear = quartic_zero();
+    let mut right_linear = quartic_zero();
+    let mut left_constant = quartic_zero();
+    let mut right_constant = quartic_zero();
+    left_linear[0] = &b * rat(1, 2);
+    right_linear[0] = left_linear[0].clone();
+    left_constant[0] = &b * &b * rat(1, 16) + &pp * rat(1, 2);
+    right_constant[0] = left_constant[0].clone();
+    let parameter = if qq.is_zero() {
+        // The shifted biquadratic case requires no cubic or division by q.
+        left_constant[1] = rat(-1, 2);
+        right_constant[1] = rat(1, 2);
+        QuarticParameter::RationalSquareRoot(&pp * &pp - rat(4, 1) * &rr)
+    } else {
+        let h = &pp * &pp - rat(4, 1) * &rr;
+        let resolvent = UnivariatePoly::new(
+            p.gen_sym.clone(),
+            vec![-&qq * &qq, h.clone(), rat(2, 1) * &pp, BigRational::one()],
+        );
+        if !resolvent.coeffs.iter().all(quartic_coefficient_ok) {
+            return Err(quartic_refusal());
+        }
+        let rc = &resolvent.coeffs;
+        let roots = cardano(&rc[3], &rc[2], &rc[1], &rc[0]);
+        left_linear[1] = BigRational::one();
+        right_linear[1] = -BigRational::one();
+        left_constant[1] = &b * rat(1, 4) - &h / &qq * rat(1, 2);
+        right_constant[1] = -left_constant[1].clone();
+        left_constant[2] = rat(1, 2);
+        right_constant[2] = rat(1, 2);
+        left_constant[3] = -&pp / &qq;
+        right_constant[3] = -left_constant[3].clone();
+        left_constant[5] = rat(-1, 2) / &qq;
+        right_constant[5] = -left_constant[5].clone();
+        QuarticParameter::CubicRootSquareRoot {
+            polynomial: resolvent,
+            roots,
+            index: 0,
+        }
+    };
+    Ok(QuarticDecomposition {
+        parameter,
+        factors: [(left_linear, left_constant), (right_linear, right_constant)],
+    })
+}
+
+/// Reference multiplication modulo a checked monic relation of degree 2 or
+/// 6. This is a quotient-ring identity, not an irreducibility assertion.
+fn quartic_product(
+    a: &QuarticElement,
+    b: &QuarticElement,
+    relation: &[BigRational],
+) -> Result<QuarticElement, SolverError> {
+    let degree = relation.len() - 1;
+    let mut product: [BigRational; 11] = std::array::from_fn(|_| BigRational::zero());
+    let checked = |value: BigRational| {
+        if value.numer().bits().max(value.denom().bits()) > 4 * MAX_CUBIC_CHECK_COEFFICIENT_BITS {
+            Err(quartic_refusal())
+        } else {
+            Ok(value)
+        }
+    };
+    for (i, left) in a.iter().enumerate() {
+        for (j, right) in b.iter().enumerate() {
+            product[i + j] = checked(&product[i + j] + left * right)?;
+        }
+    }
+    for power in (degree..product.len()).rev() {
+        let leading = product[power].clone();
+        for (index, coefficient) in relation[..degree].iter().enumerate() {
+            product[power - degree + index] =
+                checked(&product[power - degree + index] - &leading * coefficient)?;
+        }
+        product[power] = BigRational::zero();
+    }
+    Ok(std::array::from_fn(|i| product[i].clone()))
+}
+
+fn quartic_sum(a: &QuarticElement, b: &QuarticElement) -> QuarticElement {
+    std::array::from_fn(|i| &a[i] + &b[i])
+}
+
+fn quartic_lift(coefficients: &QuarticElement, parameter: &Expr, relation: &[BigRational]) -> Expr {
+    let mut reduced = coefficients.clone();
+    let mut inverse = BigRational::zero();
+    if relation.len() == 7 && !relation[0].is_zero() {
+        // The checked relation has nonzero constant term, proving s != 0.
+        // Subtract c5*R(s)/s to replace s^5 by one reciprocal. Ferrari's
+        // cubic and linear terms then cancel exactly, keeping q/s compact
+        // instead of expanding a degree-five polynomial in nested radicals.
+        let leading = reduced[5].clone();
+        inverse = -&leading * &relation[0];
+        for index in 1..7 {
+            reduced[index - 1] = &reduced[index - 1] - &leading * &relation[index];
+        }
+    }
+    let polynomial = reduced
+        .iter()
+        .rev()
+        .fold(Expr::from_i64(0), |acc, coefficient| {
+            acc * parameter.clone() + rq(coefficient.clone())
+        });
+    if inverse.is_zero() {
+        polynomial
+    } else {
+        polynomial + rq(inverse) * eval_pow(parameter.clone(), Expr::from_i64(-1))
+    }
+}
+
+/// Independent publication check. The cubic root multiset guard proves the
+/// parameter's annihilating relation; scalar rational convolution then
+/// reconstructs all original coefficients, including the leading one.
+/// Only after that succeeds does this checker construct both quadratic
+/// branches. Thus multiplicity and completeness do not depend on sampling or
+/// on an optimizer correctly simplifying a large radical expression.
+/// Like the cubic guard, this is a bounded exact publication check, not a
+/// portable proof-kernel certificate or an irreducibility assertion.
+fn check_quartic_decomposition(
+    p: &UnivariatePoly,
+    candidate: &QuarticDecomposition,
+) -> Result<Vec<Expr>, SolverError> {
+    p.validate_shape()
+        .map_err(|error| SolverError::InvalidSystem(error.to_string()))?;
+    if p.degree() != Some(4) || !p.coeffs.iter().all(quartic_coefficient_ok) {
+        return Err(quartic_refusal());
+    }
+    for (linear, constant) in &candidate.factors {
+        if !linear.iter().chain(constant).all(quartic_coefficient_ok) {
+            return Err(quartic_refusal());
+        }
+    }
+    let (parameter, relation) = match &candidate.parameter {
+        QuarticParameter::RationalSquareRoot(value) => {
+            if !quartic_coefficient_ok(value) {
+                return Err(quartic_refusal());
+            }
+            (
+                eval_pow(rq(value.clone()), q(1, 2)),
+                vec![-value.clone(), BigRational::zero(), BigRational::one()],
+            )
+        }
+        QuarticParameter::CubicRootSquareRoot {
+            polynomial,
+            roots,
+            index,
+        } => {
+            if *index >= roots.len()
+                || polynomial.degree() != Some(3)
+                || !polynomial.coeffs[3].is_one()
+            {
+                return Err(quartic_refusal());
+            }
+            check_cubic_root_set(polynomial, roots)?;
+            let mut relation = vec![BigRational::zero(); 7];
+            for (i, coefficient) in polynomial.coeffs.iter().enumerate() {
+                relation[2 * i] = coefficient.clone();
+            }
+            (eval_pow(roots[*index].clone(), q(1, 2)), relation)
+        }
+    };
+    let [(a, b), (c, d)] = &candidate.factors;
+    let mut one = quartic_zero();
+    one[0] = BigRational::one();
+    let reconstructed = [
+        quartic_product(b, d, &relation)?,
+        quartic_sum(
+            &quartic_product(a, d, &relation)?,
+            &quartic_product(b, c, &relation)?,
+        ),
+        quartic_sum(&quartic_sum(b, d), &quartic_product(a, c, &relation)?),
+        quartic_sum(a, c),
+        one,
+    ];
+    for (coefficient, original) in reconstructed.iter().zip(&p.coeffs) {
+        if &coefficient[0] * &p.coeffs[4] != *original
+            || coefficient[1..].iter().any(|v| !v.is_zero())
+        {
+            return Err(quartic_refusal());
+        }
+    }
+    let mut roots = Vec::with_capacity(4);
+    for (linear, constant) in &candidate.factors {
+        let linear = quartic_lift(linear, &parameter, &relation);
+        let constant = quartic_lift(constant, &parameter, &relation);
+        if !cubic_check_input(&linear) || !cubic_check_input(&constant) {
+            return Err(quartic_refusal());
+        }
+        let discriminant =
+            eval_pow(linear.clone(), Expr::from_i64(2)) - Expr::from_i64(4) * constant;
+        let radical = eval_pow(discriminant, q(1, 2));
+        roots.push(q(1, 2) * (-linear.clone() - radical.clone()));
+        roots.push(q(1, 2) * (-linear + radical));
+    }
+    if roots.iter().all(cubic_check_input) {
+        Ok(roots)
+    } else {
+        Err(quartic_refusal())
+    }
+}
+
+fn quartic_roots(p: &UnivariatePoly) -> Result<Vec<Expr>, SolverError> {
+    check_quartic_decomposition(p, &quartic_decomposition(p)?)
 }
 
 /// Cardano's formula for a cubic with rational coefficients.
@@ -644,7 +919,12 @@ fn solve_rational(e: &Expr, x: &Symbol) -> Option<Result<Vec<Expr>, SolverError>
     for (r, _) in roots {
         out.push(r);
     }
-    Some(Ok(sort_roots(dedup(out))))
+    // The factorization checker verifies square-free, pairwise coprime
+    // factors over Q. poly_roots already returns their distinct roots with
+    // multiplicity separately; no irreducibility promotion is needed here.
+    // Re-expanding pairwise radical differences here cannot add a missing
+    // uniqueness obligation and can overwhelm an otherwise bounded solve.
+    Some(Ok(sort_roots(out)))
 }
 
 // ---------------------------------------------------------------------------
@@ -1234,6 +1514,175 @@ pub fn solve_univariate(e: &Expr, x: &Symbol) -> Result<Vec<Expr>, SolverError> 
     };
     let checked = check_roots(e, x, candidates.into_iter().map(|c| simplify(&c)).collect())?;
     Ok(sort_roots(dedup(checked)))
+}
+
+#[cfg(test)]
+mod quartic_publication_tests {
+    use super::*;
+
+    fn polynomial(coefficients: &[i64]) -> UnivariatePoly {
+        UnivariatePoly::new(
+            Symbol::new("x"),
+            coefficients
+                .iter()
+                .map(|&c| BigRational::from_integer(c.into()))
+                .collect(),
+        )
+    }
+
+    fn rational_factors() -> QuarticDecomposition {
+        let mut first_linear = quartic_zero();
+        let mut first_constant = quartic_zero();
+        let mut second_linear = quartic_zero();
+        let mut second_constant = quartic_zero();
+        first_linear[0] = BigRational::from_integer((-3).into());
+        first_constant[0] = BigRational::from_integer(2.into());
+        second_linear[0] = BigRational::from_integer((-7).into());
+        second_constant[0] = BigRational::from_integer(12.into());
+        QuarticDecomposition {
+            parameter: QuarticParameter::RationalSquareRoot(BigRational::from_integer(2.into())),
+            factors: [
+                (first_linear, first_constant),
+                (second_linear, second_constant),
+            ],
+        }
+    }
+
+    #[test]
+    fn reference_quadratic_factors_reconstruct_original_coefficients() {
+        // (x-1)(x-2)(x-3)(x-4), supplied independently of Ferrari.
+        let p = polynomial(&[24, -50, 35, -10, 1]);
+        let mut roots = check_quartic_decomposition(&p, &rational_factors()).unwrap();
+        roots = sort_roots(roots);
+        assert_eq!(roots, (1..=4).map(Expr::from_i64).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn every_original_coefficient_is_bound() {
+        let source = polynomial(&[24, -50, 35, -10, 1]);
+        for index in 0..5 {
+            let mut changed = source.clone();
+            changed.coeffs[index] = &changed.coeffs[index] + BigRational::one();
+            assert!(
+                check_quartic_decomposition(&changed, &rational_factors()).is_err(),
+                "coefficient {index}"
+            );
+        }
+        let mut tiny = source;
+        tiny.coeffs[0] = &tiny.coeffs[0] + BigRational::new(BigInt::one(), BigInt::one() << 200);
+        assert!(check_quartic_decomposition(&tiny, &rational_factors()).is_err());
+    }
+
+    #[test]
+    fn proposed_factor_mutations_cannot_publish_roots() {
+        let p = polynomial(&[1, 1, 0, 0, 1]);
+        let candidate = quartic_decomposition(&p).unwrap();
+        check_quartic_decomposition(&p, &candidate).unwrap();
+        for factor in 0..2 {
+            for term in 0..6 {
+                let mut changed = candidate.clone();
+                changed.factors[factor].0[term] =
+                    &changed.factors[factor].0[term] + BigRational::one();
+                assert!(
+                    check_quartic_decomposition(&p, &changed).is_err(),
+                    "linear {factor}/{term}"
+                );
+                let mut changed = candidate.clone();
+                changed.factors[factor].1[term] =
+                    &changed.factors[factor].1[term] + BigRational::one();
+                assert!(
+                    check_quartic_decomposition(&p, &changed).is_err(),
+                    "constant {factor}/{term}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn cubic_parameter_requires_the_complete_exact_resolvent_multiset() {
+        let p = polynomial(&[1, 1, 0, 0, 1]);
+        let candidate = quartic_decomposition(&p).unwrap();
+        for mutation in 0..5 {
+            let mut changed = candidate.clone();
+            let QuarticParameter::CubicRootSquareRoot {
+                polynomial,
+                roots,
+                index,
+            } = &mut changed.parameter
+            else {
+                panic!("cubic parameter");
+            };
+            match mutation {
+                0 => {
+                    roots.pop();
+                }
+                1 => {
+                    roots[1] = roots[0].clone();
+                }
+                2 => {
+                    roots[0] = Expr::from_i64(0);
+                }
+                3 => {
+                    polynomial.coeffs[0] = &polynomial.coeffs[0] + BigRational::one();
+                }
+                _ => {
+                    *index = 3;
+                }
+            }
+            assert!(
+                check_quartic_decomposition(&p, &changed).is_err(),
+                "mutation {mutation}"
+            );
+        }
+    }
+
+    #[test]
+    fn either_cubic_branch_yields_a_complete_quartic_multiset() {
+        let p = polynomial(&[1, 1, 0, 0, 1]);
+        let mut candidate = quartic_decomposition(&p).unwrap();
+        for selected in 0..3 {
+            if let QuarticParameter::CubicRootSquareRoot { index, .. } = &mut candidate.parameter {
+                *index = selected;
+            }
+            assert_eq!(
+                check_quartic_decomposition(&p, &candidate).unwrap().len(),
+                4
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_sources_and_oversized_factors_are_refused_before_lifting() {
+        let p = polynomial(&[24, -50, 35, -10, 1]);
+        let mut candidate = rational_factors();
+        candidate.factors[0].0[0] = BigRational::from_integer(
+            BigInt::one() << (MAX_CUBIC_CHECK_COEFFICIENT_BITS as u32 + 1),
+        );
+        assert!(check_quartic_decomposition(&p, &candidate).is_err());
+        assert!(
+            check_quartic_decomposition(&polynomial(&[1, 2, 3, 4]), &rational_factors()).is_err()
+        );
+        let mut bad_shape = p;
+        bad_shape.coeffs.push(BigRational::zero());
+        assert!(check_quartic_decomposition(&bad_shape, &rational_factors()).is_err());
+    }
+
+    #[test]
+    fn shifted_biquadratics_use_their_independent_square_root_relation() {
+        let p = polynomial(&[3, 4, 6, 4, 1]);
+        let mut candidate = quartic_decomposition(&p).unwrap();
+        assert!(matches!(
+            candidate.parameter,
+            QuarticParameter::RationalSquareRoot(_)
+        ));
+        assert_eq!(
+            check_quartic_decomposition(&p, &candidate).unwrap().len(),
+            4
+        );
+        candidate.parameter =
+            QuarticParameter::RationalSquareRoot(BigRational::from_integer(9.into()));
+        assert!(check_quartic_decomposition(&p, &candidate).is_err());
+    }
 }
 
 #[cfg(test)]
