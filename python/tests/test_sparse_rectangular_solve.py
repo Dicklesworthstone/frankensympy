@@ -2,6 +2,8 @@
 
 import pytest
 
+from _native_subprocess import isolated_heap_new_probe
+
 from sympy import (
     ImmutableMatrix, ImmutableSparseMatrix, Integer, Matrix, Rational,
     SparseMatrix, Symbol,
@@ -173,7 +175,9 @@ def test_modified_native_rhs_reader_and_solver_refuse_without_callbacks(monkeypa
 
 @pytest.mark.parametrize("rhs_type", RHS_CLASSES)
 @pytest.mark.parametrize("hook", ["__init__", "__new__"])
-def test_result_constructors_refuse_without_invocation(rhs_type, hook, monkeypatch):
+def test_result_constructors_refuse_without_invocation(rhs_type, hook, monkeypatch, request):
+    if isolated_heap_new_probe(request, hook):
+        return
     coefficients = SparseMatrix([[1], [2]])
     rhs = rhs_type([3, 6])
     calls = []

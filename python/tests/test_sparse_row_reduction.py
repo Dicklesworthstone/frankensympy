@@ -2,6 +2,8 @@
 
 import pytest
 
+from _native_subprocess import isolated_heap_new_probe
+
 from sympy import (
     Add, Function, ImmutableSparseMatrix, Integer, Matrix, Rational, SparseMatrix, Symbol,
 )
@@ -344,7 +346,9 @@ def test_matrix_subclasses_keep_the_existing_surface_dispatch():
 
 @pytest.mark.parametrize("method", ["rref", "nullspace", "columnspace"])
 @pytest.mark.parametrize("hook", ["__init__", "__new__", "__setattr__", "_native"])
-def test_checked_results_refuse_changed_construction_hooks(method, hook, monkeypatch):
+def test_checked_results_refuse_changed_construction_hooks(method, hook, monkeypatch, request):
+    if isolated_heap_new_probe(request, hook):
+        return
     source = SparseMatrix([[1, 2]])
     result_type = Matrix if method == "rref" else SparseMatrix
     calls = []

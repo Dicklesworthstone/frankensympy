@@ -1,10 +1,12 @@
-//! Independent exact sparse row-reduction certificates over Q.
+//! Independent exact sparse row-reduction and complete affine certificates over Q.
 //!
 //! Acceptance replays only invertible elementary row operations and checks
 //! every reduced-row-echelon invariant. In particular, a list of plausible
 //! pivots or null vectors cannot establish rank. The checker has no dependency
 //! on a pivot-search/elimination generator and never allocates rows * columns
 //! cells. Its simple reference representation is sorted sparse row vectors.
+//! Affine acceptance additionally checks original-source particular/kernel
+//! residuals and canonical free coordinates for every right-hand side.
 //!
 //! All replay, coefficient copying, hashing and receipt publication share the
 //! caller's meter, with additional cumulative local limits. Cancellation or a
@@ -22,6 +24,7 @@ use std::{fmt, marker::PhantomData};
 use thiserror::Error;
 
 pub const SPARSE_RREF_SCHEMA_VERSION: u32 = 1;
+pub const SPARSE_AFFINE_SCHEMA_VERSION: u32 = 1;
 pub const MAX_SPARSE_RREF_DIMENSION: usize = 8_192;
 pub const MAX_SPARSE_RREF_ENTRIES: usize = 262_144;
 pub const MAX_SPARSE_RREF_OPERATIONS: usize = 1_000_000;
@@ -63,6 +66,33 @@ pub struct SparseRrefWitness {
     pub pivots: Vec<usize>,
 }
 
+/// Untrusted classification of the complete matrix equation `A * X = B`.
+/// A solvable system is represented canonically as `X = particular + kernel*T`,
+/// where the rows of `T` correspond to ascending free coefficient columns.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum SparseAffineOutcome {
+    /// A checked augmented RREF row with zero coefficient entries and a
+    /// nonzero right-hand side establishes that the whole system is inconsistent.
+    Inconsistent { row: usize },
+    Solvable {
+        particular: RationalSparseMatrix,
+        kernel: RationalSparseMatrix,
+        #[serde(deserialize_with = "bounded_pivots")]
+        free_columns: Vec<usize>,
+    },
+}
+
+/// Portable proposal for all right-hand sides together. The expected original
+/// coefficient and right-hand-side matrices are separate verifier inputs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SparseAffineWitness {
+    pub schema_version: u32,
+    pub reduction: SparseRrefWitness,
+    pub outcome: SparseAffineOutcome,
+}
+
 /// A checked source-to-RREF relation and its exact rank. Retain the source and
 /// witness with this receipt; digests are commitments, not mathematical proofs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,6 +122,67 @@ impl SparseRrefReceipt {
     }
     pub fn reduced_digest(&self) -> [u8; 32] {
         self.reduced_digest
+    }
+}
+
+/// Accepted complete affine classification, bound to the original `A`, `B`,
+/// and canonical output matrices. No unchecked constructor or deserializer
+/// exists. Digests are commitments; retain the inputs and witness for replay.
+///
+/// `rank` and `free_columns` describe the coefficient matrix even when the
+/// system is inconsistent. With zero RHS columns the parameter matrix has
+/// shape `nullity x 0`: a nonzero kernel does not imply multiple matrix values.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SparseAffineReceipt {
+    rows: usize,
+    columns: usize,
+    rhs_columns: usize,
+    rank: usize,
+    augmented_rank: usize,
+    free_columns: Vec<usize>,
+    contradiction_row: Option<usize>,
+    source_digest: [u8; 32],
+    rhs_digest: [u8; 32],
+    particular_digest: Option<[u8; 32]>,
+    kernel_digest: Option<[u8; 32]>,
+}
+
+impl SparseAffineReceipt {
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+    pub fn columns(&self) -> usize {
+        self.columns
+    }
+    pub fn rhs_columns(&self) -> usize {
+        self.rhs_columns
+    }
+    pub fn rank(&self) -> usize {
+        self.rank
+    }
+    pub fn augmented_rank(&self) -> usize {
+        self.augmented_rank
+    }
+    pub fn free_columns(&self) -> &[usize] {
+        &self.free_columns
+    }
+    pub fn is_consistent(&self) -> bool {
+        self.contradiction_row.is_none()
+    }
+    pub fn contradiction_row(&self) -> Option<usize> {
+        self.contradiction_row
+    }
+    pub fn source_digest(&self) -> [u8; 32] {
+        self.source_digest
+    }
+    pub fn rhs_digest(&self) -> [u8; 32] {
+        self.rhs_digest
+    }
+    pub fn particular_digest(&self) -> Option<[u8; 32]> {
+        self.particular_digest
+    }
+    pub fn kernel_digest(&self) -> Option<[u8; 32]> {
+        self.kernel_digest
     }
 }
 
@@ -441,6 +532,14 @@ pub fn verify_sparse_rref<M: BudgetMeter>(
         steps: 0,
         bytes: 0,
     };
+    verify_sparse_rref_reference(source, witness, &mut work)
+}
+
+fn verify_sparse_rref_reference<M: BudgetMeter>(
+    source: &RationalSparseMatrix,
+    witness: &SparseRrefWitness,
+    work: &mut Reference<'_, M>,
+) -> Result<SparseRrefReceipt> {
     work.tick(1)?;
     if witness.schema_version != SPARSE_RREF_SCHEMA_VERSION {
         return Err(SparseRrefError::Invalid("unknown witness schema"));
@@ -564,5 +663,243 @@ pub fn verify_sparse_rref<M: BudgetMeter>(
         pivots,
         source_digest,
         reduced_digest,
+    })
+}
+
+fn affine_augmented_source<M: BudgetMeter>(
+    coefficients: &RationalSparseMatrix,
+    rhs: &RationalSparseMatrix,
+    work: &mut Reference<'_, M>,
+) -> Result<RationalSparseMatrix> {
+    work.check_matrix(coefficients)?;
+    work.check_matrix(rhs)?;
+    if coefficients.rows != rhs.rows {
+        return Err(SparseRrefError::Invalid("affine source row mismatch"));
+    }
+    let columns = coefficients
+        .columns
+        .checked_add(rhs.columns)
+        .filter(|&columns| columns <= MAX_SPARSE_RREF_DIMENSION)
+        .ok_or(SparseRrefError::Limit("affine augmented dimensions"))?;
+    let count = coefficients
+        .entries
+        .len()
+        .checked_add(rhs.entries.len())
+        .filter(|&count| count <= MAX_SPARSE_RREF_ENTRIES)
+        .ok_or(SparseRrefError::Limit("affine augmented stored entries"))?;
+    let mut entries = work.vector(count)?;
+    let (mut left, mut right) = (0, 0);
+    while left < coefficients.entries.len() || right < rhs.entries.len() {
+        work.tick(1)?;
+        let use_left = right == rhs.entries.len()
+            || (left < coefficients.entries.len()
+                && coefficients.entries[left].row <= rhs.entries[right].row);
+        let (entry, offset) = if use_left {
+            let entry = &coefficients.entries[left];
+            left += 1;
+            (entry, 0)
+        } else {
+            let entry = &rhs.entries[right];
+            right += 1;
+            (entry, coefficients.columns)
+        };
+        entries.push(SparseRationalEntry {
+            row: entry.row,
+            column: entry.column + offset,
+            value: work.clone_value(&entry.value)?,
+        });
+    }
+    Ok(RationalSparseMatrix {
+        rows: coefficients.rows,
+        columns,
+        entries,
+    })
+}
+
+/// Multiply original sparse rows by independently supplied output rows. No
+/// reduced RHS or elimination transcript participates in the expected value.
+fn check_affine_product<M: BudgetMeter>(
+    coefficients: &[Row],
+    output: &[Row],
+    expected: Option<&[Row]>,
+    columns: usize,
+    work: &mut Reference<'_, M>,
+) -> Result<()> {
+    for (row, coefficients) in coefficients.iter().enumerate() {
+        work.tick(1)?;
+        let mut product = work.vector(0)?;
+        for (variable, coefficient) in coefficients {
+            product = work.add_row(&product, &output[*variable], coefficient, columns)?;
+        }
+        let expected = expected.map_or(&[][..], |rows| rows[row].as_slice());
+        if product.len() != expected.len() {
+            return Err(SparseRrefError::Invalid("affine original-source residual"));
+        }
+        for ((column, value), (expected_column, expected_value)) in product.iter().zip(expected) {
+            work.tick(
+                value.numer().limb_count()
+                    + value.denom().limb_count()
+                    + expected_value.numer().limb_count()
+                    + expected_value.denom().limb_count(),
+            )?;
+            if column != expected_column || value != expected_value {
+                return Err(SparseRrefError::Invalid("affine original-source residual"));
+            }
+        }
+    }
+    work.tick(1)?;
+    Ok(())
+}
+
+fn check_affine_outputs<M: BudgetMeter>(
+    coefficients: &RationalSparseMatrix,
+    rhs: &RationalSparseMatrix,
+    particular: &RationalSparseMatrix,
+    kernel: &RationalSparseMatrix,
+    free_columns: &[usize],
+    work: &mut Reference<'_, M>,
+) -> Result<()> {
+    work.check_matrix(particular)?;
+    work.check_matrix(kernel)?;
+    if particular.rows != coefficients.columns
+        || particular.columns != rhs.columns
+        || kernel.rows != coefficients.columns
+        || kernel.columns != free_columns.len()
+    {
+        return Err(SparseRrefError::Invalid("affine output shape"));
+    }
+    if particular.entries.len().saturating_add(kernel.entries.len()) > MAX_SPARSE_RREF_ENTRIES {
+        return Err(SparseRrefError::Limit("aggregate affine output entries"));
+    }
+    let mut free_indices = work.vector(coefficients.columns)?;
+    free_indices.resize(coefficients.columns, None);
+    for (index, &column) in free_columns.iter().enumerate() {
+        work.tick(1)?;
+        free_indices[column] = Some(index);
+    }
+    for entry in &particular.entries {
+        work.tick(1)?;
+        if free_indices[entry.row].is_some() {
+            return Err(SparseRrefError::Invalid("particular free coordinate is nonzero"));
+        }
+    }
+    let mut identities = work.vector(free_columns.len())?;
+    identities.resize(free_columns.len(), false);
+    for entry in &kernel.entries {
+        work.tick(1)?;
+        if let Some(index) = free_indices[entry.row] {
+            if entry.column != index || !entry.value.is_one() {
+                return Err(SparseRrefError::Invalid("kernel free-coordinate identity"));
+            }
+            identities[index] = true;
+        }
+    }
+    for present in identities {
+        work.tick(1)?;
+        if !present {
+            return Err(SparseRrefError::Invalid("missing kernel free coordinate"));
+        }
+    }
+    let coefficient_rows = work.rows(coefficients)?;
+    let rhs_rows = work.rows(rhs)?;
+    let particular_rows = work.rows(particular)?;
+    let kernel_rows = work.rows(kernel)?;
+    check_affine_product(
+        &coefficient_rows,
+        &particular_rows,
+        Some(&rhs_rows),
+        rhs.columns,
+        work,
+    )?;
+    check_affine_product(
+        &coefficient_rows,
+        &kernel_rows,
+        None,
+        free_columns.len(),
+        work,
+    )
+}
+
+/// Independently verify complete exact sparse affine solutions to `A * X = B`.
+/// The original sources, augmented replay, complete kernel, original residuals,
+/// commitments and publication all share one cumulative verification ledger.
+pub fn verify_sparse_affine<M: BudgetMeter>(
+    coefficients: &RationalSparseMatrix,
+    rhs: &RationalSparseMatrix,
+    witness: &SparseAffineWitness,
+    meter: &mut M,
+) -> Result<SparseAffineReceipt> {
+    let mut work = Reference {
+        meter,
+        steps: 0,
+        bytes: 0,
+    };
+    work.tick(1)?;
+    if witness.schema_version != SPARSE_AFFINE_SCHEMA_VERSION {
+        return Err(SparseRrefError::Invalid("unknown affine witness schema"));
+    }
+    let augmented = affine_augmented_source(coefficients, rhs, &mut work)?;
+    let reduction = verify_sparse_rref_reference(&augmented, &witness.reduction, &mut work)?;
+    let rank = reduction.pivots().partition_point(|&column| column < coefficients.columns);
+    let mut free_columns = work.vector(coefficients.columns - rank)?;
+    let mut next_pivot = 0;
+    for column in 0..coefficients.columns {
+        work.tick(1)?;
+        if reduction.pivots().get(next_pivot) == Some(&column) {
+            next_pivot += 1;
+        } else {
+            free_columns.push(column);
+        }
+    }
+    let (contradiction_row, particular_digest, kernel_digest) = match &witness.outcome {
+        SparseAffineOutcome::Inconsistent { row } => {
+            work.tick(1)?;
+            if reduction.pivots().get(*row).is_none_or(|&column| column < coefficients.columns) {
+                return Err(SparseRrefError::Invalid("affine contradiction row is not contradictory"));
+            }
+            (Some(*row), None, None)
+        }
+        SparseAffineOutcome::Solvable {
+            particular,
+            kernel,
+            free_columns: claimed_free,
+        } => {
+            work.tick(1)?;
+            if rank != reduction.rank() {
+                return Err(SparseRrefError::Invalid("affine solution omits an inconsistent RHS"));
+            }
+            if claimed_free.len() != free_columns.len() {
+                return Err(SparseRrefError::Invalid("affine free-column count"));
+            }
+            work.tick(free_columns.len() as u64)?;
+            if claimed_free != &free_columns {
+                return Err(SparseRrefError::Invalid("affine free-column complement"));
+            }
+            check_affine_outputs(
+                coefficients,
+                rhs,
+                particular,
+                kernel,
+                &free_columns,
+                &mut work,
+            )?;
+            (None, Some(work.digest(particular)?), Some(work.digest(kernel)?))
+        }
+    };
+    let source_digest = work.digest(coefficients)?;
+    let rhs_digest = work.digest(rhs)?;
+    work.tick(1)?;
+    Ok(SparseAffineReceipt {
+        rows: coefficients.rows,
+        columns: coefficients.columns,
+        rhs_columns: rhs.columns,
+        rank,
+        augmented_rank: reduction.rank(),
+        free_columns,
+        contradiction_row,
+        source_digest,
+        rhs_digest,
+        particular_digest,
+        kernel_digest,
     })
 }

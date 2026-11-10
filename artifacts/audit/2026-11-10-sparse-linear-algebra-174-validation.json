@@ -1,0 +1,37 @@
+{
+  "scope": "Actual production-source mathematical PyO3 bridge with exactly six unrelated runtime-only bridge members omitted without replacement; supplementary scoped validation, not a full production runtime/workspace gate.",
+  "tested_production_ref": "61a2f8f",
+  "production_note": "Rustfmt spelling of two native files differs only in whitespace from the recovered remote commit. Three test-only files isolate irreversible CPython __new__ mutation; their recovered source hashes match the actually executed files.",
+  "toolchain": "nightly-2026-08-20; rustc1.100.0-nightly f7d782a3be46d6bb4b9792fe69a61db389ba1769 (2026-08-19), LLVM23.1.0",
+  "toolchain_restore": "Five minimal components downloaded from the official pinned channel manifest and verified against its SHA256 values; standard install.sh, no replacements.",
+  "build_command": "PATH=/tmp/frankensympy-minimal-toolchain-01c530b2adeb/toolchain/bin:$PATH CARGO_HOME=/tmp/frankensympy-final-cargo-01c530b2adeb CARGO_BUILD_JOBS=1 CARGO_PROFILE_DEV_DEBUG=0 CARGO_TARGET_DIR=/workspace/scratch/01c530b2adeb/frankensympy/target cargo rustc --manifest-path /workspace/scratch/01c530b2adeb/sparse-python-scope/Cargo.toml --locked --features extension-module --lib -- -Zunstable-options --jobs=1 -Ccodegen-units=256",
+  "build_exit_code": 0,
+  "build_duration": "1m36s",
+  "tests_command": "python /workspace/scratch/01c530b2adeb/sparse-python-scope/run_python_tests.py /workspace/scratch/01c530b2adeb/frankensympy/python/tests/test_sparse_rectangular_solve.py",
+  "tests_exit_code": 0,
+  "tests_summary": "174 passed in6.14s",
+  "python": "3.12.14",
+  "pytest": "8.4.2",
+  "native_binary_sha256": "e4d1140fcbefff5b0454548c9737e67024d2829fb0a05d2344d4356d4f564337",
+  "bridge_source_count": 34,
+  "bridge_refresh": "All retained bridge files byte-exact to production except the six explicitly enumerated omissions/import/registration adjustments in lib.rs and expr.rs; numeric.rs refreshed from the new remote commits.",
+  "omitted_members": [
+    "expr.rs::PyExpr.simplify",
+    "expr.rs::PyExpr.expand",
+    "lib.rs::eval_error",
+    "lib.rs::eval_region",
+    "lib.rs::simplify_expr",
+    "lib.rs::expand_expr"
+  ],
+  "budget_alias": "extern crate fsym_budget as fsym_runtime; actual shared Budget implementation retained, runtime/asupersync dependency omitted only in the external scope manifest.",
+  "retained_registry_packages": 56,
+  "registry_verification": "Every retained registry name/version/source/checksum matches production Cargo.lock.",
+  "executed_source_sha256": {
+    "crates/fsym-python/src/matrix.rs": "d146f411fcf914a46582cb81efcaac7d0add8379eef9f3733442445263c3e9a8",
+    "python/sympy/matrices/sparse.py": "0e7c79475a5c21b6f41e53ce59cf67aae9603779b31071fa13b03322e48b2ca1",
+    "python/tests/test_sparse_row_reduction.py": "5840017d853003a39a47da10bafa35b38695978c9a7793babea9925897bb86c6",
+    "python/tests/test_sparse_rectangular_solve.py": "318f655eb57768e7b313539a3b157143b00cd5a1cfaa6d7956d2476d26c0beec",
+    "python/tests/_native_subprocess.py": "933a318285dc5e1e39244e502f261ad3e6eb7e5e57ca3783e0a5c2ffeb5b4419"
+  },
+  "important_limit": "The new complete-affine extension developed after this run is not included in these174 cases."
+}
