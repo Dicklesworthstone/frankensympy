@@ -666,6 +666,47 @@ Explicit custom commutativity or equality/hash protocols require their own
 supported algebra. Arithmetic graphs and formal differentiation are bounded; arbitrary non-cooperative
 Python hooks retain the existing supervised-boundary limitations.
 
+## Exact sparse rank and nullspaces (development API)
+
+Exact rational sparse matrices now support checked `rank()`, `nullspace()` and
+`columnspace()` without constructing a dense intermediate. This includes
+rectangular and singular matrices whose implicit area exceeds the dense matrix
+storage limit:
+
+```python
+from sympy import SparseMatrix
+
+entries = {(i, i): 1 for i in range(600)}
+entries[0, 600] = 2
+A = SparseMatrix(600, 601, entries)
+
+assert A.rank() == 600
+basis = A.nullspace()
+assert len(basis) == 1
+assert basis[0].todok() == {(0, 0): -2, (600, 0): 1}
+assert (A * basis[0]).nnz == 0
+assert len(A.columnspace()) == 600
+```
+
+The native generator records invertible exact row operations. A separate
+proof-kernel checker replays them using a different sparse representation and
+checks the complete reduced form and rank. Nullspace publication also checks
+the original matrix residuals and every free coordinate. Native Rust callers
+can retain the source, witness and receipt through
+`SparseMatrix::rref_checked_with_meters`, with separate generator and verifier
+meters; ordinary metered methods use one cumulative ledger.
+
+This lane admits up to 8192 rows or columns, 262144 stored entries, and 8192-bit
+coefficient components, with additional limits on intermediate fill, arithmetic,
+allocation and total basis output. Resource and cancellation refusals are
+terminal. Opaque entries and custom zero/simplification callbacks do not enter
+the exact rational lane. Mutable and immutable sparse nullspace/column-space
+vectors retain their source class. For rational input, public `rref()` follows
+the pinned SymPy behavior and returns a mutable dense **final result**; a result
+whose area exceeds the dense storage limit is refused even when sparse rank and
+nullspace remain available. These operations do not certify the full matrix
+compatibility profile.
+
 ## Prime-field polynomials (development API)
 
 The Python shell exposes checked sparse polynomial arithmetic over `GF(p)`

@@ -960,6 +960,39 @@ impl PySparseMatrix {
         })
     }
 
+    /// Independently checked rational RREF, retaining sparse native storage.
+    pub fn rref(&self) -> PyResult<(Self, Vec<usize>)> {
+        let (reduced, pivots) = self.inner.rref().map_err(matrix_err)?;
+        Ok((Self { inner: reduced }, pivots))
+    }
+
+    /// Exact rank without allocating the full matrix area.
+    pub fn rank(&self) -> PyResult<usize> {
+        self.inner.rank().map_err(matrix_err)
+    }
+
+    /// Complete rational nullspace, with one sparse vector per free column.
+    pub fn nullspace(&self) -> PyResult<Vec<Self>> {
+        Ok(self
+            .inner
+            .nullspace()
+            .map_err(matrix_err)?
+            .into_iter()
+            .map(|inner| Self { inner })
+            .collect())
+    }
+
+    /// Original pivot columns selected by independently checked reduction.
+    pub fn columnspace(&self) -> PyResult<Vec<Self>> {
+        Ok(self
+            .inner
+            .columnspace()
+            .map_err(matrix_err)?
+            .into_iter()
+            .map(|inner| Self { inner })
+            .collect())
+    }
+
     /// Sparse matrix addition.
     pub fn __add__(&self, other: &Self) -> PyResult<Self> {
         let res = self.inner.add(&other.inner).map_err(matrix_err)?;
