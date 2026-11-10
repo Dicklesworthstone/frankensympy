@@ -751,8 +751,11 @@ impl SparseMatrix {
         })
     }
 
-    /// Solve a square nonsingular exact-rational system with sparse RHS/results.
-    /// Singular systems refuse rather than choosing an arbitrary solution.
+    /// Solve an exact-rational system with sparse RHS/results.
+    ///
+    /// Square inputs retain sparse LU. Tall rectangular inputs use independently
+    /// checked augmented row reduction and require a consistent, full-column-rank
+    /// system. Nonunique systems refuse rather than choosing an arbitrary solution.
     pub fn solve(&self, rhs: &SparseMatrix) -> Result<SparseMatrix, MatrixError> {
         self.metered_solve(rhs, &mut Unbounded)
     }
@@ -763,6 +766,9 @@ impl SparseMatrix {
         rhs: &SparseMatrix,
         meter: &mut M,
     ) -> Result<SparseMatrix, MatrixError> {
+        if self.rows() != self.cols() {
+            return crate::sparse_rref::solve_rectangular(self, rhs, meter);
+        }
         Ok(self.solve_certificate_with_meter(rhs, meter)?.solution)
     }
 

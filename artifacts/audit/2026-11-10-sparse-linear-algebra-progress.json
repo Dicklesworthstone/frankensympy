@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-10",
+  "workstream": "WS10",
+  "bead": "fra-kfo",
+  "status": "implemented_uncertified",
+  "objective": "Checked exact rational sparse row reduction, complete bases and unique rectangular solves without dense intermediate expansion.",
+  "scope": [
+    "Independent proof-kernel sparse RREF verifier",
+    "Native sparse rank, RREF, nullspace and columnspace",
+    "Original-source checked exact sparse rectangular unique solve",
+    "Python exact-rational sparse interface with retained-source and output-publication admission"
+  ],
+  "commits": [
+    {
+      "sha": "37f0579a7c06008119dc1e972f19765cd8650f1f",
+      "subject": "Add independent certificates for exact sparse row reduction",
+      "remote_verified": true
+    },
+    {
+      "sha": "8748d786699b567b70e607901f4c586381b0f859",
+      "subject": "Implement checked sparse rank, RREF and complete matrix bases",
+      "remote_verified": true
+    },
+    {
+      "sha": "5978e558322a1a6e7d1eb865199a66b557f89fc2",
+      "subject": "Expose checked sparse rank and basis APIs with safe result publication",
+      "remote_verified": true
+    }
+  ],
+  "toolchain": {
+    "requested": "nightly-2026-08-20",
+    "rustc": "1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "cargo": "1.100.0-nightly (514c56dd7 2026-08-19)",
+    "python": "3.12.14",
+    "oracle": "isolated upstream SymPy 1.14.0"
+  },
+  "native_gates": [
+    {
+      "command": "cargo test --locked -p fsym-proof-kernel --test sparse_rref",
+      "outcome": "passed",
+      "passed": 18
+    },
+    {
+      "command": "cargo test --locked -p fsym-matrices --test sparse_rref",
+      "outcome": "passed",
+      "passed": 12
+    },
+    {
+      "command": "cargo test --locked -p fsym-matrices --test sparse_rectangular_solve",
+      "outcome": "passed_before_executor_loss",
+      "passed": 11
+    },
+    {
+      "command": "cargo test --locked -p fsym-matrices --lib sparse_rref::tests",
+      "outcome": "passed_before_executor_loss",
+      "passed": 2
+    },
+    {
+      "command": "cargo clippy --locked -p fsym-proof-kernel --lib --test sparse_rref -- -D warnings",
+      "outcome": "passed"
+    },
+    {
+      "command": "cargo clippy --locked -p fsym-matrices --lib --test sparse_rref -- -D warnings",
+      "outcome": "passed"
+    },
+    {
+      "command": "cargo clippy --locked -p fsym-matrices --lib --test sparse_rectangular_solve -- -D warnings",
+      "outcome": "passed_before_executor_loss"
+    }
+  ],
+  "coverage": {
+    "independent_verifier": [
+      "Forged and noninvertible row-operation witnesses",
+      "Canonical sparse coordinates, rank and full RREF checks",
+      "Rational 2^-512 perturbation",
+      "1025x1026 sparse witness with rank1024",
+      "Budget limits, protected verifier meter, and every observed cancellation safe point"
+    ],
+    "row_reduction": [
+      "729 exact 2x3 inputs compared with a separate dense implementation",
+      "1024x1025 sparse matrix and 1000-dimensional singular matrix",
+      "Exact tiny pivots, zero shapes, source mutations, full nullspace coordinates, cumulative resource refusals"
+    ],
+    "rectangular_solve": [
+      "729 exact 3x2 coefficient matrices",
+      "1200x600 sparse system whose dense conversion is refused",
+      "Multiple and empty RHS, zero unknowns, inconsistent and nonunique systems",
+      "Original-source AX=B residual mutants, canonical malformed coordinates and exact 1e-80 perturbation",
+      "Cumulative budget and cancellation, unchanged square LU path"
+    ]
+  },
+  "python_execution": {
+    "scope": "Actual source-scoped PyO3 extension; not full production runtime integration.",
+    "passed": 108,
+    "new_row_reduction_cases": 63,
+    "existing_sparse_cases": 45,
+    "binary_sha256": "73a2f730395f56667d513aaed8bc2555685ab77cff91705faafd991bcc5bb4f9",
+    "production_bridge_omissions": [
+      "PyExpr.simplify",
+      "PyExpr.expand",
+      "lib::eval_error",
+      "lib::eval_region",
+      "lib::simplify_expr",
+      "lib::expand_expr"
+    ],
+    "omissions_reason": "The complete unchanged asupersync runtime dependency exceeded the available compiler memory. Only these runtime entry points were omitted in a scratch-only build manifest/source copy; retained bridge functions and mathematical dependencies were actual production source, not replacement implementations.",
+    "budget_import": "Scratch bridge imports the actual fsym-budget definitions under the fsym_runtime alias for retained budget-only references.",
+    "production_dependency_manifests_changed": false,
+    "registry_dependency_check": "All 56 registry dependencies in the scoped build matched the production lock by name, version, source and checksum.",
+    "source_admission_probes": {
+      "independent": 32,
+      "outcome": "passed"
+    },
+    "final_output_lifting_regressions": "Not executed after constructor-override repair because the executor became unavailable.",
+    "final_public_rectangular_regressions": "51 cases authored and source-reviewed; not executed. The rebuilt bridge compilation was SIGKILL before executor disconnection.",
+    "no_full_production_extension_pass_claimed": true,
+    "prior_source_snapshot_sha256": [
+      {
+        "path": "crates/fsym-python/src/matrix.rs",
+        "characters": 38993,
+        "sha256": "d146f411fcf914a46582cb81efcaac7d0add8379eef9f3733442445263c3e9a8"
+      },
+      {
+        "path": "python/sympy/matrices/sparse.py",
+        "characters": 39995,
+        "sha256": "1a86825f38e74dea953cf5449dfe2dd566b5118ac2126b9fb2db6fcf6cb8a77d"
+      },
+      {
+        "path": "python/tests/test_sparse_row_reduction.py",
+        "characters": 13270,
+        "sha256": "99ac9863f7c70813a9a479d13ddb5411ce5850fb578b2b5ef78cf133912dc1dd"
+      }
+    ],
+    "final_output_lifting_regression_count": 15,
+    "planned_adjacent_case_total_after_repair": 123,
+    "final_public_rectangular_case_count": 51,
+    "final_public_rectangular_test": "python/tests/test_sparse_rectangular_solve.py",
+    "planned_adjacent_case_total_after_repair_and_lu": 174,
+    "planned_adjacent_case_total_is_not_a_pass_count": true,
+    "oracle_observations": [
+      "SymPy 1.14 rational sparse rref returns mutable dense Matrix; sparse nullspace and columnspace retain coefficient class.",
+      "Square and consistent tall sparse LUsolve preserve the RHS class across four dense/sparse mutable/immutable RHS classes.",
+      "Default sparse solve refuses all nonsquare shapes; wide LUsolve refuses underdetermined inputs.",
+      "Full-rank empty RHS and consistent zero-variable systems preserve exact output shape.",
+      "Symbolic square LUsolve retains RHS class in isolated triangular and symbolic-diagonal oracle probes; no final FrankenSymPy execution claim follows."
+    ],
+    "build_elapsed_test_seconds": 2.14
+  },
+  "remaining_gates": [
+    "Full workspace check stopped by SIGKILL in unchanged asupersync before this slice could complete the gate.",
+    "Full workspace Clippy and tests have not passed for this final source.",
+    "Final recovered source formatting and final Python output-lifting/rectangular regressions require execution after environment recovery or in CI.",
+    "CI runs for initial two direct-main commits were observed queued; no CI pass is claimed.",
+    "Complete WS10, transformation-family and compatibility-profile gates remain open.",
+    "No competitive performance result, profile certification, broad symbolic sparse affine solution family, or bead closure is claimed.",
+    "Final full cargo fmt --check could not run after executor loss; only pre-loss owned-source formatting completed."
+  ],
+  "recovery": {
+    "executor_status": "Unavailable after compiler memory exhaustion and transport recovery timeout.",
+    "native_rectangle": "Recovered from the exact recorded source edits against verified remote baseline8748d78, then manually reflowed. Independent lexical comparison preserved source tokens, with six individually inspected harmless trailing-comma edits. The original formatted tested files were unavailable, so this is token-equivalent recovery, not a byte-exact final-source execution claim.",
+    "public_snapshot": "Frozen108-test source payload survived independently of executor. Output-lifting repair is separately source-reviewed and remains unexecuted.",
+    "destructive_cleanup": false,
+    "native_rectangle_blob_shas": [
+      {
+        "path": "crates/fsym-matrices/src/sparse_rref.rs",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7c3591c84098da9db80e28ff1fb9a66d748f9311"
+      },
+      {
+        "path": "crates/fsym-matrices/src/structured.rs",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8c10c399babeb8158a29755f8543e2238f9f420e"
+      },
+      {
+        "path": "crates/fsym-matrices/tests/sparse_rectangular_solve.rs",
+        "mode": "100644",
+        "type": "blob",
+        "sha": "704dbc763f5453efcf6bc0246e7e7baed488e1f2"
+      }
+    ],
+    "manual_format_verification": {
+      "native_function_tokens": 1420,
+      "private_test_tokens": 671,
+      "integration_test_tokens": 2977,
+      "full_rref_file_tokens": 7547,
+      "baseline_outside_added_blocks_byte_preserved": true,
+      "rustfmt_executed_on_recovery": false
+    }
+  },
+  "independent_review": {
+    "reviewer": "sparse_verifier_adversaries",
+    "native_rectangle": "Source review found no concrete defect in source binding, consistency, uniqueness, residual checking or cumulative accounting.",
+    "first_python_repair": {
+      "blob": "666f5b4cd314d5cbfae8d913de6fd2b13861f376",
+      "outcome": "Exact source reviewed; no concrete defect found.",
+      "regressions_executed": false
+    },
+    "public_lu": {
+      "blob": "8e3b6a439cd6907ba5a72ac11dc5e0e27d4c6885",
+      "test_blob": "49ffcbcddaa696bf748b1de6a5e8d4c5127ff624",
+      "outcome": "Exact source and all 51 planned cases reviewed; no concrete defect found.",
+      "regressions_executed": false
+    },
+    "observed_defects_repaired": [
+      "Changed scalar and matrix storage/accessor descriptors could alter original-source admission.",
+      "Changed native expression inequality and sparse readers could admit stale retained cells.",
+      "Replaceable matrix constructors could replace a correct native solution; closed result lifting now refuses changed construction hooks and installs original storage slots directly."
+    ]
+  },
+  "final_source_execution": "The final recovered GitHub tree has not been compiled or executed after the outage. Earlier scoped successes apply to the recorded pre-outage source states; final constructor repair and LU integration have independent static review and committed regression cases.",
+  "pending_commit_parent": "5978e558322a1a6e7d1eb865199a66b557f89fc2"
+}

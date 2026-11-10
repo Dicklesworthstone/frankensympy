@@ -30,8 +30,13 @@ _REDUCTION_NATIVE_MEMBERS = {
     name: _REDUCTION_DICT.__get__(_NativeSparseMatrix)[name]
     for name in (
         "shape", "is_exact_rational", "todok", "to_dense",
-        "rref", "rank", "nullspace", "columnspace",
+        "rref", "rank", "nullspace", "columnspace", "solve",
     )
+}
+_SOLVE_NATIVE_DENSE = _native.Matrix
+_SOLVE_DENSE_MEMBERS = {
+    name: _REDUCTION_DICT.__get__(_SOLVE_NATIVE_DENSE)[name]
+    for name in ("shape", "is_exact_rational", "flat", "to_sparse")
 }
 _REDUCTION_STORAGE_NAMES = (
     "_native_storage", "_matrix_shape", "_surface", "_mutation_generation",
@@ -121,83 +126,107 @@ def _reduction_default_access(cls):
             and _reduction_binding(cls, "__getattr__") is None)
 
 
-def _checked_sparse_reduction(matrix, operation):
-    """Run the rational lane only against an intact, closed source snapshot."""
-    if not any(type(matrix) is cls for cls in (SparseMatrix, ImmutableSparseMatrix)):
+def _rational_source_snapshot(matrix, *, dense=False, context="sparse row reduction"):
+    """Capture closed literal cells without consulting replaceable accessors."""
+    base = Matrix if dense else SparseMatrix
+    accepted = (Matrix, ImmutableDenseMatrix) if dense else (SparseMatrix, ImmutableSparseMatrix)
+    if not any(type(matrix) is cls for cls in accepted):
         return None
-    namespace = type.__dict__["__dict__"].__get__(SparseMatrix)
+    namespace = _REDUCTION_DICT.__get__(base)
     slots = tuple(namespace.get(name) for name in _REDUCTION_STORAGE_NAMES)
     if any(type(slot) is not MemberDescriptorType
-           or slot.__objclass__ is not SparseMatrix or slot.__name__ != name
+           or slot.__objclass__ is not base or slot.__name__ != name
            for name, slot in zip(_REDUCTION_STORAGE_NAMES, slots)):
-        raise NotImplementedError("sparse row reduction requires original storage descriptors")
+        raise NotImplementedError(f"{context} requires original storage descriptors")
     if (not _reduction_default_access(type(matrix))
             or any(_reduction_binding(type(matrix), name) is not slot
                    for name, slot in zip(_REDUCTION_STORAGE_NAMES, slots))):
-        raise NotImplementedError("sparse row reduction requires original matrix accessors")
+        raise NotImplementedError(f"{context} requires original matrix accessors")
     native, shape, surface, generation = (
-        slot.__get__(matrix, SparseMatrix) for slot in slots
+        slot.__get__(matrix, base) for slot in slots
     )
     if (type(shape) is not tuple or len(shape) != 2
             or any(type(size) is not int or size < 0 for size in shape)
             or type(generation) is not int or generation < 0):
-        raise ValueError("sparse row reduction has an invalid source snapshot")
+        raise ValueError(f"{context} has an invalid source snapshot")
     if native is None:
         return None
-    native_namespace = _REDUCTION_DICT.__get__(_NativeSparseMatrix)
-    if (not _reduction_default_access(_NativeSparseMatrix)
+    native_type = _SOLVE_NATIVE_DENSE if dense else _NativeSparseMatrix
+    members = _SOLVE_DENSE_MEMBERS if dense else _REDUCTION_NATIVE_MEMBERS
+    native_namespace = _REDUCTION_DICT.__get__(native_type)
+    if (not _reduction_default_access(native_type)
             or any(native_namespace.get(name) is not descriptor
-                   for name, descriptor in _REDUCTION_NATIVE_MEMBERS.items())):
-        raise NotImplementedError("sparse row reduction requires original native interfaces")
-    if (type(native) is not _NativeSparseMatrix
-            or _REDUCTION_NATIVE_MEMBERS["shape"].__get__(native, _NativeSparseMatrix) != shape):
-        raise ValueError("sparse row reduction native and retained shapes differ")
-    if not _REDUCTION_NATIVE_MEMBERS["is_exact_rational"].__get__(native, _NativeSparseMatrix):
+                   for name, descriptor in members.items())):
+        raise NotImplementedError(f"{context} requires original native interfaces")
+    if (type(native) is not native_type
+            or members["shape"].__get__(native, native_type) != shape):
+        raise ValueError(f"{context} native and retained shapes differ")
+    if not members["is_exact_rational"].__get__(native, native_type):
         return None
     atoms = []
     retained = None
     if surface is not None:
-        if type(surface) is not dict or len(surface) > _MAX_SPARSE_ENTRIES:
-            raise ValueError("sparse row reduction has an invalid stored-cell snapshot")
+        storage_type = tuple if dense else dict
+        if type(surface) is not storage_type or len(surface) > _MAX_SPARSE_ENTRIES:
+            raise ValueError(f"{context} has an invalid stored-cell snapshot")
+        if dense and len(surface) != shape[0]*shape[1]:
+            raise ValueError(f"{context} retained cells do not match its shape")
         if Basic.__dict__.get("_value") is not _REDUCTION_VALUE_SLOT:
-            raise NotImplementedError("sparse row reduction requires original scalar storage")
-        retained = dict(surface)
-        entries = _REDUCTION_NATIVE_MEMBERS["todok"](native)
-        for coordinate, entry in retained.items():
-            if (type(coordinate) is not tuple or len(coordinate) != 2
+            raise NotImplementedError(f"{context} requires original scalar storage")
+        retained = tuple(surface) if dense else dict(surface)
+        entries = members["flat"](native) if dense else members["todok"](native)
+        cells = enumerate(retained) if dense else retained.items()
+        for coordinate, entry in cells:
+            if not dense and (type(coordinate) is not tuple or len(coordinate) != 2
                     or any(type(index) is not int for index in coordinate)
                     or not (0 <= coordinate[0] < shape[0] and 0 <= coordinate[1] < shape[1])):
-                raise ValueError("sparse row reduction has an invalid stored coordinate")
+                raise ValueError(f"{context} has an invalid stored coordinate")
             if not any(type(entry) is atom for atom in _REDUCTION_ATOMS):
                 raise NotImplementedError(
-                    "checked sparse row reduction requires literal exact rational entries"
+                    f"checked {context} requires literal exact rational entries"
                 )
             if (not _reduction_default_access(type(entry))
                     or _reduction_binding(type(entry), "_value") is not _REDUCTION_VALUE_SLOT):
-                raise NotImplementedError("sparse row reduction requires original scalar accessors")
+                raise NotImplementedError(f"{context} requires original scalar accessors")
             value = _REDUCTION_VALUE_SLOT.__get__(entry, Basic)
-            stored = entries.get(coordinate, _REDUCTION_NATIVE_ZERO)
+            stored = entries[coordinate] if dense else entries.get(coordinate, _REDUCTION_NATIVE_ZERO)
             if (type(value) is not _REDUCTION_NATIVE_EXPR
                     or _REDUCTION_NATIVE_EQUAL(value, stored) is not True):
-                raise RuntimeError("SparseMatrix retained cells differ from the native snapshot")
+                raise RuntimeError("Matrix retained cells differ from the native snapshot")
             atoms.append((entry, value))
-        if any(coordinate not in retained for coordinate in entries):
-            raise RuntimeError("SparseMatrix retained cells differ from the native snapshot")
-    # Once native generation starts, all failures are terminal. In particular
-    # resource exhaustion must not trigger a dense retry with a fresh budget.
-    result = _REDUCTION_NATIVE_MEMBERS[operation](native)
-    current = tuple(slot.__get__(matrix, SparseMatrix) for slot in slots)
+        if not dense and any(coordinate not in retained for coordinate in entries):
+            raise RuntimeError("Matrix retained cells differ from the native snapshot")
+    snapshot = (matrix, base, slots, native, shape, surface, generation, retained, atoms, dense)
+    return native, snapshot
+
+
+def _check_rational_source(snapshot):
+    matrix, base, slots, native, shape, surface, generation, retained, atoms, dense = snapshot
+    current = tuple(slot.__get__(matrix, base) for slot in slots)
     if (current[0] is not native or current[1] is not shape
             or current[2] is not surface or type(current[3]) is not int
             or current[3] != generation):
-        raise RuntimeError("SparseMatrix mutated during row reduction")
+        raise RuntimeError("Matrix mutated during sparse linear algebra")
     if retained is not None:
-        if (len(surface) != len(retained)
-                or any(surface.get(coordinate) is not entry
-                       for coordinate, entry in retained.items())
+        changed = (any(current is not old for current, old in zip(surface, retained))
+                   if dense else any(surface.get(coordinate) is not entry
+                                     for coordinate, entry in retained.items()))
+        if (len(surface) != len(retained) or changed
                 or any(_REDUCTION_VALUE_SLOT.__get__(entry, Basic) is not value
                        for entry, value in atoms)):
-            raise RuntimeError("SparseMatrix retained cells mutated during row reduction")
+            raise RuntimeError("Matrix retained cells mutated during sparse linear algebra")
+
+
+def _checked_sparse_reduction(matrix, operation):
+    """Run the rational lane only against an intact, closed source snapshot."""
+    captured = _rational_source_snapshot(matrix)
+    if captured is None:
+        return None
+    native, snapshot = captured
+    # Once native generation starts, all failures are terminal. In particular
+    # resource exhaustion must not trigger a dense retry with a fresh budget.
+    result = _REDUCTION_NATIVE_MEMBERS[operation](native)
+    _check_rational_source(snapshot)
     return result
 
 
@@ -517,8 +546,46 @@ class SparseMatrix(MatrixBase):
             return self._new(self._native.solve(sparse_rhs._native))
         return self._new(self.to_dense().solve(sparse_rhs.to_dense()))
 
-    def LUsolve(self, b: Any) -> "SparseMatrix":
-        return self.solve(b)
+    def LUsolve(self, b: Any):
+        """Solve a square or consistent tall rational system, keeping RHS class.
+
+        Closed rational inputs use checked sparse elimination without a dense
+        intermediate. Underdetermined, inconsistent, and rank-deficient
+        systems are refused; no arbitrary free parameters are introduced.
+        """
+        if not any(type(self) is cls for cls in (SparseMatrix, ImmutableSparseMatrix)):
+            raise NotImplementedError("custom matrix subclasses require a supervised override lane")
+        rhs_sparse = any(type(b) is cls for cls in (SparseMatrix, ImmutableSparseMatrix))
+        if not rhs_sparse and not any(type(b) is cls for cls in (Matrix, ImmutableDenseMatrix)):
+            raise TypeError("LUsolve requires a built-in Matrix right-hand side")
+        left = _rational_source_snapshot(self, context="sparse LUsolve")
+        right = _rational_source_snapshot(b, dense=not rhs_sparse, context="sparse LUsolve")
+        if left is None or right is None:
+            # Preserve the existing bounded square symbolic lane. Rectangular
+            # symbolic pivots require a separate supervised solve contract.
+            if self.rows != self.cols:
+                raise NotImplementedError("rectangular sparse LUsolve requires exact rational entries")
+            result = self.solve(b)
+            return type(b)(result) if rhs_sparse else type(b)(result.to_dense())
+        coefficients, source_snapshot = left
+        rhs, rhs_snapshot = right
+        rows, unknowns = source_snapshot[4]
+        rhs_rows, _ = rhs_snapshot[4]
+        if rows != rhs_rows:
+            raise ValueError("The matrices have incompatible number of rows")
+        if rows < unknowns:
+            raise NotImplementedError("Underdetermined systems not supported.")
+        if not rhs_sparse:
+            rhs = _SOLVE_DENSE_MEMBERS["to_sparse"](rhs)
+        _check_rational_source(source_snapshot)
+        _check_rational_source(rhs_snapshot)
+        solution = _REDUCTION_NATIVE_MEMBERS["solve"](coefficients, rhs)
+        _check_rational_source(source_snapshot)
+        _check_rational_source(rhs_snapshot)
+        result = _checked_sparse_lift(solution, type(b))
+        _check_rational_source(source_snapshot)
+        _check_rational_source(rhs_snapshot)
+        return result
 
     def rref(self, iszerofunc=None, simplify=False, pivots=True, normalize_last=True):
         """Checked rational reduction, with the profile's dense final result.

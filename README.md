@@ -666,7 +666,7 @@ Explicit custom commutativity or equality/hash protocols require their own
 supported algebra. Arithmetic graphs and formal differentiation are bounded; arbitrary non-cooperative
 Python hooks retain the existing supervised-boundary limitations.
 
-## Exact sparse rank and nullspaces (development API)
+## Exact sparse linear algebra (development API)
 
 Exact rational sparse matrices now support checked `rank()`, `nullspace()` and
 `columnspace()` without constructing a dense intermediate. This includes
@@ -706,6 +706,30 @@ the pinned SymPy behavior and returns a mutable dense **final result**; a result
 whose area exceeds the dense storage limit is refused even when sparse rank and
 nullspace remain available. These operations do not certify the full matrix
 compatibility profile.
+
+For consistent tall systems, `LUsolve()` uses checked sparse augmented row
+reduction and independently checks the original `A*X == B` equations for every
+right-hand side. It requires full column rank, including when the RHS has no
+columns, and refuses inconsistent or nonunique systems. The result retains the
+right-hand side's mutable/immutable and dense/sparse class:
+
+```python
+from sympy import ImmutableMatrix, SparseMatrix
+
+A = SparseMatrix([[1, 0], [0, 1], [1, 1]])
+B = ImmutableMatrix([[2, 7], [3, 8], [5, 15]])
+X = A.LUsolve(B)
+assert type(X) is ImmutableMatrix
+assert X == ImmutableMatrix([[2, 7], [3, 8]])
+```
+
+The default public `SparseMatrix.solve()` keeps the pinned square-only contract;
+use `LUsolve()` for this tall exact rational case. Rectangular symbolic pivots
+and arbitrary free-parameter solutions are outside this bounded API. The
+augmented column count and intermediate fill must fit the same sparse bounds.
+Both original matrices are checked before and after native execution, and
+checked results are published through original storage descriptors rather
+than replaceable Python constructors.
 
 ## Prime-field polynomials (development API)
 
