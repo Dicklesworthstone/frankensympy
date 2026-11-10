@@ -8,9 +8,9 @@
 //! across a pole, principal value, or symbolic-bound claim is made.
 
 use fsym_budget::{BudgetMeter, Dimension, MeterError};
-use fsym_core::arith::RationalArithmeticError;
+use fsym_core::arith::{RationalArithmeticError, metered_sqrt_floor};
 use fsym_core::{BigInt, BigRational};
-use num_traits::{One, Zero};
+use num_traits::{One, Signed, Zero};
 use thiserror::Error;
 
 pub const MAX_SUM_COEFFICIENTS: usize = 129;
@@ -25,15 +25,29 @@ pub struct RationalSumPole {
     pub multiplicity: u32,
 }
 
+/// A proposed monic quadratic `x^2 + linear*x + constant`, with positive
+/// multiplicity. The checker proves that its discriminant is not a rational
+/// square; a generator's irreducibility label is never trusted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RationalSumQuadratic {
+    pub constant: BigRational,
+    pub linear: BigRational,
+    pub multiplicity: u32,
+}
+
 /// Untrusted certificate for `F = numerator/denominator`. Coefficients are
-/// ascending, nonempty, and without trailing zeros. Both pole lists must
-/// reconstruct their entire denominator, including removable input poles.
+/// ascending, nonempty, and without trailing zeros. The rational poles and
+/// quadratics together must reconstruct each entire denominator, including
+/// removable input poles. Quadratics have no rational (hence no integer)
+/// zeros only after the checker verifies their discriminants exactly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RationalAntidifference {
     pub numerator: Vec<BigRational>,
     pub denominator: Vec<BigRational>,
     pub input_poles: Vec<RationalSumPole>,
     pub antidifference_poles: Vec<RationalSumPole>,
+    pub input_quadratics: Vec<RationalSumQuadratic>,
+    pub antidifference_quadratics: Vec<RationalSumQuadratic>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -205,15 +219,66 @@ impl<M: BudgetMeter> Reference<'_, M> {
         self.check_value(value)
     }
 
-    fn check_poles(&mut self, polynomial: &[BigRational], poles: &[RationalSumPole]) -> Result<()> {
+    /// Exact square/non-square checking includes the floor-root bracket, so
+    /// even the integer-root proposal cannot substitute for the arithmetic
+    /// statement needed by the denominator-domain proof.
+    fn integer_is_square(&mut self, integer: &BigInt) -> Result<bool> {
+        self.work(integer.bits().max(1))?;
+        let root = metered_sqrt_floor(integer, self.meter)?
+            .ok_or_else(|| invalid("negative discriminant square component"))?;
+        let root = BigRational::from_integer(root);
+        let value = BigRational::from_integer(integer.clone());
+        let square = self.mul(&root, &root)?;
+        let next = self.add(&root, &BigRational::one())?;
+        let next_square = self.mul(&next, &next)?;
+        if square > value || next_square <= value {
+            return Err(invalid("invalid discriminant square-root bracket"));
+        }
+        Ok(square == value)
+    }
+
+    fn check_quadratic(&mut self, factor: &RationalSumQuadratic) -> Result<()> {
+        for value in [&factor.constant, &factor.linear] {
+            if value.denom().is_zero()
+                || value.denom().is_negative()
+                || bits(value) > MAX_SUM_COEFFICIENT_BITS
+            {
+                return Err(invalid("invalid or oversized quadratic coefficient"));
+            }
+        }
+        let square = self.mul(&factor.linear, &factor.linear)?;
+        let four_constant = self.mul(&BigRational::from_integer(4.into()), &factor.constant)?;
+        let discriminant = self.add(&square, &(-four_constant))?;
+        if discriminant.is_negative() {
+            return Ok(());
+        }
+        if self.integer_is_square(discriminant.numer())?
+            && self.integer_is_square(discriminant.denom())?
+        {
+            return Err(invalid("quadratic denominator has rational roots"));
+        }
+        Ok(())
+    }
+
+    fn check_denominator(
+        &mut self,
+        polynomial: &[BigRational],
+        poles: &[RationalSumPole],
+        quadratics: &[RationalSumQuadratic],
+    ) -> Result<()> {
+        self.work(1)?;
         if polynomial.last().is_none_or(Zero::is_zero) {
             return Err(invalid("zero denominator"));
         }
-        if poles.len() >= MAX_SUM_COEFFICIENTS {
-            return Err(invalid("pole count limit"));
+        if poles.len() >= MAX_SUM_COEFFICIENTS
+            || quadratics.len() >= MAX_SUM_COEFFICIENTS
+            || poles.len() + quadratics.len() >= MAX_SUM_COEFFICIENTS
+        {
+            return Err(invalid("denominator factor count limit"));
         }
         let mut degree = 0usize;
         for (i, pole) in poles.iter().enumerate() {
+            self.work((i + 1) as u64)?;
             if pole.multiplicity == 0
                 || pole.root.denom().is_zero()
                 || pole.root.denom().is_negative()
@@ -231,8 +296,31 @@ impl<M: BudgetMeter> Reference<'_, M> {
                 return Err(invalid("pole degree exceeds denominator degree"));
             }
         }
+        for (i, factor) in quadratics.iter().enumerate() {
+            self.work((i + 1) as u64)?;
+            if factor.multiplicity == 0 {
+                return Err(invalid("zero quadratic multiplicity"));
+            }
+            degree = degree
+                .checked_add(
+                    (factor.multiplicity as usize)
+                        .checked_mul(2)
+                        .ok_or_else(|| invalid("quadratic multiplicity overflow"))?,
+                )
+                .ok_or_else(|| invalid("denominator degree overflow"))?;
+            if degree >= polynomial.len() {
+                return Err(invalid("quadratic degree exceeds denominator degree"));
+            }
+            if quadratics[..i]
+                .iter()
+                .any(|q| q.constant == factor.constant && q.linear == factor.linear)
+            {
+                return Err(invalid("duplicate quadratic factor"));
+            }
+            self.check_quadratic(factor)?;
+        }
         if degree + 1 != polynomial.len() {
-            return Err(invalid("incomplete denominator pole list"));
+            return Err(invalid("incomplete denominator factor list"));
         }
         let mut reconstructed = vec![polynomial.last().expect("validated nonempty").clone()];
         for pole in poles {
@@ -241,8 +329,18 @@ impl<M: BudgetMeter> Reference<'_, M> {
                     self.product(&reconstructed, &[-pole.root.clone(), BigRational::one()])?;
             }
         }
+        for factor in quadratics {
+            let coefficients = [
+                factor.constant.clone(),
+                factor.linear.clone(),
+                BigRational::one(),
+            ];
+            for _ in 0..factor.multiplicity {
+                reconstructed = self.product(&reconstructed, &coefficients)?;
+            }
+        }
         if reconstructed != polynomial {
-            return Err(invalid("denominator pole factorization mismatch"));
+            return Err(invalid("denominator factorization mismatch"));
         }
         Ok(())
     }
@@ -261,8 +359,16 @@ impl<M: BudgetMeter> Reference<'_, M> {
         ] {
             validate(poly)?;
         }
-        self.check_poles(denominator, &certificate.input_poles)?;
-        self.check_poles(&certificate.denominator, &certificate.antidifference_poles)?;
+        self.check_denominator(
+            denominator,
+            &certificate.input_poles,
+            &certificate.input_quadratics,
+        )?;
+        self.check_denominator(
+            &certificate.denominator,
+            &certificate.antidifference_poles,
+            &certificate.antidifference_quadratics,
+        )?;
         let a_shift = self.shift_one(&certificate.numerator)?;
         let b_shift = self.shift_one(&certificate.denominator)?;
         let left = self.product(&a_shift, &certificate.denominator)?;
@@ -274,11 +380,12 @@ impl<M: BudgetMeter> Reference<'_, M> {
         if lhs != rhs {
             return Err(invalid("rational difference identity mismatch"));
         }
+        self.work(1)?;
         Ok(())
     }
 }
 
-/// Checks only the rational identity and both complete pole lists. This
+/// Checks only the rational identity and both complete factor lists. This
 /// does not grant a definite or infinite sum without the domain checks below.
 pub fn verify_rational_antidifference(
     numerator: &[BigRational],
@@ -326,6 +433,7 @@ pub fn verify_rational_sum(
         RationalSumUpper::Finite(hi) if hi < lower => {
             let next = hi + BigInt::one();
             if &next == lower {
+                reference.work(1)?;
                 return Ok(BigRational::zero());
             }
             (next, Some(lower - BigInt::one()), true)
@@ -374,5 +482,6 @@ pub fn verify_rational_sum(
         }
     };
     let value = reference.add(&end_value, &(-start_value))?;
+    reference.work(1)?;
     Ok(if negate { -value } else { value })
 }

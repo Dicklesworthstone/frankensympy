@@ -1,10 +1,11 @@
 //! Bounded rational telescoping over `Q(k)`.
 //!
-//! Linear rational poles are grouped by integer shifts, separately at every
-//! pole order. Vanishing total residues in each orbit give a rational
-//! antidifference, including repeated poles and nonintegral offsets. The
-//! independent proof-kernel checks the exact difference identity and the
-//! original integer-range domain before a definite sum is published.
+//! Rational linear and irreducible quadratic factors are grouped by integer
+//! shifts, separately at every pole order. Vanishing polynomial residues in
+//! each orbit give a rational antidifference, including repeated factors and
+//! nonintegral offsets. The independent proof-kernel checks the exact
+//! difference identity and reconstructs both full denominators, proving that
+//! each quadratic has no rational roots before publishing an integer sum.
 
 use fsym_budget::{BudgetMeter, Dimension, MeterError, Unbounded};
 use fsym_core::arith::RationalArithmeticError;
@@ -12,8 +13,8 @@ use fsym_core::{BigInt, BigRational, Expr, Symbol};
 use fsym_polys::factorization::metered_complete_factorization;
 use fsym_polys::{PolyError, UnivariatePoly};
 use fsym_proof_kernel::rational_sum::{
-    RationalAntidifference, RationalSumPole, RationalSumUpper, RationalSumVerificationError,
-    verify_rational_antidifference, verify_rational_sum,
+    RationalAntidifference, RationalSumPole, RationalSumQuadratic, RationalSumUpper,
+    RationalSumVerificationError, verify_rational_antidifference, verify_rational_sum,
 };
 use num_traits::{One, Zero};
 use std::collections::BTreeMap;
@@ -107,13 +108,6 @@ fn check_value(value: BigRational) -> Result<BigRational> {
     }
 }
 
-fn scaled(poly: &UnivariatePoly, coefficient: &BigRational) -> UnivariatePoly {
-    UnivariatePoly::new(
-        poly.gen_sym.clone(),
-        poly.coeffs.iter().map(|c| c * coefficient).collect(),
-    )
-}
-
 fn exact_quotient(a: &UnivariatePoly, b: &UnivariatePoly) -> Result<UnivariatePoly> {
     let (q, r) = a.div_rem(b)?;
     if !r.is_zero() {
@@ -156,10 +150,22 @@ impl<M: BudgetMeter> BudgetMeter for ForwardMeter<'_, M> {
     }
 }
 
-fn denominator_poles(
+#[derive(Clone)]
+struct DenominatorFactor {
+    polynomial: UnivariatePoly,
+    multiplicity: u32,
+}
+
+struct PartialFraction {
+    factor: UnivariatePoly,
+    order: u32,
+    numerator: UnivariatePoly,
+}
+
+fn denominator_factors(
     denominator: &UnivariatePoly,
     meter: &mut impl BudgetMeter,
-) -> Result<Vec<RationalSumPole>> {
+) -> Result<Vec<DenominatorFactor>> {
     let mut forwarding = ForwardMeter {
         inner: meter,
         stopped: None,
@@ -169,46 +175,92 @@ fn denominator_poles(
         return Err(error.into());
     }
     let factorization = result?;
-    let mut poles = Vec::new();
+    let mut factors = Vec::new();
     for factor in factorization.factors {
-        if factor.poly.degree() != Some(1) {
+        if !matches!(factor.poly.degree(), Some(1 | 2)) {
             return Err(refuse(
-                "denominator must split into rational linear factors",
+                "denominator must split into rational linear or quadratic factors",
             ));
         }
-        poles.push(RationalSumPole {
-            root: -factor.poly.coeffs[0].clone() / factor.poly.coeffs[1].clone(),
+        batch(meter, &[&factor.poly])?;
+        if factor.poly.leading_coeff() != &BigRational::one() {
+            return Err(refuse("denominator factor must be monic"));
+        }
+        factors.push(DenominatorFactor {
+            polynomial: factor.poly,
             multiplicity: u32::try_from(factor.multiplicity)
                 .map_err(|_| refuse("pole multiplicity limit"))?,
         });
     }
+    factors.sort_by(|a, b| a.polynomial.coeffs.cmp(&b.polynomial.coeffs));
+    Ok(factors)
+}
+
+fn factor_witnesses(
+    factors: &[DenominatorFactor],
+    meter: &mut impl BudgetMeter,
+) -> Result<(Vec<RationalSumPole>, Vec<RationalSumQuadratic>)> {
+    let mut poles = Vec::new();
+    let mut quadratics = Vec::new();
+    for factor in factors {
+        batch(meter, &[&factor.polynomial])?;
+        match factor.polynomial.coeffs.as_slice() {
+            [constant, leading] if leading == &BigRational::one() => {
+                poles.push(RationalSumPole {
+                    root: -constant.clone(),
+                    multiplicity: factor.multiplicity,
+                });
+            }
+            [constant, linear, leading] if leading == &BigRational::one() => {
+                quadratics.push(RationalSumQuadratic {
+                    constant: constant.clone(),
+                    linear: linear.clone(),
+                    multiplicity: factor.multiplicity,
+                });
+            }
+            _ => return Err(refuse("invalid linear or quadratic denominator factor")),
+        }
+    }
     poles.sort_by(|a, b| a.root.cmp(&b.root));
-    Ok(poles)
+    Ok((poles, quadratics))
 }
 
 /// Solve the exact coefficient system for the partial fractions. Columns
-/// are D/(k-r)^j, so repeated poles are handled without numerical residues.
+/// are k^i D/q(k)^j for 0 <= i < degree(q), so quadratic numerators and
+/// repeated factors are handled without numerical roots or residues.
 fn partial_fractions(
     numerator: &UnivariatePoly,
     denominator: &UnivariatePoly,
-    poles: &[RationalSumPole],
+    factors: &[DenominatorFactor],
     meter: &mut impl BudgetMeter,
-) -> Result<Vec<(BigRational, u32, BigRational)>> {
+) -> Result<Vec<PartialFraction>> {
     let n = denominator.degree().unwrap_or(0);
     batch(meter, &[numerator, denominator])?;
     let mut labels = Vec::new();
     let mut columns = Vec::new();
-    for pole in poles {
-        let factor = UnivariatePoly::new(
-            denominator.gen_sym.clone(),
-            vec![-pole.root.clone(), BigRational::one()],
-        );
+    let mut fractions = Vec::new();
+    for factor in factors {
+        let degree = factor.polynomial.degree().expect("nonconstant factor");
         let mut power = UnivariatePoly::one(denominator.gen_sym.clone());
-        for order in 1..=pole.multiplicity {
+        for order in 1..=factor.multiplicity {
             batch(meter, &[denominator, &power])?;
-            power = power.mul(&factor)?;
-            columns.push(exact_quotient(denominator, &power)?);
-            labels.push((-pole.root.clone(), order));
+            power = power.mul(&factor.polynomial)?;
+            let quotient = exact_quotient(denominator, &power)?;
+            let slot = fractions.len();
+            fractions.push(PartialFraction {
+                factor: factor.polynomial.clone(),
+                order,
+                numerator: UnivariatePoly::zero(denominator.gen_sym.clone()),
+            });
+            for exponent in 0..degree {
+                let mut coefficients = vec![BigRational::zero(); exponent];
+                coefficients.extend_from_slice(&quotient.coeffs);
+                columns.push(UnivariatePoly::new(
+                    denominator.gen_sym.clone(),
+                    coefficients,
+                ));
+                labels.push((slot, exponent));
+            }
         }
     }
     if columns.len() != n {
@@ -251,14 +303,22 @@ fn partial_fractions(
             }
         }
     }
-    Ok(labels
-        .into_iter()
-        .enumerate()
-        .filter_map(|(i, (shift, order))| {
-            let coefficient = rows[i][n].clone();
-            (!coefficient.is_zero()).then_some((shift, order, coefficient))
-        })
-        .collect())
+    for (i, (slot, exponent)) in labels.into_iter().enumerate() {
+        let numerator = &mut fractions[slot].numerator.coeffs;
+        if numerator.len() <= exponent {
+            numerator.resize(exponent + 1, BigRational::zero());
+        }
+        numerator[exponent] = rows[i][n].clone();
+    }
+    // Normalize zero and constant quadratic numerators before shifting them.
+    for fraction in &mut fractions {
+        fraction.numerator = UnivariatePoly::new(
+            denominator.gen_sym.clone(),
+            std::mem::take(&mut fraction.numerator.coeffs),
+        );
+    }
+    fractions.retain(|fraction| !fraction.numerator.is_zero());
+    Ok(fractions)
 }
 
 fn polynomial_antidifference(
@@ -287,19 +347,65 @@ fn polynomial_antidifference(
     Ok(output)
 }
 
+struct ShiftFraction {
+    // The coefficient of k^(degree-1) vanishes in this monic polynomial.
+    centered_factor: UnivariatePoly,
+    shift: BigRational,
+    order: u32,
+    // P(k + shift) / Q(k + shift)^order is the original partial fraction.
+    centered_numerator: UnivariatePoly,
+}
+
 fn orbit_antidifference(
-    mut fractions: Vec<(BigRational, u32, BigRational)>,
+    fractions: Vec<PartialFraction>,
     meter: &mut impl BudgetMeter,
-) -> Result<BTreeMap<(BigRational, u32), BigRational>> {
-    fractions.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
-    let mut output = BTreeMap::new();
-    while let Some((base, order, first)) = fractions.first().cloned() {
+) -> Result<Vec<PartialFraction>> {
+    let mut centered = Vec::new();
+    for fraction in fractions {
+        batch(meter, &[&fraction.factor, &fraction.numerator])?;
+        let degree = fraction.factor.degree().expect("nonconstant factor");
+        let shift = check_value(
+            fraction.factor.coeffs[degree - 1]
+                .metered_div(&BigRational::from_integer(BigInt::from(degree as u64)), meter)?,
+        )?;
+        let centered_factor = fraction.factor.shift(&(-shift.clone()))?;
+        let centered_numerator = fraction.numerator.shift(&(-shift.clone()))?;
+        validate(&centered_factor, MAX_OUTPUT_DEGREE, MAX_WORK_BITS)?;
+        validate(&centered_numerator, MAX_OUTPUT_DEGREE, MAX_WORK_BITS)?;
+        centered.push(ShiftFraction {
+            centered_factor,
+            shift,
+            order: fraction.order,
+            centered_numerator,
+        });
+    }
+    centered.sort_by(|a, b| {
+        a.order
+            .cmp(&b.order)
+            .then(a.centered_factor.coeffs.cmp(&b.centered_factor.coeffs))
+            .then(a.shift.cmp(&b.shift))
+    });
+    let mut output = Vec::new();
+    while !centered.is_empty() {
         meter.checkpoint()?;
-        let mut orbit = BTreeMap::from([(0i64, first)]);
+        let mut iter = centered.into_iter();
+        let first = iter.next().expect("nonempty shift fractions");
+        let base = first.shift;
+        let factor = first.centered_factor;
+        let order = first.order;
+        let mut orbit = BTreeMap::from([(0i64, first.centered_numerator)]);
         let mut remaining = Vec::new();
-        for (shift, power, coefficient) in fractions.into_iter().skip(1) {
-            let difference = shift - base.clone();
-            if power == order && difference.is_integer() {
+        for fraction in iter {
+            batch(
+                meter,
+                &[&fraction.centered_factor, &fraction.centered_numerator],
+            )?;
+            if fraction.order != order || fraction.centered_factor != factor {
+                remaining.push(fraction);
+                continue;
+            }
+            let difference = check_value(fraction.shift.metered_sub(&base, meter)?)?;
+            if difference.is_integer() {
                 let offset = difference
                     .to_integer()
                     .to_i64()
@@ -307,17 +413,20 @@ fn orbit_antidifference(
                 if !(0..=MAX_SHIFT_SPAN).contains(&offset) {
                     return Err(refuse("integer-shift span limit"));
                 }
-                orbit.insert(offset, coefficient);
+                if orbit.insert(offset, fraction.centered_numerator).is_some() {
+                    return Err(refuse("duplicate partial-fraction shift"));
+                }
             } else {
-                remaining.push((difference + base.clone(), power, coefficient));
+                remaining.push(fraction);
             }
         }
         let last = *orbit.last_key_value().expect("nonempty orbit").0;
-        let mut running = BigRational::zero();
+        let mut running = UnivariatePoly::zero(factor.gen_sym.clone());
         for offset in 0..=last {
-            meter.checkpoint()?;
-            if let Some(coefficient) = orbit.get(&offset) {
-                running = check_value(running.metered_add(coefficient, meter)?)?;
+            batch(meter, &[&factor, &running])?;
+            if let Some(numerator) = orbit.get(&offset) {
+                running = running.add(numerator)?;
+                validate(&running, MAX_OUTPUT_DEGREE, MAX_WORK_BITS)?;
             }
             if offset < last && !running.is_zero() {
                 if output.len() >= MAX_PARTIAL_FRACTIONS {
@@ -328,13 +437,20 @@ fn orbit_antidifference(
                     (Dimension::AllocationCount, 8),
                     (Dimension::MemoryBytes, 128 + 4 * MAX_WORK_BITS.div_ceil(8)),
                 ])?;
-                output.insert(
-                    (
-                        base.clone() + BigRational::from_integer(BigInt::from(offset)),
-                        order,
-                    ),
-                    -running.clone(),
-                );
+                let shift = check_value(
+                    base.metered_add(&BigRational::from_integer(BigInt::from(offset)), meter)?,
+                )?;
+                let shifted_factor = factor.shift(&shift)?;
+                let numerator = UnivariatePoly::zero(factor.gen_sym.clone())
+                    .sub(&running)?
+                    .shift(&shift)?;
+                validate(&shifted_factor, MAX_OUTPUT_DEGREE, MAX_WORK_BITS)?;
+                validate(&numerator, MAX_OUTPUT_DEGREE, MAX_WORK_BITS)?;
+                output.push(PartialFraction {
+                    factor: shifted_factor,
+                    order,
+                    numerator,
+                });
             }
         }
         if !running.is_zero() {
@@ -342,7 +458,7 @@ fn orbit_antidifference(
                 "nonzero discrete residue; no rational antidifference",
             ));
         }
-        fractions = remaining;
+        centered = remaining;
     }
     Ok(output)
 }
@@ -368,53 +484,61 @@ pub fn metered_rational_antidifference(
         return Err(refuse("different generators or zero denominator"));
     }
     batch(generator_meter, &[numerator, denominator])?;
-    let poles = denominator_poles(denominator, generator_meter)?;
+    let factors = denominator_factors(denominator, generator_meter)?;
+    let (input_poles, input_quadratics) = factor_witnesses(&factors, generator_meter)?;
     let (polynomial, remainder) = numerator.div_rem(denominator)?;
     let polynomial = polynomial_antidifference(&polynomial, generator_meter)?;
-    let fractions = partial_fractions(&remainder, denominator, &poles, generator_meter)?;
+    let fractions = partial_fractions(&remainder, denominator, &factors, generator_meter)?;
     let fractions = orbit_antidifference(fractions, generator_meter)?;
     let x = numerator.gen_sym.clone();
-    let mut orders: BTreeMap<BigRational, u32> = BTreeMap::new();
-    for (shift, order) in fractions.keys() {
+    let mut orders: BTreeMap<Vec<BigRational>, u32> = BTreeMap::new();
+    for fraction in &fractions {
         generator_meter.checkpoint()?;
         generator_meter.charge_batch(&[
             (Dimension::AllocationCount, 4),
             (Dimension::MemoryBytes, 64 + 2 * MAX_WORK_BITS.div_ceil(8)),
         ])?;
-        let existing = orders.entry(shift.clone()).or_default();
-        *existing = (*existing).max(*order);
+        let existing = orders.entry(fraction.factor.coeffs.clone()).or_default();
+        *existing = (*existing).max(fraction.order);
     }
-    let degree: usize = orders.values().map(|&value| value as usize).sum();
+    let degree: usize = orders
+        .iter()
+        .map(|(factor, &order)| (factor.len() - 1) * order as usize)
+        .sum();
     if degree + polynomial.degree().unwrap_or(0) > MAX_OUTPUT_DEGREE {
         return Err(refuse("antidifference denominator degree limit"));
     }
     let mut bottom = UnivariatePoly::one(x.clone());
-    for (shift, order) in &orders {
-        let factor = UnivariatePoly::new(x.clone(), vec![shift.clone(), BigRational::one()]);
+    for (coefficients, order) in &orders {
+        let factor = UnivariatePoly::new(x.clone(), coefficients.clone());
         batch(generator_meter, &[&bottom, &factor])?;
         bottom = bottom.mul(&factor.pow(*order)?)?;
     }
     batch(generator_meter, &[&polynomial, &bottom])?;
     let mut top = polynomial.mul(&bottom)?;
-    for ((shift, order), coefficient) in fractions {
-        let factor = UnivariatePoly::new(x.clone(), vec![shift, BigRational::one()]);
+    for fraction in fractions {
         batch(generator_meter, &[&top, &bottom])?;
-        let quotient = exact_quotient(&bottom, &factor.pow(order)?)?;
-        top = top.add(&scaled(&quotient, &coefficient))?;
+        let quotient = exact_quotient(&bottom, &fraction.factor.pow(fraction.order)?)?;
+        top = top.add(&quotient.mul(&fraction.numerator)?)?;
     }
     validate(&top, MAX_OUTPUT_DEGREE, MAX_WORK_BITS)?;
     validate(&bottom, MAX_OUTPUT_DEGREE, MAX_WORK_BITS)?;
+    let output_factors: Vec<_> = orders
+        .into_iter()
+        .map(|(coefficients, multiplicity)| DenominatorFactor {
+            polynomial: UnivariatePoly::new(x.clone(), coefficients),
+            multiplicity,
+        })
+        .collect();
+    let (antidifference_poles, antidifference_quadratics) =
+        factor_witnesses(&output_factors, generator_meter)?;
     let certificate = RationalAntidifference {
         numerator: top.coeffs,
         denominator: bottom.coeffs,
-        input_poles: poles,
-        antidifference_poles: orders
-            .into_iter()
-            .map(|(shift, multiplicity)| RationalSumPole {
-                root: -shift,
-                multiplicity,
-            })
-            .collect(),
+        input_poles,
+        antidifference_poles,
+        input_quadratics,
+        antidifference_quadratics,
     };
     verify_rational_antidifference(
         &numerator.coeffs,
@@ -422,6 +546,8 @@ pub fn metered_rational_antidifference(
         &certificate,
         verifier_meter,
     )?;
+    generator_meter.checkpoint()?;
+    verifier_meter.checkpoint()?;
     Ok(certificate)
 }
 
@@ -461,6 +587,8 @@ pub fn metered_rational_sum(
         upper,
         verifier_meter,
     )?;
+    generator_meter.checkpoint()?;
+    verifier_meter.checkpoint()?;
     Ok(RationalSummation { value, certificate })
 }
 

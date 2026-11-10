@@ -303,6 +303,7 @@ jobs:
               "python/tests/test_directional_series.py",
               "python/tests/test_residue_meromorphic.py",
               "python/tests/test_polynomial_geometric_summation.py",
+              "python/tests/test_quadratic_rational_summation.py",
               "python/tests/test_algebraic_matrix_spectra.py",
               "python/tests/test_matrix_norms.py",
               "python/tests/test_matrix_exponential.py",

@@ -562,6 +562,39 @@ positive axis; no solution family is extended across that singularity.
 
 ---
 
+## Quadratic rational telescoping (development API)
+
+The existing `summation` and `Sum.doit` entry points now admit rational
+telescopes whose denominators factor into rational linear and irreducible
+quadratic factors. Repeated factors, linear quadratic numerators, fractional
+offsets, mixed factor families and missing intermediate integer shifts are
+supported within the bounded exact-arithmetic lane:
+
+```python
+from sympy import Symbol, Sum, oo, summation
+
+k = Symbol("k", integer=True)
+g = (3*k + 2)/(k*k + k + 1)**2
+summation(g - g.subs(k, k + 3), (k, 0, oo))  # 1199/441
+Sum(1/(k*k + 1) - 1/((k + 1)**2 + 1), (k, 0, oo)).doit()  # 1
+```
+
+Partial fractions are grouped by exact integer-shift orbits with polynomial
+residues. An independent proof-kernel checker reconstructs both complete
+denominators, proves that proposed quadratic factors have no rational roots,
+checks the rational difference identity, and evaluates the exact endpoints.
+Original removable integer poles remain domain obligations. Finite reversed
+and empty ranges retain the existing summation convention; infinite sums
+require a finite rational endpoint limit.
+
+Input degree is at most 32, output degree at most 128, and an orbit spans at
+most 64 integer shifts. Nonzero discrete residues, unsupported factors and
+resource failures do not produce partial answers. This expands rational
+telescoping; it does not add special-function formulas for arbitrary
+non-telescoping rational series.
+
+---
+
 ## Custom functions in residual systems (development API)
 
 Ordinary arithmetic retains the actual Python function applications, including

@@ -18,6 +18,8 @@ fn coefficients(values: &[i64]) -> Vec<BigRational> {
 fn certificate() -> RationalAntidifference {
     // N/D = 1/(k+1)^2 - 1/(k+2)^2, F = -1/(k+1)^2.
     RationalAntidifference {
+        input_quadratics: vec![],
+        antidifference_quadratics: vec![],
         numerator: coefficients(&[-1]),
         denominator: coefficients(&[1, 2, 1]),
         input_poles: vec![
@@ -122,6 +124,8 @@ fn original_removable_poles_and_reversed_ranges_are_preserved() {
     // k/k is identically one on its domain, but it is undefined at zero.
     let input = coefficients(&[0, 1]);
     let good = RationalAntidifference {
+        input_quadratics: vec![],
+        antidifference_quadratics: vec![],
         numerator: coefficients(&[0, 1]),
         denominator: coefficients(&[1]),
         input_poles: vec![RationalSumPole {
@@ -164,6 +168,8 @@ fn fractional_poles_do_not_exclude_integer_points_between_them() {
     let n = coefficients(&[8, 8]);
     let d = coefficients(&[9, 48, 88, 64, 16]);
     let good = RationalAntidifference {
+        input_quadratics: vec![],
+        antidifference_quadratics: vec![],
         numerator: coefficients(&[-1]),
         denominator: coefficients(&[1, 4, 4]),
         input_poles: vec![
