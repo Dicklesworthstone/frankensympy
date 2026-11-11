@@ -1,0 +1,342 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-11",
+  "scope": "Scalar solver correctness and checked reuse across existing objective, gradient, Hessian and Hessian-vector evaluation.",
+  "implementation_status": "implemented_uncertified",
+  "beads": [
+    "fra-7kf",
+    "fra-campaign-jacobian-bundle-ukp"
+  ],
+  "commits": [
+    {
+      "sha": "aaa8a93ed488c512f2049004f4bab14d5cd99e04",
+      "scope": "Reject target-dependent exponents in linear and quadratic coefficient extraction; nine focused regressions."
+    },
+    {
+      "sha": "1dc00d2048b8ae9b7f93cd2d3df3cc8f070a37bb",
+      "scope": "Shared checked evaluation across objective and derivative stages; scalar-reference, domain, cache-isolation and mutation regressions; focused native CI selection."
+    },
+    {
+      "sha": "44adeb1ee39e7f7278395448e7bee19847e68271",
+      "scope": "Exact declared-assumption filtering for scalar solve roots; 41 public and adversarial test cases and actual-extension CI selection."
+    }
+  ],
+  "invariants": [
+    "Unknown assumptions remain unknown and retain roots.",
+    "No numerical approximation decides assumption admission.",
+    "Native source and derivative proofs precede reusable-program admission.",
+    "Numeric memo state is local to one call and never serialized as evidence.",
+    "Cumulative resource accounting, original-domain checks and atomic output publication remain required."
+  ],
+  "validation": [
+    {
+      "check": "Independent static review",
+      "status": "completed",
+      "scope": "Native exponent dependency boundary, objective reuse indices/provenance and Python signed assumption/typed identity admission."
+    },
+    {
+      "check": "Isolated SymPy 1.14.0 oracle",
+      "status": "passed",
+      "cases": 38,
+      "scope": "Expected public scalar solve behavior only; not candidate execution."
+    },
+    {
+      "check": "Final Python AST parsing",
+      "status": "passed",
+      "files": [
+        "python/sympy/__init__.py",
+        "python/tests/test_solve_assumptions.py"
+      ]
+    },
+    {
+      "check": "Exact pinned Rust toolchain and donors",
+      "status": "available",
+      "scope": "nightly-2026-08-20 and registry-pinned sibling dependencies; no manifest or dependency substitutions."
+    },
+    {
+      "check": "Native coefficient dependency regressions",
+      "status": "passed",
+      "command": "cargo test --locked -p fsym-solvers --test coefficient_dependencies",
+      "passed": 9,
+      "failed": 0,
+      "exit_code": 0,
+      "scope": "Original pinned Cargo dependency graph; source matches published native guard. No pre-fix executable result.",
+      "tested_checkout": "f16519e8b3b8af4e9efcbea7e4560c9905ad8ec7",
+      "source_overlay": "Published solver guard/test present as working-tree overlays; no full invocation tree hash captured.",
+      "log": "/tmp/frankensympy-coefficient-after.log"
+    },
+    {
+      "check": "Objective and shared-evaluation native regressions",
+      "status": "passed",
+      "command": "cargo test --locked -p fsym-calculus --test sparse_hessian --test metered_sparse_derivatives --test verified_shared_evaluation",
+      "passed": 32,
+      "failed": 0,
+      "exit_code": 0,
+      "targets": {
+        "sparse_hessian": 18,
+        "metered_sparse_derivatives": 10,
+        "verified_shared_evaluation": 4
+      },
+      "tested_checkout": "f16519e8b3b8af4e9efcbea7e4560c9905ad8ec7",
+      "source_overlay": "Published objective-sharing production source/tests present as working-tree overlays before concurrent 79494e7 and d959af0 integration; no full invocation tree hash captured.",
+      "log": "/tmp/frankensympy-calculus-focused.log"
+    },
+    {
+      "check": "Pinned changed-source formatting",
+      "status": "passed",
+      "scope": "Solver source/test with skip_children=true, and the changed calculus sources/tests. This commit persists the solver test's token-preserving formatter adjustment."
+    },
+    {
+      "check": "Source synchronization before Python validation",
+      "status": "passed",
+      "source_commit": "7576e521ccce3dac563bc404e207524e780b7ac0",
+      "scope": "Preserved concurrent sparse-compilation and compiled-session changes; no production-source working-tree differences. One pending token-preserving native test format adjustment remains."
+    },
+    {
+      "check": "Full Python extension and candidate runtime suite",
+      "status": "blocked",
+      "source_commit": "7576e521ccce3dac563bc404e207524e780b7ac0",
+      "command": "cargo build --locked -p fsym-python --features extension-module",
+      "attempts": 2,
+      "exit_code": 101,
+      "observed": "Both attempts ended with rustc SIGKILL in unchanged asupersync. No extension artifact was available.",
+      "unexecuted": [
+        "41 authored candidate scalar-assumption cases",
+        "public variable-exponent solver probes",
+        "adjacent solver/assumption Python suites",
+        "reproduction of older failed CI focused mathematical suite"
+      ],
+      "limits": "The 38 isolated upstream oracle cases are expectation checks only and do not substitute for candidate execution."
+    },
+    {
+      "check": "Workspace formatting baseline",
+      "status": "failed",
+      "scope": "Nine preexisting unrelated Rust files plus the newly added test's token-preserving line wrap. The new test is corrected locally; unrelated formatting was not changed.",
+      "limits": "No whole-workspace formatting pass is claimed."
+    },
+    {
+      "check": "Final-source workspace type check",
+      "status": "blocked",
+      "source_commit": "d959af013aac7a0246fbdc70ba9edcc44b1bc2b3",
+      "command": "cargo check --workspace --all-targets --locked",
+      "exit_code": 101,
+      "observed": "Core, proof-kernel, polynomials, calculus, solvers and matrices were checked without diagnostics before unchanged asupersync rustc was terminated with SIGKILL. That invocation requested metadata only; the failure cannot be assigned to machine-code generation or to OOM from the observed evidence.",
+      "log": "/tmp/frankensympy-workspace-check-final.log"
+    },
+    {
+      "check": "Planning and evidence-link integrity",
+      "status": "passed",
+      "command": "python tools/validate_planning.py",
+      "exit_code": 0,
+      "scope": "24 required artifacts, 27 claims, 24 workstreams and existing evidence/profile structure; no claim tier, bead status or dependency change."
+    },
+    {
+      "check": "CI selector and inline Python syntax",
+      "status": "passed",
+      "scope": "Scalar solve assumptions selected once alongside the first signed-assumption regressions. Existing inline Python blocks parse. No existing test selector removed from overall coverage."
+    },
+    {
+      "check": "Final-source strict workspace Clippy",
+      "status": "blocked",
+      "source_commit": "d959af013aac7a0246fbdc70ba9edcc44b1bc2b3",
+      "command": "cargo clippy --workspace --all-targets --locked -- -D warnings",
+      "exit_code": 101,
+      "observed": "The core mathematical libraries were checked without diagnostics before unchanged asupersync rustc was terminated with SIGKILL. Its invocation requested metadata only and showed codegen-units=1. The full gate did not complete.",
+      "limits": "No source diagnostic, whole-workspace pass or proven OOM cause is claimed."
+    },
+    {
+      "check": "Final-source strict scoped Clippy",
+      "status": "passed",
+      "source_commit": "d959af013aac7a0246fbdc70ba9edcc44b1bc2b3",
+      "exit_code": 0,
+      "scope": [
+        "fsym-solvers library and coefficient_dependencies integration target",
+        "fsym-calculus library and sparse_hessian, metered_sparse_derivatives, verified_shared_evaluation integration targets"
+      ],
+      "limits": "These component gates passed; they do not replace the blocked whole-workspace gate."
+    },
+    {
+      "check": "Final-source native regression rerun",
+      "status": "passed",
+      "source_commit": "d959af013aac7a0246fbdc70ba9edcc44b1bc2b3",
+      "passed": 41,
+      "failed": 0,
+      "targets": {
+        "coefficient_dependencies": 9,
+        "sparse_hessian": 18,
+        "metered_sparse_derivatives": 10,
+        "verified_shared_evaluation": 4
+      },
+      "scope": "Rerun after integrating the concurrent sparse compilation/metering and Integral source changes through d959. The only native source difference from d959 is the token-preserving coefficient-test format correction published by this record. These are the same 41 distinct cases reported earlier, not 41 additional cases.",
+      "native_provenance": {
+        "before": {
+          "head": "d959af013aac7a0246fbdc70ba9edcc44b1bc2b3",
+          "tracked_native_file_count": 475,
+          "tracked_native_sha256": "873623e032cd3d911188815801ddecf39ddbe43a219169454dbcd15d09549d5e"
+        },
+        "working_changes_before": " M .beads/issues.jsonl\n M .github/workflows/ci.yml\n M crates/fsym-solvers/tests/coefficient_dependencies.rs\n M registries/claims.toml\n?? artifacts/audit/2026-11-11-solver-assumptions-objective-reuse-progress.json\n",
+        "env": {
+          "CARGO_HOME": "/workspace/scratch/5ecb38d3348d/cargo-home",
+          "CARGO_BUILD_JOBS": "1",
+          "CARGO_PROFILE_DEV_DEBUG": "0",
+          "CARGO_PROFILE_TEST_DEBUG": "0",
+          "CARGO_PROFILE_DEV_CODEGEN_UNITS": "1",
+          "CARGO_PROFILE_TEST_CODEGEN_UNITS": "1",
+          "CARGO_INCREMENTAL": "0",
+          "RUSTFLAGS": "-Zthreads=1",
+          "PYO3_PYTHON": "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python"
+        },
+        "cpu_affinity": [
+          0
+        ],
+        "results": [
+          {
+            "name": "clippy-solvers",
+            "command": [
+              "cargo",
+              "--config",
+              "profile.dev.package.asupersync.codegen-units=128",
+              "clippy",
+              "--locked",
+              "-p",
+              "fsym-solvers",
+              "--lib",
+              "--test",
+              "coefficient_dependencies",
+              "--",
+              "-D",
+              "warnings"
+            ],
+            "exit_code": 0,
+            "elapsed_seconds": 102.116,
+            "log": "/tmp/frankensympy-final-clippy-solvers.log"
+          },
+          {
+            "name": "clippy-calculus",
+            "command": [
+              "cargo",
+              "--config",
+              "profile.dev.package.asupersync.codegen-units=128",
+              "clippy",
+              "--locked",
+              "-p",
+              "fsym-calculus",
+              "--lib",
+              "--test",
+              "sparse_hessian",
+              "--test",
+              "metered_sparse_derivatives",
+              "--test",
+              "verified_shared_evaluation",
+              "--",
+              "-D",
+              "warnings"
+            ],
+            "exit_code": 0,
+            "elapsed_seconds": 0.666,
+            "log": "/tmp/frankensympy-final-clippy-calculus.log"
+          },
+          {
+            "name": "test-solvers",
+            "command": [
+              "cargo",
+              "--config",
+              "profile.dev.package.asupersync.codegen-units=128",
+              "test",
+              "--locked",
+              "-p",
+              "fsym-solvers",
+              "--test",
+              "coefficient_dependencies"
+            ],
+            "exit_code": 0,
+            "elapsed_seconds": 149.836,
+            "log": "/tmp/frankensympy-final-test-solvers.log"
+          },
+          {
+            "name": "test-calculus",
+            "command": [
+              "cargo",
+              "--config",
+              "profile.dev.package.asupersync.codegen-units=128",
+              "test",
+              "--locked",
+              "-p",
+              "fsym-calculus",
+              "--test",
+              "sparse_hessian",
+              "--test",
+              "metered_sparse_derivatives",
+              "--test",
+              "verified_shared_evaluation"
+            ],
+            "exit_code": 0,
+            "elapsed_seconds": 1.76,
+            "log": "/tmp/frankensympy-final-test-calculus.log"
+          }
+        ],
+        "after": {
+          "head": "d959af013aac7a0246fbdc70ba9edcc44b1bc2b3",
+          "tracked_native_file_count": 475,
+          "tracked_native_sha256": "873623e032cd3d911188815801ddecf39ddbe43a219169454dbcd15d09549d5e"
+        },
+        "native_sources_unchanged": true
+      }
+    },
+    {
+      "check": "Independent final delta review",
+      "status": "passed",
+      "scope": "All 124 bead identities, statuses, priorities and dependency fields retained; MATH-001/MATH-004 notes and evidence appended without tier changes. All 140 overall Python CI test selectors retained with no duplicate within either step."
+    }
+  ],
+  "remaining": [
+    "Scalar-system assumption filtering is outside this slice.",
+    "No compatibility profile, mathematical evidence tier or full campaign gate is promoted.",
+    "No incumbent performance comparison or timing-win claim is made.",
+    "Full-workspace unit tests did not run after the full runtime graph failed both metadata-only gates; focused native execution is recorded separately."
+  ],
+  "environmental_limitations": [
+    "Initial cache placement filled a home tmpfs and stalled compilation. Toolchain/cache contents were moved to workspace disk with preserved paths.",
+    "Interrupted pre-fix native compilation never reached tests; no pre-fix executable failure is claimed.",
+    "Focused native build completed after restricting compiler concurrency and relocating cached toolchains. It used jobs=1, one-CPU affinity, debug=0, incremental=0, codegen-units=1 and -Zthreads=1.",
+    "Two full original-graph extension builds at source commit 7576e521ccce3dac563bc404e207524e780b7ac0 ended with rustc SIGKILL while compiling unchanged asupersync (Cargo exit 101). The second attempt used a package-specific codegen-units=128 override. No Rust source diagnostic or completed libfsym_python.so was produced. Cgroup memory counters were unavailable, so OOM is not established."
+  ],
+  "ci_observations": {
+    "observed_at_utc": "2026-11-11T20:52:00Z",
+    "source_commit": "aaa8a93ed488c512f2049004f4bab14d5cd99e04",
+    "run_id": 43094330618,
+    "job_id": 130779243010,
+    "passed": [
+      "Native feature regressions",
+      "Full Python extension build"
+    ],
+    "failed": [
+      "Focused public mathematical regressions",
+      "G1 cargo fmt --check"
+    ],
+    "skipped": [
+      "Later aggregate public shell suite",
+      "G1 workspace check and Clippy",
+      "G2 workspace unit tests"
+    ],
+    "limits": "Detailed steps show immediate focused Python failure. Supported job-log requests repeatedly timed out. Static review found all 30 selectors present, no duplicate native exports and no known missing shell-native binding; the actual failure cause remains unknown.",
+    "newer_assumptions_commit": {
+      "sha": "44adeb1ee39e7f7278395448e7bee19847e68271",
+      "run_id": 43095539224,
+      "status": "queued; purpose-built jobs endpoint returned no jobs as of this record"
+    }
+  },
+  "repository": "Dicklesworthstone/frankensympy",
+  "integration_base": "d959af013aac7a0246fbdc70ba9edcc44b1bc2b3",
+  "current_commit_changes": [
+    "Select the scalar solve assumption suite beside signed-assumption regressions in the first public mathematical CI step; every existing selected test remains.",
+    "Apply the pinned formatter's token-preserving wrap in the coefficient-dependency regression.",
+    "Record scoped validation without changing bead status, priority, dependencies or claim tiers."
+  ],
+  "final_native_test_result_lines": [
+    "/tmp/frankensympy-final-test-calculus.log:test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s",
+    "/tmp/frankensympy-final-test-calculus.log:test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s",
+    "/tmp/frankensympy-final-test-calculus.log:test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s",
+    "/tmp/frankensympy-final-test-solvers.log:test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s"
+  ]
+}

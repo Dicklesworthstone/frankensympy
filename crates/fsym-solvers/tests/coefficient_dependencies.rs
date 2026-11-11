@@ -121,7 +121,10 @@ fn held_zero_factors_do_not_erase_an_unsupported_exponent() {
     let held = Expr::Mul(vec![Expr::from_i64(0), dependent]);
     let expression = Expr::Add(vec![Expr::Sym(x.clone()), held]);
     assert_eq!(solve_linear(&expression, &x), Err(SolverError::NonLinear));
-    assert_eq!(quadratic_coeffs(&expression, &x), Err(SolverError::NonLinear));
+    assert_eq!(
+        quadratic_coeffs(&expression, &x),
+        Err(SolverError::NonLinear)
+    );
 }
 
 #[test]

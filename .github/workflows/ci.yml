@@ -224,6 +224,7 @@ jobs:
               "-q", "-p", "no:cacheprovider",
               "python/tests/test_assumptions_soundness.py",
               "python/tests/test_assumptions_context_adversaries.py",
+              "python/tests/test_solve_assumptions.py",
               "python/tests/test_groebner_operations.py",
               "python/tests/test_exact_monotonicity.py",
               "python/tests/test_exact_function_range.py",
@@ -298,7 +299,6 @@ jobs:
           raise SystemExit(pytest.main([
               "-q", "-p", "no:cacheprovider",
               "python/tests/test_polynomial_system_checked.py",
-              "python/tests/test_solve_assumptions.py",
               "python/tests/test_checked_ideal_operations.py",
               "python/tests/test_prime_field_factorization.py",
               "python/tests/test_finite_field_poly.py",
