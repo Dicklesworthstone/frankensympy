@@ -154,6 +154,7 @@ jobs:
           cargo test --locked -p fsym-python --lib assumptions::tests -j1
           cargo test --locked -p fsym-python --lib numeric::tests::certified_gaussian_sources_require_unary_bound_arguments -j1
           cargo test --locked -p fsym-core --test raw_product_value -j1
+          cargo test --locked -p fsym-core --test binding_substitution -j1
           cargo test --locked -p fsym-core --test objective_enclosure --test stationary_certificate --test box_extremum --test box_optimization --test root_box_general --test piecewise_certificates -j1
           cargo test --locked -p fsym-core --test root_isolation --test root_box_general --test root_box_certificate -j1
           cargo test --locked -p fsym-core --test parametric_root -j1
@@ -183,8 +184,10 @@ jobs:
           cargo test --locked -p fsym-calculus --test verified_sparse_storage --test verified_artifact_transport -j1
           cargo test --locked -p fsym-calculus --lib compile::shared::tests -j1
           cargo test --locked -p fsym-calculus --test shared_numeric_evaluation --test verified_shared_evaluation -j1
+          cargo test --locked -p fsym-calculus --test metered_verified_compilation -j1
           cargo test --locked -p fsym-durable --no-default-features --lib --test record_boundaries -j1
           cargo test --locked -p frankensympy --lib --test durable_root_search --test repairable_root_search --test search_checkpoint_session -j1
+          cargo test --locked -p frankensympy --test compiled_residual_session -j1
           cargo test --locked -p fsym-numeric-consumer --tests -j1
           cargo test --locked -p fsym-proof-kernel --test elementary_rational_definite -j1
           cargo test --locked -p fsym-calculus --test elementary_rational_definite --test rational_definite --test definite_integration_domains -j1

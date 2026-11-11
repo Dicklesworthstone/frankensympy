@@ -12,9 +12,9 @@
 
 use crate::certification_session::{
     BoxOptimizationId, BoxOptimizationSearchId, CertificationRequest, CertificationResponse,
-    CertificationSessionError, CertificationState, ObjectiveId, ParametricFamilyId,
-    ParametricFamilyReceipt, ParametricProblemId, ParametricSensitivityId, ResidualSystemId,
-    RootCertificateId, RootIsolationId, RootIsolationSearchId, StationaryPointId,
+    CertificationSessionError, CertificationState, CompiledResidualSystemId, ObjectiveId,
+    ParametricFamilyId, ParametricFamilyReceipt, ParametricProblemId, ParametricSensitivityId,
+    ResidualSystemId, RootCertificateId, RootIsolationId, RootIsolationSearchId, StationaryPointId,
 };
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_budget::{Budget, BudgetLimits, Dimension, VerifierLease};
@@ -521,6 +521,15 @@ impl Session {
 
     pub fn residual_problem(&self, id: &ResidualSystemId) -> Option<&crate::ResidualProblem> {
         self.certification.problem(id)
+    }
+
+    /// The admitted sparse program retains its original source and ordered axes.
+    /// Its numerical evaluations are approximate binary64, without a root claim.
+    pub fn compiled_residual_system(
+        &self,
+        id: &CompiledResidualSystemId,
+    ) -> Option<&fsym_calculus::VerifiedResidualSystem> {
+        self.certification.compiled_system(id)
     }
 
     pub fn root_certificate(&self, id: &RootCertificateId) -> Option<&fsym_core::RootBoxReceipt> {
@@ -1105,6 +1114,9 @@ impl Session {
             value.get("type").and_then(serde_json::Value::as_str),
             Some(
                 "RegisterResidualSystem"
+                    | "CompileResidualSystem"
+                    | "EvaluateResidualJacobian"
+                    | "ReleaseCompiledResidualSystem"
                     | "EncloseResidualJacobian"
                     | "CertifyRootBox"
                     | "IsolateRealRootsInBox"

@@ -48,7 +48,9 @@ use std::collections::BTreeMap;
 use std::io::{self, Write};
 use thiserror::Error;
 
+mod compiled;
 mod parametric;
+pub use compiled::{CompiledResidualSystemId, MAX_SESSION_COMPILED_SYSTEMS};
 pub use parametric::{
     ExactParametricRootWitness, ParametricFamilyId, ParametricFamilyReceipt, ParametricProblemId,
     ParametricSensitivityId,
@@ -393,6 +395,24 @@ pub enum ArtifactSource {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", deny_unknown_fields)]
 pub enum CertificationRequest {
+    /// Compile the frozen original source and independently check its symbolic
+    /// sparse Jacobian. This does not certify floating-point evaluation error.
+    CompileResidualSystem {
+        schema_version: u32,
+        system: ResidualSystemId,
+        program: CompiledResidualSystemId,
+    },
+    /// Finite decimal inputs are rounded to binary64. The returned values are
+    /// approximate; exact interval/root operations retain separate contracts.
+    EvaluateResidualJacobian {
+        schema_version: u32,
+        program: CompiledResidualSystemId,
+        point: Vec<String>,
+    },
+    ReleaseCompiledResidualSystem {
+        schema_version: u32,
+        program: CompiledResidualSystemId,
+    },
     RegisterParametricProblem {
         schema_version: u32,
         problem: ParametricProblemId,
@@ -731,7 +751,10 @@ pub enum CertificationRequest {
 impl CertificationRequest {
     fn schema_version(&self) -> u32 {
         match self {
-            Self::RegisterParametricProblem { schema_version, .. }
+            Self::CompileResidualSystem { schema_version, .. }
+            | Self::EvaluateResidualJacobian { schema_version, .. }
+            | Self::ReleaseCompiledResidualSystem { schema_version, .. }
+            | Self::RegisterParametricProblem { schema_version, .. }
             | Self::CertifyParametricRoot { schema_version, .. }
             | Self::CertifyParametricCover { schema_version, .. }
             | Self::EncloseParametricSensitivity { schema_version, .. }
@@ -831,6 +854,35 @@ pub(crate) fn decode_request(
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CertificationResponse {
+    ResidualSystemCompiled {
+        schema_version: u32,
+        system: ResidualSystemId,
+        program: CompiledResidualSystemId,
+        evidence: &'static str,
+        claim: &'static str,
+        variables: Vec<Symbol>,
+        residual_count: usize,
+        jacobian_pattern: Vec<(usize, usize)>,
+        proofs_verified: usize,
+        stored_operations: usize,
+        context_digest: [u8; 32],
+    },
+    ResidualJacobianEvaluated {
+        schema_version: u32,
+        system: ResidualSystemId,
+        program: CompiledResidualSystemId,
+        outcome: &'static str,
+        numeric_model: &'static str,
+        point: Vec<f64>,
+        residuals: Vec<f64>,
+        jacobian_pattern: Vec<(usize, usize)>,
+        jacobian: Vec<f64>,
+        context_digest: [u8; 32],
+    },
+    CompiledResidualSystemReleased {
+        schema_version: u32,
+        program: CompiledResidualSystemId,
+    },
     ParametricProblemRegistered {
         schema_version: u32,
         problem: ParametricProblemId,
@@ -1126,6 +1178,8 @@ pub enum CertificationSessionError {
     DuplicateObject,
     #[error("unknown residual system")]
     UnknownSystem,
+    #[error("unknown compiled residual system")]
+    UnknownCompiledSystem,
     #[error("unknown accepted root certificate")]
     UnknownCertificate,
     #[error("unknown accepted complete root isolation")]
@@ -1160,6 +1214,8 @@ pub enum CertificationSessionError {
         "exact scalar must be a bounded integer, decimal, or integer fraction with nonzero denominator"
     )]
     InvalidScalar,
+    #[error("numerical point requires one bounded finite binary64 decimal per variable")]
+    InvalidNumericPoint,
     #[error("box endpoints are reversed or dimensions are inconsistent")]
     InvalidDomain,
     #[error(
@@ -1174,6 +1230,10 @@ pub enum CertificationSessionError {
     Meter(#[from] MeterError),
     #[error("certification refused: {0}")]
     Certification(#[from] CertificationError),
+    #[error("residual compilation refused: {0}")]
+    Compilation(#[from] fsym_calculus::verified::VerifiedCompilationError),
+    #[error("residual evaluation refused: {0}")]
+    Evaluation(#[from] fsym_calculus::verified::ResidualEvaluationError),
     #[error("integral certification refused: {0}")]
     Integration(#[from] IntegrationError),
     #[error("global box optimization refused: {0}")]
@@ -1196,10 +1256,12 @@ impl CertificationSessionError {
             Self::UnsupportedVersion(_) => "unsupported_schema",
             Self::InvalidLabel
             | Self::InvalidScalar
+            | Self::InvalidNumericPoint
             | Self::InvalidDomain
             | Self::InvalidSearchQuantum => "invalid_input",
             Self::DuplicateObject => "duplicate_object",
             Self::UnknownSystem
+            | Self::UnknownCompiledSystem
             | Self::UnknownCertificate
             | Self::UnknownIsolation
             | Self::UnknownSearch
@@ -1219,6 +1281,8 @@ impl CertificationSessionError {
             Self::Meter(MeterError::Cancelled) => "cancelled",
             Self::Meter(MeterError::Budget(_)) => "budget_exhausted",
             Self::Certification(error) => certification_error_code(error),
+            Self::Compilation(error) => compiled::compilation_error_code(error),
+            Self::Evaluation(error) => compiled::evaluation_error_code(error),
             Self::Integration(error) => integration_error_code(error),
             Self::Optimization(error) => optimization_error_code(error),
             Self::Parametric(error) => parametric::error_code(error),
@@ -1798,6 +1862,7 @@ impl ResidentRootSearch {
 
 #[derive(Default)]
 pub(crate) struct CertificationState {
+    compiled: compiled::CompiledState,
     parametric: parametric::ParametricState,
     objectives: BTreeMap<ObjectiveId, ObjectiveProblem>,
     stationary_points: BTreeMap<StationaryPointId, ResidentStationaryPoint>,
@@ -1821,6 +1886,13 @@ pub(crate) struct CertificationState {
 }
 
 impl CertificationState {
+    pub(crate) fn compiled_system(
+        &self,
+        id: &CompiledResidualSystemId,
+    ) -> Option<&fsym_calculus::VerifiedResidualSystem> {
+        self.compiled.system(id)
+    }
+
     pub(crate) fn parametric_problem(
         &self,
         id: &ParametricProblemId,
@@ -2275,6 +2347,22 @@ impl CertificationState {
             ));
         }
         match request {
+            CertificationRequest::CompileResidualSystem {
+                system, program, ..
+            } => {
+                let problem = self
+                    .systems
+                    .get(&system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                self.compiled
+                    .compile(system, program, problem, context_digest, budget, lease)
+            }
+            CertificationRequest::EvaluateResidualJacobian { program, point, .. } => {
+                self.compiled.evaluate(program, &point, budget)
+            }
+            CertificationRequest::ReleaseCompiledResidualSystem { program, .. } => {
+                self.compiled.release(program, budget)
+            }
             request @ (CertificationRequest::RegisterParametricProblem { .. }
             | CertificationRequest::CertifyParametricRoot { .. }
             | CertificationRequest::CertifyParametricCover { .. }
