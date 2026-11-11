@@ -8,13 +8,20 @@
 use fsym_budget::BudgetMeter;
 use fsym_core::{
     BallError, BigRational, BoxCellEnclosure, BoxExtremumKind, BoxOptimizationError,
-    BoxOptimizationWitness, BoxOptimizationWorkspace, BoxPartitionStep, Expr,
-    MAX_BOX_OPTIMIZATION_DEPTH, MAX_BOX_OPTIMIZATION_LEAVES, RealBall, RootBoxError, Symbol,
+    BoxOptimizationPrepared, BoxOptimizationWitness, BoxOptimizationWorkspace, BoxPartitionStep,
+    Expr, MAX_BOX_OPTIMIZATION_DEPTH, MAX_BOX_OPTIMIZATION_LEAVES, RealBall, RootBoxError, Symbol,
 };
 use num_traits::{Signed, Zero};
+use serde::Serialize;
 use std::cmp::Ordering;
 
 type Result<T> = std::result::Result<T, BoxOptimizationError>;
+
+pub use fsym_core::BoxOptimizationCounters;
+
+/// A single cooperative batch can split at most this many cells. Each split
+/// evaluates both children before the next completed search transition.
+pub const MAX_BOX_OPTIMIZATION_ADVANCE_SPLITS: usize = MAX_BOX_OPTIMIZATION_LEAVES;
 
 /// Absolute accuracy is checked independently from these search limits.
 /// Raising the leaf cap never relaxes the requested global value gap.
@@ -31,6 +38,26 @@ impl Default for BoxOptimizationOptions {
             max_leaves: MAX_BOX_OPTIMIZATION_LEAVES,
         }
     }
+}
+
+/// Candidate-generation state, never an accepted mathematical conclusion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BoxOptimizationSearchStatus {
+    Searching,
+    Complete,
+    Failed,
+}
+
+/// Counts are from completed tree transitions; evaluation_count also includes
+/// attempted evaluations in a transition that failed. Complete means a full
+/// candidate is available for the independent verifier, not that it passed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct BoxOptimizationProgress {
+    pub status: BoxOptimizationSearchStatus,
+    pub leaf_count: usize,
+    pub split_count: usize,
+    pub evaluation_count: usize,
 }
 
 struct Cell {
@@ -403,14 +430,399 @@ fn serialize_partition(
     Ok(partition)
 }
 
+fn check_options(options: BoxOptimizationOptions) -> Result<()> {
+    if !(1..=MAX_BOX_OPTIMIZATION_LEAVES).contains(&options.max_leaves) {
+        return Err(RootBoxError::ResourceLimit(
+            "requested optimization leaf count must be 1 through 1024",
+        )
+        .into());
+    }
+    Ok(())
+}
+
+struct SearchFrontier {
+    nodes: Vec<Node>,
+    heap: Vec<usize>,
+    incumbent: Option<Incumbent>,
+    leaf_count: usize,
+    gap: Option<BigRational>,
+    witness: Option<BoxOptimizationWitness>,
+}
+
+impl SearchFrontier {
+    fn new(
+        workspace: &mut BoxOptimizationWorkspace<'_, impl BudgetMeter>,
+        domain: &[RealBall],
+        kind: BoxExtremumKind,
+        options: BoxOptimizationOptions,
+    ) -> Result<Self> {
+        // Workspace admission has already reserved the bounded tree and heap
+        // storage; rational payloads are charged separately before copying.
+        let mut nodes = reserve(
+            2 * options.max_leaves - 1,
+            "optimization search tree allocation",
+        )?;
+        let mut heap = reserve(options.max_leaves, "optimization priority heap allocation")?;
+        workspace.account(
+            domain.len() as u64 + 1,
+            domain
+                .iter()
+                .map(|value| rational_bytes(value.midpoint()) + rational_bytes(value.radius()))
+                .sum(),
+            4 * domain.len() as u64 + 1,
+        )?;
+        let mut root_domain = reserve(domain.len(), "optimization root domain allocation")?;
+        root_domain.extend(domain.iter().cloned());
+        let mut incumbent = None;
+        let first = evaluate_cell(workspace, root_domain, 0, kind, &mut incumbent)?;
+        nodes.push(Node::Leaf(first));
+        heap.push(0);
+        Ok(Self {
+            nodes,
+            heap,
+            incumbent,
+            leaf_count: 1,
+            gap: None,
+            witness: None,
+        })
+    }
+
+    /// Establish convergence or the next valid split at each batch boundary.
+    /// Every leaf stays in the cover, including leaves unable to improve the
+    /// incumbent. Unknown-domain leaves have priority until discharged.
+    fn settle(
+        &mut self,
+        workspace: &mut BoxOptimizationWorkspace<'_, impl BudgetMeter>,
+        kind: BoxExtremumKind,
+        absolute_tolerance: &BigRational,
+        options: BoxOptimizationOptions,
+    ) -> Result<()> {
+        workspace.account(1, 0, 0)?;
+        self.gap = None;
+        let selected = *self
+            .heap
+            .first()
+            .ok_or(BoxOptimizationError::InvalidPartition(
+                "internal empty proposal heap",
+            ))?;
+        let cell = leaf(&self.nodes, selected)?;
+        if let (Some(bound), Some(best)) = (&cell.optimistic_bound, &self.incumbent) {
+            let gap = match kind {
+                BoxExtremumKind::Minimum => workspace.difference(&best.feasible_bound, bound)?,
+                BoxExtremumKind::Maximum => workspace.difference(bound, &best.feasible_bound)?,
+            };
+            if gap.is_negative() {
+                return Err(BoxOptimizationError::InconsistentEnclosure);
+            }
+            let complete = !workspace.compare(&gap, absolute_tolerance)?.is_gt();
+            self.gap = Some(gap);
+            if complete {
+                let partition = serialize_partition(workspace, &self.nodes)?;
+                let point = copy_point(workspace, &best.point)?;
+                workspace.account(1, 0, 0)?;
+                self.witness = Some(BoxOptimizationWitness {
+                    partition,
+                    point,
+                    precision_digits: options.precision_digits,
+                });
+                return Ok(());
+            }
+        }
+        if self.leaf_count >= options.max_leaves
+            || cell.depth >= MAX_BOX_OPTIMIZATION_DEPTH
+            || cell.split_axis.is_none()
+        {
+            return Err(cell
+                .domain_failure
+                .clone()
+                .unwrap_or(BoxOptimizationError::AccuracyNotReached));
+        }
+        Ok(())
+    }
+
+    fn split(
+        &mut self,
+        workspace: &mut BoxOptimizationWorkspace<'_, impl BudgetMeter>,
+        kind: BoxExtremumKind,
+    ) -> Result<()> {
+        let selected = *self
+            .heap
+            .first()
+            .ok_or(BoxOptimizationError::InvalidPartition(
+                "internal empty proposal heap",
+            ))?;
+        let cell = leaf(&self.nodes, selected)?;
+        let axis = cell
+            .split_axis
+            .ok_or(BoxOptimizationError::AccuracyNotReached)?;
+        let depth = cell.depth + 1;
+        let (left_domain, right_domain) = workspace.bisect(&cell.domain, axis)?;
+        let left = evaluate_cell(workspace, left_domain, depth, kind, &mut self.incumbent)?;
+        let right = evaluate_cell(workspace, right_domain, depth, kind, &mut self.incumbent)?;
+        heap_pop(workspace, &self.nodes, &mut self.heap, kind)?;
+        let left_index = self.nodes.len();
+        let right_index = left_index + 1;
+        self.nodes.push(Node::Leaf(left));
+        self.nodes.push(Node::Leaf(right));
+        self.nodes[selected] = Node::Split {
+            axis,
+            left: left_index,
+            right: right_index,
+        };
+        heap_push(workspace, &self.nodes, &mut self.heap, left_index, kind)?;
+        heap_push(workspace, &self.nodes, &mut self.heap, right_index, kind)?;
+        self.leaf_count += 1;
+        Ok(())
+    }
+
+    fn advance(
+        &mut self,
+        workspace: &mut BoxOptimizationWorkspace<'_, impl BudgetMeter>,
+        kind: BoxExtremumKind,
+        absolute_tolerance: &BigRational,
+        options: BoxOptimizationOptions,
+        max_splits: usize,
+    ) -> Result<()> {
+        for _ in 0..max_splits {
+            self.split(workspace, kind)?;
+            self.settle(workspace, kind, absolute_tolerance, options)?;
+            if self.witness.is_some() {
+                break;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Owned best-first optimization that yields after a bounded number of splits.
+///
+/// Original source, coordinates, exact domain, kind, tolerance and options are
+/// frozen at construction. The same frontier, feasible incumbent and intrinsic
+/// work counters survive every advance. Callers supply their same cumulative
+/// ordinary ledger; verification consumes a separately protected allowance.
+///
+/// Any attempted-work error, including cancellation, makes this search
+/// terminal. A split can then have private partially updated bookkeeping, but
+/// no candidate, bound or resumable frontier is exposed. Subsequent advances
+/// return the stored cause without spending more budget. Invalid batch sizes
+/// are rejected before work and leave a live search unchanged.
+pub struct BoxOptimizationSearch {
+    prepared: BoxOptimizationPrepared,
+    frontier: SearchFrontier,
+    kind: BoxExtremumKind,
+    absolute_tolerance: BigRational,
+    options: BoxOptimizationOptions,
+    failure: Option<BoxOptimizationError>,
+}
+
+impl BoxOptimizationSearch {
+    /// Preflight and freeze the bindings, then evaluate the root cell. A
+    /// monotone or otherwise immediately tight objective may already finish.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        objective: &Expr,
+        variables: &[Symbol],
+        domain: &[RealBall],
+        kind: BoxExtremumKind,
+        absolute_tolerance: &BigRational,
+        options: BoxOptimizationOptions,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<Self> {
+        meter.checkpoint().map_err(RootBoxError::from)?;
+        check_options(options)?;
+        let mut prepared = BoxOptimizationPrepared::new(
+            objective,
+            variables,
+            domain,
+            options.precision_digits,
+            meter,
+        )?;
+        let (absolute_tolerance, frontier) = prepared.with_workspace(meter, |workspace| {
+            if !workspace
+                .compare(absolute_tolerance, &BigRational::zero())?
+                .is_gt()
+            {
+                return Err(BoxOptimizationError::InvalidTolerance);
+            }
+            workspace.account(1, rational_bytes(absolute_tolerance), 2)?;
+            let absolute_tolerance = absolute_tolerance.clone();
+            let mut frontier = SearchFrontier::new(workspace, domain, kind, options)?;
+            frontier.settle(workspace, kind, &absolute_tolerance, options)?;
+            Ok((absolute_tolerance, frontier))
+        })?;
+        Ok(Self {
+            prepared,
+            frontier,
+            kind,
+            absolute_tolerance,
+            options,
+            failure: None,
+        })
+    }
+
+    /// Perform at most max_splits completed bisections. Progress and candidate
+    /// selection do not depend on where successful batches yield. An error is
+    /// terminal, retaining all earlier caller and intrinsic consumption.
+    pub fn advance(
+        &mut self,
+        max_splits: usize,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<BoxOptimizationProgress> {
+        if let Some(error) = &self.failure {
+            return Err(error.clone());
+        }
+        if !(1..=MAX_BOX_OPTIMIZATION_ADVANCE_SPLITS).contains(&max_splits) {
+            return Err(RootBoxError::ResourceLimit(
+                "requested optimization batch must be 1 through 1024 splits",
+            )
+            .into());
+        }
+        if self.frontier.witness.is_some() {
+            return Ok(self.progress());
+        }
+        // Poison before any fallible mutation. Even unwinding leaves a
+        // terminal object; successful work is the only path that clears it.
+        self.failure = Some(BoxOptimizationError::InvalidPartition(
+            "interrupted optimization search transition",
+        ));
+        let result = self.prepared.with_workspace(meter, |workspace| {
+            self.frontier.advance(
+                workspace,
+                self.kind,
+                &self.absolute_tolerance,
+                self.options,
+                max_splits,
+            )
+        });
+        match result {
+            Ok(()) => {
+                self.failure = None;
+                Ok(self.progress())
+            }
+            Err(error) => {
+                self.failure = Some(error.clone());
+                Err(error)
+            }
+        }
+    }
+
+    pub fn progress(&self) -> BoxOptimizationProgress {
+        BoxOptimizationProgress {
+            status: if self.failure.is_some() {
+                BoxOptimizationSearchStatus::Failed
+            } else if self.frontier.witness.is_some() {
+                BoxOptimizationSearchStatus::Complete
+            } else {
+                BoxOptimizationSearchStatus::Searching
+            },
+            leaf_count: self.frontier.leaf_count,
+            split_count: self.frontier.leaf_count - 1,
+            evaluation_count: self.prepared.counters().evaluations,
+        }
+    }
+
+    /// Borrow only a completed candidate. Independent replay is still needed
+    /// before publishing an accepted result; this read consumes no allowance.
+    pub fn completed_witness(&self) -> Option<&BoxOptimizationWitness> {
+        if self.failure.is_some() {
+            None
+        } else {
+            self.frontier.witness.as_ref()
+        }
+    }
+
+    /// Move out a completed candidate without cloning its bounded buffers.
+    pub fn into_completed_witness(self) -> Option<BoxOptimizationWitness> {
+        if self.failure.is_some() {
+            None
+        } else {
+            self.frontier.witness
+        }
+    }
+
+    pub fn failure(&self) -> Option<&BoxOptimizationError> {
+        self.failure.as_ref()
+    }
+
+    pub fn objective(&self) -> &Expr {
+        self.prepared.objective()
+    }
+
+    pub fn variables(&self) -> &[Symbol] {
+        self.prepared.variables()
+    }
+
+    pub fn domain(&self) -> &[RealBall] {
+        self.prepared.domain()
+    }
+
+    pub fn kind(&self) -> BoxExtremumKind {
+        self.kind
+    }
+
+    pub fn absolute_tolerance(&self) -> &BigRational {
+        &self.absolute_tolerance
+    }
+
+    pub fn options(&self) -> BoxOptimizationOptions {
+        self.options
+    }
+
+    pub fn counters(&self) -> BoxOptimizationCounters {
+        self.prepared.counters()
+    }
+
+    /// The current exact feasible point proposal, without accepted evidence.
+    pub fn incumbent_point(&self) -> Option<&[BigRational]> {
+        if self.failure.is_some() {
+            None
+        } else {
+            self.frontier
+                .incumbent
+                .as_ref()
+                .map(|best| best.point.as_slice())
+        }
+    }
+
+    /// Candidate feasible upper bound for a minimum, lower bound for a maximum.
+    pub fn incumbent_bound(&self) -> Option<&BigRational> {
+        if self.failure.is_some() {
+            None
+        } else {
+            self.frontier
+                .incumbent
+                .as_ref()
+                .map(|best| &best.feasible_bound)
+        }
+    }
+
+    /// Candidate global lower bound for a minimum, upper bound for a maximum.
+    /// An unresolved original-source domain obligation makes it unavailable.
+    pub fn optimistic_bound(&self) -> Option<&BigRational> {
+        if self.failure.is_some() {
+            return None;
+        }
+        match self.frontier.nodes.get(*self.frontier.heap.first()?)? {
+            Node::Leaf(cell) => cell.optimistic_bound.as_ref(),
+            Node::Split { .. } => None,
+        }
+    }
+
+    /// Candidate value gap at the last complete transition, never a receipt.
+    pub fn value_gap(&self) -> Option<&BigRational> {
+        if self.failure.is_some() {
+            None
+        } else {
+            self.frontier.gap.as_ref()
+        }
+    }
+}
+
 /// Propose a complete finite-box partition and an exact feasible point.
 ///
-/// Best-first search compares original-source interval bounds to the best
-/// feasible point enclosure. A cell with unresolved domain obligations must
-/// be subdivided even when another cell already attains a promising value.
-/// Cancellation and resource/unsupported errors are never retried, and a
-/// failed accuracy or depth limit produces no partial witness. All searches,
-/// point proposals and bookkeeping share one cumulative source workspace.
+/// This blocking convenience function drives the same bounded continuation
+/// used by interactive callers. All work remains cumulative, all cells stay
+/// covered, and only the independent core verifier may accept the witness.
 #[allow(clippy::too_many_arguments)]
 pub fn propose_box_optimization(
     objective: &Expr,
@@ -421,98 +833,19 @@ pub fn propose_box_optimization(
     options: BoxOptimizationOptions,
     meter: &mut impl BudgetMeter,
 ) -> Result<BoxOptimizationWitness> {
-    meter.checkpoint().map_err(RootBoxError::from)?;
-    if !(1..=MAX_BOX_OPTIMIZATION_LEAVES).contains(&options.max_leaves) {
-        return Err(RootBoxError::ResourceLimit(
-            "requested optimization leaf count must be 1 through 1024",
-        )
-        .into());
-    }
-    let mut workspace = BoxOptimizationWorkspace::new(
+    let mut search = BoxOptimizationSearch::new(
         objective,
         variables,
         domain,
-        options.precision_digits,
+        kind,
+        absolute_tolerance,
+        options,
         meter,
     )?;
-    if !workspace
-        .compare(absolute_tolerance, &BigRational::zero())?
-        .is_gt()
-    {
-        return Err(BoxOptimizationError::InvalidTolerance);
+    while search.completed_witness().is_none() {
+        search.advance(MAX_BOX_OPTIMIZATION_ADVANCE_SPLITS, meter)?;
     }
-    let mut nodes = reserve(
-        2 * options.max_leaves - 1,
-        "optimization search tree allocation",
-    )?;
-    let mut heap = reserve(options.max_leaves, "optimization priority heap allocation")?;
-    workspace.account(
-        domain.len() as u64 + 1,
-        domain
-            .iter()
-            .map(|value| rational_bytes(value.midpoint()) + rational_bytes(value.radius()))
-            .sum(),
-        4 * domain.len() as u64 + 1,
-    )?;
-    let mut incumbent = None;
-    let first = evaluate_cell(&mut workspace, domain.to_vec(), 0, kind, &mut incumbent)?;
-    nodes.push(Node::Leaf(first));
-    heap.push(0);
-    let mut leaf_count = 1usize;
-    loop {
-        workspace.account(1, 0, 0)?;
-        let selected = *heap.first().ok_or(BoxOptimizationError::InvalidPartition(
-            "internal empty proposal heap",
-        ))?;
-        let cell = leaf(&nodes, selected)?;
-        if let (Some(bound), Some(best)) = (&cell.optimistic_bound, &incumbent) {
-            let gap = match kind {
-                BoxExtremumKind::Minimum => workspace.difference(&best.feasible_bound, bound)?,
-                BoxExtremumKind::Maximum => workspace.difference(bound, &best.feasible_bound)?,
-            };
-            if gap.is_negative() {
-                return Err(BoxOptimizationError::InconsistentEnclosure);
-            }
-            if !workspace.compare(&gap, absolute_tolerance)?.is_gt() {
-                let partition = serialize_partition(&mut workspace, &nodes)?;
-                let best = incumbent.ok_or(BoxOptimizationError::InconsistentEnclosure)?;
-                let witness = BoxOptimizationWitness {
-                    partition,
-                    point: best.point,
-                    precision_digits: options.precision_digits,
-                };
-                workspace.account(1, 0, 0)?;
-                return Ok(witness);
-            }
-        }
-        if leaf_count >= options.max_leaves
-            || cell.depth >= MAX_BOX_OPTIMIZATION_DEPTH
-            || cell.split_axis.is_none()
-        {
-            return Err(cell
-                .domain_failure
-                .clone()
-                .unwrap_or(BoxOptimizationError::AccuracyNotReached));
-        }
-        let axis = cell
-            .split_axis
-            .ok_or(BoxOptimizationError::AccuracyNotReached)?;
-        let depth = cell.depth + 1;
-        let (left_domain, right_domain) = workspace.bisect(&cell.domain, axis)?;
-        heap_pop(&mut workspace, &nodes, &mut heap, kind)?;
-        let left = evaluate_cell(&mut workspace, left_domain, depth, kind, &mut incumbent)?;
-        let right = evaluate_cell(&mut workspace, right_domain, depth, kind, &mut incumbent)?;
-        let left_index = nodes.len();
-        let right_index = left_index + 1;
-        nodes.push(Node::Leaf(left));
-        nodes.push(Node::Leaf(right));
-        nodes[selected] = Node::Split {
-            axis,
-            left: left_index,
-            right: right_index,
-        };
-        heap_push(&mut workspace, &nodes, &mut heap, left_index, kind)?;
-        heap_push(&mut workspace, &nodes, &mut heap, right_index, kind)?;
-        leaf_count += 1;
-    }
+    search
+        .into_completed_witness()
+        .ok_or(BoxOptimizationError::InconsistentEnclosure)
 }

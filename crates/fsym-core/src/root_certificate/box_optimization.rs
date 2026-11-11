@@ -17,6 +17,7 @@ use fsym_budget::{BudgetMeter, Unbounded};
 use num_traits::{Signed, Zero};
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use std::cmp::Ordering;
+use std::sync::Arc;
 use thiserror::Error;
 
 pub const MAX_BOX_OPTIMIZATION_LEAVES: usize = 1024;
@@ -188,6 +189,200 @@ pub struct BoxOptimizationWorkspace<'a, M> {
     domain: &'a [RealBall],
     work: Work<'a, M>,
     evaluations: usize,
+}
+
+/// Intrinsic consumption retained by an in-memory optimization search.
+/// These counters describe attempted work, not a transferable allowance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct BoxOptimizationCounters {
+    pub steps: u64,
+    pub allocation_bytes: u64,
+    pub source_bytes: u64,
+    pub evaluations: usize,
+}
+
+/// Owned original syntax and cumulative work for a paused optimization.
+///
+/// Only the per-traversal node count restarts when borrowing a workspace.
+/// Scratch admission, arithmetic, allocations and evaluations persist across
+/// every batch, including refusals. The caller must keep using its cumulative
+/// resource ledger; this object neither creates nor restores an allowance.
+/// It cannot issue an accepted optimization receipt.
+pub struct BoxOptimizationPrepared {
+    objective: Expr,
+    variables: Vec<Symbol>,
+    domain: Vec<RealBall>,
+    precision_digits: u32,
+    counters: BoxOptimizationCounters,
+}
+
+struct PreparedWorkspace<'a, 'state, M> {
+    workspace: BoxOptimizationWorkspace<'a, M>,
+    counters: &'state mut BoxOptimizationCounters,
+}
+
+impl<M> Drop for PreparedWorkspace<'_, '_, M> {
+    fn drop(&mut self) {
+        self.counters.steps = self.workspace.work.steps;
+        self.counters.allocation_bytes = self.workspace.work.allocation_bytes;
+        self.counters.source_bytes = self.workspace.work.source_bytes;
+        self.counters.evaluations = self.workspace.evaluations;
+    }
+}
+
+impl BoxOptimizationPrepared {
+    /// Freeze the preflighted source without retaining caller-owned operand
+    /// buffers. Raw operand order, hidden domain obligations and typed symbol
+    /// identities survive the copy.
+    pub fn new(
+        objective: &Expr,
+        variables: &[Symbol],
+        domain: &[RealBall],
+        precision_digits: u32,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<Self> {
+        let mut workspace =
+            BoxOptimizationWorkspace::new(objective, variables, domain, precision_digits, meter)?;
+        let copied_objective = copy_source(objective, &mut workspace.work)?;
+        workspace.work.charge(
+            variables.len() as u64 + domain.len() as u64 + 1,
+            binding_bytes(variables, domain)
+                + (std::mem::size_of_val(variables) + std::mem::size_of_val(domain)) as u64,
+            2 + variables.len() as u64 + 4 * domain.len() as u64,
+        )?;
+        let mut copied_variables = Vec::new();
+        copied_variables
+            .try_reserve_exact(variables.len())
+            .map_err(|_| RootBoxError::ResourceLimit("optimization variable allocation"))?;
+        copied_variables.extend(variables.iter().cloned());
+        let mut copied_domain = Vec::new();
+        copied_domain
+            .try_reserve_exact(domain.len())
+            .map_err(|_| RootBoxError::ResourceLimit("optimization domain allocation"))?;
+        copied_domain.extend(domain.iter().cloned());
+        workspace.account(1, 0, 0)?;
+        Ok(Self {
+            objective: copied_objective,
+            variables: copied_variables,
+            domain: copied_domain,
+            precision_digits,
+            counters: BoxOptimizationCounters {
+                steps: workspace.work.steps,
+                allocation_bytes: workspace.work.allocation_bytes,
+                source_bytes: workspace.work.source_bytes,
+                evaluations: workspace.evaluations,
+            },
+        })
+    }
+
+    pub fn objective(&self) -> &Expr {
+        &self.objective
+    }
+
+    pub fn variables(&self) -> &[Symbol] {
+        &self.variables
+    }
+
+    pub fn domain(&self) -> &[RealBall] {
+        &self.domain
+    }
+
+    pub fn precision_digits(&self) -> u32 {
+        self.precision_digits
+    }
+
+    pub fn counters(&self) -> BoxOptimizationCounters {
+        self.counters
+    }
+
+    /// Reuse only this object's immutable, preflighted source and all admitted
+    /// work. A drop guard records every updated counter before success,
+    /// refusal or unwinding, so changing batch size cannot refresh the caps.
+    pub fn with_workspace<M: BudgetMeter, T>(
+        &mut self,
+        meter: &mut M,
+        operation: impl FnOnce(&mut BoxOptimizationWorkspace<'_, M>) -> Result<T>,
+    ) -> Result<T> {
+        let workspace = BoxOptimizationWorkspace {
+            objective: &self.objective,
+            variables: &self.variables,
+            domain: &self.domain,
+            work: Work {
+                meter,
+                nodes: 0,
+                precision: self.precision_digits,
+                steps: self.counters.steps,
+                allocation_bytes: self.counters.allocation_bytes,
+                source_bytes: self.counters.source_bytes,
+            },
+            evaluations: self.counters.evaluations,
+        };
+        let mut borrowed = PreparedWorkspace {
+            workspace,
+            counters: &mut self.counters,
+        };
+        // A meter borrow is a cancellation boundary, not new mathematical
+        // work. Charging the actual operations inside the closure keeps the
+        // intrinsic totals independent of a caller's successful batch size.
+        borrowed
+            .workspace
+            .work
+            .meter
+            .checkpoint()
+            .map_err(RootBoxError::from)?;
+        operation(&mut borrowed.workspace)
+    }
+}
+
+// validate_inputs bounded the source's size and depth before this copy. Do
+// not use Expr::clone: Pow arcs could keep caller buffers with arbitrary
+// spare capacity alive. Rebuild the original syntax, without simplification.
+fn copy_sources(sources: &[Expr], work: &mut Work<'_, impl BudgetMeter>) -> Result<Vec<Expr>> {
+    work.charge(1, std::mem::size_of_val(sources) as u64, 1)?;
+    let mut copied = Vec::new();
+    copied
+        .try_reserve_exact(sources.len())
+        .map_err(|_| RootBoxError::ResourceLimit("optimization source allocation"))?;
+    for source in sources {
+        copied.push(copy_source(source, work)?);
+    }
+    Ok(copied)
+}
+
+fn copy_source(source: &Expr, work: &mut Work<'_, impl BudgetMeter>) -> Result<Expr> {
+    work.charge(1, size_of::<Expr>() as u64, 1)?;
+    Ok(match source {
+        Expr::Sym(symbol) => {
+            work.charge(1, symbol.name.len() as u64, 1)?;
+            Expr::Sym(symbol.clone())
+        }
+        Expr::Integer(value) => {
+            work.charge(1, 16 * value.limb_count(), 1)?;
+            Expr::Integer(value.clone())
+        }
+        Expr::Rational(value) => {
+            work.charge(1, 16 * rational_limbs(value), 2)?;
+            Expr::Rational(value.clone())
+        }
+        Expr::Const(value) => Expr::Const(*value),
+        Expr::Add(children) => Expr::Add(copy_sources(children, work)?),
+        Expr::Mul(children) => Expr::Mul(copy_sources(children, work)?),
+        Expr::Pow(base, exponent) => {
+            work.charge(
+                1,
+                2 * (size_of::<Expr>() + 2 * size_of::<usize>()) as u64,
+                2,
+            )?;
+            Expr::Pow(
+                Arc::new(copy_source(base, work)?),
+                Arc::new(copy_source(exponent, work)?),
+            )
+        }
+        Expr::Function(name, children) => {
+            work.charge(1, name.len() as u64, 1)?;
+            Expr::Function(name.clone(), copy_sources(children, work)?)
+        }
+    })
 }
 
 impl<'a, M: BudgetMeter> BoxOptimizationWorkspace<'a, M> {
