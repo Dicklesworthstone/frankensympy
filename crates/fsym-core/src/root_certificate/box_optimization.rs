@@ -8,12 +8,14 @@
 
 use super::objective::{ObjectiveJet, evaluate_objective};
 use super::{
-    BoxExtremumKind, RootBoxError, Work, binding_bytes, check_ball, check_rational, checked,
-    rational_limbs, validate_inputs,
+    Bounded, BoundedRational, BoxExtremumKind, MAX_ROOT_BOX_PRECISION, MAX_ROOT_BOX_VARIABLES,
+    RootBoxError, Work, binding_bytes, check_ball, check_rational, checked, rational_limbs,
+    validate_inputs,
 };
 use crate::{BigRational, Expr, RealBall, Symbol};
 use fsym_budget::{BudgetMeter, Unbounded};
 use num_traits::{Signed, Zero};
+use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use std::cmp::Ordering;
 use thiserror::Error;
 
@@ -25,18 +27,52 @@ const MAX_EVALUATIONS: usize = 6 * MAX_BOX_OPTIMIZATION_LEAVES + 8;
 /// A preorder binary partition. A split creates both closed half-boxes at
 /// the exact midpoint of the selected coordinate, with the left child first.
 /// Shared faces are intentional; gaps or omitted children are not admitted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum BoxPartitionStep {
     Leaf,
     Split { axis: usize },
 }
 
 /// Untrusted proposal, with no supplied values, derivatives or error bounds.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BoxOptimizationWitness {
     pub partition: Vec<BoxPartitionStep>,
     pub point: Vec<BigRational>,
     pub precision_digits: u32,
+}
+
+// Sequence lengths and integer limbs are checked before constructing any
+// excess element or normalizing a rational. Decoding admits only a bounded
+// candidate; coverage, feasibility, domains and accuracy still require the
+// independent verifier and the receiver's original objective and box.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WitnessWire {
+    partition: Bounded<BoxPartitionStep, MAX_BOX_OPTIMIZATION_NODES>,
+    point: Bounded<BoundedRational, MAX_ROOT_BOX_VARIABLES>,
+    precision_digits: u32,
+}
+
+impl<'de> Deserialize<'de> for BoxOptimizationWitness {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        let wire = WitnessWire::deserialize(deserializer)?;
+        if wire.partition.0.is_empty() || wire.point.0.is_empty() {
+            return Err(D::Error::custom(
+                "empty box-optimization partition or point",
+            ));
+        }
+        if !(8..=MAX_ROOT_BOX_PRECISION).contains(&wire.precision_digits) {
+            return Err(D::Error::custom(
+                "box-optimization precision outside 8 through 128",
+            ));
+        }
+        Ok(Self {
+            partition: wire.partition.0,
+            point: wire.point.0.into_iter().map(|value| value.0).collect(),
+            precision_digits: wire.precision_digits,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]

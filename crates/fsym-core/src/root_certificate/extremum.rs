@@ -8,10 +8,12 @@ use super::{RootBoxError, Work, binding_bytes, check_rational, rational_limbs, v
 use crate::{BigRational, Expr, RealBall, Symbol};
 use fsym_budget::{BudgetMeter, Unbounded};
 use num_traits::{Signed, Zero};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Which global inequality is checked on the complete declared box.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum BoxExtremumKind {
     Minimum,
     Maximum,
