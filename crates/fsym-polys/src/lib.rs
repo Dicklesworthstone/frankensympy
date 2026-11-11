@@ -19,6 +19,7 @@ pub mod finite_field_ideal;
 pub mod finite_field_ideal_inverse;
 pub mod finite_field_ideal_quotient;
 pub mod finite_field_multivariate;
+pub mod finite_field_multivariate_gcd;
 pub mod finite_field_multivariate_source;
 pub mod finite_field_quotient_algebra;
 pub mod finite_field_quotient_minpoly;
@@ -63,6 +64,7 @@ pub use finite_field_ideal::*;
 pub use finite_field_ideal_inverse::*;
 pub use finite_field_ideal_quotient::*;
 pub use finite_field_multivariate::*;
+pub use finite_field_multivariate_gcd::*;
 pub use finite_field_multivariate_source::{
     VerifiedPrimeFieldMultivariateSource, checked_prime_field_multivariate_source,
     verify_prime_field_multivariate_source,

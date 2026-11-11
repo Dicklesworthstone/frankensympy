@@ -370,7 +370,7 @@ def test_noncommutative_declarations_never_enter_a_commutative_field_ring(monkey
 
 
 @pytest.mark.parametrize("operation", [
-    lambda p, q: p.gcd(q), lambda p, q: p.lcm(q), lambda p, q: p.gcdex(q),
+    lambda p, q: p.gcdex(q),
     lambda p, q: p.invert(q), lambda p, q: p.factor_list(), lambda p, q: p.sqf_list(),
     lambda p, q: p.resultant(q), lambda p, q: p.discriminant(),
     lambda p, q: p.compose(q), lambda p, q: p.shift(2),
@@ -617,7 +617,7 @@ def test_budget_and_verifier_failures_do_not_restart_in_another_domain(monkeypat
 
 @pytest.mark.parametrize("operation,count,orders,order", [
     ("add", 1, None, "lex"), ("normalize", 2, None, "lex"),
-    ("reduced", 34, None, "lex"), ("gcd", 2, None, "lex"),
+    ("reduced", 34, None, "lex"), ("gcd", 1, None, "lex"),
     ("diff", 1, [], "lex"), ("normalize", 1, [0, 0], "lex"),
     ("normalize", 1, None, "unknown"),
     ("divrem", 2, None, "grlex"), ("divrem", 2, None, "grevlex"),

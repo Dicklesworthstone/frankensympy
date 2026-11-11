@@ -15,8 +15,8 @@ use fsym_core::{Expr, Symbol};
 use fsym_polys::{
     PrimeFieldMultivariateOperation as Op, PrimeFieldMultivariatePolynomial as Polynomial,
     TermOrder, checked_prime_field_evaluation, checked_prime_field_multivariate_arithmetic,
-    checked_prime_field_multivariate_division, checked_prime_field_multivariate_source,
-    checked_prime_field_recursive_division,
+    checked_prime_field_multivariate_division, checked_prime_field_multivariate_gcd,
+    checked_prime_field_multivariate_source, checked_prime_field_recursive_division,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -224,7 +224,7 @@ pub fn prime_field_multivariate_native(
     let term_order = self::order(order)?;
     let valid_count = match operation {
         "reduced" => (1..=33).contains(&sources.len()),
-        "add" | "sub" | "mul" | "divrem" => sources.len() == 2,
+        "add" | "sub" | "mul" | "divrem" | "gcd" | "lcm" => sources.len() == 2,
         "normalize" | "neg" | "monic" | "pow" | "diff" => sources.len() == 1,
         _ => false,
     };
@@ -233,9 +233,9 @@ pub fn prime_field_multivariate_native(
             "unsupported multivariate prime-field operation or operand count",
         ));
     }
-    if operation == "divrem" && term_order != TermOrder::Lex {
+    if matches!(operation, "divrem" | "gcd" | "lcm") && term_order != TermOrder::Lex {
         return Err(PyValueError::new_err(
-            "recursive polynomial division uses the declared generator order",
+            "polynomial division and GCD/LCM use the declared generator order",
         ));
     }
     let (mut generator, mut verifier) = (budget(), budget());
@@ -269,7 +269,7 @@ pub fn prime_field_multivariate_native(
                     .collect::<PyResult<Vec<_>>>()?,
             ))
         }
-        "divrem" | "reduced" => None,
+        "divrem" | "reduced" | "gcd" | "lcm" => None,
         _ => unreachable!("operation and operand count were admitted"),
     };
     if operation != "diff" && derivative_orders.is_some() {
@@ -313,6 +313,20 @@ pub fn prime_field_multivariate_native(
         )
         .map_err(polynomial_error)?;
         output.push(lift(accepted.result(), symmetric, &mut generator)?);
+    } else if matches!(operation, "gcd" | "lcm") {
+        let accepted = checked_prime_field_multivariate_gcd(
+            &polynomials[0],
+            &polynomials[1],
+            &mut generator,
+            &mut verifier,
+        )
+        .map_err(polynomial_error)?;
+        let result = if operation == "gcd" {
+            accepted.gcd()
+        } else {
+            accepted.lcm()
+        };
+        output.push(lift(result, symmetric, &mut generator)?);
     } else if operation == "divrem" && !variables.is_empty() {
         // Poly.div recursively divides in the first declared variable over
         // the polynomial ring in the rest. A coefficient obstruction stops

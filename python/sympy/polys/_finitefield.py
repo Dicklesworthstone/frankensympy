@@ -198,7 +198,7 @@ def _call(request, prime, symmetric, operation, parameter=0,
     try:
         if len(request.gens) != 1 or operation == "reduced":
             if operation not in ("normalize", "neg", "add", "sub", "mul", "monic",
-                                  "pow", "diff", "divrem", "reduced"):
+                                  "pow", "diff", "divrem", "reduced", "gcd", "lcm"):
                 raise NotImplementedError(
                     "%s is not implemented for multivariate prime-field Poly" % operation)
             result = _native.prime_field_multivariate_native(
