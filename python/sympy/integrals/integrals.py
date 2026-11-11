@@ -3,15 +3,17 @@
 ``Integral(f, (x, a, b), ...)`` has args
 ``(f, Tuple(x, a, b), ...)`` (or ``Tuple(x)`` for an indefinite limit).
 An indefinite integration coordinate remains free, even for a constant
-integrand. A definite limit binds its coordinate in the integrand and
-all earlier limits, while its own endpoints remain outside that scope.
+integrand. Definite limits and evaluation limits ``Tuple(x, point)`` bind
+their coordinate in the integrand and all earlier limits. Their own
+endpoints remain outside that scope. Public substitution is owned by the
+shell so profile-visible binding behavior survives native arithmetic.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from ..core import Function, Symbol, Tuple, sympify
+from ..core import AppliedUndef, Function, Symbol, Tuple, sympify
 
 
 def _limit_tuple(lim: Any) -> Any:
@@ -23,8 +25,8 @@ def _limit_tuple(lim: Any) -> Any:
         items = (sympify(lim),)
     if not items or not isinstance(items[0], Symbol):
         raise ValueError("Invalid limits given: %s" % (lim,))
-    if len(items) not in (1, 3):
-        raise ValueError("integration limits must be (x,) or (x, a, b): %s" % (lim,))
+    if len(items) not in (1, 2, 3):
+        raise ValueError("integration limits must be (x,), (x, p), or (x, a, b): %s" % (lim,))
     return Tuple(*items)
 
 
@@ -35,9 +37,7 @@ class Integral(Function):
 
     def __new__(cls, function: Any, *limits: Any, evaluate: bool = False, **options: Any):
         if evaluate:
-            from .. import integrate
-
-            return integrate(function, *limits)
+            return cls(function, *limits, evaluate=False, **options).doit()
         function = sympify(function)
         lims = [_limit_tuple(lim) for lim in limits]
         if isinstance(function, Integral):
@@ -86,13 +86,75 @@ class Integral(Function):
     def is_number(self) -> bool:
         return not self.free_symbols
 
+    def _eval_subs(self, old: Any, new: Any) -> Any:
+        """Substitute from the outermost limit inward using public scopes.
+
+        Endpoints are outside their own binding scope. An indefinite
+        coordinate may be renamed to a symbol, while replacement by a value
+        evaluates the primitive there. Compound substitutions cannot replace
+        occurrences involving an integration coordinate in the integrand.
+        """
+        limits = list(self.limits)
+        blocked = False
+        old_symbols = old.free_symbols
+        for index in range(len(limits) - 1, -1, -1):
+            if blocked:
+                break
+            limit = limits[index]
+            variable = limit[0]
+            if len(limit) == 1 and old == variable:
+                if isinstance(new, Symbol):
+                    limits[index] = (new,)
+                else:
+                    limits[index] = (variable, new)
+                    blocked = True
+                continue
+            bounds = tuple(bound.subs(old, new) for bound in limit[1:])
+            limits[index] = (variable, *bounds)
+            if variable in old_symbols:
+                blocked = True
+
+        if isinstance(old, AppliedUndef):
+            # Replacing an unknown function is allowed under an integral,
+            # provided its explicit arguments already name any integration
+            # coordinates used by the replacement.
+            coordinates = set(self.variables)
+            introduced = coordinates.intersection(new.atoms(Symbol))
+            permitted = coordinates.intersection(old.args)
+            if not introduced.issubset(permitted):
+                raise ValueError("substitution cannot create dummy dependencies")
+            blocked = False
+
+        limits = [
+            (limit[0],) if len(limit) == 2 and limit[1] == limit[0] else limit
+            for limit in limits
+        ]
+        function = self.function if blocked else self.function.subs(old, new)
+        if function is self.function and tuple(limits) == self.limits:
+            return self
+        return self.func(function, *limits)
+
     def doit(self, **hints: Any) -> Any:
         from .. import integrate
 
         func = self.function
         if hints.get("deep", True) and hasattr(func, "doit"):
             func = func.doit(**hints)
-        return integrate(func, *self.limits)
+        limits = self.limits
+        if all(len(limit) != 2 for limit in limits):
+            return integrate(func, *limits)
+        for index, limit in enumerate(limits):
+            if len(limit) == 2:
+                variable, point = limit
+                primitive = integrate(func, variable)
+                if isinstance(primitive, Integral):
+                    # Retain the evaluation point and remaining scopes if
+                    # the existing integration engine cannot find a primitive.
+                    return self.func(func, *limits[index:])
+                func = primitive.subs(variable, point)
+            else:
+                func = integrate(func, limit)
+        return func
 
 
 __all__ = ["Integral"]

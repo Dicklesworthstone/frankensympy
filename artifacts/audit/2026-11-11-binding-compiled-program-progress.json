@@ -1,0 +1,256 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-11-11T20:38:00Z",
+  "disposition": "implemented_uncertified; scoped validation only; no workstream, campaign, profile or independent-gate closure",
+  "repository": "Dicklesworthstone/frankensympy",
+  "integration_base": "7576e521ccce3dac563bc404e207524e780b7ac0",
+  "published_implementation_commits": [
+    {
+      "sha": "a48109ae74e911b00e9d507a03dac58967b3398d",
+      "purpose": "Iterative scope-aware and capture-avoiding native substitution, typed identities and original-subtree compound matching."
+    },
+    {
+      "sha": "f16519e8b3b8af4e9efcbea7e4560c9905ad8ec7",
+      "purpose": "Registered Gaussian function identity, original-source numerical grammar and zero-root witness bracketing."
+    },
+    {
+      "sha": "79494e717c3c2d4b0be34b2130d0041f77b9d52a",
+      "purpose": "Metered sparse Jacobian generation, replay/completeness checking, bytecode admission and shared-plan construction."
+    },
+    {
+      "sha": "7576e521ccce3dac563bc404e207524e780b7ac0",
+      "purpose": "Compile/evaluate/release residual and sparse Jacobian programs through Rust Session and NDJSON."
+    }
+  ],
+  "current_commit_implementation": [
+    "Public Integral substitution respects flat nested scopes, indefinite coordinate renaming, primitive evaluation limits, exact symbol identities and explicit unknown-function dependencies.",
+    "Integral(f, (x, point)) and integrate(f, (x, point)) evaluate supported primitives; unknown primitives retain the original point and remaining limits.",
+    "Native single-point Integral differentiation applies chain and parameter rules with exact coordinate identity.",
+    "Simultaneous substitutions use compound opaque placeholders restored in one structural pass; evaluated literal zero/infinity and literal NaN products reuse the public nan singleton.",
+    "Literal folding admits exact native numeric/constant atoms only; held, symbolic, opaque and composite original-source domain trees retain their existing paths.",
+    "Final independent review replaced arbitrary numerator export with native Integer/Rational zero comparisons, retaining raw rational-zero coverage without imposing the Python integer-conversion ceiling on multiplication."
+  ],
+  "current_source_git_blobs": [
+    {
+      "path": "crates/fsym-calculus/src/lib.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b3edf2d5e6f1850004cd381452e2a874ffd7b179"
+    },
+    {
+      "path": "crates/fsym-calculus/tests/integral_evaluation_points.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4a49a01ab65ba0d62d8d59da0d79326c144eb59f"
+    },
+    {
+      "path": "python/sympy/__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f831d667e0e2ce5310f4913ee255a886aaa93d00"
+    },
+    {
+      "path": "python/sympy/core/__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fe5b58d1a51d0b90bcfb501c6cf464de66ffed55"
+    },
+    {
+      "path": "python/sympy/integrals/integrals.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "09dfa58701c1aedcf85e8a72af4ddec687632117"
+    },
+    {
+      "path": "python/tests/test_integral_substitution.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bc5e008bbfe6faa344410018080cd197eb2e9a0a"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5bc16cd20b18322fda894cdaf9ae08c771ad441f"
+    }
+  ],
+  "validation": [
+    {
+      "area": "native core",
+      "commands": [
+        "cargo test -p fsym-core --locked"
+      ],
+      "observed_result": "exit 0; 130 library unit tests and all integration/doc targets passed, including the 19 new binding-substitution tests",
+      "additional_observations": [
+        "19 binding tests separately passed twice",
+        "105 independent finite-sum comparisons passed",
+        "16,384 flat limits and 4,096 capturing repeated binders exercised"
+      ],
+      "binding_source_blob": "6e67a1353ebcaf0726876c42300640190ff4f5dc",
+      "limitation": "The subsequently started core Clippy run was interrupted before completion; it is not a pass."
+    },
+    {
+      "area": "native metered compilation",
+      "commands": [
+        "cargo test --locked -p fsym-calculus --test metered_verified_compilation --test verified_shared_evaluation --test sparse_dependency_trust --test sparse_jacobian_trust --test metered_compilation --test metered_sparse_derivatives --test verified_sparse_storage --test verified_sparse_products",
+        "cargo clippy --locked -p fsym-calculus --no-deps --lib --test metered_verified_compilation -- -D warnings"
+      ],
+      "observed_result": "74 tests across eight targets passed; strict scoped Clippy passed",
+      "test_target_counts": {
+        "metered_compilation": 11,
+        "metered_sparse_derivatives": 10,
+        "metered_verified_compilation": 4,
+        "sparse_dependency_trust": 13,
+        "sparse_jacobian_trust": 10,
+        "verified_shared_evaluation": 4,
+        "verified_sparse_products": 12,
+        "verified_sparse_storage": 10
+      },
+      "limits": "Logical kernel work envelopes are bounded; no wall-clock deadline or performance improvement is established."
+    },
+    {
+      "area": "native point differentiation",
+      "commands": [
+        "cargo test --locked -p fsym-calculus --test integral_evaluation_points"
+      ],
+      "observed_result": "3 tests passed; actual production calculus source blob b3edf2d5e6f1850004cd381452e2a874ffd7b179",
+      "preserved_initial_failure": "First run had one passing and two failing tests because the raw parser's Add ordering differed from diff's existing simplifier normal form. Expected hand-derived formulas were unchanged; expected expressions now pass through the existing simplify function. The complete three-test target then passed.",
+      "reconstruction": "The source and test files were reconstructed from captured content after executor loss. The production source Git blob matches the previously observed tested-source prefix b3edf2d."
+    },
+    {
+      "area": "compiled Session and actual CLI",
+      "commands": [
+        "cargo test --offline --locked --test compiled_residual_session",
+        "cargo clippy --offline --locked -p frankensympy-session-source-component-check --no-deps --lib --bin frankensympy --test compiled_residual_session -- -D warnings"
+      ],
+      "observed_result": "8 typed/wire/fresh-process tests and strict scoped root library/binary/test Clippy passed",
+      "scope": "Exact unchanged root source targets and complete mathematical dependencies, five complete runtime modules, fourteen pinned donor codec modules; no replacement mathematical or runtime behavior.",
+      "test_build_seconds": 64,
+      "clippy_seconds": 31.8,
+      "source_observation": "All 468 selected source hashes and 8 harness hashes were observed unchanged before/after test and Clippy execution.",
+      "evidence_limit": "Individual hash lists, generated metadata and full raw logs were not captured in the GitHub-backed record before local executor loss; their values are not reconstructed or claimed here.",
+      "tested_working_tree_base": "aaa8a93ed488c512f2049004f4bab14d5cd99e04 plus the pending metering, point-calculus and compiled-Session changes",
+      "concurrent_changes_not_executed": [
+        "1dc00d2048b8ae9b7f93cd2d3df3cc8f070a37bb",
+        "44adeb1ee39e7f7278395448e7bee19847e68271"
+      ],
+      "harness_recreation": {
+        "template_revision": "aaa8a93ed488c512f2049004f4bab14d5cd99e04",
+        "template_directory": "artifacts/audit/reproduction/2026-11-11-parametric-session-component",
+        "files": [
+          "Cargo.toml",
+          "Cargo.lock",
+          "runtime/Cargo.toml",
+          "runtime/lib.rs",
+          "codec/Cargo.toml",
+          "codec/lib.rs",
+          "record_scope.py"
+        ],
+        "substitutions": [
+          [
+            "/workspace/scratch/8a453db7a629/frankensympy-integration",
+            "/workspace/scratch/dfc9bb1bcf55/frankensympy-continue"
+          ],
+          [
+            "/workspace/scratch/8a453db7a629/asupersync",
+            "/workspace/scratch/dfc9bb1bcf55/asupersync"
+          ],
+          [
+            "../../frankensympy-integration",
+            "/workspace/scratch/dfc9bb1bcf55/frankensympy-continue"
+          ],
+          [
+            "../frankensympy-integration",
+            "/workspace/scratch/dfc9bb1bcf55/frankensympy-continue"
+          ],
+          [
+            "../../asupersync",
+            "/workspace/scratch/dfc9bb1bcf55/asupersync"
+          ]
+        ],
+        "changes": "Retain Cargo.lock; append a root [[test]] entry named compiled_residual_session pointing at the actual repository tests/compiled_residual_session.rs. Update record_scope.py SOURCE/DONOR paths and add this test to its source inventory alongside native_parametric, parametric_session, parametric_cli and optimization_integration_adversaries. Regenerate metadata.json with cargo metadata --offline --locked --filter-platform x86_64-unknown-linux-gnu --format-version 1.",
+        "scope_limit": "A newly reconstructed harness and newly computed hashes would be new evidence, not the original recorded pre/post observations."
+      }
+    },
+    {
+      "area": "public Python Integral compatibility",
+      "observed_result": "21 compatibility cases passed against isolated test-only SymPy 1.14.0; one existing preview-only convenience test was deselected in that observed run",
+      "current_suite": "24 authored cases are selected by actual-extension CI: 22 oracle-compatible cases and two FrankenSymPy-only preview cases.",
+      "limitations": [
+        "The added literal-product oracle run had no observed terminal result before executor loss; it is not claimed passing.",
+        "The final reconstructed candidate Python suite, simultaneous-product correction and NaN singleton lift have not run against the actual extension locally.",
+        "The earlier Python syntax checks predate the final literal-NaN helper; the helper and call sites received independent source review."
+      ]
+    },
+    {
+      "area": "Gaussian numerical correction",
+      "observed_result": "Actual rebuilt core probe accepted an absolute-scale 32-digit witness around erfc(x)-1 near zero; the old relative-scale box failed strict inclusion. The accepted witness contained zero and needed a 1438-bit preconditioner within the unchanged 4096-bit cap.",
+      "core_rlib_sha256": "7932c5f881e182ff5089910b5b201b0ba6d9ffbfdf4c0580f548b47741c537dc",
+      "limitation": "This is native arithmetic evidence. New public Python Gaussian tests require actual-extension CI; no whole-shell pass is inferred."
+    }
+  ],
+  "ci_observations_as_of_this_record": {
+    "core_commit": "a48109ae74e911b00e9d507a03dac58967b3398d",
+    "workflow_run_id": 43093062733,
+    "job_id": 130774887961,
+    "passed": [
+      "Native feature regressions",
+      "Build Python extension"
+    ],
+    "failed": [
+      "Focused public mathematical regressions",
+      "G1 cargo fmt --check"
+    ],
+    "skipped": [
+      "Later broad public suite",
+      "G1 workspace check and Clippy"
+    ],
+    "unknown": "The exact failing focused Python case was not retrievable: repeated supported job-log requests timed out. Check summaries did not identify the case. No cause is inferred and no green CI claim is made.",
+    "later_commit_ci": {
+      "gaussian_commit": "f16519e8b3b8af4e9efcbea7e4560c9905ad8ec7",
+      "gaussian_run": 43093923924,
+      "gaussian_job": 130777873108,
+      "passed": [
+        "Native feature regressions, including the Gaussian grammar admission regression",
+        "Full Python extension build"
+      ],
+      "failed": [
+        "Focused public mathematical regressions",
+        "G1 cargo fmt --check"
+      ],
+      "skipped": [
+        "Aggregate public shell suite, including new Gaussian public cases",
+        "Workspace check and Clippy",
+        "G2"
+      ],
+      "unknown": "Exact focused Python failing case remains unidentified; supported log requests timed out.",
+      "metering_run": {
+        "id": 43094708509,
+        "status": "G0 passed; G1 and G3 queued"
+      },
+      "compiled_session_run": {
+        "id": 43095913416,
+        "status": "queued; no jobs returned"
+      }
+    }
+  },
+  "unresolved_limits": [
+    "Full production asynchronous runtime graph and full-workspace quality gates remain unvalidated locally after pinned asupersync compiler SIGKILL; no OOM cause is asserted.",
+    "The local executor subsequently disconnected. GitHub blob/tree/commit operations preserved the reconstructed remaining source and concurrent main changes.",
+    "Compiled evaluations are approximate binary64 results. Successful program admission proves only formal symbolic Jacobian and binary64 lowering, not interval/root/rounding certification.",
+    "Single-point native Integral differentiation is implemented; general multiple-point-limit differentiation remains conservative.",
+    "Native capture-avoiding substitution and the selected public Python profile's capture behavior are distinct APIs.",
+    "No task status, priority, dependency, registry claim or campaign/profile/workstream gate is promoted."
+  ],
+  "execution_environment": {
+    "toolchain": "nightly-2026-08-20",
+    "observed_cargo_environment": {
+      "CARGO_BUILD_JOBS": "2",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "RUSTFLAGS": "-Zunstable-options --jobs-frontend=1 --jobs-backend=1"
+    },
+    "wrapper": "Observed native and Session-component Cargo commands were invoked through the temporary run-cargo.py memory guard. It did not alter source or test semantics; its file and original logs became unavailable with the executor."
+  }
+}

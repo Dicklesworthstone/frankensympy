@@ -626,6 +626,8 @@ def _wrap(value: Any) -> "Basic":
     if value.func_name == "Constant":
         if str(value) == "zoo":
             return zoo
+        if str(value) == "nan" and (singleton := globals().get("nan")) is not None:
+            return singleton
         return Expr(str(value))
     if value.func_name == _FLOAT_INTERN:
         return Float._from_native(value)
@@ -1067,6 +1069,30 @@ def _exact_rational_argument(value: Any) -> tuple[int, int]:
     raise TypeError("exact built-in number, Integer, or Rational required")
 
 
+def _literal_product_is_nan(values) -> bool:
+    """Fold admitted exact literals only, leaving raw source trees intact.
+
+    Native products preserve pole obligations. Evaluated Python arithmetic
+    gives explicit zero/infinity products the profile's NaN singleton, while
+    symbolic, held and opaque operands retain their existing paths.
+    """
+    zero = infinite = undefined = False
+    for value in values:
+        if value.is_integer:
+            zero = zero or value == _native.py_integer(0)
+        elif value.is_rational:
+            zero = zero or value == _native.py_rational(0, 1)
+        elif value.func_name == "Constant":
+            literal = str(value)
+            if literal not in ("pi", "E", "I", "oo", "-oo", "zoo", "nan"):
+                return False
+            infinite = infinite or literal in ("oo", "-oo", "zoo")
+            undefined = undefined or literal == "nan"
+        else:
+            return False
+    return undefined or (zero and infinite)
+
+
 class Basic:
     """Base class for all SymPy objects in the compatibility shell."""
 
@@ -1270,14 +1296,18 @@ class Basic:
                 )
                 normalized_items = [(k, seq_dict[k]) for k in ordered_keys]
             if simultaneous:
-                dummies = []
+                # A compound placeholder records evaluation at a replaced
+                # coordinate instead of renaming that coordinate in a binder.
+                # Restore all placeholders structurally in one pass so a
+                # replacement cannot be consumed by a later substitution.
+                marker = Dummy("subs_marker")
+                replacements = {marker: _ONE}
                 cur = self
                 for idx, (old_s, new_s) in enumerate(normalized_items):
                     d = Dummy(f"subs_d_{idx}")
-                    dummies.append((d, new_s))
-                    cur = cur.subs(old_s, d)
-                for d, new_s in dummies:
-                    cur = cur.subs(d, new_s)
+                    replacements[d] = new_s
+                    cur = cur.subs(old_s, d * marker)
+                cur = cur.xreplace(replacements)
             else:
                 cur = self
                 for old_s, new_s in normalized_items:
@@ -3016,7 +3046,10 @@ class Expr(Basic):
             if (_is_numeric_coeff(self, True) and type(other) is Float
                     and math.isfinite(other._as_python_float())):
                 return other.__rmul__(self)
-            return _fold_floats(_wrap(_native_expr(self) * _native_expr(other)))
+            left, right = _native_expr(self), _native_expr(other)
+            if _literal_product_is_nan((left, right)):
+                return nan
+            return _fold_floats(_wrap(left * right))
         except TypeError:
             if _is_sympy_operand(other):
                 return NotImplemented
@@ -3027,7 +3060,10 @@ class Expr(Basic):
             surface = _surface_arithmetic("mul", (other, self))
             if surface is not None:
                 return _fold_floats(surface)
-            return _fold_floats(_wrap(_native_expr(other) * _native_expr(self)))
+            left, right = _native_expr(other), _native_expr(self)
+            if _literal_product_is_nan((left, right)):
+                return nan
+            return _fold_floats(_wrap(left * right))
         except TypeError:
             if _is_sympy_operand(other):
                 return NotImplemented
@@ -4573,6 +4609,8 @@ class Mul(Expr, AssocOp):
         if surface is not None:
             return _fold_floats(surface) if evaluate else surface
         native_args = [_native_expr(arg) for arg in args]
+        if evaluate and _literal_product_is_nan(native_args):
+            return nan
         val = _native.Mul(*native_args, evaluate=evaluate).as_expr()
         if evaluate:
             return _fold_floats(_wrap(val))

@@ -634,6 +634,31 @@ fn unevaluated_diff(expr: &Expr, var: &Symbol) -> Expr {
 /// depend on it; a definite integral with variable bounds uses the Leibniz
 /// rule (single limit). Any other shape stays unevaluated.
 fn diff_binder(expr: &Expr, name: &str, args: &[Expr], var: &Symbol) -> Expr {
+    if name == "Integral"
+        && let [body, Expr::Function(tuple, limit)] = args
+        && tuple == "Tuple"
+        && let [Expr::Sym(coordinate), point] = limit.as_slice()
+    {
+        // A primitive evaluated at a point binds its integration coordinate
+        // in the body but not in that point. Differentiate the evaluation
+        // through the point, and any other free parameter under the integral.
+        let point_derivative = diff(point, var);
+        let boundary = if point_derivative.is_zero() {
+            Expr::from_i64(0)
+        } else {
+            body.subs(&HashMap::from([(coordinate.clone(), point.clone())])) * point_derivative
+        };
+        let inner = if coordinate == var {
+            Expr::from_i64(0)
+        } else {
+            diff(body, var)
+        };
+        return if inner.is_zero() {
+            boundary
+        } else {
+            boundary + Expr::Function(name.into(), vec![inner, args[1].clone()])
+        };
+    }
     let Some(limits) = binder_limits(&args[1..]) else {
         return unevaluated_diff(expr, var);
     };

@@ -110,7 +110,8 @@ GoldenRatio = Expr("GoldenRatio")
 def integrate(expression, *variables):
     """Integrate univariate, definite, or iterated multivariate expressions.
 
-    Accepted forms are ``integrate(expr, x)``, ``integrate(expr, (x, a, b))``,
+    Accepted forms are ``integrate(expr, x)``, ``integrate(expr, (x, point))``,
+    ``integrate(expr, (x, a, b))``,
     multivariate ``integrate(expr, x, y)``, and the legacy spelling ``integrate(expr, x, a, b)``.
     """
     if not variables:
@@ -133,8 +134,10 @@ def integrate(expression, *variables):
     if isinstance(spec, (tuple, list)):
         if len(spec) == 1:
             return integrate(expression, spec[0])
+        if len(spec) == 2:
+            return Integral(expression, spec).doit()
         if len(spec) != 3:
-            raise ValueError("integration tuple must be (variable, lower, upper)")
+            raise ValueError("integration tuple must be (variable,), (variable, point), or (variable, lower, upper)")
         variable, lower, upper = spec
         symbol = _require_symbol(variable)
         from .functions.elementary.piecewise import Piecewise
