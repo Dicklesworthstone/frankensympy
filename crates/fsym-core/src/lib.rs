@@ -9,7 +9,7 @@ pub use fsym_bigint::BigInt;
 pub use fsym_rational::BigRational;
 use num_traits::{One, ToPrimitive, Zero};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 use thiserror::Error;
@@ -253,6 +253,9 @@ fn alpha_avoid_capture(
     }
     let mut avoid = body_free;
     avoid.extend(bound.iter().cloned());
+    // A freshly introduced binder must not itself become a substitution
+    // target when the caller subsequently applies the original map.
+    avoid.extend(inner.keys().cloned());
     for repl in inner.values() {
         for s in repl.free_symbols() {
             if !avoid.contains(&s) {
@@ -274,6 +277,182 @@ fn alpha_avoid_capture(
     }
     let renamed_body = body.subs(&rename_map);
     (new_bound, renamed_body)
+}
+
+fn is_indefinite_limit(name: &str, limit: &Expr) -> bool {
+    name == "Integral"
+        && (matches!(limit, Expr::Sym(_))
+            || matches!(limit, Expr::Function(tuple, items) if tuple == "Tuple" && items.len() == 1))
+}
+
+/// Symbols at every depth, including bound declarations. Hash iteration never
+/// selects a name: this set is used only for deterministic freshness queries.
+fn occupied_symbols<'a>(expressions: impl IntoIterator<Item = &'a Expr>) -> HashSet<Symbol> {
+    let mut pending: Vec<_> = expressions.into_iter().collect();
+    let mut occupied = HashSet::new();
+    while let Some(expression) = pending.pop() {
+        match expression {
+            Expr::Sym(symbol) => {
+                occupied.insert(symbol.clone());
+            }
+            Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => {
+                pending.extend(args);
+            }
+            Expr::Pow(base, exponent) => {
+                pending.extend([base.as_ref(), exponent.as_ref()]);
+            }
+            Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => {}
+        }
+    }
+    occupied
+}
+
+fn next_fresh_symbol(base: &Symbol, occupied: &HashSet<Symbol>, suffix: &mut usize) -> Symbol {
+    loop {
+        let candidate = Symbol {
+            name: format!("{}_{suffix}", base.name),
+            identity: base.identity,
+        };
+        *suffix += 1;
+        if !occupied.contains(&candidate) {
+            return candidate;
+        }
+    }
+}
+
+fn record_captures(
+    replacement_free: &[Symbol],
+    pending_binders: &mut HashMap<Symbol, Vec<usize>>,
+    captures: &mut [bool],
+) {
+    for symbol in replacement_free {
+        // Once a binder needs renaming, later occurrences need not visit it
+        // again. A subsequently entered inner binder gets a new pending entry.
+        if let Some(indices) = pending_binders.remove(symbol) {
+            for index in indices {
+                captures[index] = true;
+            }
+        }
+    }
+}
+
+fn record_expression_captures(
+    expression: &Expr,
+    replacements: &HashMap<Symbol, Vec<Symbol>>,
+    shadowed: &HashSet<Symbol>,
+    pending_binders: &mut HashMap<Symbol, Vec<usize>>,
+    captures: &mut [bool],
+) {
+    for symbol in expression.free_symbols() {
+        if !shadowed.contains(&symbol)
+            && let Some(replacement_free) = replacements.get(&symbol)
+        {
+            record_captures(replacement_free, pending_binders, captures);
+        }
+    }
+}
+
+/// Flat limits are innermost first. Walk them in reverse without inventing a
+/// recursively nested AST: each limit binds the earlier limits and body, but
+/// never its own endpoints. Capture discovery visits each endpoint/body once.
+fn subs_binder(name: &str, args: &[Expr], bound: &[Symbol], map: &HashMap<Symbol, Expr>) -> Expr {
+    let replacements: HashMap<_, _> = map
+        .iter()
+        .map(|(symbol, value)| (symbol.clone(), value.free_symbols()))
+        .collect();
+    let mut shadowed = HashSet::new();
+    let mut pending_binders: HashMap<Symbol, Vec<usize>> = HashMap::new();
+    let mut captures = vec![false; bound.len()];
+    for (index, (limit, variable)) in args[1..].iter().zip(bound).enumerate().rev() {
+        if let Expr::Function(_, items) = limit {
+            for endpoint in &items[1..] {
+                record_expression_captures(
+                    endpoint,
+                    &replacements,
+                    &shadowed,
+                    &mut pending_binders,
+                    &mut captures,
+                );
+            }
+        }
+        let indefinite = is_indefinite_limit(name, limit);
+        let replacement = (!shadowed.contains(variable))
+            .then(|| map.get(variable))
+            .flatten();
+        if indefinite
+            && replacement.is_some()
+            && let Some(free) = replacements.get(variable)
+        {
+            // Integral(1, x) still has a free x in its coordinate.
+            record_captures(free, &mut pending_binders, &mut captures);
+        }
+        if !indefinite || replacement.is_some_and(|value| !matches!(value, Expr::Sym(_))) {
+            shadowed.insert(variable.clone());
+            pending_binders
+                .entry(variable.clone())
+                .or_default()
+                .push(index);
+        }
+    }
+    record_expression_captures(
+        &args[0],
+        &replacements,
+        &shadowed,
+        &mut pending_binders,
+        &mut captures,
+    );
+
+    let mut variables = bound.to_vec();
+    if captures.iter().any(|captured| *captured) {
+        let mut occupied = occupied_symbols(args.iter().chain(map.values()));
+        occupied.extend(map.keys().cloned());
+        let mut suffixes = HashMap::new();
+        for index in (0..bound.len()).rev() {
+            if captures[index] {
+                let suffix = suffixes.entry(&bound[index]).or_insert(1);
+                variables[index] = next_fresh_symbol(&bound[index], &occupied, suffix);
+                occupied.insert(variables[index].clone());
+            }
+        }
+    }
+
+    // Original substitutions and lexical renamings share one simultaneous
+    // environment. Inserted replacement values are never renamed/revisited.
+    let mut inner = map.clone();
+    let mut limits = Vec::with_capacity(bound.len());
+    for (index, (limit, variable)) in args[1..].iter().zip(bound).enumerate().rev() {
+        if is_indefinite_limit(name, limit) {
+            match inner.get(variable) {
+                None => {
+                    limits.push(limit.clone());
+                    continue;
+                }
+                Some(Expr::Sym(replacement)) => {
+                    limits.push(subs_limit_with_var(limit, replacement, Clone::clone));
+                    continue;
+                }
+                Some(point) => {
+                    limits.push(tuple_expr(vec![
+                        Expr::Sym(variables[index].clone()),
+                        point.clone(),
+                    ]));
+                }
+            }
+        } else {
+            limits.push(subs_limit_with_var(limit, &variables[index], |endpoint| {
+                endpoint.subs(&inner)
+            }));
+        }
+        if captures[index] {
+            inner.insert(variable.clone(), Expr::Sym(variables[index].clone()));
+        } else {
+            inner.remove(variable);
+        }
+    }
+    let mut new_args = Vec::with_capacity(args.len());
+    new_args.push(args[0].subs(&inner));
+    new_args.extend(limits.into_iter().rev());
+    Expr::Function(name.into(), new_args)
 }
 
 /// Differentiation variables of `Derivative(e, v1, v2, ...)` (all symbols).
@@ -318,12 +497,12 @@ fn subs_parts(args: &[Expr]) -> Option<(Vec<Symbol>, Vec<Expr>)> {
 }
 
 /// Apply `f` to the bounds of one binder limit, keeping (or renaming) its variable.
-fn subs_limit_with_var(lim: &Expr, new_var: &Symbol, f: impl Fn(&Expr) -> Expr) -> Expr {
+fn subs_limit_with_var(lim: &Expr, new_var: &Symbol, mut f: impl FnMut(&Expr) -> Expr) -> Expr {
     match lim {
         Expr::Sym(_) => Expr::Sym(new_var.clone()),
         Expr::Function(t, items) if t == "Tuple" && !items.is_empty() => {
             let mut new_items = vec![Expr::Sym(new_var.clone())];
-            new_items.extend(items[1..].iter().map(&f));
+            new_items.extend(items[1..].iter().map(&mut f));
             Expr::Function(t.clone(), new_items)
         }
         other => other.clone(),
@@ -415,21 +594,7 @@ impl Expr {
                     return Expr::Function(name.clone(), new_args);
                 }
                 if let Some(bound) = binder_variables(name, args) {
-                    // Bound (dummy) variables are never substituted in the
-                    // body; limit bounds see the full substitution.
-                    let mut inner = map.clone();
-                    for v in &bound {
-                        inner.remove(v);
-                    }
-                    let (new_bound, renamed_body) = alpha_avoid_capture(&bound, &args[0], &inner);
-                    let mut new_args = vec![renamed_body.subs(&inner)];
-                    new_args.extend(
-                        args[1..]
-                            .iter()
-                            .zip(new_bound.iter())
-                            .map(|(lim, v)| subs_limit_with_var(lim, v, |e| e.subs(map))),
-                    );
-                    return Expr::Function(name.clone(), new_args);
+                    return subs_binder(name, args, &bound, map);
                 }
                 if name == "Subs"
                     && let Some((vars, points)) = subs_parts(args)
@@ -484,72 +649,176 @@ impl Expr {
         if self == old {
             return new.clone();
         }
+        if old == new {
+            return self.clone();
+        }
         if let Expr::Sym(s) = old {
             let mut map = HashMap::with_capacity(1);
             map.insert(s.clone(), new.clone());
             return self.subs(&map);
         }
-        match self {
+
+        // Match only original source nodes before renaming any surrounding
+        // binders. A fresh, opaque hole carries the insertion site through
+        // symbol substitution, whose lexical scopes enforce capture avoidance.
+        // The wrapper prevents a malformed binder declaration from becoming a
+        // valid Symbol declaration merely because a temporary marker is used.
+        let mut occupied = occupied_symbols([self, old, new]);
+        let base = Symbol::new("__fsym_substitution");
+        let mut suffix = 1;
+        let key = next_fresh_symbol(&base, &occupied, &mut suffix);
+        occupied.insert(key.clone());
+        let tag = next_fresh_symbol(&base, &occupied, &mut suffix);
+        let hole = Expr::Function(
+            "__fsym_substitution_hole".into(),
+            vec![Expr::Sym(tag.clone()), Expr::Sym(key.clone())],
+        );
+        let (candidate, changed) = self.replace_free_subexpression(old, &hole, &old.free_symbols());
+        if !changed {
+            return candidate;
+        }
+        candidate
+            .subs(&HashMap::from([(key, new.clone())]))
+            .fill_substitution_holes(&tag)
+    }
+
+    /// Match actual source subexpressions, respecting the free variables of
+    /// the pattern. The replacement here is fresh and cannot be captured.
+    fn replace_free_subexpression(
+        &self,
+        old: &Expr,
+        replacement: &Expr,
+        old_free: &[Symbol],
+    ) -> (Expr, bool) {
+        if self == old {
+            return (replacement.clone(), true);
+        }
+        let mut changed = false;
+        let mut replace = |expression: &Expr| {
+            let (result, hit) = expression.replace_free_subexpression(old, replacement, old_free);
+            changed |= hit;
+            result
+        };
+        let result = match self {
             Expr::Sym(_) | Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => self.clone(),
-            Expr::Add(terms) => terms
-                .iter()
-                .map(|t| t.subs_expr(old, new))
-                .reduce(|a, b| a + b)
-                .unwrap_or(Expr::from_i64(0)),
-            Expr::Mul(factors) => {
-                let new_factors: Vec<Expr> =
-                    factors.iter().map(|f| f.subs_expr(old, new)).collect();
-                rebuild_mul(new_factors)
+            Expr::Add(terms) => {
+                let terms: Vec<_> = terms.iter().map(&mut replace).collect();
+                if changed {
+                    terms
+                        .into_iter()
+                        .reduce(|a, b| a + b)
+                        .unwrap_or(Expr::from_i64(0))
+                } else {
+                    Expr::Add(terms)
+                }
             }
-            Expr::Pow(b, e) => fold_pow_sub(b.subs_expr(old, new), e.subs_expr(old, new)),
+            Expr::Mul(factors) => {
+                let factors: Vec<_> = factors.iter().map(&mut replace).collect();
+                if changed {
+                    rebuild_mul(factors)
+                } else {
+                    Expr::Mul(factors)
+                }
+            }
+            Expr::Pow(base, exponent) => {
+                let base = replace(base);
+                let exponent = replace(exponent);
+                if changed {
+                    fold_pow_sub(base, exponent)
+                } else {
+                    self.clone()
+                }
+            }
             Expr::Function(name, args) => {
                 if let Some((vars, body)) = lambda_variables(name, args) {
-                    let touches_bound = old.free_symbols().iter().any(|s| vars.contains(s));
-                    let new_body = if touches_bound {
-                        body.clone()
-                    } else {
-                        body.subs_expr(old, new)
-                    };
+                    if old_free.iter().any(|symbol| vars.contains(symbol)) {
+                        return (self.clone(), false);
+                    }
                     let mut new_args = args[..args.len() - 1].to_vec();
-                    new_args.push(new_body);
-                    return Expr::Function(name.clone(), new_args);
-                }
-                if let Some(bound) = binder_variables(name, args) {
-                    let touches_bound = old.free_symbols().iter().any(|s| bound.contains(s));
-                    let body = if touches_bound {
+                    new_args.push(replace(body));
+                    Expr::Function(name.clone(), new_args)
+                } else if let Some(bound) = binder_variables(name, args) {
+                    let mut blocked = false;
+                    let mut limits = Vec::with_capacity(bound.len());
+                    for (limit, variable) in args[1..].iter().zip(&bound).rev() {
+                        limits.push(if blocked {
+                            limit.clone()
+                        } else {
+                            subs_limit_with_var(limit, variable, &mut replace)
+                        });
+                        if !is_indefinite_limit(name, limit) && old_free.contains(variable) {
+                            blocked = true;
+                        }
+                    }
+                    let mut new_args = Vec::with_capacity(args.len());
+                    new_args.push(if blocked {
                         args[0].clone()
                     } else {
-                        args[0].subs_expr(old, new)
-                    };
-                    let mut new_args = vec![body];
-                    new_args.extend(
-                        args[1..]
-                            .iter()
-                            .zip(bound.iter())
-                            .map(|(lim, v)| subs_limit_with_var(lim, v, |e| e.subs_expr(old, new))),
-                    );
-                    return Expr::Function(name.clone(), new_args);
-                }
-                if name == "Subs"
+                        replace(&args[0])
+                    });
+                    new_args.extend(limits.into_iter().rev());
+                    Expr::Function(name.clone(), new_args)
+                } else if name == "Subs"
                     && let Some((vars, points)) = subs_parts(args)
                 {
-                    let touches = old.free_symbols().iter().any(|s| vars.contains(s));
-                    let body = if touches {
+                    let body = if old_free.iter().any(|symbol| vars.contains(symbol)) {
                         args[0].clone()
                     } else {
-                        args[0].subs_expr(old, new)
+                        replace(&args[0])
                     };
-                    return Expr::Function(
+                    Expr::Function(
                         name.clone(),
                         vec![
                             body,
                             args[1].clone(),
-                            tuple_expr(points.iter().map(|p| p.subs_expr(old, new)).collect()),
+                            tuple_expr(points.iter().map(&mut replace).collect()),
                         ],
-                    );
+                    )
+                } else {
+                    let new_args = args.iter().map(&mut replace).collect();
+                    if changed {
+                        fold_fn_sub(name, new_args)
+                    } else {
+                        Expr::Function(name.clone(), new_args)
+                    }
                 }
-                let new_args: Vec<Expr> = args.iter().map(|a| a.subs_expr(old, new)).collect();
-                fold_fn_sub(name, new_args)
+            }
+        };
+        (result, changed)
+    }
+
+    /// Remove only holes from this operation. The fresh tag occurs in neither
+    /// caller expression, so similarly named user functions remain untouched.
+    fn fill_substitution_holes(self, tag: &Symbol) -> Expr {
+        match self {
+            Expr::Sym(_) | Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => self,
+            Expr::Add(terms) => terms
+                .into_iter()
+                .map(|term| term.fill_substitution_holes(tag))
+                .reduce(|a, b| a + b)
+                .unwrap_or(Expr::from_i64(0)),
+            Expr::Mul(factors) => rebuild_mul(
+                factors
+                    .into_iter()
+                    .map(|factor| factor.fill_substitution_holes(tag))
+                    .collect(),
+            ),
+            Expr::Pow(base, exponent) => fold_pow_sub(
+                Arc::unwrap_or_clone(base).fill_substitution_holes(tag),
+                Arc::unwrap_or_clone(exponent).fill_substitution_holes(tag),
+            ),
+            Expr::Function(name, mut args) => {
+                if name == "__fsym_substitution_hole"
+                    && matches!(args.as_slice(), [Expr::Sym(identity), _] if identity == tag)
+                {
+                    return args.pop().expect("a substitution hole has two arguments");
+                }
+                fold_fn_sub(
+                    &name,
+                    args.into_iter()
+                        .map(|arg| arg.fill_substitution_holes(tag))
+                        .collect(),
+                )
             }
         }
     }
