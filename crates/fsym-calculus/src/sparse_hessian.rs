@@ -12,8 +12,8 @@
 #![forbid(unsafe_code)]
 
 use crate::compile::{
-    CompileError, CompiledExpr, CompiledOp, EvalError, MAX_COMPILE_OPS,
-    charge_evaluation_allocation, charge_evaluation_steps,
+    CompileError, CompiledExpr, CompiledOp, EvalError, EvaluationMemo, MAX_COMPILE_OPS,
+    SharedEvaluationPlan, charge_evaluation_allocation, charge_evaluation_steps,
 };
 use crate::sparse_jacobian::{
     JacobianVerificationError, SparseJacobian, compiled_expression_matches,
@@ -66,6 +66,7 @@ pub struct VerifiedObjective {
     candidate: ObjectiveCandidate,
     compiled_gradient: Vec<CompiledExpr>,
     receipt: ObjectiveReceipt,
+    shared_evaluation: SharedEvaluationPlan,
 }
 
 #[derive(Debug, Error)]
@@ -507,10 +508,28 @@ impl VerifiedObjective {
             zero_entries_checked: n - first.nnz + n * n - second.nnz,
             hessian_nonzeros: second.nnz,
         };
+        // Reuse only the exact immutable programs admitted above. The separate
+        // bytecode-span checker preserves their instruction order and branch
+        // boundaries. Candidate import rebuilds this derived plan; neither a
+        // proposed memo table nor a numerical cache can bypass source/proof
+        // verification.
+        let shared_evaluation = SharedEvaluationPlan::build(
+            (0..1 + compiled_gradient.len() + candidate.hessian.entries.len()).map(|index| {
+                if index == 0 {
+                    &candidate.compiled_objective
+                } else if index <= compiled_gradient.len() {
+                    &compiled_gradient[index - 1]
+                } else {
+                    &candidate.hessian.entries[index - 1 - compiled_gradient.len()].compiled_deriv
+                }
+            }),
+            &mut Unbounded,
+        )?;
         Ok(Self {
             candidate,
             compiled_gradient,
             receipt,
+            shared_evaluation,
         })
     }
 
@@ -531,6 +550,12 @@ impl VerifiedObjective {
     }
     pub fn candidate(&self) -> &ObjectiveCandidate {
         &self.candidate
+    }
+
+    /// Reusable pure bytecode spans across the source, gradient and Hessian.
+    /// This structural count does not establish a timing or accuracy claim.
+    pub fn shared_subexpression_count(&self) -> usize {
+        self.shared_evaluation.slot_count()
     }
 
     fn input_with_meter<M: BudgetMeter + ?Sized>(
@@ -560,22 +585,32 @@ impl VerifiedObjective {
         &self,
         point: &[f64],
         meter: &mut M,
-    ) -> Result<(f64, Vec<f64>), ObjectiveEvaluationError> {
+    ) -> Result<(f64, Vec<f64>, EvaluationMemo), ObjectiveEvaluationError> {
         self.input_with_meter(point, "point", meter)?;
-        let value = self
-            .candidate
-            .compiled_objective
-            .try_eval_finite_with_meter(point, meter)?;
+        let mut memo = self.shared_evaluation.begin(meter)?;
+        let value = self.shared_evaluation.evaluate(
+            0,
+            &self.candidate.compiled_objective,
+            point,
+            &mut memo,
+            meter,
+        )?;
         charge_evaluation_allocation(meter, self.compiled_gradient.len())?;
         let mut gradient = Vec::new();
         gradient
             .try_reserve_exact(self.compiled_gradient.len())
             .map_err(|_| EvalError::AllocationFailure)?;
-        for entry in &self.compiled_gradient {
+        for (index, entry) in self.compiled_gradient.iter().enumerate() {
             charge_evaluation_steps(meter, 1)?;
-            gradient.push(entry.try_eval_finite_with_meter(point, meter)?);
+            gradient.push(self.shared_evaluation.evaluate(
+                1 + index,
+                entry,
+                point,
+                &mut memo,
+                meter,
+            )?);
         }
-        Ok((value, gradient))
+        Ok((value, gradient, memo))
     }
 
     pub fn evaluate(&self, point: &[f64]) -> Result<ObjectiveEvaluation, ObjectiveEvaluationError> {
@@ -583,28 +618,32 @@ impl VerifiedObjective {
     }
 
     /// Evaluates the already checked source and both derivative stages using
-    /// one cumulative meter. Every original domain check still executes, and a
-    /// cancelled or exhausted evaluation publishes no partial result. Scratch
-    /// and result vectors use logical allocation accounting; binary64 values
-    /// remain approximate.
+    /// one cumulative meter. Repeated pure subexpressions share values only
+    /// within this call, without hoisting inactive branches or reassociating
+    /// arithmetic. Every original domain obligation is retained, and a
+    /// cancelled or exhausted evaluation publishes no partial result. Scratch,
+    /// memo and result vectors use logical allocation accounting; binary64
+    /// values remain approximate.
     pub fn evaluate_with_meter<M: BudgetMeter + ?Sized>(
         &self,
         point: &[f64],
         meter: &mut M,
     ) -> Result<ObjectiveEvaluation, ObjectiveEvaluationError> {
-        let (value, gradient) = self.first_order_with_meter(point, meter)?;
+        let (value, gradient, mut memo) = self.first_order_with_meter(point, meter)?;
         charge_evaluation_allocation(meter, self.candidate.hessian.entries.len())?;
         let mut hessian = Vec::new();
         hessian
             .try_reserve_exact(self.candidate.hessian.entries.len())
             .map_err(|_| EvalError::AllocationFailure)?;
-        for entry in &self.candidate.hessian.entries {
+        for (index, entry) in self.candidate.hessian.entries.iter().enumerate() {
             charge_evaluation_steps(meter, 1)?;
-            hessian.push(
-                entry
-                    .compiled_deriv
-                    .try_eval_finite_with_meter(point, meter)?,
-            );
+            hessian.push(self.shared_evaluation.evaluate(
+                1 + self.compiled_gradient.len() + index,
+                &entry.compiled_deriv,
+                point,
+                &mut memo,
+                meter,
+            )?);
         }
         charge_evaluation_steps(meter, 1)?;
         Ok(ObjectiveEvaluation {
@@ -685,7 +724,7 @@ impl VerifiedObjective {
         meter: &mut M,
     ) -> Result<Vec<f64>, ObjectiveEvaluationError> {
         self.input_with_meter(direction, "direction", meter)?;
-        self.first_order_with_meter(point, meter)?;
+        let (_, _, mut memo) = self.first_order_with_meter(point, meter)?;
         charge_evaluation_allocation(meter, self.variables().len())?;
         let mut result = Vec::new();
         result
@@ -693,10 +732,14 @@ impl VerifiedObjective {
             .map_err(|_| EvalError::AllocationFailure)?;
         charge_evaluation_steps(meter, self.variables().len())?;
         result.resize(self.variables().len(), 0.0);
-        for entry in &self.candidate.hessian.entries {
-            let value = entry
-                .compiled_deriv
-                .try_eval_finite_with_meter(point, meter)?;
+        for (index, entry) in self.candidate.hessian.entries.iter().enumerate() {
+            let value = self.shared_evaluation.evaluate(
+                1 + self.compiled_gradient.len() + index,
+                &entry.compiled_deriv,
+                point,
+                &mut memo,
+                meter,
+            )?;
             charge_evaluation_steps(meter, 2)?;
             let contribution = value * direction[entry.col];
             let sum = result[entry.row] + contribution;

@@ -7,7 +7,7 @@ mod error_functions;
 mod shared;
 
 pub use shared::CompiledBatch;
-pub(crate) use shared::SharedEvaluationPlan;
+pub(crate) use shared::{EvaluationMemo, SharedEvaluationPlan};
 
 use self::error_functions::evaluate_error_function;
 use crate::diff;

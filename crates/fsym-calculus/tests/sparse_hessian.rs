@@ -376,3 +376,173 @@ fn unsupported_original_nodes_cannot_disappear_through_differentiation() {
     ]);
     assert!(VerifiedObjective::try_compile(&source, &[x]).is_err());
 }
+
+fn assert_float_bits(actual: &[f64], expected: &[f64]) {
+    assert_eq!(
+        actual
+            .iter()
+            .map(|value| value.to_bits())
+            .collect::<Vec<_>>(),
+        expected
+            .iter()
+            .map(|value| value.to_bits())
+            .collect::<Vec<_>>(),
+    );
+}
+
+#[test]
+fn shared_objective_and_products_match_independent_scalar_execution_bit_for_bit() {
+    let source = parse("exp(x*y)+sin(x*y)+(x*y)^3").unwrap();
+    let variables = [Symbol::new("x"), Symbol::new("y"), Symbol::new("unused")];
+    let program = VerifiedObjective::try_compile(&source, &variables).unwrap();
+    assert!(program.shared_subexpression_count() > 0);
+    let original_candidate = program.candidate().clone();
+    let original_receipt = program.receipt().clone();
+    let restored =
+        VerifiedObjective::try_from_candidate(&source, &variables, original_candidate.clone())
+            .unwrap();
+    assert_eq!(
+        restored.shared_subexpression_count(),
+        program.shared_subexpression_count(),
+    );
+    let direction = [2.0, -3.0, 5.0];
+    for point in [
+        [0.0, -0.0, 4.0],
+        [-0.0, 0.0, 1.0],
+        [0.5, 2.0, -3.0],
+        [-0.75, 1.3, 0.0],
+    ] {
+        // The reference interpreter executes each original program without
+        // any shared memo. This checks operation order, typed axis placement,
+        // sparse zeros and floating-point bits, not just approximate equality.
+        let value = original_candidate
+            .compiled_objective
+            .try_eval_finite(&point)
+            .unwrap();
+        let mut gradient = vec![0.0; variables.len()];
+        for entry in &original_candidate.gradient.entries {
+            gradient[entry.col] = entry.compiled_deriv.try_eval_finite(&point).unwrap();
+        }
+        let hessian: Vec<_> = original_candidate
+            .hessian
+            .entries
+            .iter()
+            .map(|entry| entry.compiled_deriv.try_eval_finite(&point).unwrap())
+            .collect();
+        let mut product = vec![0.0; variables.len()];
+        for (&(row, col), &derivative) in program.hessian_pattern().iter().zip(&hessian) {
+            product[row] += derivative * direction[col];
+        }
+        for checked in [&program, &restored] {
+            let actual = checked.evaluate(&point).unwrap();
+            assert_eq!(actual.value.to_bits(), value.to_bits());
+            assert_float_bits(&actual.gradient, &gradient);
+            assert_float_bits(&actual.hessian, &hessian);
+            assert_float_bits(
+                &checked.hessian_vector_product(&point, &direction).unwrap(),
+                &product,
+            );
+            let mut into_gradient = vec![901.0; variables.len()];
+            let mut into_hessian = vec![902.0; hessian.len()];
+            assert_eq!(
+                checked
+                    .try_eval_into(&point, &mut into_gradient, &mut into_hessian)
+                    .unwrap()
+                    .to_bits(),
+                value.to_bits(),
+            );
+            assert_float_bits(&into_gradient, &gradient);
+            assert_float_bits(&into_hessian, &hessian);
+            let mut into_product = vec![903.0; variables.len()];
+            checked
+                .try_hessian_vector_product_into(&point, &direction, &mut into_product)
+                .unwrap();
+            assert_float_bits(&into_product, &product);
+        }
+    }
+    assert_eq!(program.candidate(), &original_candidate);
+    assert_eq!(program.receipt(), &original_receipt);
+}
+
+#[test]
+fn shared_objective_memos_do_not_cross_points_failures_or_imports() {
+    let source = parse("exp(x*y)").unwrap();
+    let variables = [Symbol::new("x"), Symbol::new("y")];
+    let program = VerifiedObjective::try_compile(&source, &variables).unwrap();
+    assert!(program.shared_subexpression_count() > 0);
+    let first = program.evaluate(&[0.5, 2.0]).unwrap();
+    let second = program.evaluate(&[0.5, -2.0]).unwrap();
+    close(first.value, std::f64::consts::E);
+    close(second.value, (-1.0f64).exp());
+    close(second.gradient[0], -2.0 * (-1.0f64).exp());
+    assert_ne!(first.value.to_bits(), second.value.to_bits());
+    let mut gradient = [901.0; 2];
+    let mut hessian = [902.0; 4];
+    assert!(
+        program
+            .try_eval_into(&[1000.0, 1000.0], &mut gradient, &mut hessian)
+            .is_err()
+    );
+    assert_eq!(gradient, [901.0; 2]);
+    assert_eq!(hessian, [902.0; 4]);
+    let again = program.evaluate(&[0.5, 2.0]).unwrap();
+    assert_eq!(again.value.to_bits(), first.value.to_bits());
+    assert_float_bits(&again.gradient, &first.gradient);
+    assert_float_bits(&again.hessian, &first.hessian);
+
+    // Even when the source and several derivatives share exp(x*y), replacing
+    // one derivative program cannot reuse a trusted source result to escape
+    // the independent source/proof admission boundary.
+    let mut forged = program.candidate().clone();
+    forged.hessian.entries[0].compiled_deriv = forged.compiled_objective.clone();
+    assert!(VerifiedObjective::try_from_candidate(&source, &variables, forged).is_err());
+}
+
+#[test]
+fn memoized_values_do_not_hide_source_or_second_derivative_singularities() {
+    for (text, invalid) in [("log(x)", -1.0), ("x^(3/2)", 0.0)] {
+        let expression = parse(text).unwrap();
+        // Preserve the repeated source regions so they actually participate
+        // in shared evaluation rather than relying on a canonicalized sum.
+        let source = Expr::Add(vec![expression.clone(), expression]);
+        let program = VerifiedObjective::try_compile(&source, &[Symbol::new("x")]).unwrap();
+        assert!(program.shared_subexpression_count() > 0);
+        let valid = program.evaluate(&[4.0]).unwrap();
+        if text == "x^(3/2)" {
+            let candidate = program.candidate();
+            assert!(
+                candidate
+                    .compiled_objective
+                    .try_eval_finite(&[invalid])
+                    .is_ok()
+            );
+            assert!(
+                candidate
+                    .gradient
+                    .entries
+                    .iter()
+                    .all(|entry| { entry.compiled_deriv.try_eval_finite(&[invalid]).is_ok() })
+            );
+        }
+        let mut gradient = [901.0];
+        let mut hessian = [902.0];
+        assert!(
+            program
+                .try_eval_into(&[invalid], &mut gradient, &mut hessian)
+                .is_err()
+        );
+        assert_eq!(gradient, [901.0]);
+        assert_eq!(hessian, [902.0]);
+        let mut product = [903.0];
+        assert!(
+            program
+                .try_hessian_vector_product_into(&[invalid], &[0.0], &mut product)
+                .is_err()
+        );
+        assert_eq!(product, [903.0]);
+        let again = program.evaluate(&[4.0]).unwrap();
+        assert_eq!(again.value.to_bits(), valid.value.to_bits());
+        assert_float_bits(&again.gradient, &valid.gradient);
+        assert_float_bits(&again.hessian, &valid.hessian);
+    }
+}

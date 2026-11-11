@@ -176,7 +176,8 @@ jobs:
           cargo test --locked -p fsym-calculus --test general_power_programs --test directional_series --test generalized_series -j1
           cargo test --locked -p fsym-calculus --test piecewise_programs -j1
           cargo test --locked -p fsym-calculus --test error_function_programs -j1
-          cargo test --locked -p fsym-calculus --test sparse_hessian -j1
+          cargo test --locked -p fsym-solvers --test coefficient_dependencies -j1
+          cargo test --locked -p fsym-calculus --test sparse_hessian --test metered_sparse_derivatives -j1
           cargo test --locked -p fsym-calculus --test verified_sparse_products -j1
           cargo test --locked -p fsym-calculus --test sparse_dependency_trust -j1
           cargo test --locked -p fsym-calculus --test verified_sparse_storage --test verified_artifact_transport -j1
