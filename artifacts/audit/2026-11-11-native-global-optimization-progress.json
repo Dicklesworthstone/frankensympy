@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-11",
+  "scope": "Native Rust, Session and NDJSON access to independently checked global minimum/maximum value bounds on closed finite real boxes, plus portable statement-bound witness replay.",
+  "implementation_status": "implemented_uncertified",
+  "campaign_bead": "fra-campaign-jacobian-bundle-ukp",
+  "source_commits": [
+    {
+      "sha": "11e760f3fdfef3f523cbf83181b92cfbd17cb148",
+      "scope": "Bounded serde candidate witness and direction codecs; seven adversarial transport tests."
+    },
+    {
+      "sha": "e0a76d92a3c8b3c56347e6662b74bda2914fbbf7",
+      "scope": "Native objective APIs, canonical proof artifact, Session and NDJSON integration, 32 native/transport/session/CLI tests and usage documentation."
+    },
+    {
+      "sha": "3a32d9bc3b16321bd6b4b805d46cdb2d61cfba51",
+      "scope": "Select independent core, calculus search and all new native optimization targets in the existing public-feature CI gate."
+    }
+  ],
+  "implemented": [
+    "Minimum and maximum values over bounded original-source C2 objectives with ordered typed coordinates, exact rational boxes and positive absolute value-gap tolerance.",
+    "Candidate search is separate from independent full dyadic coverage verification; accepted receipts expose a feasible rational point, point-value enclosure, global optimum-value enclosure and proved gap.",
+    "Canonical export/replay binds raw source, typed coordinates, box, direction, tolerance and assumptions context. Source and statement substitutions fail before witness construction.",
+    "Bounded witness deserialization caps nodes, coordinates, scalar limbs and precision. Decoding/import alone never grants mathematical evidence.",
+    "Inline and existing bounded chunked transport retain separate kind identity, cumulative budgets, protected independent verification and atomic publication after complete output admission.",
+    "Fixed coordinates remain valid; original domain holes and unsupported derivatives still refuse."
+  ],
+  "regression_targets": [
+    {
+      "path": "crates/fsym-core/tests/box_optimization_transport.rs",
+      "authored_tests": 7
+    },
+    {
+      "path": "tests/native_optimization.rs",
+      "authored_tests": 8
+    },
+    {
+      "path": "tests/optimization_transport.rs",
+      "authored_tests": 8
+    },
+    {
+      "path": "tests/optimization_session.rs",
+      "authored_tests": 10
+    },
+    {
+      "path": "tests/optimization_cli.rs",
+      "authored_tests": 6
+    }
+  ],
+  "review_correction": "The large-artifact CLI fixture uses 600 held zero-products rather than 400: its source AST exceeds 24 KiB while the textual source stays below the existing 4096-byte cap. Production limits are unchanged.",
+  "validation": [
+    {
+      "check": "Independent static review",
+      "status": "completed",
+      "scope": "Native signatures, bounded codec, source/statement binding, protected verification, publication ordering and adversarial test intent; not executable evidence."
+    },
+    {
+      "check": "Pinned formatting of changed Rust sources",
+      "status": "passed",
+      "scope": "nightly-2026-08-20 explicit formatting locally; the exact feature-commit CI cargo fmt log contains no differences for any of the changed Rust files.",
+      "ci_job_url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/42970189135/job/130356823538"
+    },
+    {
+      "check": "G0 planning integrity",
+      "status": "passed",
+      "commit": "3a32d9bc3b16321bd6b4b805d46cdb2d61cfba51",
+      "ci_run_url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/42970603578",
+      "scope": "Planning validator, self-tests and planning/conformance-lab Python unit tests."
+    },
+    {
+      "check": "Workspace discovery",
+      "status": "passed",
+      "command": "cargo metadata --offline --locked --format-version 1 --no-deps",
+      "scope": "Exact registry-pinned sibling dependencies; does not establish compilation."
+    },
+    {
+      "check": "Local focused core test attempt",
+      "status": "blocked_before_test_execution",
+      "command": "cargo test --locked -p fsym-core --test box_optimization_transport --test box_optimization",
+      "detail": "Exited 101 compiling serde_derive because the filesystem had no free space; subsequent exec-server disconnection made the environment unavailable. No new Rust tests ran locally."
+    },
+    {
+      "check": "Targeted optimization CI",
+      "status": "pending",
+      "commit": "3a32d9bc3b16321bd6b4b805d46cdb2d61cfba51",
+      "ci_run_url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/42970603578",
+      "detail": "Selected core verifier/codec, calculus search and four native integration targets. No test pass is asserted by this progress artifact."
+    },
+    {
+      "check": "Full workspace gates",
+      "status": "not_passed",
+      "detail": "The exact feature-commit G1 formatting gate failed on 11 unchanged baseline files, so its dependent G2 unit-test job was skipped. Full workspace check, Clippy, test and native public-feature success are not claimed."
+    }
+  ],
+  "trust_limits": [
+    "A global value enclosure and bounded suboptimality do not prove uniqueness, exact optimizer coordinates or enumeration of all minimizers/maximizers.",
+    "This finite closed-box C2 slice does not add arbitrary constraints, unbounded domains or general nonsmooth optimization.",
+    "MATH-003 and AGENT-001 remain implemented_uncertified with present_tense_allowed=false. M4 campaign, release/profile gates, bead status, priority and dependencies remain unchanged.",
+    "No new dependency, runtime substitution or weakened gate is introduced."
+  ]
+}
