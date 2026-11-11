@@ -4,9 +4,10 @@ This development interface connects the root Rust library and the `frankensympy`
 NDJSON command to the existing original-source interval checker. Its scope is
 exact real residual/Jacobian enclosures, unique nonsingular local roots and
 complete finite-box root sets, objective/gradient/Hessian enclosures, locally
-classified stationary points, global box optimum value bounds, proper finite real definite integrals, and
-portable candidate search checkpoints. Accepted claims have independently
-replayable artifacts. This interface does not close the complete Certified
+classified stationary points, global box optimum value bounds, proper finite real
+definite integrals, complete parameter-root families and implicit sensitivities.
+Portable artifacts cover local roots, root isolation, stationary points, global
+optimization, integrals and candidate search checkpoints. This interface does not close the complete Certified
 Jacobian campaign or certify a SymPy compatibility profile.
 
 ## Run an exact root check
@@ -40,6 +41,79 @@ outside that box. For this example the contraction bound is `1/15`.
 The rational matrix is an untrusted preconditioner proposal. Its entries, a
 small residual, a solver convergence flag or a previously stored acceptance
 flag cannot authorize a root certificate.
+
+## Certify a solution for every parameter and bound its sensitivity
+
+`RegisterParametricProblem` freezes original residuals and two separate ordered
+coordinate groups: unknowns and parameters. `CertifyParametricRoot` checks an
+explicit uniform witness; `CertifyParametricCover` automatically constructs and
+independently checks a complete parameter subdivision when a single witness is
+insufficient. Both publish a `family:` handle only after the complete claim and
+response have been admitted.
+
+For `F(x,p)=x-p`, the following session certifies every `p` in `[-1,1]`, with a
+unique nonsingular `x` in `[-2,2]`, then proves the exact sensitivity `dx/dp=1`:
+
+```json
+{"id":"register","type":"RegisterParametricProblem","payload":{"schema_version":1,"problem":"parametric:affine","residuals":["x-p"],"unknowns":["x"],"parameters":["p"]}}
+{"id":"family","type":"CertifyParametricRoot","payload":{"schema_version":1,"problem":"parametric:affine","family":"family:affine","witness":{"unknown_domain":[{"lower":"-2","upper":"2"}],"parameter_domain":[{"lower":"-1","upper":"1"}],"center":["0"],"preconditioner":[["1"]],"precision_digits":16}}}
+{"id":"sensitivity","type":"EncloseParametricSensitivity","payload":{"schema_version":1,"family":"family:affine","sensitivity":"sensitivity:affine"}}
+```
+
+The family response has `kind: "parametric_family_certified"`,
+`evidence: "certified_numeric"` and claim
+`for_every_parameter_exactly_one_nonsingular_root_in_unknown_box`. It retains
+the complete unknown and parameter domains, a root enclosure containing all
+parameter-dependent roots, the maximum local contraction bound, leaf count,
+precision and assumptions-context digest. For this example the root enclosure
+is `[-1,1]` and the contraction bound is zero. Strict interior inclusion is
+required in every unknown coordinate, including at parameter endpoints.
+
+The sensitivity response has `kind: "parametric_sensitivity_enclosed"` and claim
+`implicit_solution_jacobian_enclosure`. Its exact interval matrix has unknowns
+as rows and parameters as columns, in registration order. The example returns
+`[[{"lower":"1","upper":"1"}]]`. Sensitivity calculation independently
+recomputes the original-source Jacobian blocks on every accepted parameter
+cell, including the full contraction remainder. It consumes an immutable
+accepted family; a user-supplied derivative matrix or sampled root is not an
+input to this operation. A sensitivity refusal leaves its input family valid.
+
+For an automatic family that needs adaptive parameter subdivision, use:
+
+```json
+{"id":"register-adaptive","type":"RegisterParametricProblem","payload":{"schema_version":1,"problem":"parametric:adaptive","residuals":["(1+p^2)*x-1"],"unknowns":["x"],"parameters":["p"]}}
+{"id":"cover","type":"CertifyParametricCover","payload":{"schema_version":1,"problem":"parametric:adaptive","family":"family:adaptive","unknown_domain":[{"lower":"0","upper":"2"}],"parameter_domain":[{"lower":"0","upper":"2"}],"precision_digits":16,"max_leaves":128}}
+{"id":"cover-sensitivity","type":"EncloseParametricSensitivity","payload":{"schema_version":1,"family":"family:adaptive","sensitivity":"sensitivity:adaptive"}}
+```
+
+Search uses ordinary resources to propose rational centers, preconditioners and
+a complete dyadic parameter cover. Independent verification uses the protected
+pool on the same cumulative ledger, reconstructs both children of every split,
+and checks every original-source cell. All leaves retain the same unknown box,
+so uniqueness identifies the same family at shared parameter faces. An
+unresolved cell returns `inconclusive` with no partial family. Original-source
+poles, including held zero factors, remain domain obligations throughout.
+
+Each group must be nonempty, the residual count must equal the unknown count,
+and at most sixteen total coordinates are admitted. Unknown intervals have
+positive width; parameter intervals may be points. Precision is 8..128 digits,
+and covers have at most 1024 leaves. A session retains at most 32 parametric
+problems, 32 accepted families and 32 sensitivity receipts. The normal exact
+scalar, source, output, cancellation and cumulative-budget limits also apply.
+
+The claim concerns the declared unknown and parameter boxes. It grants neither
+an exact symbolic solution nor roots outside the unknown box, a global
+continuation path, or requested accuracy of the derivative enclosure. Family
+and sensitivity handles are resident session objects; this slice does not
+define a portable family artifact.
+
+Native Rust callers construct `ParametricProblem::from_exprs` for typed symbols
+or `ParametricProblem::parse_sources` for bounded raw sources. They can call
+`verify_root_box`, or `propose_cover` followed by `verify_cover`, with
+caller-owned meters. The core sensitivity functions accept only checked family
+receipts. `Session::parametric_problem`, `Session::parametric_family` and
+`Session::parametric_sensitivity` expose immutable objects; the accepted family
+view also offers `enclose_sensitivity` with an explicit meter.
 
 ## Enclose an objective and certify a stationary point
 

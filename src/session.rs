@@ -12,8 +12,9 @@
 
 use crate::certification_session::{
     BoxOptimizationId, CertificationRequest, CertificationResponse, CertificationSessionError,
-    CertificationState, ObjectiveId, ResidualSystemId, RootCertificateId, RootIsolationId,
-    RootIsolationSearchId, StationaryPointId,
+    CertificationState, ObjectiveId, ParametricFamilyId, ParametricFamilyReceipt,
+    ParametricProblemId, ParametricSensitivityId, ResidualSystemId, RootCertificateId,
+    RootIsolationId, RootIsolationSearchId, StationaryPointId,
 };
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_budget::{Budget, BudgetLimits, Dimension, VerifierLease};
@@ -542,6 +543,27 @@ impl Session {
     /// The immutable original objective and its ordered typed coordinates.
     pub fn objective_problem(&self, id: &ObjectiveId) -> Option<&crate::ObjectiveProblem> {
         self.certification.objective(id)
+    }
+
+    /// Original residuals with disjoint, explicitly ordered unknown and parameter roles.
+    pub fn parametric_problem(
+        &self,
+        id: &ParametricProblemId,
+    ) -> Option<&crate::ParametricProblem> {
+        self.certification.parametric_problem(id)
+    }
+
+    /// An accepted unique root family covering its entire parameter box.
+    pub fn parametric_family(&self, id: &ParametricFamilyId) -> Option<&ParametricFamilyReceipt> {
+        self.certification.parametric_family(id)
+    }
+
+    /// Original-source interval bounds on the accepted family's solution Jacobian.
+    pub fn parametric_sensitivity(
+        &self,
+        id: &ParametricSensitivityId,
+    ) -> Option<&fsym_core::ParametricSensitivityReceipt> {
+        self.certification.parametric_sensitivity(id)
     }
 
     /// An independently checked unique stationary point and local classification.
@@ -1098,6 +1120,10 @@ impl Session {
                     | "ReplayIntegralCertificate"
                     | "ReplayIntegralCertificateFromArtifact"
                     | "RegisterObjective"
+                    | "RegisterParametricProblem"
+                    | "CertifyParametricRoot"
+                    | "CertifyParametricCover"
+                    | "EncloseParametricSensitivity"
                     | "EncloseObjective"
                     | "CertifyStationaryPoint"
                     | "ExportStationaryCertificate"

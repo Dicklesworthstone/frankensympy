@@ -45,6 +45,12 @@ use std::collections::BTreeMap;
 use std::io::{self, Write};
 use thiserror::Error;
 
+mod parametric;
+pub use parametric::{
+    ExactParametricRootWitness, ParametricFamilyId, ParametricFamilyReceipt, ParametricProblemId,
+    ParametricSensitivityId,
+};
+
 pub const CERTIFICATION_REQUEST_SCHEMA: u32 = 1;
 /// The single-frame CLI subset leaves room for JSON escaping and the envelope.
 pub const MAX_SESSION_ROOT_ARTIFACT_BYTES: usize = 24 * 1024;
@@ -356,6 +362,33 @@ pub enum ArtifactSource {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", deny_unknown_fields)]
 pub enum CertificationRequest {
+    RegisterParametricProblem {
+        schema_version: u32,
+        problem: ParametricProblemId,
+        residuals: Vec<String>,
+        unknowns: Vec<String>,
+        parameters: Vec<String>,
+    },
+    CertifyParametricRoot {
+        schema_version: u32,
+        problem: ParametricProblemId,
+        family: ParametricFamilyId,
+        witness: ExactParametricRootWitness,
+    },
+    CertifyParametricCover {
+        schema_version: u32,
+        problem: ParametricProblemId,
+        family: ParametricFamilyId,
+        unknown_domain: Vec<ExactInterval>,
+        parameter_domain: Vec<ExactInterval>,
+        precision_digits: u32,
+        max_leaves: usize,
+    },
+    EncloseParametricSensitivity {
+        schema_version: u32,
+        family: ParametricFamilyId,
+        sensitivity: ParametricSensitivityId,
+    },
     RegisterObjective {
         schema_version: u32,
         objective: ObjectiveId,
@@ -619,7 +652,11 @@ pub enum CertificationRequest {
 impl CertificationRequest {
     fn schema_version(&self) -> u32 {
         match self {
-            Self::RegisterObjective { schema_version, .. }
+            Self::RegisterParametricProblem { schema_version, .. }
+            | Self::CertifyParametricRoot { schema_version, .. }
+            | Self::CertifyParametricCover { schema_version, .. }
+            | Self::EncloseParametricSensitivity { schema_version, .. }
+            | Self::RegisterObjective { schema_version, .. }
             | Self::EncloseObjective { schema_version, .. }
             | Self::CertifyStationaryPoint { schema_version, .. }
             | Self::ExportStationaryCertificate { schema_version, .. }
@@ -707,6 +744,39 @@ pub(crate) fn decode_request(
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CertificationResponse {
+    ParametricProblemRegistered {
+        schema_version: u32,
+        problem: ParametricProblemId,
+        residuals: usize,
+        unknowns: Vec<Symbol>,
+        parameters: Vec<Symbol>,
+        context_digest: [u8; 32],
+    },
+    ParametricFamilyCertified {
+        schema_version: u32,
+        problem: ParametricProblemId,
+        family: ParametricFamilyId,
+        evidence: &'static str,
+        claim: &'static str,
+        unknown_domain: Vec<ExactInterval>,
+        parameter_domain: Vec<ExactInterval>,
+        root_enclosure: Vec<ExactInterval>,
+        contraction_bound: String,
+        leaf_count: usize,
+        precision_digits: u32,
+        context_digest: [u8; 32],
+    },
+    ParametricSensitivityEnclosed {
+        schema_version: u32,
+        family: ParametricFamilyId,
+        sensitivity: ParametricSensitivityId,
+        evidence: &'static str,
+        claim: &'static str,
+        solution_jacobian: Vec<Vec<ExactInterval>>,
+        leaf_count: usize,
+        precision_digits: u32,
+        context_digest: [u8; 32],
+    },
     ObjectiveRegistered {
         schema_version: u32,
         objective: ObjectiveId,
@@ -935,9 +1005,7 @@ pub enum CertificationResponse {
 pub enum CertificationSessionError {
     #[error("unsupported certification request schema {0}")]
     UnsupportedVersion(u32),
-    #[error(
-        "object label must have the proper system:, certificate:, isolation:, search:, integral:, objective:, stationary: or optimization: kind and a bounded identifier"
-    )]
+    #[error("object label must have its typed kind prefix and a bounded identifier")]
     InvalidLabel,
     #[error("object label already exists in this session")]
     DuplicateObject,
@@ -957,6 +1025,10 @@ pub enum CertificationSessionError {
     UnknownStationaryPoint,
     #[error("unknown accepted global box optimization")]
     UnknownBoxOptimization,
+    #[error("unknown parameter-family problem")]
+    UnknownParametricProblem,
+    #[error("unknown accepted parameter-root family")]
+    UnknownParametricFamily,
     #[error("root isolation search still has pending cells")]
     SearchNotReady,
     #[error("root search work quantum is outside the supported range")]
@@ -989,6 +1061,8 @@ pub enum CertificationSessionError {
     Integration(#[from] IntegrationError),
     #[error("global box optimization refused: {0}")]
     Optimization(#[from] OptimizationError),
+    #[error("parameter-family certification refused: {0}")]
+    Parametric(#[from] crate::parametric::ParametricError),
     #[error("artifact transfer refused: {0}")]
     Transfer(#[from] ArtifactTransferError),
     #[error("durable root-search operation refused: {0}")]
@@ -1016,6 +1090,8 @@ impl CertificationSessionError {
             | Self::UnknownObjective
             | Self::UnknownStationaryPoint
             | Self::UnknownBoxOptimization
+            | Self::UnknownParametricProblem
+            | Self::UnknownParametricFamily
             | Self::UnknownTransfer => "unknown_object",
             Self::SearchNotReady => "search_not_ready",
             Self::WrongTransferMode => "wrong_transfer_mode",
@@ -1027,6 +1103,7 @@ impl CertificationSessionError {
             Self::Certification(error) => certification_error_code(error),
             Self::Integration(error) => integration_error_code(error),
             Self::Optimization(error) => optimization_error_code(error),
+            Self::Parametric(error) => parametric::error_code(error),
             Self::Transfer(error) => transfer_error_code(error),
             Self::DurableSearch(error) => durable_search_error_code(error),
             Self::RepairableSearch(error) => repairable_search_error_code(error),
@@ -1567,6 +1644,7 @@ impl ResidentRootSearch {
 
 #[derive(Default)]
 pub(crate) struct CertificationState {
+    parametric: parametric::ParametricState,
     objectives: BTreeMap<ObjectiveId, ObjectiveProblem>,
     stationary_points: BTreeMap<StationaryPointId, ResidentStationaryPoint>,
     optimizations: BTreeMap<BoxOptimizationId, ResidentBoxOptimization>,
@@ -1588,6 +1666,27 @@ pub(crate) struct CertificationState {
 }
 
 impl CertificationState {
+    pub(crate) fn parametric_problem(
+        &self,
+        id: &ParametricProblemId,
+    ) -> Option<&crate::parametric::ParametricProblem> {
+        self.parametric.problem(id)
+    }
+
+    pub(crate) fn parametric_family(
+        &self,
+        id: &ParametricFamilyId,
+    ) -> Option<&ParametricFamilyReceipt> {
+        self.parametric.family(id)
+    }
+
+    pub(crate) fn parametric_sensitivity(
+        &self,
+        id: &ParametricSensitivityId,
+    ) -> Option<&fsym_core::ParametricSensitivityReceipt> {
+        self.parametric.sensitivity(id)
+    }
+
     pub(crate) fn box_optimization(
         &self,
         id: &BoxOptimizationId,
@@ -2003,6 +2102,13 @@ impl CertificationState {
             ));
         }
         match request {
+            request @ (CertificationRequest::RegisterParametricProblem { .. }
+            | CertificationRequest::CertifyParametricRoot { .. }
+            | CertificationRequest::CertifyParametricCover { .. }
+            | CertificationRequest::EncloseParametricSensitivity { .. }) => {
+                self.parametric
+                    .handle(request, context_digest, budget, lease)
+            }
             CertificationRequest::RegisterObjective {
                 objective,
                 source,

@@ -260,6 +260,30 @@ chunked transfer interface. The [session guide](docs/NATIVE_CERTIFICATION_SESSIO
 provides a complete two-variable example, Rust APIs and bounds. This local
 stationary-point lane makes no global-optimality or complete-enumeration claim.
 
+### Complete parameter families and implicit sensitivities
+
+Native sessions can now register `F(x,p)=0` with separately ordered unknowns
+and parameters through `RegisterParametricProblem`. `CertifyParametricRoot`
+checks a proposed uniform witness, while `CertifyParametricCover` automatically
+subdivides the parameter box and independently verifies every cell. Acceptance
+proves exactly one nonsingular unknown root in the same declared unknown box
+for **every** parameter in the full declared parameter box.
+
+`EncloseParametricSensitivity` works from the accepted family and independently
+recomputes exact interval bounds for `dx_i/dp_j`. Rows follow unknown order;
+columns follow parameter order. For `x-p=0` on `x∈[-2,2]`, `p∈[-1,1]`, the
+family's root enclosure is `[-1,1]` and its sensitivity is exactly `1`. Coupled
+systems and adaptive covers retain the full parameter intervals and original
+source domains. Search and checking use separate ordinary/protected allowances
+on one cumulative session ledger, with atomic publication of accepted handles.
+
+Rust callers use `ParametricProblem`, checked core family receipts and the
+metered sensitivity functions. The [session guide](docs/NATIVE_CERTIFICATION_SESSION.md#certify-a-solution-for-every-parameter-and-bound-its-sensitivity)
+contains complete NDJSON examples, including a family that requires adaptive
+subdivision. This development interface supports up to sixteen total typed
+coordinates and 1024 parameter cells; complete campaign and profile gates
+remain open.
+
 ## Compiled sparse residuals (development API)
 
 `compile_residual_system` exposes the checked sparse Jacobian and products with

@@ -23,6 +23,7 @@ pub mod isolation_transport;
 pub mod objective;
 pub mod objective_transport;
 pub mod optimization;
+pub mod parametric;
 pub mod repairable_search;
 pub mod search_checkpoint;
 pub mod session;
@@ -38,10 +39,11 @@ pub use certification::{
 };
 pub use certification_session::{
     ArtifactSource, BoxOptimizationId, CERTIFICATION_REQUEST_SCHEMA, CertificationRequest,
-    CertificationResponse, CertificationSessionError, ExactInterval, ExactRootWitness,
-    IntegralCertificateId, IsolatedRoot, MAX_SESSION_ARTIFACT_TRANSFERS, MAX_SESSION_ROOT_SEARCHES,
-    ObjectiveId, ResidualSystemId, RootCertificateId, RootIsolationId, RootIsolationSearchId,
-    StationaryPointClassification, StationaryPointId,
+    CertificationResponse, CertificationSessionError, ExactInterval, ExactParametricRootWitness,
+    ExactRootWitness, IntegralCertificateId, IsolatedRoot, MAX_SESSION_ARTIFACT_TRANSFERS,
+    MAX_SESSION_ROOT_SEARCHES, ObjectiveId, ParametricFamilyId, ParametricFamilyReceipt,
+    ParametricProblemId, ParametricSensitivityId, ResidualSystemId, RootCertificateId,
+    RootIsolationId, RootIsolationSearchId, StationaryPointClassification, StationaryPointId,
 };
 pub use durable_search::{
     DURABLE_ROOT_SEARCH_SCHEMA, DurableSearchError, PreparedRootSearchCheckpoint,
@@ -49,6 +51,7 @@ pub use durable_search::{
 };
 pub use fsym_budget::{Budget, BudgetLimits, BudgetMeter, BudgetSnapshot, Dimension, MeterError};
 pub use fsym_calculus::box_optimization::BoxOptimizationOptions;
+pub use fsym_calculus::parametric_cover::ParametricRootCoverOptions;
 pub use fsym_calculus::quadrature::QuadratureOptions;
 pub use fsym_calculus::root_isolation::{
     MAX_ROOT_ISOLATION_ADVANCE_CELLS, RootIsolationCounters, RootIsolationOptions,
@@ -57,9 +60,13 @@ pub use fsym_calculus::root_isolation::{
 pub use fsym_core::{
     BigInt, BigRational, BoxExtremumKind, BoxOptimizationError, BoxOptimizationReceipt,
     BoxOptimizationWitness, BoxPartitionStep, Expr, IntegralEnclosureReceipt, ObjectiveEnclosure,
-    QuadratureError, QuadratureWitness, RealBall, ResidualJacobianEnclosure, RootBoxReceipt,
-    RootBoxWitness, RootIsolationError, RootIsolationReceipt, RootIsolationStep,
-    RootIsolationWitness, StationaryPointKind, StationaryPointReceipt, Symbol, SymbolIdentity,
+    ParametricRootBoxReceipt, ParametricRootBoxWitness, ParametricRootCoverError,
+    ParametricRootCoverReceipt, ParametricRootCoverStep, ParametricRootCoverWitness,
+    ParametricSensitivityReceipt, QuadratureError, QuadratureWitness, RealBall,
+    ResidualJacobianEnclosure, RootBoxReceipt, RootBoxWitness, RootIsolationError,
+    RootIsolationReceipt, RootIsolationStep, RootIsolationWitness, StationaryPointKind,
+    StationaryPointReceipt, Symbol, SymbolIdentity, metered_enclose_parametric_cover_sensitivity,
+    metered_enclose_parametric_root_sensitivity,
 };
 pub use fsym_proof_kernel::{
     MergeCertError, MergePolicy, SemanticMergeCertificate, WitnessKind, verify_merge_certificate,
@@ -88,6 +95,7 @@ pub use optimization::{
     BOX_OPTIMIZATION_ARTIFACT_SCHEMA_VERSION, MAX_BOX_OPTIMIZATION_ARTIFACT_BYTES,
     OptimizationError, export_box_optimization, replay_box_optimization,
 };
+pub use parametric::{ParametricError, ParametricProblem};
 pub use repairable_search::{
     PreparedRepairableRootSearchCheckpoint, RepairableRootSearchCheckpoint,
     RepairableRootSearchCheckpointStore, RepairableSearchError, RootSearchRepairReport,
