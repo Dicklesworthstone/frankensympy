@@ -112,6 +112,20 @@
       "check": "Local recovery attempt",
       "status": "blocked_before_test_execution",
       "detail": "A clean exact-6128 validation checkout and preserved cache were prepared on writable temporary storage after recovery. The executor disconnected again before Cargo could start; neither the follow-up formatter/planning checks nor the new test retry executed."
+    },
+    {
+      "check": "Focused core retry after environment recovery",
+      "status": "killed_before_source_or_test_execution",
+      "command": "cargo test --locked -p fsym-core --test box_optimization_transport --test box_optimization",
+      "source_commit": "6128cbf1c4b5d5a70d5d1dc424effaf05b8f44a9",
+      "exit_code": 137,
+      "detail": "Cargo downloaded genuine locked dependencies, then the shell reported Killed while proc-macro2 was compiling. No core source or tests executed. The exact cause of the process kill was not confirmed."
+    },
+    {
+      "check": "Quartic numeric and matrix-lifting source preflight",
+      "status": "passed",
+      "scope": "Pinned nightly-2026-08-20 rustfmt parsed/formatted the complete changed core file. Python 3.12 AST parsing passed for the complete changed dense-matrix and quartic-regression modules. This is syntax/format evidence, not type checking or test execution.",
+      "formatted_core_sha256": "15d352e7ed6d2efc7a465bea19abe5a596aa632ea27dc9a44694166ed51ae6f6"
     }
   ],
   "trust_limits": [
@@ -131,5 +145,21 @@
     "regressions": "Direct wrap/lift handle identity; polynomial-forced transport/reaction solve preserving both coordinate handles; callback replacement with either the same binding or a different binding must still refuse before publication.",
     "validation": "Independent source review and failure-trace analysis completed. AST parsing of the patched core module and full modified PDE test module passed under Python 3.12.14 during a brief executor recovery. No post-fix native-extension/PDE tests have executed; CI is queued.",
     "remaining_observed_failures": "The five quartic failures are separate and are being investigated; this fix does not claim to resolve them."
+  },
+  "quartic_numeric_followup": {
+    "observed_failures": 4,
+    "causes": [
+      "Real powf evaluation silently returned NaN for negative bases with noninteger exponents. complex(float(expr)) then produced nan+0j, falsely giving mixed quartic spectra four apparently real roots.",
+      "Matrix.eigenvalues wrapped native arithmetic directly, while polynomial roots used canonical result lifting, producing structurally inconsistent exact spectra from the same checked root engine."
+    ],
+    "corrections": [
+      "Refuse negative real bases with finite noninteger exponents, and negative real sqrt/log arguments, using the existing not-real-valued error path. Existing complex evaluation then handles the principal branch. Explicit NaN, infinities and real-valued boundary behavior are retained.",
+      "Use _lift_native_result for native matrix eigenvalues, preserving the existing checked characteristic polynomial, completeness, multiplicity and fallback rules."
+    ],
+    "new_native_unit_tests": 3,
+    "new_public_parametrized_cases": 3,
+    "strengthened_existing_checks": "Require finite real and imaginary components for all quartic numeric observations, and preserve complete matrix-spectrum multiplicities as well as set equality.",
+    "validation": "Source review, pinned formatting and Python syntax checks passed. The new native and Python regressions have not executed; G3 explicitly selects the three native cases and already selects the public quartic modules.",
+    "remaining_observed_failure": "The repeated-quartic Euler residual exposes a separate exact Gaussian-power expansion gap; its correction remains under review."
   }
 }

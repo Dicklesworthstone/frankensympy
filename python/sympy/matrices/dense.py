@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..core import Basic, Expr, Rational, _native, _native_expr, _wrap
+from ..core import Basic, Expr, Rational, _lift_native_result, _native, _native_expr, _wrap
 from ..core import Add as _Add, Function as _Function, Mul as _Mul, Pow as _Pow
 
 _NativeMatrix = _native.Matrix
@@ -736,7 +736,7 @@ class Matrix(MatrixBase):
         """
         native = self._native
         try:
-            return [_wrap(e) for e in native.eigenvalues()]
+            return [_lift_native_result(e) for e in native.eigenvalues()]
         except ValueError as error:
             # Resource, domain and verification failures are terminal. In
             # particular, this is not a retry after an exhausted work budget.

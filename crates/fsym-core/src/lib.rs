@@ -874,7 +874,17 @@ impl Expr {
                 }
                 Ok(acc)
             }
-            Expr::Pow(b, e) => Ok(b.evalf()?.powf(e.evalf()?)),
+            Expr::Pow(b, e) => {
+                let base = b.evalf()?;
+                let exponent = e.evalf()?;
+                if base < 0.0 && exponent.is_finite() && exponent.fract() != 0.0 {
+                    Err(CoreError::InvalidOperation(
+                        "a negative base to a noninteger power is not real-valued".to_string(),
+                    ))
+                } else {
+                    Ok(base.powf(exponent))
+                }
+            }
             Expr::Function(name, args) => {
                 let x = match args.as_slice() {
                     [arg] => Some(arg.evalf()?),
@@ -885,7 +895,13 @@ impl Expr {
                     ("cos", Some(x)) => Ok(x.cos()),
                     ("tan", Some(x)) => Ok(x.tan()),
                     ("exp", Some(x)) => Ok(x.exp()),
+                    ("log" | "ln", Some(x)) if x < 0.0 => Err(CoreError::InvalidOperation(
+                        "logarithm of a negative argument is not real-valued".to_string(),
+                    )),
                     ("log" | "ln", Some(x)) => Ok(x.ln()),
+                    ("sqrt", Some(x)) if x < 0.0 => Err(CoreError::InvalidOperation(
+                        "square root of a negative argument is not real-valued".to_string(),
+                    )),
                     ("sqrt", Some(x)) => Ok(x.sqrt()),
                     _ => Err(CoreError::InvalidOperation(format!(
                         "cannot evaluate function `{name}` numerically"
@@ -2479,5 +2495,76 @@ mod tests {
         ]);
         let rball = real_expr.eval_real_ball(16).unwrap();
         assert!(rball.contains(&BigRational::one()));
+    }
+
+    #[test]
+    fn real_evalf_refuses_nonreal_powers_and_functions() {
+        // Retain the negative argument so the numeric evaluator is exercised.
+        let negative = Expr::Add(vec![Expr::from_i64(1), Expr::from_i64(-3)]);
+        for exponent in [
+            Expr::rational(1, 2).unwrap(),
+            Expr::rational(1, 3).unwrap(),
+            Expr::rational(-1, 2).unwrap(),
+        ] {
+            assert!(matches!(
+                negative.clone().pow(exponent).evalf(),
+                Err(CoreError::InvalidOperation(message))
+                    if message.contains("not real-valued")
+            ));
+        }
+        for name in ["sqrt", "log", "ln"] {
+            let expression = Expr::Function(name.to_string(), vec![negative.clone()]);
+            assert!(matches!(
+                expression.evalf(),
+                Err(CoreError::InvalidOperation(message))
+                    if message.contains("not real-valued")
+            ));
+        }
+    }
+
+    #[test]
+    fn real_evalf_keeps_integer_powers_and_real_function_boundaries() {
+        for (exponent, expected) in [(3, -8.0), (-3, -0.125)] {
+            let expression = Expr::Pow(
+                Arc::new(Expr::from_i64(-2)),
+                Arc::new(Expr::from_i64(exponent)),
+            );
+            assert_eq!(expression.evalf(), Ok(expected));
+        }
+        for (name, argument, expected) in [
+            ("sqrt", 4, 2.0),
+            ("sqrt", 0, 0.0),
+            ("log", 1, 0.0),
+            ("log", 0, f64::NEG_INFINITY),
+        ] {
+            let expression = Expr::Function(name.to_string(), vec![Expr::from_i64(argument)]);
+            assert_eq!(expression.evalf(), Ok(expected));
+        }
+        assert_eq!(Expr::Const(Constant::Infinity).evalf(), Ok(f64::INFINITY));
+        assert_eq!(
+            Expr::Const(Constant::NegativeInfinity).evalf(),
+            Ok(f64::NEG_INFINITY)
+        );
+    }
+
+    #[test]
+    fn real_evalf_preserves_explicit_nan_propagation() {
+        let nan = Expr::Const(Constant::NaN);
+        let half = Expr::rational(1, 2).unwrap();
+        for expression in [
+            nan.clone(),
+            Expr::Pow(Arc::new(nan.clone()), Arc::new(half)),
+            Expr::Pow(Arc::new(Expr::from_i64(-2)), Arc::new(nan.clone())),
+            Expr::Function("sqrt".to_string(), vec![nan.clone()]),
+            Expr::Function("log".to_string(), vec![nan.clone()]),
+            Expr::Function("ln".to_string(), vec![nan]),
+        ] {
+            assert!(
+                expression
+                    .evalf()
+                    .expect("explicit NaN remains a value")
+                    .is_nan()
+            );
+        }
     }
 }

@@ -1,5 +1,7 @@
 """General rational quartics through the actual public polynomial consumers."""
 
+import math
+
 import pytest
 import sympy as s
 
@@ -32,6 +34,7 @@ def test_public_roots_cover_real_complex_nonmonic_and_resolvent_boundary_cases(
     # Independent approximate observations check the returned surface values;
     # production admission uses the exact coefficient-reconstruction guard.
     values = [complex(root) for root in roots]
+    assert all(math.isfinite(root.real) and math.isfinite(root.imag) for root in values)
     assert sum(abs(root.imag) < 1e-7 for root in values) == real_count
     for root in values:
         residual, scale = 0j, 0.0
@@ -70,4 +73,27 @@ def test_companion_matrix_exposes_the_complete_complex_quartic_spectrum():
         [0, 0, 1, 0],
     ])
     assert companion.eigenvals() == expected
-    assert set(companion.eigenvalues()) == set(expected)
+    spectrum = companion.eigenvalues()
+    assert set(spectrum) == set(expected)
+    assert len(spectrum) == 4
+    assert {root: spectrum.count(root) for root in spectrum} == expected
+
+
+@pytest.mark.parametrize("exponent", [
+    s.Rational(1, 2),
+    s.Rational(1, 3),
+    s.Rational(-1, 2),
+])
+def test_held_negative_powers_use_principal_complex_numeric_evaluation(exponent):
+    expression = s.Pow(-2, exponent, evaluate=False)
+    expected = complex(-2, 0)**(exponent.p/exponent.q)
+
+    observed = complex(expression)
+    assert math.isfinite(observed.real) and math.isfinite(observed.imag)
+    assert observed == pytest.approx(expected, rel=1e-10, abs=1e-10)
+
+    evaluated = s.N(expression, 12)
+    real, imaginary = evaluated.as_real_imag()
+    observed_evalf = complex(float(real), float(imaginary))
+    assert math.isfinite(observed_evalf.real) and math.isfinite(observed_evalf.imag)
+    assert observed_evalf == pytest.approx(expected, rel=1e-10, abs=1e-10)
