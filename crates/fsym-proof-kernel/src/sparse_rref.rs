@@ -227,7 +227,9 @@ impl<'de> Deserialize<'de> for BoundedInteger {
     }
 }
 
-fn bounded_scalar<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<BigRational, D::Error> {
+pub(super) fn bounded_scalar<'de, D: Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<BigRational, D::Error> {
     let (BoundedInteger(numerator), BoundedInteger(denominator)) =
         <(BoundedInteger, BoundedInteger)>::deserialize(d)?;
     if !denominator.is_positive() || !numerator.gcd(&denominator).is_one() {
@@ -315,7 +317,7 @@ fn bounded_pivots<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<Vec<us
     bounded_vec::<D, usize, MAX_SPARSE_RREF_DIMENSION>(d)
 }
 
-fn check_scalar(value: &BigRational) -> Result<()> {
+pub(super) fn check_scalar(value: &BigRational) -> Result<()> {
     if !value.denom().is_positive() {
         return Err(SparseRrefError::Invalid("invalid rational denominator"));
     }
@@ -325,7 +327,7 @@ fn check_scalar(value: &BigRational) -> Result<()> {
     Ok(())
 }
 
-struct Reference<'a, M> {
+pub(super) struct Reference<'a, M> {
     meter: &'a mut M,
     steps: u64,
     bytes: u64,
@@ -365,8 +367,15 @@ impl<M: BudgetMeter> BudgetMeter for Reference<'_, M> {
     }
 }
 
-impl<M: BudgetMeter> Reference<'_, M> {
-    fn tick(&mut self, steps: u64) -> Result<()> {
+impl<'a, M: BudgetMeter> Reference<'a, M> {
+    pub(super) fn new(meter: &'a mut M) -> Self {
+        Self {
+            meter,
+            steps: 0,
+            bytes: 0,
+        }
+    }
+    pub(super) fn tick(&mut self, steps: u64) -> Result<()> {
         self.checkpoint()?;
         self.charge(Dimension::ComputeSteps, steps.max(1))?;
         Ok(())
@@ -387,11 +396,11 @@ impl<M: BudgetMeter> Reference<'_, M> {
             .map_err(|_| SparseRrefError::Limit("container allocation"))?;
         Ok(result)
     }
-    fn clone_value(&mut self, value: &BigRational) -> Result<BigRational> {
+    pub(super) fn clone_value(&mut self, value: &BigRational) -> Result<BigRational> {
         self.storage(scalar_bytes(value))?;
         Ok(value.clone())
     }
-    fn multiply(&mut self, a: &BigRational, b: &BigRational) -> Result<BigRational> {
+    pub(super) fn multiply(&mut self, a: &BigRational, b: &BigRational) -> Result<BigRational> {
         if a.numer().bits().saturating_add(b.numer().bits()) > MAX_SPARSE_RREF_COEFFICIENT_BITS
             || a.denom().bits().saturating_add(b.denom().bits()) > MAX_SPARSE_RREF_COEFFICIENT_BITS
         {
@@ -535,7 +544,7 @@ pub fn verify_sparse_rref<M: BudgetMeter>(
     verify_sparse_rref_reference(source, witness, &mut work)
 }
 
-fn verify_sparse_rref_reference<M: BudgetMeter>(
+pub(super) fn verify_sparse_rref_reference<M: BudgetMeter>(
     source: &RationalSparseMatrix,
     witness: &SparseRrefWitness,
     work: &mut Reference<'_, M>,
@@ -768,7 +777,12 @@ fn check_affine_outputs<M: BudgetMeter>(
     {
         return Err(SparseRrefError::Invalid("affine output shape"));
     }
-    if particular.entries.len().saturating_add(kernel.entries.len()) > MAX_SPARSE_RREF_ENTRIES {
+    if particular
+        .entries
+        .len()
+        .saturating_add(kernel.entries.len())
+        > MAX_SPARSE_RREF_ENTRIES
+    {
         return Err(SparseRrefError::Limit("aggregate affine output entries"));
     }
     let mut free_indices = work.vector(coefficients.columns)?;
@@ -780,7 +794,9 @@ fn check_affine_outputs<M: BudgetMeter>(
     for entry in &particular.entries {
         work.tick(1)?;
         if free_indices[entry.row].is_some() {
-            return Err(SparseRrefError::Invalid("particular free coordinate is nonzero"));
+            return Err(SparseRrefError::Invalid(
+                "particular free coordinate is nonzero",
+            ));
         }
     }
     let mut identities = work.vector(free_columns.len())?;
@@ -840,7 +856,9 @@ pub fn verify_sparse_affine<M: BudgetMeter>(
     }
     let augmented = affine_augmented_source(coefficients, rhs, &mut work)?;
     let reduction = verify_sparse_rref_reference(&augmented, &witness.reduction, &mut work)?;
-    let rank = reduction.pivots().partition_point(|&column| column < coefficients.columns);
+    let rank = reduction
+        .pivots()
+        .partition_point(|&column| column < coefficients.columns);
     let mut free_columns = work.vector(coefficients.columns - rank)?;
     let mut next_pivot = 0;
     for column in 0..coefficients.columns {
@@ -854,8 +872,14 @@ pub fn verify_sparse_affine<M: BudgetMeter>(
     let (contradiction_row, particular_digest, kernel_digest) = match &witness.outcome {
         SparseAffineOutcome::Inconsistent { row } => {
             work.tick(1)?;
-            if reduction.pivots().get(*row).is_none_or(|&column| column < coefficients.columns) {
-                return Err(SparseRrefError::Invalid("affine contradiction row is not contradictory"));
+            if reduction
+                .pivots()
+                .get(*row)
+                .is_none_or(|&column| column < coefficients.columns)
+            {
+                return Err(SparseRrefError::Invalid(
+                    "affine contradiction row is not contradictory",
+                ));
             }
             (Some(*row), None, None)
         }
@@ -866,7 +890,9 @@ pub fn verify_sparse_affine<M: BudgetMeter>(
         } => {
             work.tick(1)?;
             if rank != reduction.rank() {
-                return Err(SparseRrefError::Invalid("affine solution omits an inconsistent RHS"));
+                return Err(SparseRrefError::Invalid(
+                    "affine solution omits an inconsistent RHS",
+                ));
             }
             if claimed_free.len() != free_columns.len() {
                 return Err(SparseRrefError::Invalid("affine free-column count"));
@@ -883,7 +909,11 @@ pub fn verify_sparse_affine<M: BudgetMeter>(
                 &free_columns,
                 &mut work,
             )?;
-            (None, Some(work.digest(particular)?), Some(work.digest(kernel)?))
+            (
+                None,
+                Some(work.digest(particular)?),
+                Some(work.digest(kernel)?),
+            )
         }
     };
     let source_digest = work.digest(coefficients)?;
