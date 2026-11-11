@@ -1,0 +1,281 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-11T06:27:41.786699+00:00",
+  "repository": "Dicklesworthstone/frankensympy",
+  "verified_main_commit": "e222f96c7008c3a81564541758d1f82b9c7a40f4",
+  "features": {
+    "monotone_optimization": "Committed core bounds restrict only coordinates whose original whole-cell derivatives prove a sign; natural, Taylor and face enclosures are intersected. Fixed and uncertain coordinates and original domain obligations remain intact.",
+    "parametric_families": "Native facade and typed Session/NDJSON support uniform unique-root families, complete adaptive parameter covers and original-source implicit solution Jacobian enclosures. Session changes await production validation."
+  },
+  "toolchain": {
+    "channel": "nightly-2026-08-20",
+    "rustc": "1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "commit_hash": "f7d782a3be46d6bb4b9792fe69a61db389ba1769",
+    "host": "x86_64-unknown-linux-gnu",
+    "llvm": "23.1.0"
+  },
+  "evidence_root": "/workspace/scratch/8a453db7a629",
+  "executed_validation": {
+    "monotone_core_and_calculus": {
+      "scope": "Original workspace manifests, source, lockfile and donor pins; focused native crate tests only.",
+      "workdir": "frankensympy-integration",
+      "commands": [
+        "cargo test -p fsym-core --test box_optimization --test box_optimization_monotonicity --locked -j1",
+        "cargo test -p fsym-calculus --test certified_box_optimization --test certified_monotone_optimization --locked -j1"
+      ],
+      "passed": 39,
+      "failed": 0,
+      "exit_codes": [
+        0,
+        0
+      ],
+      "test_counts": {
+        "box_optimization": 13,
+        "box_optimization_monotonicity": 7,
+        "certified_box_optimization": 15,
+        "certified_monotone_optimization": 4
+      },
+      "logs": [
+        "monotone-core-tests.log",
+        "monotone-calculus-tests.log"
+      ],
+      "environment": {
+        "CARGO_TARGET_DIR": "/workspace/scratch/8a453db7a629/frankensympy/target",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_INCREMENTAL": "0"
+      }
+    },
+    "parametric_native_component": {
+      "scope": "Actual original ParametricProblem and ResidualProblem source with original native dependency closure; no mocked or replaced dependencies. Excludes production Session, CLI, runtime and durability.",
+      "workdir": "parametric-component-check",
+      "tests": {
+        "command": "cargo +nightly-2026-08-20 test --offline --locked --test native_parametric -j1",
+        "exit_code": 0,
+        "passed": 10,
+        "failed": 0,
+        "ignored": 0,
+        "duration_seconds": 0.05,
+        "build_seconds": 41.59
+      },
+      "clippy": {
+        "command": "cargo +nightly-2026-08-20 clippy --offline --locked --lib --test native_parametric -j1 -- -D warnings",
+        "exit_code": 0,
+        "duration_seconds": 24.48
+      },
+      "evidence": "parametric-component-check/validation-result.json",
+      "source_and_lock_evidence": [
+        "parametric-component-check/pre-run-scope.json",
+        "parametric-component-check/post-run-scope.json"
+      ],
+      "registry_identities_match_original_lock": true,
+      "source_changes_during_validation": {},
+      "current_facade_and_native_test_hashes_match_tested_snapshot": true
+    },
+    "monotone_strict_clippy": {
+      "commands": [
+        "cargo clippy -p fsym-core --lib --test box_optimization_monotonicity --locked -j1 -- -D warnings",
+        "cargo clippy -p fsym-calculus --lib --test certified_monotone_optimization --locked -j1 -- -D warnings"
+      ],
+      "exit_codes": [
+        0,
+        0
+      ],
+      "logs": [
+        "monotone-core-clippy.log",
+        "monotone-calculus-clippy.log"
+      ],
+      "scope": "Original locked workspace and exact pinned compiler, no source or dependency substitutions."
+    },
+    "planning": {
+      "command": "python tools/validate_planning.py",
+      "exit_code": 0
+    },
+    "session_source_component": {
+      "scope": "Unchanged complete root library and CLI sources with whole original synchronous runtime and pinned codec dependency modules; source-component validation only",
+      "not_covered": [
+        "full production Cargo dependency graph",
+        "asynchronous runtime scheduling/cancellation implementation",
+        "donor runtime transport/security",
+        "omitted runtime modules and their tests",
+        "workspace CI gates",
+        "compatibility profiles"
+      ],
+      "command": "cargo +nightly-2026-08-20 test --offline --locked --test native_parametric --test parametric_session --test parametric_cli --test optimization_integration_adversaries -j1",
+      "exit_code": 0,
+      "passed": 28,
+      "failed": 0,
+      "test_counts": {
+        "native_parametric": 10,
+        "parametric_session": 10,
+        "parametric_cli": 4,
+        "optimization_integration_adversaries": 4
+      },
+      "sources_compiled": "The unchanged complete production src/lib.rs, src/bin/frankensympy.rs and all four test files at e222f96 were compiled directly by path. Real selected dependency modules were compiled whole; no source functions were changed or replaced.",
+      "dependency_scope": {
+        "original_runtime_modules": 5,
+        "original_pinned_codec_modules_and_table": 14,
+        "complete_original_path_dependencies": 20,
+        "registry_identities_matching_production_lock": 46,
+        "unchanged_recorded_source_hashes": 455
+      },
+      "source_changes_during_validation": {},
+      "dependency_warnings": "5 unused original donor ID bootstrap entries +2 preserved but unused original nightly feature attributes due to omitted runtime modules; no original source edited to suppress these warnings",
+      "evidence": "artifacts/audit/reproduction/2026-11-11-parametric-session-component/validation-result.json",
+      "pre_run_scope": "Original full snapshot digest and equality are retained in input-snapshots.json; the reproducer regenerates a full snapshot.",
+      "post_run_scope": "Original full snapshot digest and equality are retained in input-snapshots.json; the reproducer regenerates a full snapshot.",
+      "test_log_sha256": "9bf3dec6d081a213f7ae7ddf5a712762811135d1eaf7e7cc988a0bd58776ff6d",
+      "strict_clippy_attempts": [
+        {
+          "command": "cargo +nightly-2026-08-20 clippy --offline --locked --lib --bin frankensympy --test native_parametric --test parametric_session --test parametric_cli --test optimization_integration_adversaries -j1 -- -D warnings",
+          "exit_code": 101,
+          "scope": "Initial command also linted original donor workspace-member components; stopped at30 donor diagnostics before root. No original functions edited or warnings suppressed.",
+          "log": "component-clippy.txt",
+          "log_sha256": "722010691466abc32eca227bb8a9bfa05ec8a4867b5ddb846b21f7cad674f543"
+        },
+        {
+          "command": "cargo +nightly-2026-08-20 clippy --offline --locked -p frankensympy-session-source-component-check --no-deps --lib --bin frankensympy --test native_parametric --test parametric_session --test parametric_cli --test optimization_integration_adversaries -j1 -- -D warnings",
+          "exit_code": 0,
+          "scope": "Strict Clippy for actual unchanged root library, CLI and all4 integration targets; original donor dependency compiler warnings remain visible.",
+          "log": "root-component-clippy.txt",
+          "log_sha256": "ef7b678c297b7ea282edc1a080564ff37e7f6754dae6fad8896a3b94915c6136"
+        }
+      ],
+      "source_hashes_unchanged_through_clippy": true,
+      "harness_inputs_unchanged_through_clippy": true,
+      "reproduction_bundle": "artifacts/audit/reproduction/2026-11-11-parametric-session-component",
+      "source_and_omission_inventory": "artifacts/audit/reproduction/2026-11-11-parametric-session-component/source-inventory.json",
+      "snapshots": "artifacts/audit/reproduction/2026-11-11-parametric-session-component/input-snapshots.json"
+    }
+  },
+  "production_runtime_validation": {
+    "completed_attempts": [
+      {
+        "log": "build-baseline.log",
+        "outcome": "asupersync rustc terminated by SIGKILL before root crate validation"
+      },
+      {
+        "log": "root-test-build.log",
+        "outcome": "asupersync rustc terminated by SIGKILL before root test executables were built"
+      },
+      {
+        "log": "integration-metadata-check.log",
+        "outcome": "asupersync rustc terminated by SIGKILL before root crate metadata validation"
+      }
+    ],
+    "lowered_mir_build": {
+      "command": "cargo test -p frankensympy --locked --test parametric_session --test parametric_cli --test native_parametric --test optimization_integration_adversaries --no-run -j1",
+      "log": "low-mir-production-build.log",
+      "status": "failed_before_root_crate_compilation",
+      "exit_code": 101,
+      "final_outcome": "Pinned asupersync compiler terminated by SIGKILL; no Rust source diagnostic and no root test executable. Kernel OOM cause was not independently established.",
+      "environment": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_INCREMENTAL": "0",
+        "MALLOC_ARENA_MAX": "2",
+        "RUSTFLAGS": "-Zmir-opt-level=0 -Zthreads=1 -Ccodegen-units=256",
+        "CARGO_TARGET_DIR": "/workspace/scratch/8a453db7a629/low-mir-target"
+      }
+    },
+    "production_session_or_cli_tests_executed": false,
+    "clarification": "The same production Session/CLI source files executed successfully in the explicitly reduced source-component dependency graph. No complete original production graph executable was built."
+  },
+  "independent_review": {
+    "monotone_bounds": "No blocking flaw found in sign/zero handling, partial-face soundness, hidden domains, exact arithmetic accounting or cancellation. Evaluation ceiling covers 5*(2L-1) search evaluations and 4L+1 independent replay evaluations.",
+    "parametric_session": "No blocking source/API flaw found. Full parameter intervals and ordered coordinate roles are preserved; candidate generation uses ordinary work, independent verification and sensitivity use protected work, and resident publication follows complete output admission."
+  },
+  "limitations": [
+    "No complete workspace, compatibility, release-gate or production-runtime success is claimed.",
+    "Native checkpoint/campaign status, claim evidence levels, bead statuses and dependency edges remain unchanged; existing claim and bead notes record the scoped progress.",
+    "No benchmark or performance claim is made."
+  ],
+  "source_sha256": {
+    "crates/fsym-core/src/root_certificate/box_optimization.rs": "f761d85c4255b290ee014eefb09454f026d021162c5bfec923ee98b15cfd587c",
+    "crates/fsym-core/tests/box_optimization_monotonicity.rs": "723290454180e25804add692cab86fb12fff16ac1276d9d84abed62fd232ae70",
+    "crates/fsym-calculus/tests/certified_monotone_optimization.rs": "ca7a705e32ffa3d97be1e1a2b26eaa299b0b70dce63f15f8c2df5ae422eec2e3",
+    "src/parametric.rs": "23acb4f3ad4e002ec8aef024925b567bf0dfef2be8ba18c230ea34322239d5c0",
+    "src/certification_session/parametric.rs": "a2997e4f0d47525739da6c116a6dd8affab1e90a2608a720f21d6bbd0420b389",
+    "src/certification_session.rs": "0773f34162af170246a6362b481451a36086bcba894cf979bb91115d48255705",
+    "src/session.rs": "cfb4e34933e8014208521f425ca44c1d3a862e7f576bfca2cef537518da33ae6",
+    "src/lib.rs": "c7c6136307e112663b832b8b259a46a246e930b3639f72669af0f2067c4b7724",
+    "tests/native_parametric.rs": "a2039dc4764dd4499faebff42ac30c4e98ae4162a87cbe9e982f66f45a031def",
+    "tests/parametric_session.rs": "c3c50ec27f47c0db015d565ae65ab8d4546a29af2f2f785ce642540dd93023be",
+    "tests/parametric_cli.rs": "40fc4c2a27842ebf7d37c56abe3087ed14fe1bed0e16146e014bcd8d727add4e",
+    "tests/optimization_integration_adversaries.rs": "191743610c4890d229db4204afdb7a23efa8cc6ebe3d291e781035c541d2ed19",
+    "Cargo.lock": "6935b01ef3f91365feb1a37e75c6cbb4d4f82654d46641aca678414dc547ca46",
+    "rust-toolchain.toml": "cdaedf5d65db22fa32d18beadab465c1b7653285dfb2e14d23f7dfd9677f9848"
+  },
+  "verified_main_commits": [
+    {
+      "sha": "b14dd21c5987e5523f76617ffe0b9b7488f87027",
+      "scope": "Certified monotone-face bounds, independent adversarial tests and targeted CI."
+    },
+    {
+      "sha": "e222f96c7008c3a81564541758d1f82b9c7a40f4",
+      "scope": "Native parametric problem facade, complete family and sensitivity Session/NDJSON operations, usage examples and regression targets."
+    }
+  ],
+  "formatting": {
+    "changed_rust_files": "Pinned rustfmt check passed.",
+    "workspace_command": "cargo fmt --check",
+    "workspace_exit_code": 1,
+    "log": "fmt-final.log",
+    "scope": "The same 11 unrelated baseline files differ from pinned rustfmt; none of the files changed in these two commits occurs in the formatter diff."
+  },
+  "ci": {
+    "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/42972500425",
+    "commit": "e222f96c7008c3a81564541758d1f82b9c7a40f4",
+    "last_observed_status": "queued",
+    "conclusion": null
+  },
+  "component_test_totals": {
+    "distinct_focused_tests_passed": 67,
+    "native_original_workspace": 39,
+    "root_source_component": 28,
+    "earlier_facade_only_tests_also_passed": 10,
+    "note": "The ten earlier facade tests are included in the 28 root source-component tests and are not counted twice."
+  },
+  "full_production_targets_not_executed": {
+    "tests/parametric_session.rs": 10,
+    "tests/parametric_cli.rs": 4,
+    "tests/optimization_integration_adversaries.rs": 4,
+    "note": "All these exact test files pass in the source-component graph; none ran in a complete original production graph build."
+  },
+  "reproduction_bundle_sha256": {
+    "Cargo.lock": "b62f30b32adf8dcc4b3c1b26186909d77c924dc631cd4d6ba5d54c874f11249f",
+    "Cargo.toml": "6d9951eed36306e45b26f812cdac126ba78a4a15bee2ffd59fe83b02e7e1e2c3",
+    "README.md": "dc77144fa55f9caf1139b1a0d92a86c0b52da9b5470e3bee0163df9e47817dab",
+    "codec/Cargo.toml": "cc10cc1a93c57906abb86ab0a094a0c30eb060da3ead2d33dd564b9ee53dfc19",
+    "codec/lib.rs": "78be05dab1d92d4560c3844e34f69839dff2a119c0f442a172afdfdcebada58f",
+    "component-clippy.txt": "722010691466abc32eca227bb8a9bfa05ec8a4867b5ddb846b21f7cad674f543",
+    "component-tests.txt": "9bf3dec6d081a213f7ae7ddf5a712762811135d1eaf7e7cc988a0bd58776ff6d",
+    "input-snapshots.json": "6f6586c6e625eda19abcb629d3119e2e699c0e02e39b2552ee5d35677f562c71",
+    "record_scope.py": "270445f7375032096477c8c2377880f0e055b2de633a32ad688c20a36e8e3a4f",
+    "reproduce.py": "3cc2846b91ff9b739d18fb3ae8c99b387ba7ab05ffa31290d0f5754a51afc263",
+    "root-component-clippy.txt": "ef7b678c297b7ea282edc1a080564ff37e7f6754dae6fad8896a3b94915c6136",
+    "runtime/Cargo.toml": "7406531a85a9eb3566a44727faa74fbc958f806bcf16be9b32583343bebcaa25",
+    "runtime/lib.rs": "f834794ce40d1a289f459ffbd695fc1a03affc37819baeb20c98a036218e35e4",
+    "source-inventory.json": "ded09021cabfa3eecbdbb0a35ee507a663f7d7360c66931bff8c2a017db315cb",
+    "validation-result.json": "b9344103574b6e93b8e593c8b5e7ce4c6c27b48da5f8bafe6b4862a37fe4821e"
+  },
+  "concurrent_main_reconciliation": {
+    "base_commit": "3dc7fb6dd5e0880b7ad262beeaa756d79858376c",
+    "preserved": [
+      "Concurrent interned Symbol lifting fix",
+      "Concurrent sparse matrix block insertion and stack assembly",
+      "Concurrent bead notes, README additions and optimization audit update"
+    ],
+    "selected_source_hashes_rechecked": 455,
+    "changed_tested_inputs": []
+  },
+  "reproduction_whitespace_check": {
+    "command": "git diff --cached --check",
+    "exit_code": 2,
+    "detail": "The faithfully preserved codec wrapper and raw test log each contain one blank line at EOF. Their recorded input/log bytes are retained; production source formatting checks passed.",
+    "paths": [
+      "artifacts/audit/reproduction/2026-11-11-parametric-session-component/codec/lib.rs",
+      "artifacts/audit/reproduction/2026-11-11-parametric-session-component/component-tests.txt"
+    ]
+  }
+}

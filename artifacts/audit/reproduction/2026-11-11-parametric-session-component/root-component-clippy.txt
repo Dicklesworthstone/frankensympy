@@ -1,0 +1,56 @@
+    Checking asupersync-codec-source-component v0.6.0 (/workspace/scratch/8a453db7a629/session-source-component-check/codec)
+warning: static `EPHEMERAL_REGION_COUNTER` is never used
+  --> /workspace/scratch/8a453db7a629/asupersync/src/types/id.rs:21:8
+   |
+21 | static EPHEMERAL_REGION_COUNTER: AtomicU32 = AtomicU32::new(1);
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: static `EPHEMERAL_TASK_COUNTER` is never used
+  --> /workspace/scratch/8a453db7a629/asupersync/src/types/id.rs:22:8
+   |
+22 | static EPHEMERAL_TASK_COUNTER: AtomicU32 = AtomicU32::new(1);
+   |        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `next_bootstrap_region_id` is never used
+  --> /workspace/scratch/8a453db7a629/asupersync/src/types/id.rs:32:15
+   |
+32 | pub(crate) fn next_bootstrap_region_id() -> RegionId {
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `next_bootstrap_task_id` is never used
+  --> /workspace/scratch/8a453db7a629/asupersync/src/types/id.rs:41:15
+   |
+41 | pub(crate) fn next_bootstrap_task_id() -> TaskId {
+   |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated function `from_arena` is never used
+  --> /workspace/scratch/8a453db7a629/asupersync/src/types/id.rs:57:25
+   |
+52 | impl RegionId {
+   | ------------- associated function in this implementation
+...
+57 |     pub(crate) const fn from_arena(index: ArenaIndex) -> Self {
+   |                         ^^^^^^^^^^
+
+warning: feature `try_trait_v2` is declared but not used
+ --> codec/lib.rs:3:54
+  |
+3 | #![cfg_attr(feature = "nightly-outcome-try", feature(try_trait_v2))]
+  |                                                      ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_features)]` (part of `#[warn(unused)]`) on by default
+
+warning: feature `try_trait_v2_residual` is declared but not used
+ --> codec/lib.rs:4:54
+  |
+4 | #![cfg_attr(feature = "nightly-outcome-try", feature(try_trait_v2_residual))]
+  |                                                      ^^^^^^^^^^^^^^^^^^^^^
+
+warning: `asupersync-codec-source-component` (lib) generated 7 warnings
+    Checking fsym-solvers v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-solvers)
+    Checking fsym-runtime-session-source-component v0.1.0 (/workspace/scratch/8a453db7a629/session-source-component-check/runtime)
+    Checking fsym-durable v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-durable)
+    Checking frankensympy-session-source-component-check v0.1.0 (/workspace/scratch/8a453db7a629/session-source-component-check)
+    Finished `dev` profile [unoptimized] target(s) in 8.04s

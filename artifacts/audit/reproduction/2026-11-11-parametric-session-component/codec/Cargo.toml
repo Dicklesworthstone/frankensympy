@@ -1,0 +1,29 @@
+[package]
+name = "asupersync-codec-source-component"
+version = "0.6.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "asupersync"
+path = "lib.rs"
+
+[features]
+default = ["proc-macros", "nightly-outcome-try", "runtime-core", "native-runtime"]
+proc-macros = ["dep:asupersync-macros"]
+nightly-outcome-try = []
+runtime-core = []
+native-runtime = []
+
+[dependencies]
+asupersync-macros = { path = "../../asupersync/asupersync-macros", optional = true }
+franken-decision = { path = "../../asupersync/franken_decision" }
+franken-kernel = { path = "../../asupersync/franken_kernel" }
+serde = { version = "=1.0.229", features = ["derive"] }
+sha2 = { version = "=0.11.0", features = ["zeroize"] }
+getrandom = "=0.4.3"
+parking_lot = "=0.12.5"
+
+[lints.rust]
+unsafe_code = "deny"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)', 'cfg(fuzzing)', 'cfg(feature, values("atp-cli", "atpd-daemon", "benchmark-adapters", "browser-io", "browser-trace", "cancel-correctness-oracle", "channel-mpsc-select-e2e", "ci-cross-platform", "cli", "compression", "config-file", "criterion-benches", "cross-subsystem-recovery-e2e", "debug-server", "default", "dependency-ledger", "desktop-runtime-profile", "deterministic-mode", "distributed-hash-snapshot-recovery-e2e", "fuzz", "h3-websocket-e2e", "http3", "io-uring", "kafka", "lab-stack-traces", "legacy-internal-test-harnesses", "lock-metrics", "loom-tests", "messaging-fabric", "metrics", "mysql", "native-runtime", "nightly-outcome-try", "obligation-cleanup-e2e", "obligation-leak-detection", "postgres", "proc-macros", "quic", "raptorq-roundtrip-e2e", "real-service-e2e", "remote-service", "runtime-core", "runtime-metrics", "serialization-golden-harnesses", "simd-intrinsics", "sqlite", "tailscale-path-provider", "test-internals", "tls", "tls-native-roots", "tls-webpki-roots", "tokio-compat", "tower", "trace-compression", "tracing-integration", "waker-profiling", "wasm-browser-deterministic", "wasm-browser-dev", "wasm-browser-minimal", "wasm-browser-preview", "wasm-browser-prod", "wasm-runtime"))'] }

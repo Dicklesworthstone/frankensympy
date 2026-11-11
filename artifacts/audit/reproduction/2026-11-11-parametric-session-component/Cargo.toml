@@ -1,0 +1,55 @@
+[package]
+name = "frankensympy-session-source-component-check"
+version = "0.1.0"
+edition = "2024"
+publish = false
+autotests = false
+autobins = false
+
+[workspace]
+members = ["runtime", "codec"]
+default-members = ["."]
+resolver = "3"
+
+[lib]
+name = "frankensympy"
+path = "../frankensympy-integration/src/lib.rs"
+
+[[bin]]
+name = "frankensympy"
+path = "../frankensympy-integration/src/bin/frankensympy.rs"
+
+[[test]]
+name = "native_parametric"
+path = "../frankensympy-integration/tests/native_parametric.rs"
+
+[[test]]
+name = "parametric_session"
+path = "../frankensympy-integration/tests/parametric_session.rs"
+
+[[test]]
+name = "parametric_cli"
+path = "../frankensympy-integration/tests/parametric_cli.rs"
+
+[[test]]
+name = "optimization_integration_adversaries"
+path = "../frankensympy-integration/tests/optimization_integration_adversaries.rs"
+
+[dependencies]
+fsym-assumptions = { path = "../frankensympy-integration/crates/fsym-assumptions" }
+fsym-budget = { path = "../frankensympy-integration/crates/fsym-budget" }
+fsym-calculus = { path = "../frankensympy-integration/crates/fsym-calculus" }
+fsym-core = { path = "../frankensympy-integration/crates/fsym-core" }
+fsym-polys = { path = "../frankensympy-integration/crates/fsym-polys" }
+fsym-proof-kernel = { path = "../frankensympy-integration/crates/fsym-proof-kernel" }
+fsym-simplify = { path = "../frankensympy-integration/crates/fsym-simplify" }
+fsym-solvers = { path = "../frankensympy-integration/crates/fsym-solvers" }
+fsym-durable = { path = "../frankensympy-integration/crates/fsym-durable", default-features = false }
+fsym-runtime = { package = "fsym-runtime-session-source-component", path = "runtime" }
+num-traits = "=0.2.19"
+serde = { version = "=1.0.229", features = ["derive", "rc"] }
+serde_json = { version = "=1.0.151", features = ["raw_value"] }
+thiserror = "=2.0.20"
+
+[lints.rust]
+unsafe_code = "forbid"

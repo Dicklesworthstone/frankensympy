@@ -1,0 +1,73 @@
+{
+  "recorded_at": "2026-11-11T06:33:29.868031+00:00",
+  "scope": "Unchanged complete root library and CLI sources with whole original synchronous runtime and pinned codec dependency modules; source-component validation only",
+  "not_covered": [
+    "full production Cargo dependency graph",
+    "asynchronous runtime scheduling/cancellation implementation",
+    "donor runtime transport/security",
+    "omitted runtime modules and their tests",
+    "workspace CI gates",
+    "compatibility profiles"
+  ],
+  "command": "cargo +nightly-2026-08-20 test --offline --locked --test native_parametric --test parametric_session --test parametric_cli --test optimization_integration_adversaries -j1",
+  "environment": {
+    "RUSTUP_HOME": "/workspace/scratch/8a453db7a629/rustup",
+    "CARGO_HOME": "/workspace/scratch/8a453db7a629/cargo-home",
+    "CARGO_TARGET_DIR": "/workspace/scratch/8a453db7a629/frankensympy-integration/target",
+    "CARGO_BUILD_JOBS": "1",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0"
+  },
+  "exit_code": 0,
+  "test_results": [
+    [
+      "10",
+      "0",
+      "0"
+    ],
+    [
+      "4",
+      "0",
+      "0"
+    ],
+    [
+      "4",
+      "0",
+      "0"
+    ],
+    [
+      "10",
+      "0",
+      "0"
+    ]
+  ],
+  "tests_passed": 28,
+  "source_changes_during_validation": {},
+  "registry_identities_match_original_lock": true,
+  "source_functions_modified_or_substituted": [],
+  "pre_run_scope": "pre-run-scope.json",
+  "post_run_scope": "post-run-scope.json",
+  "test_log": "component-tests.txt",
+  "test_log_sha256": "9bf3dec6d081a213f7ae7ddf5a712762811135d1eaf7e7cc988a0bd58776ff6d",
+  "dependency_warnings": "5 unused original donor ID bootstrap entries +2 preserved but unused original nightly feature attributes due to omitted runtime modules; no original source edited to suppress these warnings",
+  "clippy_attempts": [
+    {
+      "command": "cargo +nightly-2026-08-20 clippy --offline --locked --lib --bin frankensympy --test native_parametric --test parametric_session --test parametric_cli --test optimization_integration_adversaries -j1 -- -D warnings",
+      "exit_code": 101,
+      "scope": "Initial command also linted original donor workspace-member components; stopped at30 donor diagnostics before root. No original functions edited or warnings suppressed.",
+      "log": "component-clippy.txt",
+      "log_sha256": "722010691466abc32eca227bb8a9bfa05ec8a4867b5ddb846b21f7cad674f543"
+    },
+    {
+      "command": "cargo +nightly-2026-08-20 clippy --offline --locked -p frankensympy-session-source-component-check --no-deps --lib --bin frankensympy --test native_parametric --test parametric_session --test parametric_cli --test optimization_integration_adversaries -j1 -- -D warnings",
+      "exit_code": 0,
+      "scope": "Strict Clippy for actual unchanged root library, CLI and all4 integration targets; original donor dependency compiler warnings remain visible.",
+      "log": "root-component-clippy.txt",
+      "log_sha256": "ef7b678c297b7ea282edc1a080564ff37e7f6754dae6fad8896a3b94915c6136"
+    }
+  ],
+  "final_source_scope": "post-clippy-scope.json",
+  "source_hashes_unchanged_through_clippy": true,
+  "harness_inputs_unchanged_through_clippy": true
+}

@@ -1,0 +1,456 @@
+    Checking serde v1.0.229
+    Checking num-bigint v0.4.8
+    Checking fsym-budget v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-budget)
+    Checking fsym-bigint v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-bigint)
+    Checking thiserror v2.0.20
+    Checking fsym-modular v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-modular)
+    Checking num-rational v0.4.2
+    Checking fsym-rational v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-rational)
+    Checking fsym-id v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-id)
+    Checking fsym-core v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-core)
+    Checking fsym-assumptions v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-assumptions)
+    Checking typenum v1.20.1
+    Checking hybrid-array v0.4.14
+    Checking fsym-proof-kernel v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-proof-kernel)
+    Checking fsym-evidence v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-evidence)
+    Checking libc v0.2.189
+    Checking zeroize v1.9.0
+    Checking block-buffer v0.12.1
+    Checking fsym-polys v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-polys)
+    Checking crypto-common v0.2.2
+    Checking const-oid v0.10.2
+    Checking smallvec v1.15.2
+    Checking scopeguard v1.2.0
+    Checking lock_api v0.4.14
+    Checking parking_lot_core v0.9.12
+    Checking digest v0.11.3
+    Checking fsym-simplify v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-simplify)
+    Checking franken-evidence v0.6.0 (/workspace/scratch/8a453db7a629/asupersync/franken_evidence)
+    Checking franken-kernel v0.6.0 (/workspace/scratch/8a453db7a629/asupersync/franken_kernel)
+    Checking franken-decision v0.6.0 (/workspace/scratch/8a453db7a629/asupersync/franken_decision)
+    Checking fsym-calculus v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-calculus)
+    Checking sha2 v0.11.0
+    Checking parking_lot v0.12.5
+    Checking getrandom v0.4.3
+    Checking fsym-sets v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-sets)
+    Checking asupersync-codec-source-component v0.6.0 (/workspace/scratch/8a453db7a629/session-source-component-check/codec)
+error: static `EPHEMERAL_REGION_COUNTER` is never used
+  --> /workspace/scratch/8a453db7a629/asupersync/src/types/id.rs:21:8
+   |
+21 | static EPHEMERAL_REGION_COUNTER: AtomicU32 = AtomicU32::new(1);
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `-D dead-code` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[expect(dead_code)]` or `#[allow(dead_code)]`
+
+error: static `EPHEMERAL_TASK_COUNTER` is never used
+  --> /workspace/scratch/8a453db7a629/asupersync/src/types/id.rs:22:8
+   |
+22 | static EPHEMERAL_TASK_COUNTER: AtomicU32 = AtomicU32::new(1);
+   |        ^^^^^^^^^^^^^^^^^^^^^^
+
+error: function `next_bootstrap_region_id` is never used
+  --> /workspace/scratch/8a453db7a629/asupersync/src/types/id.rs:32:15
+   |
+32 | pub(crate) fn next_bootstrap_region_id() -> RegionId {
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: function `next_bootstrap_task_id` is never used
+  --> /workspace/scratch/8a453db7a629/asupersync/src/types/id.rs:41:15
+   |
+41 | pub(crate) fn next_bootstrap_task_id() -> TaskId {
+   |               ^^^^^^^^^^^^^^^^^^^^^^
+
+error: associated function `from_arena` is never used
+  --> /workspace/scratch/8a453db7a629/asupersync/src/types/id.rs:57:25
+   |
+52 | impl RegionId {
+   | ------------- associated function in this implementation
+...
+57 |     pub(crate) const fn from_arena(index: ArenaIndex) -> Self {
+   |                         ^^^^^^^^^^
+
+error: this `if` statement can be collapsed
+   --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/decoder.rs:616:13
+    |
+616 | /             if let Some((last_col, last_coef)) = merged.last_mut() {
+617 | |                 if *last_col == col {
+618 | |                     *last_coef += coef;
+619 | |                     continue;
+620 | |                 }
+621 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+    = note: `-D clippy::collapsible-if` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+    |
+616 ~             if let Some((last_col, last_coef)) = merged.last_mut()
+617 ~                 && *last_col == col {
+618 |                     *last_coef += coef;
+619 |                     continue;
+620 ~                 }
+    |
+
+error: this `if` statement can be collapsed
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/decoder.rs:2538:13
+     |
+2538 | /             if elimination_error.is_none() {
+2539 | |                 if let Some(row) = first_inconsistent_dense_row(&a, n_rows, n_cols, &b) {
+2540 | |                     elimination_error = Some(inconsistent_matrix_error(&dense_rows, row));
+2541 | |                 }
+2542 | |             }
+     | |_____________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+2538 ~             if elimination_error.is_none()
+2539 ~                 && let Some(row) = first_inconsistent_dense_row(&a, n_rows, n_cols, &b) {
+2540 |                     elimination_error = Some(inconsistent_matrix_error(&dense_rows, row));
+2541 ~                 }
+     |
+
+error: this `if` statement can be collapsed
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/decoder.rs:2857:13
+     |
+2857 | /             if elimination_error.is_none() {
+2858 | |                 if let Some(row) = first_inconsistent_dense_row(&a, n_rows, n_cols, &b) {
+2859 | |                     elimination_error = Some(inconsistent_matrix_error(&dense_rows, row));
+2860 | |                 }
+2861 | |             }
+     | |_____________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+2857 ~             if elimination_error.is_none()
+2858 ~                 && let Some(row) = first_inconsistent_dense_row(&a, n_rows, n_cols, &b) {
+2859 |                     elimination_error = Some(inconsistent_matrix_error(&dense_rows, row));
+2860 ~                 }
+     |
+
+error: this function has too many arguments (11/7)
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/decoder.rs:3269:1
+     |
+3269 | / fn blocked_elimination_sparse(
+3270 | |     a: &mut [Gf256],
+3271 | |     b: &mut [Vec<u8>],
+3272 | |     n_rows: usize,
+...    |
+3280 | |     gauss_ops: &mut usize,
+3281 | | ) {
+     | |_^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_arguments
+     = note: `-D clippy::too-many-arguments` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::too_many_arguments)]`
+
+error: this function has too many arguments (10/7)
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/decoder.rs:3316:1
+     |
+3316 | / fn blocked_elimination_dense(
+3317 | |     a: &mut [Gf256],
+3318 | |     b: &mut [Vec<u8>],
+3319 | |     n_rows: usize,
+...    |
+3326 | |     gauss_ops: &mut usize,
+3327 | | ) {
+     | |_^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_arguments
+
+error: this `if` statement can be collapsed
+   --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/systematic.rs:523:17
+    |
+523 | /                 if let Some(fc) = first_col {
+524 | |                     if best.is_none() || deg < best.expect("best solution must exist").2 {
+525 | |                         best = Some((r, fc, deg));
+526 | |                         if deg == 1 {
+...   |
+530 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+523 ~                 if let Some(fc) = first_col
+524 ~                     && (best.is_none() || deg < best.expect("best solution must exist").2) {
+525 |                         best = Some((r, fc, deg));
+...
+528 |                         }
+529 ~                     }
+    |
+
+error: using `chunks_exact_mut` with a constant chunk size
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2084:28
+     |
+2084 |     let mut d_chunks = dst.chunks_exact_mut(32);
+     |                            ^^^^^^^^^^^^^^^^^^^^
+     |
+help: consider using `as_chunks_mut::<32>()` instead
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2084:28
+     |
+2084 |     let mut d_chunks = dst.chunks_exact_mut(32);
+     |                            ^^^^^^^^^^^^^^^^^^^^
+     = note: you can access the chunks using `d_chunks.0.iter_mut()`, and the remainder using `d_chunks.1`
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#chunks_exact_to_as_chunks
+     = note: `-D clippy::chunks-exact-to-as-chunks` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::chunks_exact_to_as_chunks)]`
+
+error: using `chunks_exact` with a constant chunk size
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2085:28
+     |
+2085 |     let mut s_chunks = src.chunks_exact(32);
+     |                            ^^^^^^^^^^^^^^^^
+     |
+help: consider using `as_chunks::<32>()` instead
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2085:28
+     |
+2085 |     let mut s_chunks = src.chunks_exact(32);
+     |                            ^^^^^^^^^^^^^^^^
+     = note: you can access the chunks using `s_chunks.0.iter()`, and the remainder using `s_chunks.1`
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#chunks_exact_to_as_chunks
+
+error: using `chunks_exact_mut` with a constant chunk size
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2093:24
+     |
+2093 |     let mut d8 = d_rem.chunks_exact_mut(8);
+     |                        ^^^^^^^^^^^^^^^^^^^
+     |
+help: consider using `as_chunks_mut::<8>()` instead
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2093:24
+     |
+2093 |     let mut d8 = d_rem.chunks_exact_mut(8);
+     |                        ^^^^^^^^^^^^^^^^^^^
+     = note: you can access the chunks using `d8.0.iter_mut()`, and the remainder using `d8.1`
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#chunks_exact_to_as_chunks
+
+error: using `chunks_exact` with a constant chunk size
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2094:24
+     |
+2094 |     let mut s8 = s_rem.chunks_exact(8);
+     |                        ^^^^^^^^^^^^^^^
+     |
+help: consider using `as_chunks::<8>()` instead
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2094:24
+     |
+2094 |     let mut s8 = s_rem.chunks_exact(8);
+     |                        ^^^^^^^^^^^^^^^
+     = note: you can access the chunks using `s8.0.iter()`, and the remainder using `s8.1`
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#chunks_exact_to_as_chunks
+
+error: using `chunks_exact_mut` with a constant chunk size
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2430:26
+     |
+2430 |     let mut chunks = dst.chunks_exact_mut(8);
+     |                          ^^^^^^^^^^^^^^^^^^^
+     |
+help: consider using `as_chunks_mut::<8>()` instead
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2430:26
+     |
+2430 |     let mut chunks = dst.chunks_exact_mut(8);
+     |                          ^^^^^^^^^^^^^^^^^^^
+     = note: you can access the chunks using `chunks.0.iter_mut()`, and the remainder using `chunks.1`
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#chunks_exact_to_as_chunks
+
+error: using `chunks_exact_mut` with a constant chunk size
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2455:33
+     |
+2455 |     let mut chunks_a = common_a.chunks_exact_mut(8);
+     |                                 ^^^^^^^^^^^^^^^^^^^
+     |
+help: consider using `as_chunks_mut::<8>()` instead
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2455:33
+     |
+2455 |     let mut chunks_a = common_a.chunks_exact_mut(8);
+     |                                 ^^^^^^^^^^^^^^^^^^^
+     = note: you can access the chunks using `chunks_a.0.iter_mut()`, and the remainder using `chunks_a.1`
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#chunks_exact_to_as_chunks
+
+error: using `chunks_exact_mut` with a constant chunk size
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2456:33
+     |
+2456 |     let mut chunks_b = common_b.chunks_exact_mut(8);
+     |                                 ^^^^^^^^^^^^^^^^^^^
+     |
+help: consider using `as_chunks_mut::<8>()` instead
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2456:33
+     |
+2456 |     let mut chunks_b = common_b.chunks_exact_mut(8);
+     |                                 ^^^^^^^^^^^^^^^^^^^
+     = note: you can access the chunks using `chunks_b.0.iter_mut()`, and the remainder using `chunks_b.1`
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#chunks_exact_to_as_chunks
+
+error: using `chunks_exact_mut` with a constant chunk size
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2500:26
+     |
+2500 |     let mut chunks = dst.chunks_exact_mut(8);
+     |                          ^^^^^^^^^^^^^^^^^^^
+     |
+help: consider using `as_chunks_mut::<8>()` instead
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2500:26
+     |
+2500 |     let mut chunks = dst.chunks_exact_mut(8);
+     |                          ^^^^^^^^^^^^^^^^^^^
+     = note: you can access the chunks using `chunks.0.iter_mut()`, and the remainder using `chunks.1`
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#chunks_exact_to_as_chunks
+
+error: using `chunks_exact_mut` with a constant chunk size
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2601:28
+     |
+2601 |     let mut d_chunks = dst.chunks_exact_mut(8);
+     |                            ^^^^^^^^^^^^^^^^^^^
+     |
+help: consider using `as_chunks_mut::<8>()` instead
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2601:28
+     |
+2601 |     let mut d_chunks = dst.chunks_exact_mut(8);
+     |                            ^^^^^^^^^^^^^^^^^^^
+     = note: you can access the chunks using `d_chunks.0.iter_mut()`, and the remainder using `d_chunks.1`
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#chunks_exact_to_as_chunks
+
+error: using `chunks_exact` with a constant chunk size
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2602:28
+     |
+2602 |     let mut s_chunks = src.chunks_exact(8);
+     |                            ^^^^^^^^^^^^^^^
+     |
+help: consider using `as_chunks::<8>()` instead
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2602:28
+     |
+2602 |     let mut s_chunks = src.chunks_exact(8);
+     |                            ^^^^^^^^^^^^^^^
+     = note: you can access the chunks using `s_chunks.0.iter()`, and the remainder using `s_chunks.1`
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#chunks_exact_to_as_chunks
+
+error: using `chunks_exact_mut` with a constant chunk size
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2643:39
+     |
+2643 |     let mut d_chunks_a = common_dst_a.chunks_exact_mut(8);
+     |                                       ^^^^^^^^^^^^^^^^^^^
+     |
+help: consider using `as_chunks_mut::<8>()` instead
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2643:39
+     |
+2643 |     let mut d_chunks_a = common_dst_a.chunks_exact_mut(8);
+     |                                       ^^^^^^^^^^^^^^^^^^^
+     = note: you can access the chunks using `d_chunks_a.0.iter_mut()`, and the remainder using `d_chunks_a.1`
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#chunks_exact_to_as_chunks
+
+error: using `chunks_exact` with a constant chunk size
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2644:39
+     |
+2644 |     let mut s_chunks_a = common_src_a.chunks_exact(8);
+     |                                       ^^^^^^^^^^^^^^^
+     |
+help: consider using `as_chunks::<8>()` instead
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2644:39
+     |
+2644 |     let mut s_chunks_a = common_src_a.chunks_exact(8);
+     |                                       ^^^^^^^^^^^^^^^
+     = note: you can access the chunks using `s_chunks_a.0.iter()`, and the remainder using `s_chunks_a.1`
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#chunks_exact_to_as_chunks
+
+error: using `chunks_exact_mut` with a constant chunk size
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2645:39
+     |
+2645 |     let mut d_chunks_b = common_dst_b.chunks_exact_mut(8);
+     |                                       ^^^^^^^^^^^^^^^^^^^
+     |
+help: consider using `as_chunks_mut::<8>()` instead
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2645:39
+     |
+2645 |     let mut d_chunks_b = common_dst_b.chunks_exact_mut(8);
+     |                                       ^^^^^^^^^^^^^^^^^^^
+     = note: you can access the chunks using `d_chunks_b.0.iter_mut()`, and the remainder using `d_chunks_b.1`
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#chunks_exact_to_as_chunks
+
+error: using `chunks_exact` with a constant chunk size
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2646:39
+     |
+2646 |     let mut s_chunks_b = common_src_b.chunks_exact(8);
+     |                                       ^^^^^^^^^^^^^^^
+     |
+help: consider using `as_chunks::<8>()` instead
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2646:39
+     |
+2646 |     let mut s_chunks_b = common_src_b.chunks_exact(8);
+     |                                       ^^^^^^^^^^^^^^^
+     = note: you can access the chunks using `s_chunks_b.0.iter()`, and the remainder using `s_chunks_b.1`
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#chunks_exact_to_as_chunks
+
+error: using `chunks_exact_mut` with a constant chunk size
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2708:28
+     |
+2708 |     let mut d_chunks = dst.chunks_exact_mut(8);
+     |                            ^^^^^^^^^^^^^^^^^^^
+     |
+help: consider using `as_chunks_mut::<8>()` instead
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2708:28
+     |
+2708 |     let mut d_chunks = dst.chunks_exact_mut(8);
+     |                            ^^^^^^^^^^^^^^^^^^^
+     = note: you can access the chunks using `d_chunks.0.iter_mut()`, and the remainder using `d_chunks.1`
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#chunks_exact_to_as_chunks
+
+error: using `chunks_exact` with a constant chunk size
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2709:28
+     |
+2709 |     let mut s_chunks = src.chunks_exact(8);
+     |                            ^^^^^^^^^^^^^^^
+     |
+help: consider using `as_chunks::<8>()` instead
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/gf256.rs:2709:28
+     |
+2709 |     let mut s_chunks = src.chunks_exact(8);
+     |                            ^^^^^^^^^^^^^^^
+     = note: you can access the chunks using `s_chunks.0.iter()`, and the remainder using `s_chunks.1`
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#chunks_exact_to_as_chunks
+
+error: the loop variable `row` is used to index `augmented`
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/linalg.rs:1508:24
+     |
+1508 |             for row in 0..self.rows {
+     |                        ^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#needless_range_loop
+     = note: `-D clippy::needless-range-loop` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::needless_range_loop)]`
+help: consider using an iterator and enumerate()
+     |
+1508 -             for row in 0..self.rows {
+1508 +             for (row, <item>) in augmented.iter_mut().enumerate().take(self.rows) {
+     |
+
+error: this `if` statement can be collapsed
+    --> /workspace/scratch/8a453db7a629/asupersync/src/raptorq/proof.rs:1269:13
+     |
+1269 | /             if let Some(&max) = esis_heap.peek() {
+1270 | |                 if esi < max {
+1271 | |                     esis_heap.pop();
+1272 | |                     esis_heap.push(esi);
+1273 | |                 }
+1274 | |             }
+     | |_____________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1269 ~             if let Some(&max) = esis_heap.peek()
+1270 ~                 && esi < max {
+1271 |                     esis_heap.pop();
+1272 |                     esis_heap.push(esi);
+1273 ~                 }
+     |
+
+error: using `chunks_exact_mut` with a constant chunk size
+   --> /workspace/scratch/8a453db7a629/asupersync/src/util/entropy.rs:398:38
+    |
+398 |         for chunk in salt_bytes[8..].chunks_exact_mut(8) {
+    |                                      ^^^^^^^^^^^^^^^^^^^ help: consider using `as_chunks_mut` instead: `as_chunks_mut::<8>().0`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#chunks_exact_to_as_chunks
+
+error: could not compile `asupersync-codec-source-component` (lib) due to 30 previous errors

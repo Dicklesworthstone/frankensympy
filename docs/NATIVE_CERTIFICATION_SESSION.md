@@ -193,6 +193,13 @@ assumptions-context digest. `extremum: "maximum"` requests the corresponding
 global maximum. Boundary optima and fixed coordinates with equal endpoints
 are supported.
 
+Whole-cell derivative signs also tighten bounds at the corresponding extremal
+faces. For example, `exp(x)-x` on `[1,2]` can certify either extremum with
+`max_leaves: 1`. Coordinates with uncertain derivative signs retain their full
+intervals, and every original-source domain obligation is checked on the whole
+cell before any face restriction. These bounds supplement the natural and
+centered Taylor enclosures used by both search and independent verification.
+
 Search produces an untrusted point and complete dyadic partition using ordinary
 resources. The independent core checker reconstructs every partition leaf and
 reevaluates the original source and point using protected verification resources

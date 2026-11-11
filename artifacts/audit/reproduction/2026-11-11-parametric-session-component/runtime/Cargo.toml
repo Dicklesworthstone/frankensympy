@@ -1,0 +1,28 @@
+[package]
+name = "fsym-runtime-session-source-component"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "fsym_runtime"
+path = "lib.rs"
+
+[dependencies]
+fsym-core = { path = "../../frankensympy-integration/crates/fsym-core" }
+fsym-budget = { path = "../../frankensympy-integration/crates/fsym-budget" }
+fsym-assumptions = { path = "../../frankensympy-integration/crates/fsym-assumptions" }
+fsym-calculus = { path = "../../frankensympy-integration/crates/fsym-calculus" }
+fsym-polys = { path = "../../frankensympy-integration/crates/fsym-polys" }
+fsym-proof-kernel = { path = "../../frankensympy-integration/crates/fsym-proof-kernel" }
+fsym-simplify = { path = "../../frankensympy-integration/crates/fsym-simplify" }
+fsym-solvers = { path = "../../frankensympy-integration/crates/fsym-solvers" }
+asupersync = { package = "asupersync-codec-source-component", path = "../codec" }
+blake3 = "=1.8.7"
+num-traits = "=0.2.19"
+serde = { version = "=1.0.229", features = ["derive", "rc"] }
+serde_json = "=1.0.151"
+thiserror = "=2.0.20"
+
+[lints.rust]
+unsafe_code = "forbid"
