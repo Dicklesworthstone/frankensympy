@@ -1,10 +1,12 @@
 //! Session publication and budget boundaries for source-bound objectives.
 
 use frankensympy::{
-    BudgetLimits, CertificationRequest, CertificationResponse, ExactInterval, ExactRootWitness,
-    ObjectiveId, Session, StationaryPointClassification, StationaryPointId,
+    BudgetLimits, CertificationError, CertificationRequest, CertificationResponse,
+    CertificationSessionError, ExactInterval, ExactRootWitness, ObjectiveId, Session,
+    StationaryPointClassification, StationaryPointId,
 };
 use fsym_budget::Dimension;
+use fsym_core::{BallError, RootBoxError};
 
 fn limits() -> BudgetLimits {
     let mut limits = BudgetLimits::uniform(2_000_000, 10_000_000);
@@ -219,13 +221,18 @@ fn unknown_sources_invalid_scalars_and_hidden_domains_fail_closed() {
         "unknown_object"
     );
     register(&mut session, "x^2+0*(1/x)", &["x"]);
-    assert_eq!(
-        session
-            .certification_request(certify("undefined"))
-            .unwrap_err()
-            .code(),
-        "domain_not_certified"
-    );
+    let failure = session
+        .certification_request(certify("undefined"))
+        .unwrap_err();
+    // The original pole retains the protocol's typed arithmetic refusal;
+    // the held zero factor must not erase division through zero.
+    assert_eq!(failure.code(), "refused");
+    assert!(matches!(
+        failure,
+        CertificationSessionError::Certification(CertificationError::Root(RootBoxError::Ball(
+            BallError::DivisionByZero(_)
+        )))
+    ));
     assert!(
         session
             .stationary_point(&certificate("undefined"))

@@ -1044,6 +1044,31 @@ assert quotients[0]*g + quotients[1]*Poly(y, x, y, modulus=5) + remainder == f
 checks reconstruction and complete remainder reduction. Ordered division by
 an arbitrary list does not claim a unique normal form or a Gröbner basis.
 
+`Poly.gcd` and `Poly.lcm` compute complete multivariate results over the
+declared prime field. The same operations are available on `PurePoly` and
+through module functions; nonzero results are monic in the declared generator
+order, including when the inputs have different nonzero scalar factors:
+
+```python
+from sympy import gcd, lcm
+
+h = x + y
+left = Poly(2*h**2*(x + 1), x, y, modulus=5)
+right = Poly(3*h*(y + 1), x, y, modulus=5)
+assert left.gcd(right) == Poly(h, x, y, modulus=5)
+assert left.lcm(right) == Poly(h**2*(x + 1)*(y + 1), x, y, modulus=5)
+assert gcd(left, right) == left.gcd(right)
+assert lcm(left, right) == left.lcm(right)
+```
+
+Two nonconstant inputs use complete checked ideal-intersection evidence and
+independent coefficient identities. This needs one auxiliary variable, so
+these requests admit up to seven declared generators. Zero or scalar inputs
+retain the eight-generator bound. A zero operand gives zero LCM and the monic
+other operand as GCD; both results are zero when both operands are zero.
+Original typed generators, field characteristic, and the `symmetric` lifting
+policy are retained. Exhausted or incomplete work returns no partial result.
+
 `Poly.eval` supports exact integer values in multivariate prime-field rings.
 Partial evaluation returns a `Poly` over the same field with the remaining
 generators in their original order; complete evaluation returns the integer
@@ -1235,7 +1260,7 @@ The lane admits primes through 65521, total degree at most 64, up to 4096 sparse
 terms, and at most 32 basis polynomials or ordered divisors. Original source expressions and
 coefficient growth have additional bounds. Source admission, generation,
 verification, and lifting use cumulative budgets; an exhausted or rejected
-request cannot restart over the rationals. Multivariate factorization, GCD,
+request cannot restart over the rationals. Multivariate factorization,
 resultants, and composition remain unsupported. Existing
 univariate prime-field operations remain available. These are bounded
 in-process checked operations, not a certified compatibility profile or

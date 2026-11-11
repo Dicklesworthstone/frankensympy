@@ -10,7 +10,7 @@ use fsym_budget::{
     Budget, BudgetLimits, BudgetMeter, DIMENSION_COUNT, Dimension, MeterError, Unbounded,
 };
 use fsym_core::{
-    BigInt, BigRational, MAX_ROOT_BOX_VARIABLES, RootBoxError, StationaryPointKind,
+    BallError, BigInt, BigRational, MAX_ROOT_BOX_VARIABLES, RootBoxError, StationaryPointKind,
     StationaryPointReceipt, SymbolIdentity,
 };
 use serde::Serialize;
@@ -221,7 +221,9 @@ fn original_hidden_poles_are_rechecked_during_replay() {
             [7; 32],
             &mut Unbounded
         ),
-        Err(CertificationError::Root(RootBoxError::Domain(_)))
+        Err(CertificationError::Root(RootBoxError::Ball(
+            BallError::DivisionByZero(_)
+        )))
     ));
 }
 

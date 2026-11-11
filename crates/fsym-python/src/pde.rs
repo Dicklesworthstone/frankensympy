@@ -92,7 +92,7 @@ pub fn pde_source_arguments_native(
     pde_source_preflight_native(source)?;
     let borrowed = children
         .iter()
-        .map(|value| value.extract::<PyRef<'_, PyExpr>>())
+        .map(|value| value.extract::<PyRef<'_, PyExpr>>().map_err(PyErr::from))
         .collect::<PyResult<Vec<_>>>()?;
     let same = match (&source.inner, operator) {
         (Expr::Const(Constant::E), "e") => borrowed.is_empty(),
