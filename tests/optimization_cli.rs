@@ -166,14 +166,10 @@ fn multichunk_optimization_proof_replays_with_the_original_large_source() {
     // The source remains below the immutable 4096-byte input cap while its
     // complete typed statement exceeds the inline proof transport envelope.
     let source = format!("x{}", "+0*x".repeat(600));
-    // Source-preserving search and independent verification share one
-    // cumulative allocation ledger even when verification has reserved steps.
-    let arguments = [
-        "--compute-steps",
-        "100000000",
-        "--allocations",
-        "10000000",
-    ];
+    // Generator plus independent verification of this deliberately large
+    // raw source uses more than 2.7M metered allocations. Give the transport
+    // fixture an explicit allowance while keeping ordinary CLI defaults.
+    let arguments = ["--compute-steps", "100000000", "--allocations", "4000000"];
     let mut sender = Cli::new(&arguments);
     let registered = sender.send(registration(&source));
     assert_eq!(registered["status"], "success", "{registered}");
@@ -235,6 +231,25 @@ fn multichunk_optimization_proof_replays_with_the_original_large_source() {
     assert_eq!(accepted["result"]["value"], checked["result"]["value"]);
     assert_eq!(accepted["result"]["point"], checked["result"]["point"]);
     receiver.finish();
+}
+
+#[test]
+fn large_source_with_default_allocation_cap_refuses_without_publishing() {
+    let source = format!("x{}", "+0*x".repeat(600));
+    let mut cli = Cli::new(&["--compute-steps", "100000000"]);
+    let registered = cli.send(registration(&source));
+    assert_eq!(registered["status"], "success", "{registered}");
+    let refused = cli.send(optimize("minimum"));
+    assert_eq!(refused["code"], "budget_exhausted", "{refused}");
+    assert!(
+        refused["error"]
+            .as_str()
+            .unwrap()
+            .contains("allocation_count"),
+        "{refused}"
+    );
+    assert_eq!(cli.send(export())["code"], "unknown_object");
+    cli.finish();
 }
 
 #[test]

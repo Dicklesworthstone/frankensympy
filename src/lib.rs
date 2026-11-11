@@ -24,6 +24,7 @@ pub mod objective;
 pub mod objective_transport;
 pub mod optimization;
 pub mod parametric;
+pub mod parametric_transport;
 pub mod repairable_search;
 pub mod search_checkpoint;
 pub mod session;
@@ -38,19 +39,23 @@ pub use certification::{
     CertificationError, ResidualProblem, export_root_certificate, replay_root_certificate,
 };
 pub use certification_session::{
-    ArtifactSource, BoxOptimizationId, CERTIFICATION_REQUEST_SCHEMA, CertificationRequest,
-    CertificationResponse, CertificationSessionError, ExactInterval, ExactParametricRootWitness,
-    ExactRootWitness, IntegralCertificateId, IsolatedRoot, MAX_SESSION_ARTIFACT_TRANSFERS,
-    MAX_SESSION_ROOT_SEARCHES, ObjectiveId, ParametricFamilyId, ParametricFamilyReceipt,
-    ParametricProblemId, ParametricSensitivityId, ResidualSystemId, RootCertificateId,
-    RootIsolationId, RootIsolationSearchId, StationaryPointClassification, StationaryPointId,
+    ArtifactSource, BoxOptimizationId, BoxOptimizationSearchId, CERTIFICATION_REQUEST_SCHEMA,
+    CertificationRequest, CertificationResponse, CertificationSessionError, ExactInterval,
+    ExactParametricRootWitness, ExactRootWitness, IntegralCertificateId, IsolatedRoot,
+    MAX_SESSION_ARTIFACT_TRANSFERS, MAX_SESSION_OPTIMIZATION_SEARCHES, MAX_SESSION_ROOT_SEARCHES,
+    ObjectiveId, ParametricFamilyId, ParametricFamilyReceipt, ParametricProblemId,
+    ParametricSensitivityId, ResidualSystemId, RootCertificateId, RootIsolationId,
+    RootIsolationSearchId, StationaryPointClassification, StationaryPointId,
 };
 pub use durable_search::{
     DURABLE_ROOT_SEARCH_SCHEMA, DurableSearchError, PreparedRootSearchCheckpoint,
     RootSearchCheckpointStore, StoredRootSearchCheckpoint,
 };
 pub use fsym_budget::{Budget, BudgetLimits, BudgetMeter, BudgetSnapshot, Dimension, MeterError};
-pub use fsym_calculus::box_optimization::BoxOptimizationOptions;
+pub use fsym_calculus::box_optimization::{
+    BoxOptimizationCounters, BoxOptimizationOptions, BoxOptimizationProgress,
+    BoxOptimizationSearch, BoxOptimizationSearchStatus, MAX_BOX_OPTIMIZATION_ADVANCE_SPLITS,
+};
 pub use fsym_calculus::parametric_cover::ParametricRootCoverOptions;
 pub use fsym_calculus::quadrature::QuadratureOptions;
 pub use fsym_calculus::root_isolation::{
@@ -96,6 +101,10 @@ pub use optimization::{
     OptimizationError, export_box_optimization, replay_box_optimization,
 };
 pub use parametric::{ParametricError, ParametricProblem};
+pub use parametric_transport::{
+    MAX_PARAMETRIC_FAMILY_ARTIFACT_BYTES, PARAMETRIC_FAMILY_ARTIFACT_SCHEMA_VERSION,
+    export_parametric_family, replay_parametric_family,
+};
 pub use repairable_search::{
     PreparedRepairableRootSearchCheckpoint, RepairableRootSearchCheckpoint,
     RepairableRootSearchCheckpointStore, RepairableSearchError, RootSearchRepairReport,

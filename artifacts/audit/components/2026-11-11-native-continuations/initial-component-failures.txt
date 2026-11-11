@@ -1,0 +1,181 @@
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+   Compiling num-traits v0.2.19
+   Compiling cfg-if v1.0.4
+   Compiling zmij v1.0.23
+   Compiling num-integer v0.1.47
+   Compiling itoa v1.0.18
+   Compiling memchr v2.8.3
+   Compiling serde_json v1.0.151
+   Compiling cpufeatures v0.3.0
+   Compiling num-bigint v0.4.8
+   Compiling fsym-budget v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-budget)
+   Compiling fsym-bigint v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-bigint)
+   Compiling constant_time_eq v0.4.2
+   Compiling arrayvec v0.7.8
+   Compiling blake3 v1.8.7
+   Compiling thiserror v2.0.20
+   Compiling fsym-modular v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-modular)
+   Compiling num-rational v0.4.2
+   Compiling fsym-rational v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-rational)
+   Compiling num-complex v0.4.6
+   Compiling fsym-id v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-id)
+   Compiling fsym-outcome v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-outcome)
+   Compiling fsym-core v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-core)
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-assumptions)
+   Compiling typenum v1.20.1
+   Compiling hybrid-array v0.4.14
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-proof-kernel)
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-evidence)
+   Compiling libc v0.2.189
+   Compiling zeroize v1.9.0
+   Compiling block-buffer v0.12.1
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-polys)
+   Compiling crypto-common v0.2.2
+   Compiling scopeguard v1.2.0
+   Compiling smallvec v1.15.2
+   Compiling const-oid v0.10.2
+   Compiling digest v0.11.3
+   Compiling parking_lot_core v0.9.12
+   Compiling lock_api v0.4.14
+   Compiling fsym-simplify v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-simplify)
+   Compiling franken-evidence v0.6.0 (/workspace/scratch/8a453db7a629/asupersync/franken_evidence)
+   Compiling franken-kernel v0.6.0 (/workspace/scratch/8a453db7a629/asupersync/franken_kernel)
+   Compiling franken-decision v0.6.0 (/workspace/scratch/8a453db7a629/asupersync/franken_decision)
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-calculus)
+   Compiling parking_lot v0.12.5
+   Compiling getrandom v0.4.3
+   Compiling sha2 v0.11.0
+   Compiling fsym-sets v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-sets)
+   Compiling asupersync-codec-source-component v0.6.0 (/workspace/scratch/8a453db7a629/session-source-component-check/codec)
+warning: static `EPHEMERAL_REGION_COUNTER` is never used
+  --> /workspace/scratch/8a453db7a629/asupersync/src/types/id.rs:21:8
+   |
+21 | static EPHEMERAL_REGION_COUNTER: AtomicU32 = AtomicU32::new(1);
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: static `EPHEMERAL_TASK_COUNTER` is never used
+  --> /workspace/scratch/8a453db7a629/asupersync/src/types/id.rs:22:8
+   |
+22 | static EPHEMERAL_TASK_COUNTER: AtomicU32 = AtomicU32::new(1);
+   |        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `next_bootstrap_region_id` is never used
+  --> /workspace/scratch/8a453db7a629/asupersync/src/types/id.rs:32:15
+   |
+32 | pub(crate) fn next_bootstrap_region_id() -> RegionId {
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `next_bootstrap_task_id` is never used
+  --> /workspace/scratch/8a453db7a629/asupersync/src/types/id.rs:41:15
+   |
+41 | pub(crate) fn next_bootstrap_task_id() -> TaskId {
+   |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated function `from_arena` is never used
+  --> /workspace/scratch/8a453db7a629/asupersync/src/types/id.rs:57:25
+   |
+52 | impl RegionId {
+   | ------------- associated function in this implementation
+...
+57 |     pub(crate) const fn from_arena(index: ArenaIndex) -> Self {
+   |                         ^^^^^^^^^^
+
+warning: feature `try_trait_v2` is declared but not used
+ --> codec/lib.rs:3:54
+  |
+3 | #![cfg_attr(feature = "nightly-outcome-try", feature(try_trait_v2))]
+  |                                                      ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_features)]` (part of `#[warn(unused)]`) on by default
+
+warning: feature `try_trait_v2_residual` is declared but not used
+ --> codec/lib.rs:4:54
+  |
+4 | #![cfg_attr(feature = "nightly-outcome-try", feature(try_trait_v2_residual))]
+  |                                                      ^^^^^^^^^^^^^^^^^^^^^
+
+warning: `asupersync-codec-source-component` (lib) generated 7 warnings
+   Compiling fsym-solvers v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-solvers)
+   Compiling fsym-runtime-session-source-component v0.1.0 (/workspace/scratch/8a453db7a629/session-source-component-check/runtime)
+   Compiling fsym-durable v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-durable)
+   Compiling frankensympy-session-source-component-check v0.1.0 (/workspace/scratch/8a453db7a629/session-source-component-check)
+    Finished `test` profile [unoptimized] target(s) in 1m 00s
+     Running ../frankensympy-integration/tests/artifact_transfer_session.rs (target/debug/build/frankensympy-session-source-component-check/87a880ba0b217c4a/out/artifact_transfer_session-87a880ba0b217c4a)
+
+running 7 tests
+test chunk_acknowledgement_budget_refusal_does_not_advance_the_prefix ... ok
+test transfer_slots_release_explicitly_and_wire_inputs_remain_strict ... ok
+test staged_chunks_are_ordered_retryable_and_never_mathematical_evidence ... ok
+test digest_valid_transfers_still_require_expected_kind_sources_domain_and_mathematics ... ok
+test verified_replay_and_late_child_collision_publish_no_partial_root_set ... ok
+test replay_uses_one_cumulative_protected_pool_and_preserves_the_staged_bytes ... ok
+test fresh_cli_exchanges_both_proof_kinds_above_the_inline_limit_in_bounded_frames ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.88s
+
+     Running ../frankensympy-integration/tests/native_optimization.rs (target/debug/build/frankensympy-session-source-component-check/5de2920bcdf32552/out/native_optimization-5de2920bcdf32552)
+
+running 8 tests
+test cancellation_is_terminal_in_both_generation_and_independent_verification ... ok
+test untrusted_partition_point_and_accuracy_claims_are_independently_rejected ... ok
+test invalid_tolerances_and_exhausted_search_bounds_return_no_receipt ... ok
+test interior_quadratic_and_flat_quartic_have_global_value_certificates ... ok
+test fixed_coordinates_and_typed_same_name_axes_preserve_the_original_problem ... ok
+test boundary_minimum_and_maximum_cover_the_same_closed_box ... ok
+test irrational_nonconvex_minima_produce_a_tolerance_bound_not_an_exact_optimizer ... ok
+test original_poles_and_nonsmooth_sources_cannot_be_discarded ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running ../frankensympy-integration/tests/native_parametric.rs (target/debug/build/frankensympy-session-source-component-check/5b4488c552b55ce1/out/native_parametric-5b4488c552b55ce1)
+
+running 10 tests
+test affine_family_certifies_the_entire_parameter_interval_and_exact_sensitivity ... ok
+test explicit_same_name_typed_coordinates_are_distinct_and_raw_sources_remain_owned ... ok
+test group_shape_duplicates_and_text_bounds_fail_before_source_ownership ... ok
+test invalid_cover_options_and_dimension_mismatches_remain_terminal ... ok
+test endpoint_nonexistence_bifurcations_and_original_hidden_holes_refuse ... ok
+test quadratic_parameter_sensitivity_and_fixed_unused_axes_remain_exact ... ok
+test failure_retry_and_protected_verification_share_cumulative_budgets ... ok
+test coupled_system_preserves_unknown_rows_and_parameter_columns ... ok
+test adaptive_cover_certifies_a_family_that_a_coarse_box_cannot_and_checks_all_leaves ... ok
+test construction_uniform_cover_generation_and_verification_propagate_each_cancellation ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running ../frankensympy-integration/tests/optimization_cli.rs (target/debug/build/frankensympy-session-source-component-check/be0ac017f817a285/out/optimization_cli-be0ac017f817a285)
+
+running 6 tests
+test optimization_artifact_integrity_identity_is_distinct_from_other_proof_kinds ... ok
+test no_verifier_reserve_never_publishes_a_global_optimization ... ok
+test native_wire_refuses_unknown_fields_duplicate_tolerance_and_kind_typos ... ok
+test default_cli_certifies_minimum_and_maximum_then_replays_in_fresh_processes ... ok
+test documented_nonconvex_global_minimum_is_certified_by_the_actual_cli ... FAILED
+test multichunk_optimization_proof_replays_with_the_original_large_source ... FAILED
+
+failures:
+
+---- documented_nonconvex_global_minimum_is_certified_by_the_actual_cli stdout ----
+
+thread 'documented_nonconvex_global_minimum_is_certified_by_the_actual_cli' (923) panicked at ../frankensympy-integration/tests/optimization_cli.rs:151:14:
+called `Result::unwrap()` on an `Err` value: "failed to parse integer"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- multichunk_optimization_proof_replays_with_the_original_large_source stdout ----
+
+thread 'multichunk_optimization_proof_replays_with_the_original_large_source' (924) panicked at ../frankensympy-integration/tests/optimization_cli.rs:174:5:
+assertion `left == right` failed: {"code":"budget_exhausted","error":"global box optimization refused: box-optimization verification refused: root-box work stopped: budget exhausted for allocation_count: requested 16, remaining 12","id":"optimize","status":"error"}
+  left: String("error")
+ right: "success"
+
+
+failures:
+    documented_nonconvex_global_minimum_is_certified_by_the_actual_cli
+    multichunk_optimization_proof_replays_with_the_original_large_source
+
+test result: FAILED. 4 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+
+error: test failed, to rerun pass `-p frankensympy-session-source-component-check --test optimization_cli`

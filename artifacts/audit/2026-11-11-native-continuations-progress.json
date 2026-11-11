@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-11T07:19:44.379229+00:00",
+  "repository": "Dicklesworthstone/frankensympy",
+  "implementation_status": "implemented_uncertified",
+  "source_base_main": "e771dc8e6c1eee22ca5b06488078bab6d8ebd419",
+  "previous_verified_main_commits": [
+    "9e04f9b595672d7b881f742881ec31adf98c23c2",
+    "e2f8e59cf9f9c8763e63a09ea562210b1a241169"
+  ],
+  "features_in_this_commit": [
+    "Native Session and NDJSON Begin/Advance/Inspect/Finish/Release for bounded global optimization, retaining immutable statement, frontier, incumbent and cumulative counters. Only protected independent Finish can publish an accepted optimization.",
+    "Canonical uniform and complete-cover parameter-family export/replay with receiver-bound raw equations, separate ordered typed unknowns and parameters, both full domains and context; inline and chunked Session/CLI transport; freshly recomputed sensitivity from accepted receiving receipts.",
+    "Moved the accepted family union to the native parametric facade, preserving existing reexports; added no dependencies or unchecked receipt deserializers."
+  ],
+  "toolchain": {
+    "channel": "nightly-2026-08-20",
+    "rustc": "1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "host": "x86_64-unknown-linux-gnu"
+  },
+  "validation": {
+    "original_workspace_native_tests": {
+      "core_optimization": 20,
+      "calculus_existing_optimization": 19,
+      "continuation_tests": 8,
+      "rational_parser_tests": 4,
+      "total_distinct": 51,
+      "core_and_calculus_scope": "The first 46 execution covered 39 existing plus 7 continuation; final merged continuation run executed all 8. Rational 4 ran independently on original locked manifests. No repeat run is counted twice.",
+      "strict_clippy": "Passed for scoped core/calculus libraries and optimization tests, and rational library/tests."
+    },
+    "component": {
+      "test_command": "cargo +nightly-2026-08-20 test --offline --locked -p frankensympy-session-source-component-check --no-fail-fast --test artifact_transfer_session --test native_optimization --test native_parametric --test optimization_cli --test optimization_integration_adversaries --test optimization_search_session --test optimization_session --test optimization_transport --test parametric_cli --test parametric_session --test parametric_transport --test parametric_transport_session -j1",
+      "test_exit_code": 0,
+      "passed": 94,
+      "failed": 0,
+      "ignored": 0,
+      "targets": {
+        "artifact_transfer_session": 7,
+        "native_optimization": 8,
+        "native_parametric": 10,
+        "optimization_cli": 7,
+        "optimization_integration_adversaries": 4,
+        "optimization_search_session": 7,
+        "optimization_session": 10,
+        "optimization_transport": 8,
+        "parametric_cli": 4,
+        "parametric_session": 10,
+        "parametric_transport": 11,
+        "parametric_transport_session": 8
+      },
+      "clippy_command": "cargo +nightly-2026-08-20 clippy --offline --locked -p frankensympy-session-source-component-check --no-deps --lib --bin frankensympy --test artifact_transfer_session --test native_optimization --test native_parametric --test optimization_cli --test optimization_integration_adversaries --test optimization_search_session --test optimization_session --test optimization_transport --test parametric_cli --test parametric_session --test parametric_transport --test parametric_transport_session -j1 -- -D warnings",
+      "clippy_exit_code": 0,
+      "original_hashed_source_files": 465,
+      "original_path_packages": 20,
+      "registry_packages_matching_root_lock": 46,
+      "sources_unchanged_during_final_run": true,
+      "runtime_whole_modules": 5,
+      "codec_whole_modules": 14,
+      "omitted_runtime_files": 12,
+      "omitted_codec_files": 1535,
+      "scope": "Actual complete root library and actual CLI, selected whole original runtime/codec modules, no function replacements; component scope only.",
+      "warnings": "Seven existing donor-subset compiler warnings remain visible outside scoped no-deps Clippy; no new scoped warnings."
+    },
+    "concurrent_core_regressions": {
+      "passed": 3,
+      "filter": "real_evalf_",
+      "exit_code": 0
+    },
+    "changed_rust_formatting": {
+      "passed": true,
+      "scope": "17 changed Rust source/test files checked with pinned rustfmt; full workspace formatting has previously recorded unrelated failures."
+    }
+  },
+  "discovered_failures": [
+    {
+      "case": "documented_nonconvex_global_minimum_is_certified_by_the_actual_cli",
+      "observed": "Valid lower bound 0 could not be parsed by public BigRational::FromStr.",
+      "resolution": "Production FromStr fixed and committed e2f8e59; original mathematical assertions and scalar helper preserved."
+    },
+    {
+      "case": "multichunk_optimization_proof_replays_with_the_original_large_source",
+      "observed": "Original 600-term fixture already exceeded its default 1M allocation allowance.",
+      "baseline_commit": "13363cb43e5c28cef079a2c1cb03e370f698781f",
+      "old_generator_allocations": 1363165,
+      "old_generator_and_checker_allocations": 2726137,
+      "new_generator_allocations": 1366781,
+      "new_generator_and_checker_allocations": 2729753,
+      "actual_session_registration_and_accepted_optimization_allocations": 2750795,
+      "resolution": "Positive large-proof fixture explicitly supplies 4M allocations, preserving 600 terms, >24KiB proof, exact bounds and replay assertions. Separate default 1M refusal test verifies budget_exhausted and no published handle; production defaults unchanged."
+    }
+  ],
+  "review": "Independent source/test review found no remaining blocker in mathematical binding, per-scalar normalization, terminal transitions, protected resources or output-atomic publication.",
+  "limits": [
+    "Optimization continuations are in memory; they do not provide disk checkpoints, external cancellation endpoints or new optimizer uniqueness/exactness claims.",
+    "Parameter-family replay reestablishes the existing bounded-domain claim only. No acceptance flags, cached derivatives or cached enclosure values are trusted.",
+    "The full original production runtime graph remains unvalidated after the four earlier asupersync rustc SIGKILL outcomes recorded in 2026-11-11-parametric-native-progress.json. No new full-graph retry, OOM diagnosis, profile certification or broader gate pass is claimed.",
+    "Campaign and independent CLI gate statuses, priorities, dependencies, evidence tiers and registered acceptance criteria are unchanged."
+  ],
+  "concurrent_main_preserved": [
+    "13363cb43e5c28cef079a2c1cb03e370f698781f",
+    "84242fbdf5010232467929fee8511316d5597181",
+    "e771dc8e6c1eee22ca5b06488078bab6d8ebd419"
+  ],
+  "evidence_directory": "artifacts/audit/components/2026-11-11-native-continuations",
+  "evidence_sha256": {
+    "allocation-comparison.txt": "c5ace5f76a0e6f8b2bf852064ce1fd10267162cc6a72dd806230820a8c8258b8",
+    "allocation-probe.rs": "6e275559a93b88852e9daf06f9a7be667a0dcda27422d55ac9df7610ac139c09",
+    "baseline-proposer.rs": "f014446571841b0ce3609be06a0685593d8793c06ca2b1d327407baa1d3d9f2d",
+    "component-clippy.txt": "6fa1764bbd8dc60baac7c6aca779b6a8383d2e3c971a01dcc928c95440d1a14b",
+    "component-tests.txt": "da7bf60b2c6d3f84d8f2e584707da2126e10d4bbc80760e9261e948ba838bd3f",
+    "concurrent-core-regressions.txt": "1ca42959513d5f10290e9208fc1dcfdf50d0801cb02d03a84c7246e14d7684a5",
+    "continuation-tests.txt": "235e482d9e9952e358eb517311bc3f2f18efae6a9269ff9ceb5b4411fdf11056",
+    "initial-component-failures.txt": "e72d567eb703741c3fd3938f98de96f55cda93882c29604cc7306b6d78e0a176",
+    "source-inventory.json": "f9c3ff434a5d1bf3593d29966c953d132a72edcff03ed4c6a175e01c8e5b7a99"
+  },
+  "raw_log_sha256_before_terminal_newline_normalization": {
+    "continuation-tests.txt": "5becdf628f8cb5f7c24441fd2748974ce134693aaae0a22b9d445cfa106d4122",
+    "initial-component-failures.txt": "e72d567eb703741c3fd3938f98de96f55cda93882c29604cc7306b6d78e0a176",
+    "concurrent-core-regressions.txt": "4f4662168da8c197b7eaa9351fc2d77e3fdd4b7fddda6a0844f7f0aac1532d63",
+    "component-tests.txt": "24378e27e41ee088e265590ad70935b250aa583c194107a1dd00f052551926b6",
+    "component-clippy.txt": "6fa1764bbd8dc60baac7c6aca779b6a8383d2e3c971a01dcc928c95440d1a14b",
+    "allocation-comparison.txt": "c5ace5f76a0e6f8b2bf852064ce1fd10267162cc6a72dd806230820a8c8258b8"
+  },
+  "concurrent_fixture_reconciliation": "Incoming e771dc8 also increased the large-proof fixture allowance. The final change retains our already executed tighter4M allowance and adds the default1M refusal regression, preserving its full-proof intent. All465 validated source hashes are unchanged by reconciliation."
+}

@@ -115,6 +115,47 @@ receipts. `Session::parametric_problem`, `Session::parametric_family` and
 `Session::parametric_sensitivity` expose immutable objects; the accepted family
 view also offers `enclose_sensitivity` with an explicit meter.
 
+## Export and replay a complete parameter family
+
+An accepted uniform family or adaptive cover can be sent to another process:
+
+```json
+{"id":"export","type":"ExportParametricFamily","payload":{"schema_version":1,"family":"family:affine"}}
+```
+
+The receiver registers its own expected `ParametricProblem`, then supplies the
+unchanged canonical artifact string and both complete domains:
+
+```json
+{"id":"replay","type":"ReplayParametricFamily","payload":{"schema_version":1,"problem":"parametric:affine","family":"family:received","unknown_domain":[{"lower":"-2","upper":"2"}],"parameter_domain":[{"lower":"-1","upper":"1"}],"artifact":"<the exact result.artifact string, JSON-escaped by your client>"}}
+{"id":"differentiate","type":"EncloseParametricSensitivity","payload":{"schema_version":1,"family":"family:received","sensitivity":"sensitivity:received"}}
+```
+
+Replay binds the original typed residuals, the separately ordered unknown and
+parameter groups, both complete boxes, schema and receiving context. It checks
+the untrusted witness independently, including every leaf of an adaptive cover.
+It does not rerun the cover search. Exported artifacts contain candidate centers,
+preconditioners and partition data; accepted enclosures, contraction bounds and
+sensitivities are recomputed by the receiving checker. A completed transfer or a
+matching content digest alone grants no family. Sensitivity requests consume the
+newly accepted receiving family and recompute the original source derivatives.
+
+Uniform and cover artifacts share the 24 KiB inline and 1 MiB chunked limits.
+For a larger proof, begin an export with
+`{"parametric_family":"family:affine"}`, forward its manifest and chunks, then
+send `ReplayParametricFamilyFromArtifact` with the same expected statement and a
+completed `transfer` instead of an `artifact` string. Unknown fields, duplicate
+keys, alternate encodings, reordered coordinate roles, incomplete covers and
+oversized exact scalars refuse before publication. Scalar normalization is
+bounded and charged per scalar; large partitions are handled linearly.
+
+Rust callers use `export_parametric_family(receipt, context_digest, meter)` and
+`replay_parametric_family(bytes, expected_problem, expected_unknown_domain,
+expected_parameter_domain, expected_context, meter)`. Both variants return the
+same `ParametricFamilyReceipt` accepted type. Export consumes ordinary work;
+receiving Session validation and independent replay consume protected verifier
+compute on the same cumulative ledger.
+
 ## Enclose an objective and certify a stationary point
 
 Register a scalar objective with its explicit coordinate order. Enclosure and
@@ -238,6 +279,54 @@ same canonical transport in Rust. Large proofs use `BeginArtifactExport` with
 `{"box_optimization":"optimization:minimum"}` and the existing bounded chunk
 transfer; `ReplayBoxOptimizationFromArtifact` supplies the same expected
 statement and a completed import transfer instead of inline bytes.
+
+## Advance a global optimization in bounded steps
+
+A long optimization can retain its complete candidate partition, best feasible
+point and priority queue between requests. Register an objective, then begin:
+
+```json
+{"id":"begin","type":"BeginBoxOptimization","payload":{"schema_version":1,"objective":"objective:well","search":"optimization-search:well","domain":[{"lower":"-2","upper":"2"}],"extremum":"minimum","absolute_tolerance":"1/1000","precision_digits":16,"max_leaves":1024}}
+{"id":"advance","type":"AdvanceBoxOptimization","payload":{"schema_version":1,"search":"optimization-search:well","max_splits":4}}
+{"id":"inspect","type":"InspectBoxOptimizationSearch","payload":{"schema_version":1,"search":"optimization-search:well"}}
+```
+
+Started and progress responses carry `evidence: "heuristic_candidate"`, a
+`status` of `searching`, `complete` or `failed`, leaf/split/evaluation counts, and
+cumulative intrinsic work counters. `max_splits` is between 1 and 1024; it bounds
+completed bisections, not elapsed time or arithmetic cost. Each bisection checks
+both children. A simple objective can complete during construction. Continue
+advancing while `status` is `searching`, then request independent verification:
+
+```json
+{"id":"finish","type":"FinishBoxOptimization","payload":{"schema_version":1,"search":"optimization-search:well","optimization":"optimization:well"}}
+{"id":"release","type":"ReleaseBoxOptimizationSearch","payload":{"schema_version":1,"search":"optimization-search:well"}}
+```
+
+Finish independently reconstructs the complete partition and reevaluates the
+original objective using protected verifier compute. Only a successful check
+and complete response admission publish the accepted `optimization:` handle.
+Finishing a live incomplete search returns `search_not_ready`. A refused Finish
+leaves the complete candidate intact. Accepted receipts support the same export
+and replay operations as `OptimizeBox`.
+
+Source, typed axes, domain, direction, tolerance, precision and leaf limit are
+immutable for the search. Ordinary ledger consumption and intrinsic step,
+allocation, source and evaluation counters persist across advances. Successful
+batch schedules produce the same candidate and intrinsic totals. Invalid work
+quanta leave the search untouched. An actual work failure, including native
+meter cancellation, makes it terminal: completed work remains charged, later
+advances preserve the failure, and no candidate or value bounds escape from a
+partially updated transition. Release frees a resident slot without refunding
+budget; at most eight searches can be resident.
+
+Rust callers use `ObjectiveProblem::begin_box_optimization_search` or
+`BoxOptimizationSearch::new`, then `advance(max_splits, meter)`, `progress()` and
+`counters()`. `completed_witness()` returns only a candidate for
+`verify_box_optimization`. The blocking proposal API drives the same search
+engine. Session getters expose read-only progress and counters. Continuations
+remain in memory for the life of that search; no optimization checkpoint
+serialization or disk restoration is provided by these operations.
 
 ## Certify a proper real definite integral
 
@@ -481,7 +570,7 @@ string through their JSON encoder without parsing and rewriting its contents.
 
 ## Transfer certificates and checkpoints larger than one frame
 
-All five artifact kinds support a chunked route up to the native 1 MiB artifact
+All certificate and root-checkpoint artifact kinds support a chunked route up to the native 1 MiB artifact
 limit. This route preserves the 64 KiB input frame limit. Each chunk carries
 at most 16 KiB of bytes encoded as at most 32 KiB of lowercase hexadecimal;
 schema 1 has at most 64 chunks. Clients can forward the returned manifest and
@@ -506,6 +595,7 @@ Select the source and receiving operation for the object being transferred:
 | `{"root_isolation_search":"search:paused"}` | `root_search_checkpoint` | `RestoreRootIsolationSearchFromArtifact` |
 | `{"stationary_certificate":"stationary:minimum"}` | `stationary_certificate` | `ReplayStationaryCertificateFromArtifact` |
 | `{"box_optimization":"optimization:minimum"}` | `box_optimization` | `ReplayBoxOptimizationFromArtifact` |
+| `{"parametric_family":"family:affine"}` | `parametric_family` | `ReplayParametricFamilyFromArtifact` |
 
 The begin response's `result.manifest` contains `schema_version`, `kind`,
 `total_bytes` and `content_id`. The read response's `result.chunk` contains
@@ -553,7 +643,7 @@ The complete content ID is checked before replay or restoration.
 Per-chunk digests bind the full content ID, chunk index and chunk bytes; the
 content ID binds the artifact kind, length and bytes. Neither successful
 transfer nor a matching digest creates a certificate or a search handle.
-Root, integral, stationary-point and global-optimization replay require protected independent verification of
+Root, integral, stationary-point, global-optimization and parameter-family replay require protected independent verification of
 the canonical artifact and its expected statement. Checkpoint restoration
 rechecks the candidate prefix on ordinary resources; protected finish remains
 necessary for acceptance. Using a checkpoint transfer as a proof fails with
@@ -581,7 +671,9 @@ are exact rational numbers. No binary64 conversion enters this interface.
 Session labels have distinct kinds: `system:<identifier>`,
 `certificate:<identifier>`, `isolation:<identifier>`,
 `integral:<identifier>`, `search:<identifier>`, `objective:<identifier>`,
-`stationary:<identifier>`, `optimization:<identifier>` and `transfer:<identifier>`.
+`stationary:<identifier>`, `optimization:<identifier>`, `optimization-search:<identifier>`,
+`parametric:<identifier>`, `family:<identifier>`, `sensitivity:<identifier>` and
+`transfer:<identifier>`.
 They are local references, not stable content IDs. Identifiers use ASCII letters,
 digits, underscores, hyphens or dots. All labels except isolation labels are
 at most 128 bytes; isolation labels are at most 104 bytes,
@@ -630,6 +722,9 @@ its existing small defaults; numerical callers should use
 | Resident integral certificates | 32 |
 | Resident objectives / stationary certificates | 32 / 128 |
 | Resident global box optimization receipts | 32 |
+| Resident global optimization searches | 8; explicit release frees a slot without a budget refund |
+| Optimization work quantum | 1–1,024 complete bisections per advance |
+| Resident parameter problems / families / sensitivities | 32 each |
 | Resident artifact transfers | 8 total imports and exports; explicit release frees a slot |
 | Resident root searches | 8; explicit release frees a slot without a budget refund |
 | Root-search work quantum | 1–2,047 committed cell transitions per advance |
@@ -656,7 +751,7 @@ Typical error codes distinguish `budget_exhausted`, `domain_not_certified`,
 `unsupported_operation`, `source_mismatch`, `domain_mismatch`, `universe_mismatch`,
 `statement_mismatch`, `invalid_artifact`, `unsupported_schema`, `inconclusive`
 and a mathematical `refused` outcome.
-An incomplete root search returns `search_not_ready` when asked to finish.
+An incomplete root or optimization search returns `search_not_ready` when asked to finish.
 Transfers additionally distinguish `incomplete_transfer`, `out_of_order_chunk`,
 `conflicting_chunk`, `artifact_kind_mismatch` and `wrong_transfer_mode`.
 An error never contains an accepted root, integral, stationary-point or global-optimization value.

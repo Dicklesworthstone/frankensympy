@@ -28,7 +28,10 @@ use crate::repairable_search::{
 };
 use crate::search_checkpoint::{export_root_search_checkpoint, restore_root_search_checkpoint};
 use fsym_budget::{Budget, BudgetError, BudgetMeter, Dimension, MeterError, VerifierLease};
-use fsym_calculus::box_optimization::BoxOptimizationOptions;
+use fsym_calculus::box_optimization::{
+    BoxOptimizationCounters, BoxOptimizationOptions, BoxOptimizationProgress,
+    BoxOptimizationSearch, BoxOptimizationSearchStatus, MAX_BOX_OPTIMIZATION_ADVANCE_SPLITS,
+};
 use fsym_calculus::quadrature::QuadratureOptions;
 use fsym_calculus::root_isolation::{
     MAX_ROOT_ISOLATION_ADVANCE_CELLS, RootIsolationOptions, RootIsolationProgress,
@@ -68,6 +71,8 @@ pub const MAX_SESSION_ARTIFACT_TRANSFERS: usize = 8;
 /// Pending and complete candidate searches remain resident until released.
 /// This bound is independent of accepted complete-isolation receipts.
 pub const MAX_SESSION_ROOT_SEARCHES: usize = 8;
+/// Candidate optimization searches are bounded independently of accepted results.
+pub const MAX_SESSION_OPTIMIZATION_SEARCHES: usize = 8;
 const MAX_SCALAR_BYTES: usize = 512;
 const MAX_AXES: usize = fsym_core::MAX_ROOT_BOX_VARIABLES;
 
@@ -294,6 +299,31 @@ impl<'de> Deserialize<'de> for BoxOptimizationId {
     }
 }
 
+/// A resumable candidate search, distinct from an accepted optimization.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct BoxOptimizationSearchId(Box<str>);
+
+impl BoxOptimizationSearchId {
+    pub fn new(value: impl Into<String>) -> Result<Self, CertificationSessionError> {
+        let value = value.into();
+        if !valid_label(&value, "optimization-search:") {
+            return Err(CertificationSessionError::InvalidLabel);
+        }
+        Ok(Self(value.into_boxed_str()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for BoxOptimizationSearchId {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::new(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
 /// Local classification granted by the independent interval Hessian checker.
 /// `Unclassified` grants no positive or negative extremum assertion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -355,6 +385,7 @@ pub enum ArtifactSource {
     RootIsolationSearch(RootIsolationSearchId),
     StationaryCertificate(StationaryPointId),
     BoxOptimization(BoxOptimizationId),
+    ParametricFamily(ParametricFamilyId),
 }
 
 /// Bounded certification operations accepted by the native session and NDJSON
@@ -388,6 +419,26 @@ pub enum CertificationRequest {
         schema_version: u32,
         family: ParametricFamilyId,
         sensitivity: ParametricSensitivityId,
+    },
+    ExportParametricFamily {
+        schema_version: u32,
+        family: ParametricFamilyId,
+    },
+    ReplayParametricFamily {
+        schema_version: u32,
+        problem: ParametricProblemId,
+        family: ParametricFamilyId,
+        unknown_domain: Vec<ExactInterval>,
+        parameter_domain: Vec<ExactInterval>,
+        artifact: String,
+    },
+    ReplayParametricFamilyFromArtifact {
+        schema_version: u32,
+        problem: ParametricProblemId,
+        family: ParametricFamilyId,
+        unknown_domain: Vec<ExactInterval>,
+        parameter_domain: Vec<ExactInterval>,
+        transfer: ArtifactTransferId,
     },
     RegisterObjective {
         schema_version: u32,
@@ -434,6 +485,34 @@ pub enum CertificationRequest {
         absolute_tolerance: String,
         precision_digits: u32,
         max_leaves: usize,
+    },
+    BeginBoxOptimization {
+        schema_version: u32,
+        objective: ObjectiveId,
+        search: BoxOptimizationSearchId,
+        domain: Vec<ExactInterval>,
+        extremum: BoxExtremumKind,
+        absolute_tolerance: String,
+        precision_digits: u32,
+        max_leaves: usize,
+    },
+    AdvanceBoxOptimization {
+        schema_version: u32,
+        search: BoxOptimizationSearchId,
+        max_splits: usize,
+    },
+    InspectBoxOptimizationSearch {
+        schema_version: u32,
+        search: BoxOptimizationSearchId,
+    },
+    FinishBoxOptimization {
+        schema_version: u32,
+        search: BoxOptimizationSearchId,
+        optimization: BoxOptimizationId,
+    },
+    ReleaseBoxOptimizationSearch {
+        schema_version: u32,
+        search: BoxOptimizationSearchId,
     },
     ExportBoxOptimization {
         schema_version: u32,
@@ -656,6 +735,9 @@ impl CertificationRequest {
             | Self::CertifyParametricRoot { schema_version, .. }
             | Self::CertifyParametricCover { schema_version, .. }
             | Self::EncloseParametricSensitivity { schema_version, .. }
+            | Self::ExportParametricFamily { schema_version, .. }
+            | Self::ReplayParametricFamily { schema_version, .. }
+            | Self::ReplayParametricFamilyFromArtifact { schema_version, .. }
             | Self::RegisterObjective { schema_version, .. }
             | Self::EncloseObjective { schema_version, .. }
             | Self::CertifyStationaryPoint { schema_version, .. }
@@ -663,6 +745,11 @@ impl CertificationRequest {
             | Self::ReplayStationaryCertificate { schema_version, .. }
             | Self::ReplayStationaryCertificateFromArtifact { schema_version, .. }
             | Self::OptimizeBox { schema_version, .. }
+            | Self::BeginBoxOptimization { schema_version, .. }
+            | Self::AdvanceBoxOptimization { schema_version, .. }
+            | Self::InspectBoxOptimizationSearch { schema_version, .. }
+            | Self::FinishBoxOptimization { schema_version, .. }
+            | Self::ReleaseBoxOptimizationSearch { schema_version, .. }
             | Self::ExportBoxOptimization { schema_version, .. }
             | Self::ReplayBoxOptimization { schema_version, .. }
             | Self::ReplayBoxOptimizationFromArtifact { schema_version, .. }
@@ -777,6 +864,12 @@ pub enum CertificationResponse {
         precision_digits: u32,
         context_digest: [u8; 32],
     },
+    ParametricFamilyExported {
+        schema_version: u32,
+        problem: ParametricProblemId,
+        family: ParametricFamilyId,
+        artifact: String,
+    },
     ObjectiveRegistered {
         schema_version: u32,
         objective: ObjectiveId,
@@ -839,6 +932,28 @@ pub enum CertificationResponse {
         objective: ObjectiveId,
         optimization: BoxOptimizationId,
         artifact: String,
+    },
+    BoxOptimizationSearchStarted {
+        schema_version: u32,
+        objective: ObjectiveId,
+        search: BoxOptimizationSearchId,
+        evidence: &'static str,
+        progress: BoxOptimizationProgress,
+        counters: BoxOptimizationCounters,
+        context_digest: [u8; 32],
+    },
+    BoxOptimizationSearchProgress {
+        schema_version: u32,
+        objective: ObjectiveId,
+        search: BoxOptimizationSearchId,
+        evidence: &'static str,
+        progress: BoxOptimizationProgress,
+        counters: BoxOptimizationCounters,
+        context_digest: [u8; 32],
+    },
+    BoxOptimizationSearchReleased {
+        schema_version: u32,
+        search: BoxOptimizationSearchId,
     },
     ResidualSystemRegistered {
         schema_version: u32,
@@ -1025,13 +1140,15 @@ pub enum CertificationSessionError {
     UnknownStationaryPoint,
     #[error("unknown accepted global box optimization")]
     UnknownBoxOptimization,
+    #[error("unknown box optimization search")]
+    UnknownBoxOptimizationSearch,
     #[error("unknown parameter-family problem")]
     UnknownParametricProblem,
     #[error("unknown accepted parameter-root family")]
     UnknownParametricFamily,
-    #[error("root isolation search still has pending cells")]
+    #[error("candidate search is not ready for independent verification")]
     SearchNotReady,
-    #[error("root search work quantum is outside the supported range")]
+    #[error("search work quantum is outside the supported range")]
     InvalidSearchQuantum,
     #[error("unknown artifact transfer")]
     UnknownTransfer,
@@ -1090,6 +1207,7 @@ impl CertificationSessionError {
             | Self::UnknownObjective
             | Self::UnknownStationaryPoint
             | Self::UnknownBoxOptimization
+            | Self::UnknownBoxOptimizationSearch
             | Self::UnknownParametricProblem
             | Self::UnknownParametricFamily
             | Self::UnknownTransfer => "unknown_object",
@@ -1625,6 +1743,42 @@ struct ResidentBoxOptimization {
     receipt: BoxOptimizationReceipt,
 }
 
+struct ResidentBoxOptimizationSearch {
+    objective: ObjectiveId,
+    context_digest: [u8; 32],
+    search: BoxOptimizationSearch,
+}
+
+impl ResidentBoxOptimizationSearch {
+    fn check_context(&self, expected: [u8; 32]) -> Result<(), CertificationSessionError> {
+        if self.context_digest != expected {
+            return Err(CertificationError::UniverseMismatch {
+                found: self.context_digest,
+                expected,
+            }
+            .into());
+        }
+        Ok(())
+    }
+
+    fn response(
+        &self,
+        search: BoxOptimizationSearchId,
+        progress: BoxOptimizationProgress,
+        counters: BoxOptimizationCounters,
+    ) -> CertificationResponse {
+        CertificationResponse::BoxOptimizationSearchProgress {
+            schema_version: CERTIFICATION_REQUEST_SCHEMA,
+            objective: self.objective.clone(),
+            search,
+            evidence: "heuristic_candidate",
+            progress,
+            counters,
+            context_digest: self.context_digest,
+        }
+    }
+}
+
 impl ResidentRootSearch {
     fn response(
         &self,
@@ -1648,6 +1802,7 @@ pub(crate) struct CertificationState {
     objectives: BTreeMap<ObjectiveId, ObjectiveProblem>,
     stationary_points: BTreeMap<StationaryPointId, ResidentStationaryPoint>,
     optimizations: BTreeMap<BoxOptimizationId, ResidentBoxOptimization>,
+    optimization_searches: BTreeMap<BoxOptimizationSearchId, ResidentBoxOptimizationSearch>,
     checkpoint_store: Option<RootSearchCheckpointStore>,
     repairable_checkpoint_store: Option<RepairableRootSearchCheckpointStore>,
     systems: BTreeMap<ResidualSystemId, ResidualProblem>,
@@ -1692,6 +1847,24 @@ impl CertificationState {
         id: &BoxOptimizationId,
     ) -> Option<&BoxOptimizationReceipt> {
         self.optimizations.get(id).map(|slot| &slot.receipt)
+    }
+
+    pub(crate) fn box_optimization_search_progress(
+        &self,
+        id: &BoxOptimizationSearchId,
+    ) -> Option<BoxOptimizationProgress> {
+        self.optimization_searches
+            .get(id)
+            .map(|slot| slot.search.progress())
+    }
+
+    pub(crate) fn box_optimization_search_counters(
+        &self,
+        id: &BoxOptimizationSearchId,
+    ) -> Option<BoxOptimizationCounters> {
+        self.optimization_searches
+            .get(id)
+            .map(|slot| slot.search.counters())
     }
 
     fn admit_optimization_id(
@@ -2105,9 +2278,40 @@ impl CertificationState {
             request @ (CertificationRequest::RegisterParametricProblem { .. }
             | CertificationRequest::CertifyParametricRoot { .. }
             | CertificationRequest::CertifyParametricCover { .. }
+            | CertificationRequest::ExportParametricFamily { .. }
+            | CertificationRequest::ReplayParametricFamily { .. }
             | CertificationRequest::EncloseParametricSensitivity { .. }) => {
                 self.parametric
                     .handle(request, context_digest, budget, lease)
+            }
+            CertificationRequest::ReplayParametricFamilyFromArtifact {
+                problem,
+                family,
+                unknown_domain,
+                parameter_domain,
+                transfer,
+                ..
+            } => {
+                let import = match self.transfers.get(&transfer) {
+                    Some(ResidentArtifact::Import(import)) => import,
+                    Some(ResidentArtifact::Export(_)) => {
+                        return Err(CertificationSessionError::WrongTransferMode);
+                    }
+                    None => return Err(CertificationSessionError::UnknownTransfer),
+                };
+                let bytes = import.checked_bytes(ArtifactKind::ParametricFamily, budget)?;
+                self.parametric.replay(
+                    parametric::FamilyReplay {
+                        problem,
+                        family,
+                        unknown_domain,
+                        parameter_domain,
+                    },
+                    bytes,
+                    context_digest,
+                    budget,
+                    lease,
+                )
             }
             CertificationRequest::RegisterObjective {
                 objective,
@@ -2283,6 +2487,163 @@ impl CertificationState {
                     context_digest,
                     budget,
                 )
+            }
+            CertificationRequest::BeginBoxOptimization {
+                objective,
+                search,
+                domain,
+                extremum,
+                absolute_tolerance,
+                precision_digits,
+                max_leaves,
+                ..
+            } => {
+                if self.optimization_searches.contains_key(&search) {
+                    return Err(CertificationSessionError::DuplicateObject);
+                }
+                if self.optimization_searches.len() >= MAX_SESSION_OPTIMIZATION_SEARCHES {
+                    return Err(CertificationSessionError::ObjectLimit);
+                }
+                charge(budget, 1, 4096)?;
+                let problem = self
+                    .objectives
+                    .get(&objective)
+                    .ok_or(CertificationSessionError::UnknownObjective)?;
+                let domain = parse_domain(&domain, problem.variables().len(), budget)?;
+                let tolerance = parse_scalar(&absolute_tolerance, budget)?;
+                let candidate = problem.begin_box_optimization_search(
+                    &domain,
+                    extremum,
+                    &tolerance,
+                    BoxOptimizationOptions {
+                        precision_digits,
+                        max_leaves,
+                    },
+                    budget,
+                )?;
+                let response = CertificationResponse::BoxOptimizationSearchStarted {
+                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                    objective: objective.clone(),
+                    search: search.clone(),
+                    evidence: "heuristic_candidate",
+                    progress: candidate.progress(),
+                    counters: candidate.counters(),
+                    context_digest,
+                };
+                admit_response(&response, budget)?;
+                self.optimization_searches.insert(
+                    search,
+                    ResidentBoxOptimizationSearch {
+                        objective,
+                        context_digest,
+                        search: candidate,
+                    },
+                );
+                Ok(response)
+            }
+            CertificationRequest::AdvanceBoxOptimization {
+                search, max_splits, ..
+            } => {
+                if !(1..=MAX_BOX_OPTIMIZATION_ADVANCE_SPLITS).contains(&max_splits) {
+                    return Err(CertificationSessionError::InvalidSearchQuantum);
+                }
+                let slot = self
+                    .optimization_searches
+                    .get(&search)
+                    .ok_or(CertificationSessionError::UnknownBoxOptimizationSearch)?;
+                slot.check_context(context_digest)?;
+                // Admit a maximum-width response before mutating the search.
+                // The final update contains only Copy fields and cannot fail.
+                let mut response = slot.response(
+                    search.clone(),
+                    BoxOptimizationProgress {
+                        status: BoxOptimizationSearchStatus::Searching,
+                        leaf_count: usize::MAX,
+                        split_count: usize::MAX,
+                        evaluation_count: usize::MAX,
+                    },
+                    BoxOptimizationCounters {
+                        steps: u64::MAX,
+                        allocation_bytes: u64::MAX,
+                        source_bytes: u64::MAX,
+                        evaluations: usize::MAX,
+                    },
+                );
+                admit_response(&response, budget)?;
+                let slot = self
+                    .optimization_searches
+                    .get_mut(&search)
+                    .expect("the admitted optimization search remains resident");
+                let advanced = slot
+                    .search
+                    .advance(max_splits, budget)
+                    .map_err(OptimizationError::from)?;
+                let CertificationResponse::BoxOptimizationSearchProgress {
+                    progress, counters, ..
+                } = &mut response
+                else {
+                    unreachable!("the prepared response is a candidate progress record");
+                };
+                *progress = advanced;
+                *counters = slot.search.counters();
+                Ok(response)
+            }
+            CertificationRequest::InspectBoxOptimizationSearch { search, .. } => {
+                let slot = self
+                    .optimization_searches
+                    .get(&search)
+                    .ok_or(CertificationSessionError::UnknownBoxOptimizationSearch)?;
+                slot.check_context(context_digest)?;
+                let response =
+                    slot.response(search, slot.search.progress(), slot.search.counters());
+                admit_response(&response, budget)?;
+                Ok(response)
+            }
+            CertificationRequest::FinishBoxOptimization {
+                search,
+                optimization,
+                ..
+            } => {
+                self.admit_optimization_id(&optimization, budget)?;
+                let slot = self
+                    .optimization_searches
+                    .get(&search)
+                    .ok_or(CertificationSessionError::UnknownBoxOptimizationSearch)?;
+                slot.check_context(context_digest)?;
+                if let Some(error) = slot.search.failure() {
+                    return Err(OptimizationError::from(error.clone()).into());
+                }
+                let witness = slot
+                    .search
+                    .completed_witness()
+                    .ok_or(CertificationSessionError::SearchNotReady)?;
+                let problem = self
+                    .objectives
+                    .get(&slot.objective)
+                    .ok_or(CertificationSessionError::UnknownObjective)?;
+                let lease =
+                    lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+                let receipt = problem.verify_box_optimization(
+                    slot.search.domain(),
+                    slot.search.kind(),
+                    slot.search.absolute_tolerance(),
+                    witness,
+                    &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+                )?;
+                let objective = slot.objective.clone();
+                self.publish_optimization(objective, optimization, receipt, context_digest, budget)
+            }
+            CertificationRequest::ReleaseBoxOptimizationSearch { search, .. } => {
+                if !self.optimization_searches.contains_key(&search) {
+                    return Err(CertificationSessionError::UnknownBoxOptimizationSearch);
+                }
+                let response = CertificationResponse::BoxOptimizationSearchReleased {
+                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                    search: search.clone(),
+                };
+                admit_response(&response, budget)?;
+                self.optimization_searches.remove(&search);
+                Ok(response)
             }
             CertificationRequest::OptimizeBox {
                 objective,
@@ -3045,6 +3406,10 @@ impl CertificationState {
             } => {
                 self.admit_transfer_id(&transfer, budget)?;
                 let (kind, bytes) = match source {
+                    ArtifactSource::ParametricFamily(family) => {
+                        let (_, bytes) = self.parametric.export_bytes(&family, budget)?;
+                        (ArtifactKind::ParametricFamily, bytes)
+                    }
                     ArtifactSource::BoxOptimization(optimization) => {
                         let slot = self
                             .optimizations

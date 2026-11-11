@@ -133,12 +133,12 @@ jobs:
         run: |
           cargo test --locked -p fsym-core --test box_optimization --test box_optimization_transport --test box_optimization_monotonicity -j1
           cargo test --locked -p fsym-calculus --test certified_box_optimization --test certified_monotone_optimization --test box_optimization_search -j1
-          cargo test --locked -p frankensympy --test native_optimization --test optimization_transport --test optimization_session --test optimization_cli -j1
+          cargo test --locked -p frankensympy --test native_optimization --test optimization_transport --test optimization_session --test optimization_cli --test optimization_search_session -j1
       - name: Complete parameter families and implicit sensitivities
         run: |
           cargo test --locked -p fsym-core --test parametric_root --test parametric_cover --test parametric_sensitivity -j1
           cargo test --locked -p fsym-calculus --test certified_parametric_cover -j1
-          cargo test --locked -p frankensympy --test native_parametric --test parametric_session --test parametric_cli --test optimization_integration_adversaries -j1
+          cargo test --locked -p frankensympy --test native_parametric --test parametric_session --test parametric_cli --test parametric_transport --test parametric_transport_session --test optimization_integration_adversaries -j1
       - name: Native feature regressions
         run: |
           cargo test --locked -p fsym-rational --lib decimal_from_str -j1

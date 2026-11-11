@@ -14,7 +14,9 @@ use crate::certification::{
 };
 use crate::objective::ObjectiveProblem;
 use fsym_budget::BudgetMeter;
-use fsym_calculus::box_optimization::{BoxOptimizationOptions, propose_box_optimization};
+use fsym_calculus::box_optimization::{
+    BoxOptimizationOptions, BoxOptimizationSearch, propose_box_optimization,
+};
 use fsym_core::{
     BigRational, BoxExtremumKind, BoxOptimizationError, BoxOptimizationReceipt,
     BoxOptimizationWitness, Expr, MAX_BOX_OPTIMIZATION_NODES, MAX_ROOT_BOX_LIMBS,
@@ -42,6 +44,28 @@ pub enum OptimizationError {
 }
 
 impl ObjectiveProblem {
+    /// Begin a bounded search whose frontier and intrinsic work counters persist
+    /// across advances. Completion supplies a candidate, never an accepted result.
+    pub fn begin_box_optimization_search(
+        &self,
+        domain: &[RealBall],
+        kind: BoxExtremumKind,
+        absolute_tolerance: &BigRational,
+        options: BoxOptimizationOptions,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<BoxOptimizationSearch, OptimizationError> {
+        meter.checkpoint().map_err(CertificationError::from)?;
+        Ok(BoxOptimizationSearch::new(
+            self.objective(),
+            self.variables(),
+            domain,
+            kind,
+            absolute_tolerance,
+            options,
+            meter,
+        )?)
+    }
+
     /// Propose a feasible point and a complete partition using ordinary work.
     ///
     /// Every original source domain obligation is retained on the closed box.

@@ -1,0 +1,21 @@
+   Compiling fsym-core v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-core)
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-assumptions)
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-proof-kernel)
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-evidence)
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-polys)
+   Compiling fsym-simplify v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-simplify)
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-calculus)
+    Finished `test` profile [unoptimized] target(s) in 33.94s
+     Running tests/box_optimization_search.rs (/workspace/scratch/8a453db7a629/frankensympy/target/debug/build/fsym-calculus/cfe62a977985ab3f/out/box_optimization_search-cfe62a977985ab3f)
+
+running 8 tests
+test failed_workspace_borrows_preserve_intrinsic_arithmetic_and_allocation_caps ... ok
+test frozen_search_owns_raw_source_buffers_and_typed_coordinate_identity ... ok
+test cumulative_ordinary_exhaustion_is_terminal_and_cannot_borrow_verifier_compute ... ok
+test held_poles_cannot_become_completed_zero_objectives ... ok
+test cancellation_during_split_never_exposes_half_published_bounds_or_restarts_work ... ok
+test intrinsic_leaf_limits_are_not_refilled_by_small_advance_requests ... ok
+test invalid_quanta_leave_the_frontier_and_ledger_unchanged ... ok
+test schedules_preserve_the_exact_candidate_and_independent_global_claim ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s

@@ -15,8 +15,10 @@ use fsym_budget::BudgetMeter;
 use fsym_calculus::parametric_cover::{ParametricRootCoverOptions, propose_parametric_root_cover};
 use fsym_core::{
     Expr, MAX_ROOT_BOX_VARIABLES, ParametricRootBoxReceipt, ParametricRootBoxWitness,
-    ParametricRootCoverError, ParametricRootCoverReceipt, ParametricRootCoverWitness, RealBall,
-    RootBoxError, Symbol, verify_parametric_root_box, verify_parametric_root_cover,
+    ParametricRootCoverError, ParametricRootCoverReceipt, ParametricRootCoverWitness,
+    ParametricSensitivityReceipt, RealBall, RootBoxError, Symbol,
+    metered_enclose_parametric_cover_sensitivity, metered_enclose_parametric_root_sensitivity,
+    verify_parametric_root_box, verify_parametric_root_cover,
 };
 use std::mem::size_of;
 use thiserror::Error;
@@ -235,5 +237,90 @@ impl ParametricProblem {
             meter,
         )
         .map_err(cover_error)
+    }
+}
+
+/// Each variant contains a private-field core acceptance type. A session never
+/// constructs this enum from an unverified proposal or a partial cover.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParametricFamilyReceipt {
+    RootBox(ParametricRootBoxReceipt),
+    Cover(ParametricRootCoverReceipt),
+}
+
+impl ParametricFamilyReceipt {
+    pub fn residuals(&self) -> &[Expr] {
+        match self {
+            Self::RootBox(receipt) => receipt.residuals(),
+            Self::Cover(receipt) => receipt.residuals(),
+        }
+    }
+
+    pub fn unknowns(&self) -> &[Symbol] {
+        match self {
+            Self::RootBox(receipt) => receipt.unknowns(),
+            Self::Cover(receipt) => receipt.unknowns(),
+        }
+    }
+
+    pub fn parameters(&self) -> &[Symbol] {
+        match self {
+            Self::RootBox(receipt) => receipt.parameters(),
+            Self::Cover(receipt) => receipt.parameters(),
+        }
+    }
+
+    pub fn unknown_domain(&self) -> &[RealBall] {
+        match self {
+            Self::RootBox(receipt) => &receipt.witness().unknown_domain,
+            Self::Cover(receipt) => receipt.unknown_domain(),
+        }
+    }
+
+    pub fn parameter_domain(&self) -> &[RealBall] {
+        match self {
+            Self::RootBox(receipt) => &receipt.witness().parameter_domain,
+            Self::Cover(receipt) => receipt.parameter_domain(),
+        }
+    }
+
+    pub fn root_enclosure(&self) -> &[RealBall] {
+        match self {
+            Self::RootBox(receipt) => receipt.root_enclosure(),
+            Self::Cover(receipt) => receipt.root_enclosure(),
+        }
+    }
+
+    pub fn precision_digits(&self) -> u32 {
+        match self {
+            Self::RootBox(receipt) => receipt.witness().precision_digits,
+            Self::Cover(receipt) => receipt.precision_digits(),
+        }
+    }
+
+    pub fn leaf_count(&self) -> usize {
+        match self {
+            Self::RootBox(_) => 1,
+            Self::Cover(receipt) => receipt.leaf_count(),
+        }
+    }
+
+    pub(crate) fn leaves(&self) -> &[ParametricRootBoxReceipt] {
+        match self {
+            Self::RootBox(receipt) => std::slice::from_ref(receipt),
+            Self::Cover(receipt) => receipt.leaves(),
+        }
+    }
+
+    /// Enclose dx_i/dp_j from the accepted family, with unknowns as rows and
+    /// parameters as columns. This grants no requested derivative accuracy.
+    pub fn enclose_sensitivity(
+        &self,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<ParametricSensitivityReceipt, ParametricError> {
+        Ok(match self {
+            Self::RootBox(receipt) => metered_enclose_parametric_root_sensitivity(receipt, meter)?,
+            Self::Cover(receipt) => metered_enclose_parametric_cover_sensitivity(receipt, meter)?,
+        })
     }
 }

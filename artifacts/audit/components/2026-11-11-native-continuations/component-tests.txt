@@ -1,0 +1,221 @@
+   Compiling fsym-simplify v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-simplify)
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-calculus)
+warning: static `EPHEMERAL_REGION_COUNTER` is never used
+  --> /workspace/scratch/8a453db7a629/asupersync/src/types/id.rs:21:8
+   |
+21 | static EPHEMERAL_REGION_COUNTER: AtomicU32 = AtomicU32::new(1);
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: static `EPHEMERAL_TASK_COUNTER` is never used
+  --> /workspace/scratch/8a453db7a629/asupersync/src/types/id.rs:22:8
+   |
+22 | static EPHEMERAL_TASK_COUNTER: AtomicU32 = AtomicU32::new(1);
+   |        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `next_bootstrap_region_id` is never used
+  --> /workspace/scratch/8a453db7a629/asupersync/src/types/id.rs:32:15
+   |
+32 | pub(crate) fn next_bootstrap_region_id() -> RegionId {
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `next_bootstrap_task_id` is never used
+  --> /workspace/scratch/8a453db7a629/asupersync/src/types/id.rs:41:15
+   |
+41 | pub(crate) fn next_bootstrap_task_id() -> TaskId {
+   |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated function `from_arena` is never used
+  --> /workspace/scratch/8a453db7a629/asupersync/src/types/id.rs:57:25
+   |
+52 | impl RegionId {
+   | ------------- associated function in this implementation
+...
+57 |     pub(crate) const fn from_arena(index: ArenaIndex) -> Self {
+   |                         ^^^^^^^^^^
+
+warning: feature `try_trait_v2` is declared but not used
+ --> codec/lib.rs:3:54
+  |
+3 | #![cfg_attr(feature = "nightly-outcome-try", feature(try_trait_v2))]
+  |                                                      ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_features)]` (part of `#[warn(unused)]`) on by default
+
+warning: feature `try_trait_v2_residual` is declared but not used
+ --> codec/lib.rs:4:54
+  |
+4 | #![cfg_attr(feature = "nightly-outcome-try", feature(try_trait_v2_residual))]
+  |                                                      ^^^^^^^^^^^^^^^^^^^^^
+
+warning: `asupersync-codec-source-component` (lib) generated 7 warnings
+   Compiling fsym-solvers v0.1.0 (/workspace/scratch/8a453db7a629/frankensympy-integration/crates/fsym-solvers)
+   Compiling fsym-runtime-session-source-component v0.1.0 (/workspace/scratch/8a453db7a629/session-source-component-check/runtime)
+   Compiling frankensympy-session-source-component-check v0.1.0 (/workspace/scratch/8a453db7a629/session-source-component-check)
+    Finished `test` profile [unoptimized] target(s) in 35.23s
+     Running ../frankensympy-integration/tests/artifact_transfer_session.rs (target/debug/build/frankensympy-session-source-component-check/87a880ba0b217c4a/out/artifact_transfer_session-87a880ba0b217c4a)
+
+running 7 tests
+test chunk_acknowledgement_budget_refusal_does_not_advance_the_prefix ... ok
+test transfer_slots_release_explicitly_and_wire_inputs_remain_strict ... ok
+test staged_chunks_are_ordered_retryable_and_never_mathematical_evidence ... ok
+test digest_valid_transfers_still_require_expected_kind_sources_domain_and_mathematics ... ok
+test replay_uses_one_cumulative_protected_pool_and_preserves_the_staged_bytes ... ok
+test verified_replay_and_late_child_collision_publish_no_partial_root_set ... ok
+test fresh_cli_exchanges_both_proof_kinds_above_the_inline_limit_in_bounded_frames ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.76s
+
+     Running ../frankensympy-integration/tests/native_optimization.rs (target/debug/build/frankensympy-session-source-component-check/5de2920bcdf32552/out/native_optimization-5de2920bcdf32552)
+
+running 8 tests
+test invalid_tolerances_and_exhausted_search_bounds_return_no_receipt ... ok
+test untrusted_partition_point_and_accuracy_claims_are_independently_rejected ... ok
+test cancellation_is_terminal_in_both_generation_and_independent_verification ... ok
+test fixed_coordinates_and_typed_same_name_axes_preserve_the_original_problem ... ok
+test interior_quadratic_and_flat_quartic_have_global_value_certificates ... ok
+test boundary_minimum_and_maximum_cover_the_same_closed_box ... ok
+test irrational_nonconvex_minima_produce_a_tolerance_bound_not_an_exact_optimizer ... ok
+test original_poles_and_nonsmooth_sources_cannot_be_discarded ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running ../frankensympy-integration/tests/native_parametric.rs (target/debug/build/frankensympy-session-source-component-check/5b4488c552b55ce1/out/native_parametric-5b4488c552b55ce1)
+
+running 10 tests
+test explicit_same_name_typed_coordinates_are_distinct_and_raw_sources_remain_owned ... ok
+test group_shape_duplicates_and_text_bounds_fail_before_source_ownership ... ok
+test invalid_cover_options_and_dimension_mismatches_remain_terminal ... ok
+test affine_family_certifies_the_entire_parameter_interval_and_exact_sensitivity ... ok
+test endpoint_nonexistence_bifurcations_and_original_hidden_holes_refuse ... ok
+test quadratic_parameter_sensitivity_and_fixed_unused_axes_remain_exact ... ok
+test coupled_system_preserves_unknown_rows_and_parameter_columns ... ok
+test failure_retry_and_protected_verification_share_cumulative_budgets ... ok
+test adaptive_cover_certifies_a_family_that_a_coarse_box_cannot_and_checks_all_leaves ... ok
+test construction_uniform_cover_generation_and_verification_propagate_each_cancellation ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running ../frankensympy-integration/tests/optimization_cli.rs (target/debug/build/frankensympy-session-source-component-check/be0ac017f817a285/out/optimization_cli-be0ac017f817a285)
+
+running 7 tests
+test native_wire_refuses_unknown_fields_duplicate_tolerance_and_kind_typos ... ok
+test optimization_artifact_integrity_identity_is_distinct_from_other_proof_kinds ... ok
+test no_verifier_reserve_never_publishes_a_global_optimization ... ok
+test default_cli_certifies_minimum_and_maximum_then_replays_in_fresh_processes ... ok
+test documented_nonconvex_global_minimum_is_certified_by_the_actual_cli ... ok
+test large_source_with_default_allocation_cap_refuses_without_publishing ... ok
+test multichunk_optimization_proof_replays_with_the_original_large_source ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.39s
+
+     Running ../frankensympy-integration/tests/optimization_integration_adversaries.rs (target/debug/build/frankensympy-session-source-component-check/a9bea6b75163058c/out/optimization_integration_adversaries-a9bea6b75163058c)
+
+running 4 tests
+test ordinary_exhaustion_cannot_spend_verifier_fuel_or_create_an_accepted_handle ... ok
+test complete_correctly_hashed_wrong_kind_transfer_never_reaches_verification ... ok
+test replay_output_refusal_occurs_after_verification_but_before_publication ... ok
+test session_replay_binds_its_own_context_and_ordered_coordinates ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running ../frankensympy-integration/tests/optimization_search_session.rs (target/debug/build/frankensympy-session-source-component-check/39d99784903dafcb/out/optimization_search_session-39d99784903dafcb)
+
+running 7 tests
+test response_admission_precedes_frontier_work_and_work_exhaustion_becomes_terminal ... ok
+test invalid_wire_quantum_schema_and_intrinsic_leaf_cap_cannot_publish_a_result ... ok
+test candidate_progress_cannot_publish_or_borrow_the_protected_verifier_pool ... ok
+test live_cli_yields_search_progress_then_independently_finishes_and_replays ... ok
+test repeated_finish_uses_one_protected_pool_and_retains_the_completed_candidate ... ok
+test verified_finish_with_refused_output_does_not_publish_an_accepted_handle ... ok
+test interleaved_searches_freeze_their_statement_and_finish_a_replayable_global_claim ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running ../frankensympy-integration/tests/optimization_session.rs (target/debug/build/frankensympy-session-source-component-check/6d907d90b617524e/out/optimization_session-6d907d90b617524e)
+
+running 10 tests
+test interior_minimum_freezes_source_and_exposes_a_global_value_claim ... ok
+test zero_verifier_pool_rejects_after_search_and_keeps_the_label_unpublished ... ok
+test chunk_transfer_grants_no_evidence_until_independent_statement_bound_replay ... ok
+test protected_allowance_cannot_borrow_from_ordinary_work_or_reset_between_requests ... ok
+test invalid_tolerances_boxes_and_typed_ids_refuse ... ok
+test failed_final_response_admission_cannot_publish_a_verified_optimization ... ok
+test incomplete_search_does_not_publish_and_retry_retains_consumed_work ... ok
+test boundary_maximum_and_fixed_coordinates_are_supported ... ok
+test nonconvex_irrational_optimum_gets_a_proved_value_gap ... ok
+test original_undefined_domains_cannot_be_hidden_or_published ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.77s
+
+     Running ../frankensympy-integration/tests/optimization_transport.rs (target/debug/build/frankensympy-session-source-component-check/92e35e89626a144f/out/optimization_transport-92e35e89626a144f)
+
+running 8 tests
+test every_receiver_statement_field_is_bound_before_witness_decoding ... ok
+test a_fresh_receiver_recomputes_global_bounds_without_serialized_conclusions ... ok
+test complete_coverage_point_feasibility_and_requested_accuracy_are_rechecked ... ok
+test export_and_replay_preserve_cumulative_work_and_terminal_cancellation ... ok
+test hostile_byte_nesting_and_witness_lengths_are_bounded_before_acceptance ... ok
+test original_source_domains_survive_portable_partition_replay ... ok
+test canonical_encoding_rejects_whitespace_unknown_fields_and_alternate_scalars ... ok
+test maximum_and_fixed_coordinate_certificates_round_trip_exactly ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running ../frankensympy-integration/tests/parametric_cli.rs (target/debug/build/frankensympy-session-source-component-check/dbd1394f49fc4d45/out/parametric_cli-dbd1394f49fc4d45)
+
+running 4 tests
+test zero_protected_allowance_cannot_publish_a_family_or_derive_sensitivity ... ok
+test family_wire_rejects_forged_evidence_ambiguous_fields_and_inexact_coordinates ... ok
+test interactive_cli_certifies_every_parameter_and_emits_exact_implicit_derivatives ... ok
+test adaptive_cli_refuses_incomplete_families_then_certifies_and_differentiates_the_cover ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running ../frankensympy-integration/tests/parametric_session.rs (target/debug/build/frankensympy-session-source-component-check/74dd88c1ac8b3d61/out/parametric_session-74dd88c1ac8b3d61)
+
+running 10 tests
+test ordinary_cover_exhaustion_cannot_borrow_verifier_allowance ... ok
+test affine_family_keeps_every_parameter_and_frozen_source_before_sensitivity ... ok
+test family_and_sensitivity_share_one_cumulative_protected_allowance ... ok
+test fixed_parameter_boxes_are_valid_but_unknown_boundary_roots_are_not ... ok
+test midpoint_roots_singular_endpoints_and_original_parameter_poles_never_become_families ... ok
+test typed_groups_and_exact_witness_scalars_fail_before_any_acceptance ... ok
+test sensitivity_retains_parameter_variation_and_nonzero_preconditioner_defect ... ok
+test output_refusal_cannot_publish_a_completed_family_or_sensitivity ... ok
+test coupled_family_and_sensitivity_preserve_separate_unknown_and_parameter_order ... ok
+test adaptive_cover_must_finish_all_parameters_before_publishing_or_differentiating ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running ../frankensympy-integration/tests/parametric_transport.rs (target/debug/build/frankensympy-session-source-component-check/98eaf863717aeb38/out/parametric_transport-98eaf863717aeb38)
+
+running 11 tests
+test receiver_source_roles_domains_and_context_are_bound_before_witness_decoding ... ok
+test canonical_wire_rejects_metadata_forgery_alternate_scalars_and_unknown_schema ... ok
+test hostile_nesting_lengths_and_scalar_limbs_are_bounded_before_acceptance ... ok
+test uniform_family_round_trip_recomputes_bounds_and_allows_fresh_sensitivity ... ok
+test uniform_replay_rechecks_strict_interior_contraction_and_full_parameter_dependence ... ok
+test held_original_source_domains_survive_serialization_and_replay ... ok
+test typed_same_name_coordinates_and_fixed_parameter_intervals_round_trip ... ok
+test transport_cancellation_stops_immediately_and_plain_budgets_cannot_spend_reserves ... ok
+test complete_cover_replay_rejects_missing_reused_foreign_or_invalid_leaves ... ok
+test adaptive_cover_round_trip_checks_all_parameter_cells_and_rebuilds_sensitivity ... ok
+test a_large_complete_cover_uses_per_scalar_work_instead_of_squaring_all_artifact_bytes ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running ../frankensympy-integration/tests/parametric_transport_session.rs (target/debug/build/frankensympy-session-source-component-check/1a99291ec1b6e7eb/out/parametric_transport_session-1a99291ec1b6e7eb)
+
+running 8 tests
+test complete_valid_bytes_with_the_wrong_artifact_kind_never_reach_acceptance ... ok
+test inline_uniform_replay_recomputes_the_family_and_implicit_derivative ... ok
+test a_forged_witness_does_not_publish_or_reset_the_budget_and_can_be_retried ... ok
+test source_roles_both_domains_and_context_cannot_be_substituted ... ok
+test verifier_exhaustion_and_final_response_refusal_publish_no_family ... ok
+test separate_default_cli_processes_replay_the_family_and_rederive_sensitivity ... ok
+test adaptive_cover_replay_retains_all_parameter_cells_and_analytic_sensitivities ... ok
+test multichunk_family_import_grants_no_acceptance_until_protected_replay ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s

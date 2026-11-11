@@ -715,6 +715,24 @@ fn fresh_cli_exchanges_both_proof_kinds_above_the_inline_limit_in_bounded_frames
                             search: search.clone(),
                         }
                     }
+                    ArtifactSource::StationaryCertificate(certificate) => {
+                        CertificationRequest::ExportStationaryCertificate {
+                            schema_version: 1,
+                            certificate: certificate.clone(),
+                        }
+                    }
+                    ArtifactSource::BoxOptimization(optimization) => {
+                        CertificationRequest::ExportBoxOptimization {
+                            schema_version: 1,
+                            optimization: optimization.clone(),
+                        }
+                    }
+                    ArtifactSource::ParametricFamily(family) => {
+                        CertificationRequest::ExportParametricFamily {
+                            schema_version: 1,
+                            family: family.clone(),
+                        }
+                    }
                 };
                 assert_eq!(sender.send(wire(inline))["code"], "resource_limit_exceeded");
             }

@@ -11,10 +11,10 @@
 #![forbid(unsafe_code)]
 
 use crate::certification_session::{
-    BoxOptimizationId, CertificationRequest, CertificationResponse, CertificationSessionError,
-    CertificationState, ObjectiveId, ParametricFamilyId, ParametricFamilyReceipt,
-    ParametricProblemId, ParametricSensitivityId, ResidualSystemId, RootCertificateId,
-    RootIsolationId, RootIsolationSearchId, StationaryPointId,
+    BoxOptimizationId, BoxOptimizationSearchId, CertificationRequest, CertificationResponse,
+    CertificationSessionError, CertificationState, ObjectiveId, ParametricFamilyId,
+    ParametricFamilyReceipt, ParametricProblemId, ParametricSensitivityId, ResidualSystemId,
+    RootCertificateId, RootIsolationId, RootIsolationSearchId, StationaryPointId,
 };
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_budget::{Budget, BudgetLimits, Dimension, VerifierLease};
@@ -583,6 +583,22 @@ impl Session {
         self.certification.box_optimization(id)
     }
 
+    /// Bounded-search progress is candidate information, not a certified optimum.
+    pub fn box_optimization_search_progress(
+        &self,
+        id: &BoxOptimizationSearchId,
+    ) -> Option<fsym_calculus::box_optimization::BoxOptimizationProgress> {
+        self.certification.box_optimization_search_progress(id)
+    }
+
+    /// Cumulative intrinsic work for a resident search; advancing never resets it.
+    pub fn box_optimization_search_counters(
+        &self,
+        id: &BoxOptimizationSearchId,
+    ) -> Option<fsym_calculus::box_optimization::BoxOptimizationCounters> {
+        self.certification.box_optimization_search_counters(id)
+    }
+
     /// Read-only candidate progress; readiness is not mathematical acceptance.
     pub fn root_isolation_search_progress(
         &self,
@@ -1124,12 +1140,20 @@ impl Session {
                     | "CertifyParametricRoot"
                     | "CertifyParametricCover"
                     | "EncloseParametricSensitivity"
+                    | "ExportParametricFamily"
+                    | "ReplayParametricFamily"
+                    | "ReplayParametricFamilyFromArtifact"
                     | "EncloseObjective"
                     | "CertifyStationaryPoint"
                     | "ExportStationaryCertificate"
                     | "ReplayStationaryCertificate"
                     | "ReplayStationaryCertificateFromArtifact"
                     | "OptimizeBox"
+                    | "BeginBoxOptimization"
+                    | "AdvanceBoxOptimization"
+                    | "InspectBoxOptimizationSearch"
+                    | "FinishBoxOptimization"
+                    | "ReleaseBoxOptimizationSearch"
                     | "ExportBoxOptimization"
                     | "ReplayBoxOptimization"
                     | "ReplayBoxOptimizationFromArtifact"

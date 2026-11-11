@@ -7,18 +7,18 @@
 
 use super::{
     CERTIFICATION_REQUEST_SCHEMA, CertificationRequest, CertificationResponse,
-    CertificationSessionError, ExactInterval, ExactRootWitness, MAX_AXES, admit_response,
-    certification_error_code, charge, parse_domain, parse_witness, render_domain, render_hessian,
-    render_scalar, valid_label,
+    CertificationSessionError, ExactInterval, ExactRootWitness, MAX_AXES,
+    MAX_SESSION_ROOT_ARTIFACT_BYTES, admit_response, certification_error_code, charge,
+    parse_domain, parse_witness, render_domain, render_hessian, render_scalar, valid_label,
 };
 use crate::certification::CertificationError;
+pub use crate::parametric::ParametricFamilyReceipt;
 use crate::parametric::{ParametricError, ParametricProblem};
+use crate::parametric_transport::{export_parametric_family, replay_parametric_family};
 use fsym_budget::{Budget, BudgetError, BudgetMeter, MeterError, VerifierLease};
 use fsym_calculus::parametric_cover::ParametricRootCoverOptions;
 use fsym_core::{
-    Expr, ParametricRootBoxReceipt, ParametricRootBoxWitness, ParametricRootCoverError,
-    ParametricRootCoverReceipt, ParametricSensitivityReceipt, RealBall, RootBoxError, Symbol,
-    metered_enclose_parametric_cover_sensitivity, metered_enclose_parametric_root_sensitivity,
+    ParametricRootBoxWitness, ParametricRootCoverError, ParametricSensitivityReceipt, RootBoxError,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
@@ -81,91 +81,6 @@ pub struct ExactParametricRootWitness {
     pub precision_digits: u32,
 }
 
-/// Each variant contains a private-field core acceptance type. A session never
-/// constructs this enum from an unverified proposal or a partial cover.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ParametricFamilyReceipt {
-    RootBox(ParametricRootBoxReceipt),
-    Cover(ParametricRootCoverReceipt),
-}
-
-impl ParametricFamilyReceipt {
-    pub fn residuals(&self) -> &[Expr] {
-        match self {
-            Self::RootBox(receipt) => receipt.residuals(),
-            Self::Cover(receipt) => receipt.residuals(),
-        }
-    }
-
-    pub fn unknowns(&self) -> &[Symbol] {
-        match self {
-            Self::RootBox(receipt) => receipt.unknowns(),
-            Self::Cover(receipt) => receipt.unknowns(),
-        }
-    }
-
-    pub fn parameters(&self) -> &[Symbol] {
-        match self {
-            Self::RootBox(receipt) => receipt.parameters(),
-            Self::Cover(receipt) => receipt.parameters(),
-        }
-    }
-
-    pub fn unknown_domain(&self) -> &[RealBall] {
-        match self {
-            Self::RootBox(receipt) => &receipt.witness().unknown_domain,
-            Self::Cover(receipt) => receipt.unknown_domain(),
-        }
-    }
-
-    pub fn parameter_domain(&self) -> &[RealBall] {
-        match self {
-            Self::RootBox(receipt) => &receipt.witness().parameter_domain,
-            Self::Cover(receipt) => receipt.parameter_domain(),
-        }
-    }
-
-    pub fn root_enclosure(&self) -> &[RealBall] {
-        match self {
-            Self::RootBox(receipt) => receipt.root_enclosure(),
-            Self::Cover(receipt) => receipt.root_enclosure(),
-        }
-    }
-
-    pub fn precision_digits(&self) -> u32 {
-        match self {
-            Self::RootBox(receipt) => receipt.witness().precision_digits,
-            Self::Cover(receipt) => receipt.precision_digits(),
-        }
-    }
-
-    pub fn leaf_count(&self) -> usize {
-        match self {
-            Self::RootBox(_) => 1,
-            Self::Cover(receipt) => receipt.leaf_count(),
-        }
-    }
-
-    fn leaves(&self) -> &[ParametricRootBoxReceipt] {
-        match self {
-            Self::RootBox(receipt) => std::slice::from_ref(receipt),
-            Self::Cover(receipt) => receipt.leaves(),
-        }
-    }
-
-    /// Enclose dx_i/dp_j from the accepted family, with unknowns as rows and
-    /// parameters as columns. This grants no requested derivative accuracy.
-    pub fn enclose_sensitivity(
-        &self,
-        meter: &mut impl BudgetMeter,
-    ) -> Result<ParametricSensitivityReceipt, ParametricError> {
-        Ok(match self {
-            Self::RootBox(receipt) => metered_enclose_parametric_root_sensitivity(receipt, meter)?,
-            Self::Cover(receipt) => metered_enclose_parametric_cover_sensitivity(receipt, meter)?,
-        })
-    }
-}
-
 pub(super) fn error_code(error: &ParametricError) -> &'static str {
     match error {
         ParametricError::Certification(error) => certification_error_code(error),
@@ -209,8 +124,18 @@ fn parse_uniform_witness(
 }
 
 struct ResidentFamily {
+    problem: ParametricProblemId,
     receipt: ParametricFamilyReceipt,
     context_digest: [u8; 32],
+}
+
+/// A replay statement belongs to the receiver. An artifact cannot choose its
+/// own source, axis roles or complete domain through the transport envelope.
+pub(super) struct FamilyReplay {
+    pub(super) problem: ParametricProblemId,
+    pub(super) family: ParametricFamilyId,
+    pub(super) unknown_domain: Vec<ExactInterval>,
+    pub(super) parameter_domain: Vec<ExactInterval>,
 }
 
 #[derive(Default)]
@@ -234,6 +159,55 @@ impl ParametricState {
         id: &ParametricSensitivityId,
     ) -> Option<&ParametricSensitivityReceipt> {
         self.sensitivities.get(id)
+    }
+
+    pub(super) fn export_bytes(
+        &self,
+        family: &ParametricFamilyId,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<(ParametricProblemId, Vec<u8>), CertificationSessionError> {
+        let slot = self
+            .families
+            .get(family)
+            .ok_or(CertificationSessionError::UnknownParametricFamily)?;
+        charge(meter, 1, 128)?;
+        let bytes = export_parametric_family(&slot.receipt, slot.context_digest, meter)?;
+        Ok((slot.problem.clone(), bytes))
+    }
+
+    pub(super) fn replay(
+        &mut self,
+        request: FamilyReplay,
+        bytes: &[u8],
+        context_digest: [u8; 32],
+        budget: &mut Budget,
+        lease: Option<&VerifierLease>,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        self.admit_family(&request.family, budget)?;
+        let source = self
+            .problems
+            .get(&request.problem)
+            .ok_or(CertificationSessionError::UnknownParametricProblem)?;
+        let unknown_domain =
+            parse_domain(&request.unknown_domain, source.unknowns().len(), budget)?;
+        let parameter_domain =
+            parse_domain(&request.parameter_domain, source.parameters().len(), budget)?;
+        let lease = lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+        let receipt = replay_parametric_family(
+            bytes,
+            source,
+            &unknown_domain,
+            &parameter_domain,
+            context_digest,
+            &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+        )?;
+        self.publish_family(
+            request.problem,
+            request.family,
+            receipt,
+            context_digest,
+            budget,
+        )
     }
 
     fn admit_family(
@@ -274,7 +248,7 @@ impl ParametricState {
         }
         let response = CertificationResponse::ParametricFamilyCertified {
             schema_version: CERTIFICATION_REQUEST_SCHEMA,
-            problem,
+            problem: problem.clone(),
             family: family.clone(),
             evidence: "certified_numeric",
             claim: "for_every_parameter_exactly_one_nonsingular_root_in_unknown_box",
@@ -292,6 +266,7 @@ impl ParametricState {
         self.families.insert(
             family,
             ResidentFamily {
+                problem,
                 receipt,
                 context_digest,
             },
@@ -307,6 +282,46 @@ impl ParametricState {
         lease: Option<&VerifierLease>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         match request {
+            CertificationRequest::ExportParametricFamily { family, .. } => {
+                let (problem, bytes) = self.export_bytes(&family, budget)?;
+                if bytes.len() > MAX_SESSION_ROOT_ARTIFACT_BYTES {
+                    return Err(CertificationSessionError::ArtifactLimit);
+                }
+                let artifact = String::from_utf8(bytes)
+                    .map_err(|error| CertificationSessionError::Serialization(error.to_string()))?;
+                let response = CertificationResponse::ParametricFamilyExported {
+                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                    problem,
+                    family,
+                    artifact,
+                };
+                admit_response(&response, budget)?;
+                Ok(response)
+            }
+            CertificationRequest::ReplayParametricFamily {
+                problem,
+                family,
+                unknown_domain,
+                parameter_domain,
+                artifact,
+                ..
+            } => {
+                if artifact.len() > MAX_SESSION_ROOT_ARTIFACT_BYTES {
+                    return Err(CertificationSessionError::ArtifactLimit);
+                }
+                self.replay(
+                    FamilyReplay {
+                        problem,
+                        family,
+                        unknown_domain,
+                        parameter_domain,
+                    },
+                    artifact.as_bytes(),
+                    context_digest,
+                    budget,
+                    lease,
+                )
+            }
             CertificationRequest::RegisterParametricProblem {
                 problem,
                 residuals,
