@@ -16,8 +16,10 @@ pub use structured::*;
 mod sparse_rref;
 pub use sparse_rref::{
     MAX_SPARSE_AFFINE_PARAMETER_NAME_BYTES, MAX_SPARSE_AFFINE_PARAMETER_TOTAL_BYTES,
-    SparseAffineSolutionCandidate, SparseRrefCandidate, VerifiedSparseAffineSolution,
-    VerifiedSparseRref, generate_sparse_rref_candidate, verify_sparse_affine_solution_candidate,
+    SparseAffineSolutionCandidate, SparseDeterminantCandidate, SparseRrefCandidate,
+    VerifiedSparseAffineSolution, VerifiedSparseDeterminant, VerifiedSparseRref,
+    generate_sparse_determinant_candidate, generate_sparse_rref_candidate,
+    verify_sparse_affine_solution_candidate, verify_sparse_determinant_candidate,
     verify_sparse_rref_candidate,
 };
 mod pseudoinverse;

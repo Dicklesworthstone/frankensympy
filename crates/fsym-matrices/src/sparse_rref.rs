@@ -17,6 +17,10 @@ use fsym_budget::{BudgetError, BudgetMeter, Dimension, MeterError, Unbounded};
 use fsym_core::arith::RationalArithmeticError;
 use fsym_core::{BigRational, Expr, Symbol};
 use fsym_proof_kernel::linear_system::LinearRowOperation;
+use fsym_proof_kernel::sparse_determinant::{
+    SPARSE_DETERMINANT_SCHEMA_VERSION, SparseDeterminantError, SparseDeterminantReceipt,
+    SparseDeterminantWitness, verify_sparse_determinant,
+};
 use fsym_proof_kernel::sparse_rref::{
     MAX_SPARSE_RREF_COEFFICIENT_BITS, MAX_SPARSE_RREF_DIMENSION, MAX_SPARSE_RREF_ENTRIES,
     MAX_SPARSE_RREF_OPERATIONS, RationalSparseMatrix, SPARSE_AFFINE_SCHEMA_VERSION,
@@ -43,6 +47,43 @@ type Row = BTreeMap<usize, BigRational>;
 pub struct SparseRrefCandidate {
     pub source: RationalSparseMatrix,
     pub witness: SparseRrefWitness,
+}
+
+/// Untrusted exact determinant proposal with its original sparse source.
+/// Acceptance binds this source to the receiver's matrix before replaying the
+/// independent kernel witness. There is no stored acceptance flag.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SparseDeterminantCandidate {
+    pub source: RationalSparseMatrix,
+    pub witness: SparseDeterminantWitness,
+}
+
+/// Portable determinant evidence accepted against the original matrix.
+/// The source and witness can be serialized independently and checked by
+/// `fsym-proof-kernel` without depending on the matrix generator crate.
+#[derive(Debug)]
+pub struct VerifiedSparseDeterminant {
+    source: RationalSparseMatrix,
+    witness: SparseDeterminantWitness,
+    receipt: SparseDeterminantReceipt,
+}
+
+impl VerifiedSparseDeterminant {
+    pub fn source(&self) -> &RationalSparseMatrix {
+        &self.source
+    }
+
+    pub fn witness(&self) -> &SparseDeterminantWitness {
+        &self.witness
+    }
+
+    pub fn determinant(&self) -> &BigRational {
+        self.receipt.determinant()
+    }
+
+    pub fn receipt(&self) -> &SparseDeterminantReceipt {
+        &self.receipt
+    }
 }
 
 /// Original input, complete RREF witness, and independent acceptance receipt.
@@ -177,6 +218,13 @@ fn verification_error(error: SparseRrefError) -> MatrixError {
         SparseRrefError::Limit(message) => limit(message),
         SparseRrefError::Meter(error) => stopped(error),
         SparseRrefError::Arithmetic(error) => arithmetic_error(error),
+    }
+}
+
+fn determinant_verification_error(error: SparseDeterminantError) -> MatrixError {
+    match error {
+        SparseDeterminantError::Invalid(message) => invalid(message),
+        SparseDeterminantError::Reduction(error) => verification_error(error),
     }
 }
 
@@ -574,6 +622,124 @@ fn checked<M: BudgetMeter>(
     let source = source_snapshot(matrix, work)?;
     let candidate = generate(source, work)?;
     accept(candidate, work)
+}
+
+fn generate_determinant<M: BudgetMeter>(
+    matrix: &SparseMatrix,
+    work: &mut Work<'_, M>,
+) -> Result<SparseDeterminantCandidate, MatrixError> {
+    work.tick(1)?;
+    if matrix.rows() != matrix.cols() {
+        return Err(MatrixError::NotSquare(matrix.rows(), matrix.cols()));
+    }
+    let source = source_snapshot(matrix, work)?;
+    let candidate = generate(source, work)?;
+    // This is only a proposal. The kernel independently replays the source,
+    // verifies rank, and checks the forward determinant identity on acceptance.
+    let mut determinant = if candidate.witness.pivots.len() == matrix.rows() {
+        BigRational::one()
+    } else {
+        BigRational::zero()
+    };
+    if !determinant.is_zero() {
+        for operation in &candidate.witness.operations {
+            work.tick(1)?;
+            match operation {
+                LinearRowOperation::Swap { left, right } if left != right => {
+                    determinant = work.negate(&determinant)?;
+                }
+                LinearRowOperation::Scale { factor, .. } => {
+                    let inverse = work.inverse(factor)?;
+                    determinant = work.multiply(&determinant, &inverse)?;
+                }
+                _ => {}
+            }
+        }
+    }
+    work.tick(1)?;
+    Ok(SparseDeterminantCandidate {
+        source: candidate.source,
+        witness: SparseDeterminantWitness {
+            schema_version: SPARSE_DETERMINANT_SCHEMA_VERSION,
+            determinant,
+            reduction: candidate.witness,
+        },
+    })
+}
+
+fn accept_determinant<M: BudgetMeter>(
+    candidate: SparseDeterminantCandidate,
+    work: &mut Work<'_, M>,
+) -> Result<VerifiedSparseDeterminant, MatrixError> {
+    let receipt = verify_sparse_determinant(&candidate.source, &candidate.witness, work)
+        .map_err(determinant_verification_error)?;
+    work.tick(1)?;
+    Ok(VerifiedSparseDeterminant {
+        source: candidate.source,
+        witness: candidate.witness,
+        receipt,
+    })
+}
+
+/// Generate a portable determinant proposal without promoting it to evidence.
+/// This uses the sparse row-reduction lane and its intrinsic resource limits;
+/// the existing sparse LU determinant path is unchanged.
+pub fn generate_sparse_determinant_candidate<M: BudgetMeter>(
+    matrix: &SparseMatrix,
+    meter: &mut M,
+) -> Result<SparseDeterminantCandidate, MatrixError> {
+    generate_determinant(matrix, &mut Work::new(meter))
+}
+
+/// Bind a portable proposal to the receiver's original matrix and independently
+/// verify the exact rational determinant. Supply protected verifier resources
+/// here when the owning runtime uses separate generator/verifier budgets.
+pub fn verify_sparse_determinant_candidate<M: BudgetMeter>(
+    matrix: &SparseMatrix,
+    candidate: SparseDeterminantCandidate,
+    meter: &mut M,
+) -> Result<VerifiedSparseDeterminant, MatrixError> {
+    let mut work = Work::new(meter);
+    let original = source_snapshot(matrix, &mut work)?;
+    if original.rows != candidate.source.rows
+        || original.columns != candidate.source.columns
+        || original.entries.len() != candidate.source.entries.len()
+    {
+        return Err(invalid(
+            "determinant source does not match the original matrix",
+        ));
+    }
+    for (left, right) in original.entries.iter().zip(&candidate.source.entries) {
+        work.tick(1 + left.value.numer().limb_count() + left.value.denom().limb_count())?;
+        if left != right {
+            return Err(invalid(
+                "determinant source does not match the original matrix",
+            ));
+        }
+    }
+    accept_determinant(candidate, &mut work)
+}
+
+impl SparseMatrix {
+    /// Return an exact determinant with portable, dependency-separated evidence.
+    /// This deliberately uses complete sparse RREF instead of replacing the
+    /// existing LU-based `det` and `det_with_certificate` methods.
+    pub fn det_with_portable_certificate(&self) -> Result<VerifiedSparseDeterminant, MatrixError> {
+        self.metered_det_with_portable_certificate(&mut Unbounded)
+    }
+
+    /// Generation, independent replay, and publication share one cumulative
+    /// ledger and the sparse row-reduction intrinsic limits. No dense matrix
+    /// is materialized. The split proposal/checker APIs allow caller-owned
+    /// protected verifier budgets without claiming this method reserves them.
+    pub fn metered_det_with_portable_certificate<M: BudgetMeter>(
+        &self,
+        meter: &mut M,
+    ) -> Result<VerifiedSparseDeterminant, MatrixError> {
+        let mut work = Work::new(meter);
+        let candidate = generate_determinant(self, &mut work)?;
+        accept_determinant(candidate, &mut work)
+    }
 }
 
 /// Generate a bounded sparse proposal without promoting it to accepted state.
@@ -1154,9 +1320,12 @@ fn split_augmented_source<M: BudgetMeter>(
     work: &mut Work<'_, M>,
 ) -> Result<(RationalSparseMatrix, RationalSparseMatrix), MatrixError> {
     let source = source_snapshot(matrix, work)?;
-    let columns = source.columns.checked_sub(1).ok_or(
-        MatrixError::InvalidAffineParameters("an augmented system requires a right-hand-side column"),
-    )?;
+    let columns = source
+        .columns
+        .checked_sub(1)
+        .ok_or(MatrixError::InvalidAffineParameters(
+            "an augmented system requires a right-hand-side column",
+        ))?;
     let mut rhs_count = 0;
     for entry in &source.entries {
         work.tick(1)?;
@@ -1449,7 +1618,9 @@ fn render_affine<M: BudgetMeter>(
     let mut parameter_bytes = 0;
     if let Some(coordinates) = coordinates {
         if rhs_columns != 1 || coordinates.len() != particular.rows {
-            return Err(invalid("named affine rendering has incompatible coordinate dimensions"));
+            return Err(invalid(
+                "named affine rendering has incompatible coordinate dimensions",
+            ));
         }
         for &column in free_columns {
             work.tick(1)?;
@@ -1706,11 +1877,12 @@ impl SparseMatrix {
     ) -> Result<Option<(Self, Self, Vec<usize>)>, MatrixError> {
         let mut work = Work::new(meter);
         work.tick(1)?;
-        let columns = self.cols().checked_sub(1).ok_or(
-            MatrixError::InvalidAffineParameters(
+        let columns = self
+            .cols()
+            .checked_sub(1)
+            .ok_or(MatrixError::InvalidAffineParameters(
                 "an augmented system requires a right-hand-side column",
-            ),
-        )?;
+            ))?;
         let coordinates = admit_affine_parameters(columns, variables, &mut work)?;
         let (coefficients, rhs) = split_augmented_source(self, &mut work)?;
         let candidate = generate_affine_sources(coefficients, rhs, &mut work)?;
