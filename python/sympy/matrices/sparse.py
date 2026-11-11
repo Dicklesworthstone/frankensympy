@@ -8,12 +8,14 @@ from collections import OrderedDict
 from types import MemberDescriptorType
 from typing import Any, Dict, Tuple
 from ..core import (
-    Basic, Expr, Half, Integer, NegativeOne, One, Rational, Symbol, Zero,
+    Basic, Expr, Half, Integer, NegativeOne, One, Rational, Symbol,
+    Tuple as _SymbolicTuple, Zero,
     _native, _native_expr, _wrap, _SYMBOL_CACHE, _surface_symbols,
 )
 from .dense import Matrix, MatrixBase, ImmutableDenseMatrix, _matrix_dimensions, _surface_entry
 
 _NativeSparseMatrix = _native.SparseMatrix
+_STRUCTURAL_NATIVE_NNZ = type.__dict__["__dict__"].__get__(_NativeSparseMatrix)["nnz"]
 
 
 # Sparse dimensions do not impose a dense-area bound. Only explicit cells and
@@ -164,6 +166,11 @@ def _structural_index(value, dimension):
 def _structural_sequence(value):
     # As in the pinned profile, generators and unordered containers are not
     # selectors. Bounded sequence-like objects (including Tuple) are allowed.
+    # Basic exposes stub sequence methods even on scalar expressions. Only
+    # the actual registered Tuple owner is a shell sequence; a function name
+    # is not an authority to reinterpret a scalar or a custom Python class.
+    if isinstance(value, Basic):
+        return isinstance(value, _SymbolicTuple)
     return (not isinstance(value, (str, bytes, bytearray, dict, set, frozenset))
             and hasattr(value, "__len__") and hasattr(value, "__getitem__"))
 
@@ -263,6 +270,148 @@ def _lift_structural_entries(entries):
     for value in entries.values():
         _admit_native_cell(value)
     return {coordinate: _wrap(value) for coordinate, value in entries.items()}
+
+
+def _stack_structure(cls, matrices, *, horizontal):
+    """Shared bounded block assembly for the dense and sparse public classes."""
+    if not matrices:
+        return cls(0, 0, {} if issubclass(cls, SparseMatrix) else [])
+    if len(matrices) > _MAX_SPARSE_ENTRIES:
+        raise ValueError("matrix stack exceeds the operand limit")
+    bases = []
+    for matrix in matrices:
+        lineage = _REDUCTION_MRO.__get__(type(matrix))
+        base = next((owner for owner in lineage
+                     if owner is SparseMatrix or owner is Matrix), None)
+        if base is None:
+            raise TypeError("matrix stacks require Matrix operands")
+        bases.append(base)
+    if len(matrices) == 1:
+        return matrices[0]
+    # Do not invoke replaceable accessors before retained sources are frozen.
+    # Ordinary subclasses and join overrides still work; custom storage
+    # access needs its own supervised lane instead of a silent bypass.
+    for matrix, base in zip(matrices, bases):
+        slots = next(item[2] for item in _REDUCTION_RESULT_LAYOUTS if item[0] is base)
+        if (not _reduction_default_access(type(matrix))
+                or any(_reduction_binding(type(matrix), name) is not slot
+                       for name, slot in zip(_REDUCTION_STORAGE_NAMES, slots))):
+            raise NotImplementedError("matrix stack requires original storage accessors")
+    # Bound the input snapshots as well as the eventual stored result.
+    # Dense explicit zeros consume traversal work; sparse absent cells do not.
+    sources = _capture_sources(*matrices)
+    work = len(matrices)
+    for source, base in zip(sources, bases):
+        _, generation, surface, native, shape = source
+        if (type(shape) is not tuple or len(shape) != 2
+                or any(type(size) is not int or size < 0 for size in shape)
+                or type(generation) is not int or generation < 0):
+            raise ValueError("invalid matrix stack source metadata")
+        _sparse_dimensions(*shape)
+        if surface is not None:
+            expected_type = dict if base is SparseMatrix else tuple
+            if type(surface) is not expected_type:
+                raise ValueError("matrix stack requires original retained storage")
+            work += len(surface)
+        else:
+            native_type = _NativeSparseMatrix if base is SparseMatrix else _SOLVE_NATIVE_DENSE
+            shape_slot = (_REDUCTION_NATIVE_MEMBERS if base is SparseMatrix
+                          else _SOLVE_DENSE_MEMBERS)["shape"]
+            namespace = _REDUCTION_DICT.__get__(native_type)
+            if (type(native) is not native_type
+                    or not _reduction_default_access(native_type)
+                    or namespace.get("shape") is not shape_slot
+                    or base is SparseMatrix and namespace.get("nnz") is not _STRUCTURAL_NATIVE_NNZ):
+                raise NotImplementedError("matrix stack requires original native count interfaces")
+            if shape_slot.__get__(native, native_type) != shape:
+                raise ValueError("native and retained matrix shapes differ")
+            work += (_STRUCTURAL_NATIVE_NNZ.__get__(native, native_type)
+                     if base is SparseMatrix else shape[0]*shape[1])
+        if work > _MAX_SPARSE_PRODUCTS:
+            raise ValueError("matrix stack exceeds the structural work limit")
+    _check_sources(sources)
+    snapshot = _structural_sources(*matrices)
+    _check_sources(sources)
+    first = matrices[0]
+    owner = type(first)
+    base = SparseMatrix if isinstance(first, SparseMatrix) else Matrix
+    join_name = "row_join" if horizontal else "col_join"
+    join = getattr(owner, join_name)
+    originals = next(item for item in _STRUCTURAL_STACK_BINDINGS if item[0] is base)
+    original_join = originals[1] if horizontal else originals[2]
+    builtin_classes = (SparseMatrix, ImmutableSparseMatrix, Matrix, ImmutableDenseMatrix)
+    fast = (all(any(type(matrix) is candidate for candidate in builtin_classes)
+                for matrix in matrices)
+            and join is original_join
+            and getattr(owner, "_new") is originals[3])
+    if fast:
+        layout = next(item for item in _REDUCTION_RESULT_LAYOUTS if item[0] is owner)
+        fast = all(_reduction_binding(owner, name) is original
+                   for name, original in layout[3])
+    _check_structural_sources(snapshot)
+    if not fast:
+        # Preserve the pinned first-type dispatch, including replacements on
+        # exact builtin classes. A hook cannot silently change a later input.
+        result = first
+        for other in matrices[1:]:
+            result = join(result, other)
+            _check_structural_sources(snapshot)
+        return result
+
+    rows, cols = snapshot[0][0][4]
+    offsets = [(0, 0)]
+    for source in snapshot[0][1:]:
+        other_rows, other_cols = source[4]
+        if horizontal:
+            if cols == 0:
+                rows = other_rows
+            if rows != other_rows:
+                raise ValueError(
+                    f"Shape mismatch for row_join: {rows} vs {other_rows} rows"
+                )
+            offsets.append((0, cols))
+            cols += other_cols
+        else:
+            if rows == 0:
+                cols = other_cols
+            if cols != other_cols:
+                raise ValueError(
+                    f"Shape mismatch for col_join: {cols} vs {other_cols} columns"
+                )
+            offsets.append((rows, 0))
+            rows += other_rows
+        _sparse_dimensions(rows, cols)
+    if base is Matrix:
+        _matrix_dimensions(rows, cols)
+    blocks = []
+    stored = 0
+    for matrix in matrices:
+        entries, native_only = _structural_entries(matrix)
+        stored += len(entries)
+        if stored > _MAX_SPARSE_ENTRIES:
+            raise ValueError("matrix stack exceeds the stored-entry limit")
+        blocks.append((entries, native_only))
+    _check_structural_sources(snapshot)
+    native_only = all(native or not entries for entries, native in blocks)
+    result_entries = {}
+    for (entries, native), (row_offset, col_offset) in zip(blocks, offsets):
+        if native and not native_only:
+            entries = _lift_structural_entries(entries)
+            _check_structural_sources(snapshot)
+        for (row, col), value in entries.items():
+            result_entries[(row + row_offset, col + col_offset)] = value
+    if base is SparseMatrix:
+        return first._finish_structure(rows, cols, result_entries, native_only, snapshot)
+    flat = [(_REDUCTION_NATIVE_ZERO if native_only else _ZERO)]*(rows*cols)
+    for (row, col), value in result_entries.items():
+        flat[row*cols + col] = value
+    _check_structural_sources(snapshot)
+    if native_only:
+        result = first._new(_SOLVE_NATIVE_DENSE(rows, cols, flat))
+    else:
+        result = first._new(rows, cols, flat)
+    _check_structural_sources(snapshot)
+    return result
 
 
 def _reduction_options(iszerofunc=None, simplify=False):
@@ -630,7 +779,8 @@ class SparseMatrix(MatrixBase):
         self._surface = None
 
     def _install_surface(self, rows, cols, entries, *, mutate=False,
-                         expected_generation=None, expected_sources=None):
+                         expected_generation=None, expected_sources=None,
+                         expected_structure=None):
         """Prepare every retained cell and native admission before publication."""
         from ..core._opaque_arithmetic import contains_opaque
 
@@ -668,6 +818,8 @@ class SparseMatrix(MatrixBase):
             raise RuntimeError("SparseMatrix mutated during callback traversal")
         if expected_sources is not None:
             _check_sources(expected_sources)
+        if expected_structure is not None:
+            _check_structural_sources(expected_structure)
         self._native_storage = native
         self._matrix_shape = (rows, cols)
         self._surface = retained
@@ -1020,6 +1172,84 @@ class SparseMatrix(MatrixBase):
         """Select ordered, repeated or boolean-mask axes using stored cells."""
         return self._extract_structure(rowsList, colsList, _structural_sources(self))
 
+
+    def _insert_structure(self, position, other, *, horizontal):
+        if not isinstance(other, (SparseMatrix, Matrix)):
+            raise TypeError("sparse insertion requires a Matrix")
+        snapshot = _structural_sources(self, other)
+        left_rows, left_cols = snapshot[0][0][4]
+        right_rows, right_cols = snapshot[0][1][4]
+        # The pinned contract copies the RHS for either zero left axis and
+        # does not inspect the position or require matching dimensions.
+        if left_rows == 0 or left_cols == 0:
+            right, native_only = _structural_entries(other)
+            return self._finish_structure(
+                right_rows, right_cols, right, native_only, snapshot,
+            )
+        try:
+            if isinstance(position, bool):
+                raise TypeError
+            position = _structural_integer(position)
+        except TypeError:
+            raise ValueError("insertion position must be an integer") from None
+        _check_structural_sources(snapshot)
+        extent = left_cols if horizontal else left_rows
+        if position < 0:
+            position += extent
+        position = min(extent, max(0, position))
+        if horizontal:
+            if left_rows != right_rows:
+                raise ValueError(
+                    f"Shape mismatch for col_insert: {left_rows} vs {right_rows} rows"
+                )
+            shape = _sparse_dimensions(left_rows, left_cols + right_cols)
+        else:
+            if left_cols != right_cols:
+                raise ValueError(
+                    f"Shape mismatch for row_insert: {left_cols} vs {right_cols} columns"
+                )
+            shape = _sparse_dimensions(left_rows + right_rows, left_cols)
+        left, left_native = _structural_entries(self)
+        right, right_native = _structural_entries(other)
+        _check_structural_sources(snapshot)
+        if len(left) + len(right) > _MAX_SPARSE_ENTRIES:
+            raise ValueError("sparse insertion exceeds the stored-entry limit")
+        native_only = (left_native or not left) and (right_native or not right)
+        if not native_only:
+            if left_native:
+                left = _lift_structural_entries(left)
+            if right_native:
+                right = _lift_structural_entries(right)
+        result = {}
+        for (row, col), value in left.items():
+            if horizontal:
+                coordinate = (row, col + right_cols if col >= position else col)
+            else:
+                coordinate = (row + right_rows if row >= position else row, col)
+            result[coordinate] = value
+        for (row, col), value in right.items():
+            coordinate = (row, col + position) if horizontal else (row + position, col)
+            result[coordinate] = value
+        return self._finish_structure(*shape, result, native_only, snapshot)
+
+    def row_insert(self, pos, other):
+        """Insert stored rows at a clamped position, retaining this class."""
+        return self._insert_structure(pos, other, horizontal=False)
+
+    def col_insert(self, pos, other):
+        """Insert stored columns without scanning the sparse rectangle."""
+        return self._insert_structure(pos, other, horizontal=True)
+
+    @classmethod
+    def hstack(cls, *args):
+        """Assemble columns with the first operand's class and scalar owners."""
+        return _stack_structure(cls, args, horizontal=True)
+
+    @classmethod
+    def vstack(cls, *args):
+        """Assemble rows with the first operand's class and scalar owners."""
+        return _stack_structure(cls, args, horizontal=False)
+
     def copy(self) -> "SparseMatrix":
         return self._new(self)
 
@@ -1184,8 +1414,16 @@ class SparseMatrix(MatrixBase):
         return row, col
 
     def __getitem__(self, key: Any) -> Any:
+        key_type = type(key)
+        plain = key_type is int or key_type is bool
+        if key_type is tuple:
+            plain = len(key) == 2 and all(
+                type(axis) is int or type(axis) is bool for axis in key
+            )
+        # Even isinstance may inspect a supplied __class__ property. Only
+        # exact builtin scalar keys can precede the original-source snapshot.
+        snapshot = None if plain else _structural_sources(self)
         if isinstance(key, slice):
-            snapshot = _structural_sources(self)
             rows, cols = snapshot[0][0][4]
             indices = _structural_slice(key, rows*cols)
             _check_structural_sources(snapshot)
@@ -1203,17 +1441,18 @@ class SparseMatrix(MatrixBase):
         if isinstance(key, tuple):
             if len(key) != 2:
                 raise IndexError("Matrix index must be a 2-tuple (row, col)")
-            if all(type(axis) in (int, bool) for axis in key):
-                snapshot = None
-            else:
-                snapshot = _structural_sources(self)
-                if any(isinstance(axis, slice) or _structural_sequence(axis) for axis in key):
-                    return self._extract_structure(*key, snapshot, scalar=True, sliced=True)
+            if snapshot is not None:
+                selected = any(isinstance(axis, slice) or _structural_sequence(axis)
+                               for axis in key)
                 _check_structural_sources(snapshot)
-        else:
-            snapshot = None if type(key) in (int, bool) else _structural_sources(self)
+                if selected:
+                    return self._extract_structure(*key, snapshot, scalar=True, sliced=True)
+        if snapshot is not None:
+            _check_structural_sources(snapshot)
         sources = _capture_sources(self)
         coordinate = self._coordinate(key)
+        if snapshot is not None:
+            _check_structural_sources(snapshot)
         if self._surface is not None:
             result = self._surface.get(coordinate, _ZERO)
         else:
@@ -1224,11 +1463,16 @@ class SparseMatrix(MatrixBase):
         return result
 
     def __setitem__(self, key: Any, value: Any) -> None:
-        sources = _capture_sources(self)
+        snapshot = _structural_sources(self)
         coordinate = self._coordinate(key)
+        _check_structural_sources(snapshot)
         entries = self._operation_entries()
+        _check_structural_sources(snapshot)
         entries[coordinate] = value
-        self._install_surface(*self.shape, entries, mutate=True, expected_sources=sources)
+        self._install_surface(
+            *snapshot[0][0][4], entries, mutate=True,
+            expected_sources=snapshot[0], expected_structure=snapshot,
+        )
 
     def _native_algebra(self, other):
         if self._native_storage is None or other._native_storage is None:
@@ -1433,4 +1677,11 @@ _REDUCTION_RESULT_LAYOUTS = tuple(
 _AFFINE_SYMBOL_INTERFACES = tuple(
     (name, _reduction_binding(Symbol, name))
     for name in ("__new__", "__init__", "__setattr__", "__delattr__", "_value", "_assumptions")
+)
+
+# One-pass block assembly may bypass repeated joins only while their original
+# dispatch and construction hooks remain in place.
+_STRUCTURAL_STACK_BINDINGS = (
+    (SparseMatrix, SparseMatrix.row_join, SparseMatrix.col_join, SparseMatrix._new),
+    (Matrix, Matrix.row_join, Matrix.col_join, Matrix._new),
 )

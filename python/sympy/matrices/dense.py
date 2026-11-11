@@ -712,31 +712,19 @@ class Matrix(MatrixBase):
             return Max(*self.singular_values())
         raise NotImplementedError(f"Matrix norm with ord={ord} is not implemented")
 
-    @staticmethod
-    def hstack(*args):
-        if not args:
-            return Matrix(0, 0, [])
-        res = args[0]
-        if not isinstance(res, Matrix):
-            res = Matrix(res)
-        for m in args[1:]:
-            if not isinstance(m, Matrix):
-                m = Matrix(m)
-            res = res.row_join(m)
-        return res
+    @classmethod
+    def hstack(cls, *args):
+        """Join blocks horizontally, preserving the first matrix's class."""
+        from sympy.matrices.sparse import _stack_structure
 
-    @staticmethod
-    def vstack(*args):
-        if not args:
-            return Matrix(0, 0, [])
-        res = args[0]
-        if not isinstance(res, Matrix):
-            res = Matrix(res)
-        for m in args[1:]:
-            if not isinstance(m, Matrix):
-                m = Matrix(m)
-            res = res.col_join(m)
-        return res
+        return _stack_structure(cls, args, horizontal=True)
+
+    @classmethod
+    def vstack(cls, *args):
+        """Join blocks vertically, preserving the first matrix's class."""
+        from sympy.matrices.sparse import _stack_structure
+
+        return _stack_structure(cls, args, horizontal=False)
 
     def eigenvalues(self):
         """Return a complete exact spectrum, retaining algebraic multiplicities.

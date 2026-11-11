@@ -854,6 +854,46 @@ Python hooks retain the existing supervised-boundary limitations.
 
 ## Exact sparse linear algebra (development API)
 
+### Sparse selection and block assembly
+
+Sparse `row()`, `col()`, `extract()`, and two-dimensional slicing work from
+stored coordinates. They preserve reversed, stepped and repeated selections
+without scanning the implicit rectangle. Nonmutating `row_join()`,
+`col_join()`, `row_insert()`, `col_insert()`, `hstack()` and `vstack()`
+use the same sparse assembly path, so selected and assembled matrices can feed
+the checked sparse solvers directly:
+
+```python
+from sympy import SparseMatrix
+
+n = 600
+A = SparseMatrix(n, n, {(i, i): 1 for i in range(n)})
+B = SparseMatrix(n, 1, {(0, 0): 2, (n - 1, 0): 3})
+augmented = SparseMatrix.hstack(A, B)
+
+coefficients = augmented[:, :-1]
+rhs = augmented[:, -1]
+assert type(coefficients) is SparseMatrix
+assert coefficients.LUsolve(rhs).todok() == B.todok()
+```
+
+Selections, joins and insertions retain the source sparse class and the
+original held/custom scalar objects. Multi-input stacks follow the first
+input's matrix class; a single-input stack returns that input unchanged.
+Mixed sparse/dense assembly therefore stays sparse when the first input is
+sparse. Native-only blocks remain native-only without reconstructing Python
+function owners.
+
+The output bound applies to stored entries, not the implicit matrix area;
+assembly also bounds aggregate input work.
+Repeated selections that exceed the stored-entry limit are refused before
+building the result. Explicit selector lists and flat slices (which return
+Python lists) are also bounded. Dense-first stacks still have to fit the
+dense output limit. Effectful selectors and insertion positions are checked
+against the original sources before publication.
+
+### Checked sparse rank and linear solves
+
 Exact rational sparse matrices now support checked `rank()`, `nullspace()` and
 `columnspace()` without constructing a dense intermediate. This includes
 rectangular and singular matrices whose implicit area exceeds the dense matrix

@@ -337,3 +337,330 @@ def test_join_slice_solve_pipeline_retains_sparse_storage(monkeypatch):
     assert type(solved) is SparseMatrix
     assert solved.shape == (n, 1) and solved.nnz == 2
     assert solved.todok() == {(0, 0): Rational(2, 3), (n - 1, 0): -5}
+
+
+@pytest.mark.parametrize("cls", [SparseMatrix, ImmutableSparseMatrix])
+@pytest.mark.parametrize("horizontal", [False, True])
+@pytest.mark.parametrize("position, location", [
+    (-99, 0), (-2, 0), (-1, 1), (0, 0), (1, 1), (2, 2), (99, 2),
+    (Integer(-1), 1),
+])
+def test_structure_profile_insertions_clamp_exact_positions(cls, horizontal, position, location):
+    source = cls([[1, 2], [3, 4]])
+    if horizontal:
+        other = Matrix([[5], [6]])
+        expected = (
+            [[5, 1, 2], [6, 3, 4]],
+            [[1, 5, 2], [3, 6, 4]],
+            [[1, 2, 5], [3, 4, 6]],
+        )[location]
+        result = source.col_insert(position, other)
+    else:
+        other = Matrix([[5, 6]])
+        expected = (
+            [[5, 6], [1, 2], [3, 4]],
+            [[1, 2], [5, 6], [3, 4]],
+            [[1, 2], [3, 4], [5, 6]],
+        )[location]
+        result = source.row_insert(position, other)
+    assert type(result) is cls
+    assert result == cls(expected)
+    assert source == cls([[1, 2], [3, 4]])
+
+
+@pytest.mark.parametrize("cls", [SparseMatrix, ImmutableSparseMatrix])
+@pytest.mark.parametrize("shape", [(0, 4), (4, 0), (0, 0)])
+def test_structure_profile_null_insertions_ignore_position_and_old_shape(cls, shape):
+    class UnusedPosition:
+        def __index__(self):
+            pytest.fail("zero-area insertion inspected its position")
+
+    source = cls(*shape, {})
+    other = ImmutableMatrix([[1, 2], [3, 4]])
+    for result in (source.row_insert(UnusedPosition(), other),
+                   source.col_insert(UnusedPosition(), other)):
+        assert type(result) is cls and result.shape == (2, 2)
+        assert result.todok() == {(0, 0): 1, (0, 1): 2, (1, 0): 3, (1, 1): 4}
+
+
+def test_structure_profile_insertion_requires_strict_integer_positions():
+    source = SparseMatrix([[1, 2], [3, 4]])
+    row = SparseMatrix([[5, 6]])
+    column = SparseMatrix([[5], [6]])
+    for position in (True, False, 0.0, "0", Rational(1, 2)):
+        with pytest.raises(ValueError):
+            source.row_insert(position, row)
+        with pytest.raises(ValueError):
+            source.col_insert(position, column)
+    with pytest.raises(ValueError):
+        source.row_insert(0, SparseMatrix([[1]]))
+    with pytest.raises(ValueError):
+        source.col_insert(0, SparseMatrix([[1]]))
+
+
+@pytest.mark.parametrize("cls", [SparseMatrix, ImmutableSparseMatrix, Matrix, ImmutableMatrix])
+def test_structure_profile_stack_empty_single_and_first_operand_class(cls):
+    assert type(cls.hstack()) is cls and cls.hstack().shape == (0, 0)
+    assert type(cls.vstack()) is cls and cls.vstack().shape == (0, 0)
+    for first_cls in (SparseMatrix, ImmutableSparseMatrix, Matrix, ImmutableMatrix):
+        column = first_cls([[1], [2]])
+        row = first_cls([[1, 2]])
+        assert cls.hstack(column) is column
+        assert cls.vstack(row) is row
+        horizontal = cls.hstack(column, SparseMatrix([[3, 4], [5, 6]]), Matrix([[7], [8]]))
+        vertical = cls.vstack(row, SparseMatrix([[3, 4], [5, 6]]), Matrix([[7, 8]]))
+        assert type(horizontal) is first_cls and horizontal.shape == (2, 4)
+        assert horizontal == first_cls([[1, 3, 4, 7], [2, 5, 6, 8]])
+        assert type(vertical) is first_cls and vertical.shape == (4, 2)
+        assert vertical == first_cls([[1, 2], [3, 4], [5, 6], [7, 8]])
+
+
+def test_structure_profile_stack_null_prefix_matches_sequential_joins():
+    for cls in (SparseMatrix, ImmutableSparseMatrix, Matrix, ImmutableMatrix):
+        horizontal = cls.hstack(cls(3, 0, []), SparseMatrix(0, 0, {}),
+                                SparseMatrix([[1], [2]]))
+        vertical = cls.vstack(cls(0, 3, []), SparseMatrix(0, 0, {}),
+                              SparseMatrix([[1, 2]]))
+        assert type(horizontal) is cls and horizontal.shape == (2, 1)
+        assert type(vertical) is cls and vertical.shape == (1, 2)
+        assert cls.hstack(cls(2, 0, []), SparseMatrix(5, 0, {})).shape == (5, 0)
+        assert cls.vstack(cls(0, 2, []), SparseMatrix(0, 5, {})).shape == (0, 5)
+        with pytest.raises(ValueError):
+            cls.hstack(cls(0, 3, []), SparseMatrix(0, 0, {}), SparseMatrix([[1]]))
+        with pytest.raises(ValueError):
+            cls.vstack(cls(3, 0, []), SparseMatrix(0, 0, {}), SparseMatrix([[1]]))
+
+
+def test_huge_sparse_insertions_and_stacks_keep_retained_owners(monkeypatch):
+    value = type("BlockAssemblyLaw", (Function,), {})(Symbol("block_x"))
+    held = Add(Symbol("block_x"), Symbol("block_x"), evaluate=False)
+    n = 1_000_000
+    source = ImmutableSparseMatrix(n, n, {(n - 1, n - 1): value})
+    column = SparseMatrix(n, 1, {(7, 0): held})
+    row = SparseMatrix(1, n, {(0, 7): held})
+    monkeypatch.setattr(SparseMatrix, "to_dense", lambda self: pytest.fail("dense conversion"))
+    monkeypatch.setattr(SparseMatrix, "__getitem__", lambda *args: pytest.fail("scalar scan"))
+    inserted_column = source.col_insert(5, column)
+    inserted_row = source.row_insert(-1, row)
+    assert type(inserted_column) is ImmutableSparseMatrix
+    assert inserted_column.shape == (n, n + 1)
+    assert inserted_column.todok()[(7, 5)] is held
+    assert inserted_column.todok()[(n - 1, n)] is value
+    assert inserted_row.shape == (n + 1, n)
+    assert inserted_row.todok()[(n - 1, 7)] is held
+    assert inserted_row.todok()[(n, n - 1)] is value
+    assembled = Matrix.hstack(column, source, column)
+    assert type(assembled) is SparseMatrix
+    assert assembled.shape == (n, n + 2)
+    assert assembled.todok()[(7, 0)] is held
+    assert assembled.todok()[(7, n + 1)] is held
+    assert assembled.todok()[(n - 1, n)] is value
+
+
+def test_native_only_block_assembly_keeps_unlifted_function_owners(monkeypatch):
+    from sympy.core import FunctionClass, _native, _native_expr
+
+    collision = FunctionClass("NativeBlockCollision", (Function,), {})
+    raw = _native.py_function("NativeBlockCollision", _native_expr(Symbol("block_native_x")))
+    sparse = SparseMatrix(_native.SparseMatrix(2, 1, {(1, 0): raw}))
+    dense = Matrix(_native.Matrix(2, 1, [_native.py_integer(0), raw]))
+    module = importlib.import_module("sympy.matrices.sparse")
+    monkeypatch.setattr(module, "_wrap", lambda value: pytest.fail("native-only block lift"))
+    for result in (
+        sparse.col_insert(0, sparse),
+        SparseMatrix(0, 9, {}).row_insert(object(), dense),
+        SparseMatrix.hstack(sparse, dense, SparseMatrix(2, 0, {})),
+        SparseMatrix.hstack(dense, sparse, dense),
+        SparseMatrix.vstack(sparse, dense, sparse),
+    ):
+        assert result._surface is None
+    assert collision.__name__ == "NativeBlockCollision"
+
+
+@pytest.mark.parametrize("hook", ["length", "iteration", "coordinate", "class"])
+def test_effectful_key_inspection_cannot_precede_original_source_snapshot(hook):
+    source = SparseMatrix([[1, 2], [3, 4]])
+    touched = []
+
+    def mutate():
+        if not touched:
+            touched.append(True)
+            if hook == "iteration":
+                source.__init__([[9, 8, 7]])
+            else:
+                source._surface[(0, 0)] = Integer(9)
+
+    if hook == "length":
+        class Key(tuple):
+            def __len__(self):
+                mutate()
+                return tuple.__len__(self)
+        key = Key((0, 0))
+    elif hook == "iteration":
+        class Key(tuple):
+            def __iter__(self):
+                mutate()
+                return tuple.__iter__(self)
+        key = Key((slice(None), 0))
+    elif hook == "coordinate":
+        class Key(tuple):
+            def __getitem__(self, index):
+                mutate()
+                return tuple.__getitem__(self, index)
+        key = Key((0, 0))
+    else:
+        class Key:
+            @property
+            def __class__(self):
+                mutate()
+                return type(self)
+
+            def __index__(self):
+                return 0
+        key = Key()
+    with pytest.raises(RuntimeError, match="mutated"):
+        source[key]
+    assert touched
+
+
+def test_builtin_scalar_access_retains_constant_size_snapshot_work(monkeypatch):
+    source = SparseMatrix([[1, 2]])
+    module = importlib.import_module("sympy.matrices.sparse")
+    monkeypatch.setattr(module, "_structural_sources",
+                        lambda *args: pytest.fail("scalar access copied sparse storage"))
+    assert source[0, 1] == 2 and source[-1] == 2
+
+
+def test_assignment_rejects_retained_mutation_by_index_and_value_converter():
+    for during_value in (False, True):
+        source = SparseMatrix([[1]])
+
+        class Index:
+            def __index__(self):
+                source._surface[(0, 0)] = Integer(9)
+                return 0
+
+        class Value:
+            def _sympy_(self):
+                source._surface[(0, 0)] = Integer(9)
+                return Integer(7)
+
+        with pytest.raises(RuntimeError, match="mutated"):
+            if during_value:
+                source[0] = Value()
+            else:
+                source[Index()] = 7
+        assert source[0] == 9 and source.mutation_generation == 0
+
+
+@pytest.mark.parametrize("rhs_target", [False, True])
+def test_insertion_position_cannot_change_either_original_operand(rhs_target):
+    source = SparseMatrix([[1, 2], [3, 4]])
+    other = SparseMatrix([[5, 6]])
+
+    class Position:
+        def __index__(self):
+            target = other if rhs_target else source
+            target._surface[(0, 0)] = Integer(99)
+            return 1
+
+    with pytest.raises(RuntimeError, match="mutated"):
+        source.row_insert(Position(), other)
+
+
+def test_block_assembly_preflights_fill_input_work_and_dense_final_storage(monkeypatch):
+    module = importlib.import_module("sympy.matrices.sparse")
+    source = SparseMatrix.eye(2)
+    other = SparseMatrix([[1], [2]])
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "_MAX_SPARSE_ENTRIES", 3)
+        patch.setattr(module, "_wrap", lambda value: pytest.fail("lifting before fill admission"))
+        with pytest.raises(ValueError, match="stored-entry limit"):
+            source.col_insert(1, other)
+        with pytest.raises(ValueError, match="stored-entry limit"):
+            SparseMatrix.hstack(source, other)
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "_MAX_SPARSE_PRODUCTS", 1)
+        with pytest.raises(ValueError, match="work limit"):
+            SparseMatrix.hstack(SparseMatrix(1, 0, {}), SparseMatrix(1, 0, {}))
+    dense = Matrix([[1]])
+    huge = SparseMatrix.zeros(1, 1_000_000)
+    with pytest.raises(ValueError, match="limit"):
+        SparseMatrix.hstack(dense, huge)
+    sparse = Matrix.hstack(SparseMatrix([[1]]), huge)
+    assert type(sparse) is SparseMatrix and sparse.shape == (1, 1_000_001)
+
+
+def test_stacks_preserve_overridden_join_dispatch_and_check_later_operands(monkeypatch):
+    first = SparseMatrix([[1]])
+    second = SparseMatrix([[2]])
+    third = SparseMatrix([[3]])
+    original = SparseMatrix.row_join
+    calls = []
+
+    def observed(left, right):
+        calls.append(right)
+        return original(left, right)
+
+    monkeypatch.setattr(SparseMatrix, "row_join", observed)
+    result = Matrix.hstack(first, second, third)
+    assert calls == [second, third]
+    assert result.todok() == {(0, 0): 1, (0, 1): 2, (0, 2): 3}
+
+    def mutating(left, right):
+        third._surface[(0, 0)] = Integer(99)
+        return original(left, right)
+
+    monkeypatch.setattr(SparseMatrix, "row_join", mutating)
+    with pytest.raises(RuntimeError, match="mutated"):
+        ImmutableSparseMatrix.hstack(first, second, third)
+
+
+def test_convenience_stack_entry_points_follow_first_operand_class():
+    # These convenience functions are repository APIs, not SymPy1.14 exports.
+    from sympy import hstack, vstack
+
+    sparse = ImmutableSparseMatrix([[1]])
+    dense = Matrix([[2]])
+    for result in (hstack(sparse, dense), vstack(sparse, dense),
+                   Matrix.hstack(sparse, dense), Matrix.vstack(sparse, dense)):
+        assert type(result) is ImmutableSparseMatrix
+    assert type(hstack(dense, sparse)) is Matrix
+    assert type(vstack(dense, sparse)) is Matrix
+
+
+def test_stack_preflight_rejects_changed_native_count_before_any_hook(monkeypatch):
+    from sympy.core import _native
+
+    left = SparseMatrix([[1]])
+    right = SparseMatrix.eye(1)
+    calls = []
+
+    def changing_count(native):
+        calls.append(native)
+        left._surface[(0, 0)] = Integer(9)
+        return 1
+
+    monkeypatch.setattr(_native.SparseMatrix, "nnz", property(changing_count))
+    with pytest.raises(NotImplementedError, match="native count interfaces"):
+        SparseMatrix.hstack(left, right)
+    assert calls == [] and left[0, 0] == 1
+
+
+def test_stack_preflight_does_not_call_replaced_matrix_accessors(monkeypatch):
+    left = SparseMatrix([[1]])
+    right = SparseMatrix([[2]])
+    original = SparseMatrix.__getattribute__
+    calls = []
+
+    def changing_access(self, name):
+        if self is right and name == "_surface":
+            calls.append(name)
+            original(left, "_surface")[(0, 0)] = Integer(9)
+        return original(self, name)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(SparseMatrix, "__getattribute__", changing_access)
+        with pytest.raises(NotImplementedError, match="original storage accessors"):
+            SparseMatrix.hstack(left, right)
+    assert calls == [] and left[0, 0] == 1
