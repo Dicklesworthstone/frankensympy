@@ -1280,7 +1280,13 @@ impl FromStr for BigRational {
     type Err = String;
 
     fn from_str(src: &str) -> Result<Self, Self::Err> {
-        Self::from_str_radix(src, 10)
+        preflight_rational_src(src, 10)?;
+        // Display omits /1 for integers. Ratio's decimal FromStr accepts
+        // those values, while its Num radix parser requires a fraction.
+        let parsed = num_rational::Ratio::from_str(src)
+            .map(Self)
+            .map_err(|error| error.to_string())?;
+        admit_parsed_rational(parsed)
     }
 }
 
@@ -1984,6 +1990,63 @@ mod tests {
     }
 
     #[test]
+    fn decimal_from_str_roundtrips_integer_and_fractional_display() {
+        let large_integer = (BigInt::one() << 256u32) + 37i64;
+        for value in [
+            BigRational::zero(),
+            BigRational::one(),
+            BigRational::from_integer(BigInt::from(-1)),
+            BigRational::from_integer(BigInt::from(i64::MIN)),
+            BigRational::from_integer(BigInt::from(i64::MAX)),
+            BigRational::from_integer(large_integer.clone()),
+            BigRational::from_integer(-&large_integer),
+            BigRational::new(6.into(), 3.into()),
+            BigRational::new((-6).into(), 8.into()),
+            BigRational::new(large_integer, 11.into()),
+        ] {
+            let rendered = value.to_string();
+            let parsed = BigRational::from_str(&rendered)
+                .expect("a bounded displayed rational must parse without a required /1");
+            assert_eq!(parsed, value, "Display roundtrip for {rendered}");
+            assert_eq!(parsed.to_string(), rendered);
+        }
+
+        for (source, numerator, denominator) in [
+            ("0", 0, 1),
+            ("+0", 0, 1),
+            ("-0", 0, 1),
+            ("+17", 17, 1),
+            ("-17", -17, 1),
+            ("00017", 17, 1),
+            ("-006/+008", -3, 4),
+            ("6/-8", -3, 4),
+            ("-6/-8", 3, 4),
+            ("0/-19", 0, 1),
+        ] {
+            let parsed = source
+                .parse::<BigRational>()
+                .expect("valid decimal rational");
+            assert_eq!(parsed.numer(), &BigInt::from(numerator), "{source}");
+            assert_eq!(parsed.denom(), &BigInt::from(denominator), "{source}");
+        }
+    }
+
+    #[test]
+    fn decimal_from_str_refuses_malformed_and_zero_denominators_without_unwinding() {
+        for malformed in [
+            "", "+", "-", "/", "/2", "1/", "1/2/3", "1//2", "1/0", "0/0", "1/-0", "1/+0", "2/000",
+            "1.25", "1e3", "1 2", " 1", "1 ", "1 /2", "1/ 2", "NaN", "inf", "∞", "--1", "++1",
+        ] {
+            let parsed = std::panic::catch_unwind(|| BigRational::from_str(malformed))
+                .expect("fallible decimal rational parsing must not unwind");
+            assert!(
+                parsed.is_err(),
+                "malformed rational was accepted: {malformed}"
+            );
+        }
+    }
+
+    #[test]
     fn rational_string_decoders_refuse_oversize_components_before_parse() {
         let radix = 36;
         // One past the radix-36 decoder digit bound in fsym-bigint.
@@ -1997,7 +2060,24 @@ mod tests {
         let denom_error = BigRational::from_str_radix(&format!("1/{oversize}"), radix)
             .expect_err("oversize denominator must be refused");
         assert!(denom_error.contains("u32 digits"));
-        assert!(BigRational::from_str(&oversize).is_err());
+        // Decimal has a larger character bound than radix 36. Exercise its
+        // actual preflight limit, without parsing a large admitted integer.
+        let decimal_oversize = "1".repeat(2_525_224);
+        for source in [
+            decimal_oversize.clone(),
+            format!("-{decimal_oversize}"),
+            format!("{decimal_oversize}/1"),
+            format!("1/{decimal_oversize}"),
+            format!("1/!{decimal_oversize}"),
+        ] {
+            let error = std::panic::catch_unwind(|| BigRational::from_str(&source))
+                .expect("oversize decimal rational parsing must not unwind")
+                .expect_err("oversize decimal component must be refused before parsing");
+            assert!(
+                error.contains("u32 digits"),
+                "wrong preflight error: {error}"
+            );
+        }
     }
 
     #[test]
