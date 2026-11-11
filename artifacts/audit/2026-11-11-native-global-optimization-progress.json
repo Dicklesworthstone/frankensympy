@@ -28,6 +28,10 @@
     {
       "sha": "13363cb43e5c28cef079a2c1cb03e370f698781f",
       "scope": "Route non-real numeric powers through the existing complex evaluator and canonically lift matrix spectra; three native and three public regression cases."
+    },
+    {
+      "sha": "84242fbdf5010232467929fee8511316d5597181",
+      "scope": "Bounded exact Gaussian-power expansion, shared-meter and actual product-cardinality admission, seven native and three public regression cases."
     }
   ],
   "implemented": [
@@ -94,10 +98,45 @@
     },
     {
       "check": "Targeted optimization CI",
-      "status": "pending",
+      "status": "partial_pass_with_two_failures",
       "commit": "3a32d9bc3b16321bd6b4b805d46cdb2d61cfba51",
       "ci_run_url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/42970603578",
-      "detail": "Selected core verifier/codec, calculus search and four native integration targets. No test pass is asserted by this progress artifact."
+      "detail": "The completed exact-3a32 G3 log contains 47 passes and two CLI failures. One exposes BigRational::from_str rejecting integer scalars; the other exhausts the large-source fixture's default allocation allowance. The command stopped before optimization_session and optimization_transport. Follow-up corrections below have not been rerun.",
+      "ci_job_url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/42970603578/job/130358327202",
+      "passed": 47,
+      "failed": 2,
+      "results": [
+        {
+          "target": "fsym-core/box_optimization",
+          "passed": 13,
+          "failed": 0
+        },
+        {
+          "target": "fsym-core/box_optimization_transport",
+          "passed": 7,
+          "failed": 0
+        },
+        {
+          "target": "fsym-calculus/certified_box_optimization",
+          "passed": 15,
+          "failed": 0
+        },
+        {
+          "target": "frankensympy/native_optimization",
+          "passed": 8,
+          "failed": 0
+        },
+        {
+          "target": "frankensympy/optimization_cli",
+          "passed": 4,
+          "failed": 2
+        }
+      ],
+      "new_optimization_tests": {
+        "passed": 19,
+        "failed": 2,
+        "not_executed": 18
+      }
     },
     {
       "check": "Full workspace gates",
@@ -209,5 +248,24 @@
       "Public exact residuals and the held sqrt(z^2) branch at z=-1."
     ],
     "validation": "Two independent static reviews found no remaining blocker after the actual-cardinality correction. Pinned formatting and Python AST checks passed. Neither the new Gaussian native tests nor the post-fix ODE regressions executed in this session."
+  },
+  "rational_and_cli_followup": {
+    "observed_failures": 2,
+    "corrections": [
+      "Retain the concurrent e2f8e59 fix to owned BigRational::from_str: decimal integer-or-fraction parsing runs after existing source preflight and before existing decoded-integer admission. Num::from_str_radix retains its slash requirement.",
+      "Retain all exact CLI value, gap, positive point-value, source-binding and multi-chunk assertions. Give both large-source CLI processes an explicit shared allocation allowance of 10000000 through the existing public flag, with the existing 100000000 ordinary steps and unchanged protected-step and memory defaults.",
+      "Preserve the concurrent decoder regression's actual decimal overflow boundary, 2525224 digits, and its separate radix-36 checks."
+    ],
+    "parser_source_reference": "https://github.com/rust-num/num-rational/blob/num-rational-0.4.2/src/lib.rs",
+    "strengthened_existing_regressions": 1,
+    "regressions": "Existing nonconvex CLI assertions remain unchanged and exercise the integer scalar parser. The oversized-artifact test retains source size, inline refusal, chunk retries, incomplete transfer, statement binding, fresh verification and atomic publication assertions.",
+    "validation": "Independent review confirmed the exact owned and pinned substrate parser contracts and the cumulative allocation accounting. The concurrent parser correction and its CI selection are retained. The corrected 600-term CLI fixture has not been rerun; the executor is unavailable. The CLI fixture change received static review, without a new local formatter, compiler or test run.",
+    "scope": "The larger allocation allowance is confined to the oversized-artifact test; production defaults and all resource limits are unchanged.",
+    "concurrent_parser_commit": {
+      "sha": "e2f8e59cf9f9c8763e63a09ea562210b1a241169",
+      "new_test_functions": 2,
+      "source_review": "Fetched and reviewed exact production patch, integer/fraction Display round trips, sign normalization, malformed/no-unwind tests and corrected decimal oversize fixture; retained without duplicating or replacing concurrent work.",
+      "reported_validation": "The concurrent commit records four focused original-workspace tests and strict rational library/tests Clippy passing on the pinned toolchain. This session did not independently execute those checks."
+    }
   }
 }

@@ -166,7 +166,14 @@ fn multichunk_optimization_proof_replays_with_the_original_large_source() {
     // The source remains below the immutable 4096-byte input cap while its
     // complete typed statement exceeds the inline proof transport envelope.
     let source = format!("x{}", "+0*x".repeat(600));
-    let arguments = ["--compute-steps", "100000000"];
+    // Source-preserving search and independent verification share one
+    // cumulative allocation ledger even when verification has reserved steps.
+    let arguments = [
+        "--compute-steps",
+        "100000000",
+        "--allocations",
+        "10000000",
+    ];
     let mut sender = Cli::new(&arguments);
     let registered = sender.send(registration(&source));
     assert_eq!(registered["status"], "success", "{registered}");
