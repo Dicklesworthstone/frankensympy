@@ -22,7 +22,11 @@ use thiserror::Error;
 pub const MAX_BOX_OPTIMIZATION_LEAVES: usize = 1024;
 pub const MAX_BOX_OPTIMIZATION_DEPTH: usize = 64;
 pub const MAX_BOX_OPTIMIZATION_NODES: usize = 2 * MAX_BOX_OPTIMIZATION_LEAVES - 1;
-const MAX_EVALUATIONS: usize = 6 * MAX_BOX_OPTIMIZATION_LEAVES + 8;
+// A search visits at most 2L-1 cells: whole box, center, two monotone
+// faces, and one incumbent proposal per cell. Independent replay uses at
+// most 4L+1 evaluations (four per leaf and the proposed feasible point).
+// Each phase has its own workspace; cumulative Work limits remain in force.
+const MAX_EVALUATIONS: usize = 5 * MAX_BOX_OPTIMIZATION_NODES + 8;
 
 /// A preorder binary partition. A split creates both closed half-boxes at
 /// the exact midpoint of the selected coordinate, with the left child first.
@@ -292,9 +296,11 @@ impl<'a, M: BudgetMeter> BoxOptimizationWorkspace<'a, M> {
         Ok(self.evaluate(&domain)?.value)
     }
 
-    /// Intersect the natural range with an independent centered Taylor
-    /// enclosure. Diagonal displacement squares use the even-power interval;
-    /// both off-diagonal terms remain in the full Hessian quadratic form.
+    /// Intersect the natural range with independent centered Taylor and
+    /// monotone-face enclosures. Diagonal displacement squares use the
+    /// even-power interval; both off-diagonal terms remain in the full Hessian
+    /// quadratic form. Only derivative signs proved on the complete original
+    /// cell can move a varying coordinate to an endpoint.
     pub fn enclose_cell(&mut self, domain: &[RealBall]) -> Result<BoxCellEnclosure> {
         self.check_domain(domain)?;
         let whole = self.evaluate(domain)?;
@@ -337,17 +343,103 @@ impl<'a, M: BudgetMeter> BoxOptimizationWorkspace<'a, M> {
             }
         }
         self.work.arithmetic(&[&whole.value, &centered], &[])?;
-        let range = whole
+        let mut range = whole
             .value
             .intersect(&centered)
             .ok_or(BoxOptimizationError::InconsistentEnclosure)?;
         check_ball(&range)?;
+        if let Some(monotone) = self.monotone_range(domain, &whole.gradient)? {
+            self.work.arithmetic(&[&range, &monotone], &[])?;
+            range = range
+                .intersect(&monotone)
+                .ok_or(BoxOptimizationError::InconsistentEnclosure)?;
+            check_ball(&range)?;
+        }
         Ok(BoxCellEnclosure {
             range,
             center,
             center_value: at_center.value,
             gradient: whole.gradient,
         })
+    }
+
+    // The caller has already recomputed every original-source domain and C2
+    // obligation over the entire cell. A sign-definite partial derivative on
+    // that cell permits replacing its coordinate by the corresponding face
+    // for a lower/upper bound. Uncertain derivatives keep their full interval;
+    // fixing several coordinates is sound because every intermediate face is
+    // a subset of the box on which all of those signs were proved.
+    fn monotone_range(
+        &mut self,
+        domain: &[RealBall],
+        gradient: &[RealBall],
+    ) -> Result<Option<RealBall>> {
+        let mut faces = None::<(Vec<RealBall>, Vec<RealBall>)>;
+        for (axis, (coordinate, derivative)) in domain.iter().zip(gradient).enumerate() {
+            self.work.step()?;
+            if coordinate.radius().is_zero() {
+                continue;
+            }
+            self.work.arithmetic(&[derivative], &[])?;
+            let lower = derivative.lower();
+            let upper = derivative.upper();
+            check_rational(&lower)?;
+            check_rational(&upper)?;
+            let increasing = !lower.is_negative();
+            let decreasing = !upper.is_positive();
+            if !increasing && !decreasing {
+                continue;
+            }
+            if faces.is_none() {
+                self.work.charge(
+                    1,
+                    2 * binding_bytes(self.variables, domain),
+                    2 * domain.len() as u64 + 2,
+                )?;
+                let mut minimum = Vec::new();
+                let mut maximum = Vec::new();
+                minimum.try_reserve_exact(domain.len()).map_err(|_| {
+                    RootBoxError::ResourceLimit("optimization minimum face allocation")
+                })?;
+                maximum.try_reserve_exact(domain.len()).map_err(|_| {
+                    RootBoxError::ResourceLimit("optimization maximum face allocation")
+                })?;
+                minimum.extend_from_slice(domain);
+                maximum.extend_from_slice(domain);
+                faces = Some((minimum, maximum));
+            }
+            self.work.arithmetic(&[coordinate], &[])?;
+            let lower = checked(RealBall::exact(coordinate.lower()))?;
+            let upper = checked(RealBall::exact(coordinate.upper()))?;
+            if let Some((minimum, maximum)) = &mut faces {
+                // An identically zero derivative satisfies both signs; either
+                // endpoint is valid, so use the increasing orientation.
+                if increasing {
+                    minimum[axis] = lower;
+                    maximum[axis] = upper;
+                } else {
+                    minimum[axis] = upper;
+                    maximum[axis] = lower;
+                }
+            }
+        }
+        let Some((minimum, maximum)) = faces else {
+            return Ok(None);
+        };
+        let minimum = self.evaluate(&minimum)?.value;
+        let maximum = self.evaluate(&maximum)?.value;
+        self.work.arithmetic(&[&minimum, &maximum], &[])?;
+        let lower = minimum.lower();
+        let upper = maximum.upper();
+        self.work.arithmetic(&[], &[&lower, &upper])?;
+        if lower > upper {
+            return Err(BoxOptimizationError::InconsistentEnclosure);
+        }
+        let two = BigRational::from_integer(2.into());
+        Ok(Some(checked(
+            RealBall::new((&lower + &upper) / &two, (&upper - &lower) / &two)
+                .map_err(RootBoxError::from)?,
+        )?))
     }
 
     /// Exact midpoint bisection, retaining the shared face in both children.
