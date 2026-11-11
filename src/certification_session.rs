@@ -16,6 +16,8 @@ use crate::integration::{
     IntegrationError, export_integral_certificate, replay_integral_certificate,
 };
 use crate::isolation_transport::{export_root_isolation, replay_root_isolation};
+use crate::objective::ObjectiveProblem;
+use crate::objective_transport::{export_stationary_certificate, replay_stationary_certificate};
 use crate::search_checkpoint::{export_root_search_checkpoint, restore_root_search_checkpoint};
 use fsym_budget::{Budget, BudgetError, BudgetMeter, Dimension, MeterError, VerifierLease};
 use fsym_calculus::quadrature::QuadratureOptions;
@@ -25,7 +27,8 @@ use fsym_calculus::root_isolation::{
 };
 use fsym_core::{
     BigInt, BigRational, IntegralEnclosureReceipt, QuadratureError, RealBall, RootBoxError,
-    RootBoxReceipt, RootBoxWitness, RootIsolationError, RootIsolationReceipt, Symbol,
+    RootBoxReceipt, RootBoxWitness, RootIsolationError, RootIsolationReceipt, StationaryPointKind,
+    StationaryPointReceipt, Symbol,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
@@ -40,6 +43,8 @@ const MAX_SYSTEMS: usize = 32;
 const MAX_CERTIFICATES: usize = 128;
 const MAX_ISOLATIONS: usize = 32;
 const MAX_INTEGRALS: usize = 32;
+const MAX_OBJECTIVES: usize = 32;
+const MAX_STATIONARY_POINTS: usize = 128;
 /// Imports and exports share this resident bound; releasing a transfer does not
 /// refund any work or allocation already charged to the session ledger.
 pub const MAX_SESSION_ARTIFACT_TRANSFERS: usize = 8;
@@ -196,6 +201,78 @@ impl<'de> Deserialize<'de> for IntegralCertificateId {
     }
 }
 
+/// One resident immutable scalar objective, scoped to this session.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct ObjectiveId(Box<str>);
+
+impl ObjectiveId {
+    pub fn new(value: impl Into<String>) -> Result<Self, CertificationSessionError> {
+        let value = value.into();
+        if !valid_label(&value, "objective:") {
+            return Err(CertificationSessionError::InvalidLabel);
+        }
+        Ok(Self(value.into_boxed_str()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for ObjectiveId {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::new(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
+/// An accepted local stationary-point claim, never a residual-root claim.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct StationaryPointId(Box<str>);
+
+impl StationaryPointId {
+    pub fn new(value: impl Into<String>) -> Result<Self, CertificationSessionError> {
+        let value = value.into();
+        if !valid_label(&value, "stationary:") {
+            return Err(CertificationSessionError::InvalidLabel);
+        }
+        Ok(Self(value.into_boxed_str()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for StationaryPointId {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::new(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Local classification granted by the independent interval Hessian checker.
+/// `Unclassified` grants no positive or negative extremum assertion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StationaryPointClassification {
+    StrictMinimum,
+    StrictMaximum,
+    Saddle,
+    Unclassified,
+}
+
+impl From<StationaryPointKind> for StationaryPointClassification {
+    fn from(kind: StationaryPointKind) -> Self {
+        match kind {
+            StationaryPointKind::StrictMinimum => Self::StrictMinimum,
+            StationaryPointKind::StrictMaximum => Self::StrictMaximum,
+            StationaryPointKind::Saddle => Self::Saddle,
+            StationaryPointKind::Unclassified => Self::Unclassified,
+        }
+    }
+}
+
 /// One member of a verified complete root set. Its label also supports the
 /// ordinary root-certificate export/replay operations.
 #[derive(Debug, Serialize)]
@@ -233,6 +310,7 @@ pub enum ArtifactSource {
     RootIsolation(RootIsolationId),
     IntegralCertificate(IntegralCertificateId),
     RootIsolationSearch(RootIsolationSearchId),
+    StationaryCertificate(StationaryPointId),
 }
 
 /// Bounded certification operations accepted by the native session and NDJSON
@@ -240,6 +318,42 @@ pub enum ArtifactSource {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", deny_unknown_fields)]
 pub enum CertificationRequest {
+    RegisterObjective {
+        schema_version: u32,
+        objective: ObjectiveId,
+        source: String,
+        variables: Vec<String>,
+    },
+    EncloseObjective {
+        schema_version: u32,
+        objective: ObjectiveId,
+        domain: Vec<ExactInterval>,
+        precision_digits: u32,
+    },
+    CertifyStationaryPoint {
+        schema_version: u32,
+        objective: ObjectiveId,
+        certificate: StationaryPointId,
+        witness: ExactRootWitness,
+    },
+    ExportStationaryCertificate {
+        schema_version: u32,
+        certificate: StationaryPointId,
+    },
+    ReplayStationaryCertificate {
+        schema_version: u32,
+        objective: ObjectiveId,
+        certificate: StationaryPointId,
+        domain: Vec<ExactInterval>,
+        artifact: String,
+    },
+    ReplayStationaryCertificateFromArtifact {
+        schema_version: u32,
+        objective: ObjectiveId,
+        certificate: StationaryPointId,
+        domain: Vec<ExactInterval>,
+        transfer: ArtifactTransferId,
+    },
     RegisterResidualSystem {
         schema_version: u32,
         system: ResidualSystemId,
@@ -409,7 +523,13 @@ pub enum CertificationRequest {
 impl CertificationRequest {
     fn schema_version(&self) -> u32 {
         match self {
-            Self::RegisterResidualSystem { schema_version, .. }
+            Self::RegisterObjective { schema_version, .. }
+            | Self::EncloseObjective { schema_version, .. }
+            | Self::CertifyStationaryPoint { schema_version, .. }
+            | Self::ExportStationaryCertificate { schema_version, .. }
+            | Self::ReplayStationaryCertificate { schema_version, .. }
+            | Self::ReplayStationaryCertificateFromArtifact { schema_version, .. }
+            | Self::RegisterResidualSystem { schema_version, .. }
             | Self::EncloseResidualJacobian { schema_version, .. }
             | Self::CertifyRootBox { schema_version, .. }
             | Self::IsolateRealRootsInBox { schema_version, .. }
@@ -483,6 +603,46 @@ pub(crate) fn decode_request(
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CertificationResponse {
+    ObjectiveRegistered {
+        schema_version: u32,
+        objective: ObjectiveId,
+        variables: Vec<Symbol>,
+        context_digest: [u8; 32],
+    },
+    ObjectiveEnclosed {
+        schema_version: u32,
+        objective: ObjectiveId,
+        evidence: &'static str,
+        claim: &'static str,
+        domain: Vec<ExactInterval>,
+        value: ExactInterval,
+        gradient: Vec<ExactInterval>,
+        hessian: Vec<Vec<ExactInterval>>,
+        precision_digits: u32,
+        context_digest: [u8; 32],
+    },
+    StationaryPointCertified {
+        schema_version: u32,
+        objective: ObjectiveId,
+        certificate: StationaryPointId,
+        evidence: &'static str,
+        claim: &'static str,
+        classification: StationaryPointClassification,
+        domain: Vec<ExactInterval>,
+        stationary_enclosure: Vec<ExactInterval>,
+        objective_enclosure: ExactInterval,
+        gradient_enclosure: Vec<ExactInterval>,
+        hessian_enclosure: Vec<Vec<ExactInterval>>,
+        contraction_bound: String,
+        precision_digits: u32,
+        context_digest: [u8; 32],
+    },
+    StationaryCertificateExported {
+        schema_version: u32,
+        objective: ObjectiveId,
+        certificate: StationaryPointId,
+        artifact: String,
+    },
     ResidualSystemRegistered {
         schema_version: u32,
         system: ResidualSystemId,
@@ -626,7 +786,7 @@ pub enum CertificationSessionError {
     #[error("unsupported certification request schema {0}")]
     UnsupportedVersion(u32),
     #[error(
-        "object label must have the proper system:, certificate:, isolation:, search: or integral: kind and a bounded identifier"
+        "object label must have the proper system:, certificate:, isolation:, search:, integral:, objective: or stationary: kind and a bounded identifier"
     )]
     InvalidLabel,
     #[error("object label already exists in this session")]
@@ -641,6 +801,10 @@ pub enum CertificationSessionError {
     UnknownSearch,
     #[error("unknown accepted integral certificate")]
     UnknownIntegral,
+    #[error("unknown scalar objective")]
+    UnknownObjective,
+    #[error("unknown accepted stationary-point certificate")]
+    UnknownStationaryPoint,
     #[error("root isolation search still has pending cells")]
     SearchNotReady,
     #[error("root search work quantum is outside the supported range")]
@@ -691,6 +855,8 @@ impl CertificationSessionError {
             | Self::UnknownIsolation
             | Self::UnknownSearch
             | Self::UnknownIntegral
+            | Self::UnknownObjective
+            | Self::UnknownStationaryPoint
             | Self::UnknownTransfer => "unknown_object",
             Self::SearchNotReady => "search_not_ready",
             Self::WrongTransferMode => "wrong_transfer_mode",
@@ -1048,6 +1214,55 @@ fn root_response(
     })
 }
 
+fn render_ball(
+    value: &RealBall,
+    meter: &mut impl BudgetMeter,
+) -> Result<ExactInterval, CertificationSessionError> {
+    render_domain(std::slice::from_ref(value), meter)?
+        .pop()
+        .ok_or(CertificationSessionError::OutputLimit)
+}
+
+fn render_hessian(
+    hessian: &[Vec<RealBall>],
+    meter: &mut impl BudgetMeter,
+) -> Result<Vec<Vec<ExactInterval>>, CertificationSessionError> {
+    charge(
+        meter,
+        hessian.len(),
+        hessian.len() * std::mem::size_of::<Vec<ExactInterval>>(),
+    )?;
+    hessian
+        .iter()
+        .map(|row| render_domain(row, meter))
+        .collect()
+}
+
+fn stationary_response(
+    receipt: &StationaryPointReceipt,
+    objective: ObjectiveId,
+    certificate: StationaryPointId,
+    context_digest: [u8; 32],
+    meter: &mut impl BudgetMeter,
+) -> Result<CertificationResponse, CertificationSessionError> {
+    Ok(CertificationResponse::StationaryPointCertified {
+        schema_version: CERTIFICATION_REQUEST_SCHEMA,
+        objective,
+        certificate,
+        evidence: "certificate_verified",
+        claim: "unique_nonsingular_stationary_point_in_box",
+        classification: receipt.kind().into(),
+        domain: render_domain(&receipt.witness().domain, meter)?,
+        stationary_enclosure: render_domain(receipt.stationary_enclosure(), meter)?,
+        objective_enclosure: render_ball(receipt.objective_enclosure(), meter)?,
+        gradient_enclosure: render_domain(receipt.gradient_enclosure(), meter)?,
+        hessian_enclosure: render_hessian(receipt.hessian_enclosure(), meter)?,
+        contraction_bound: render_scalar(receipt.contraction_bound(), meter)?,
+        precision_digits: receipt.witness().precision_digits,
+        context_digest,
+    })
+}
+
 enum ResidentArtifact {
     Export(ArtifactExport),
     Import(ArtifactImport),
@@ -1063,6 +1278,12 @@ struct ResidentIntegral {
     system: ResidualSystemId,
     context_digest: [u8; 32],
     receipt: IntegralEnclosureReceipt,
+}
+
+struct ResidentStationaryPoint {
+    objective: ObjectiveId,
+    context_digest: [u8; 32],
+    receipt: StationaryPointReceipt,
 }
 
 impl ResidentRootSearch {
@@ -1084,6 +1305,8 @@ impl ResidentRootSearch {
 
 #[derive(Default)]
 pub(crate) struct CertificationState {
+    objectives: BTreeMap<ObjectiveId, ObjectiveProblem>,
+    stationary_points: BTreeMap<StationaryPointId, ResidentStationaryPoint>,
     systems: BTreeMap<ResidualSystemId, ResidualProblem>,
     certificates: BTreeMap<RootCertificateId, (ResidualSystemId, RootBoxReceipt)>,
     // References into immutable complete receipts avoid cloning retained source
@@ -1100,6 +1323,63 @@ pub(crate) struct CertificationState {
 }
 
 impl CertificationState {
+    pub(crate) fn objective(&self, id: &ObjectiveId) -> Option<&ObjectiveProblem> {
+        self.objectives.get(id)
+    }
+
+    pub(crate) fn stationary_point(
+        &self,
+        id: &StationaryPointId,
+    ) -> Option<&StationaryPointReceipt> {
+        self.stationary_points.get(id).map(|slot| &slot.receipt)
+    }
+
+    fn admit_stationary_point_id(
+        &self,
+        id: &StationaryPointId,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<(), CertificationSessionError> {
+        if self.stationary_points.contains_key(id) {
+            return Err(CertificationSessionError::DuplicateObject);
+        }
+        if self.stationary_points.len() >= MAX_STATIONARY_POINTS {
+            return Err(CertificationSessionError::ObjectLimit);
+        }
+        // The checker separately charges its source, witness and receipt.
+        // This reserve covers map/label ownership and publication metadata.
+        charge(meter, 1, 4096)?;
+        Ok(())
+    }
+
+    fn publish_stationary_point(
+        &mut self,
+        objective: ObjectiveId,
+        certificate: StationaryPointId,
+        receipt: StationaryPointReceipt,
+        context_digest: [u8; 32],
+        budget: &mut Budget,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        let response = stationary_response(
+            &receipt,
+            objective.clone(),
+            certificate.clone(),
+            context_digest,
+            budget,
+        )?;
+        // No accepted handle becomes observable until complete output
+        // admission, including final cancellation/resource checks, succeeds.
+        admit_response(&response, budget)?;
+        self.stationary_points.insert(
+            certificate,
+            ResidentStationaryPoint {
+                objective,
+                context_digest,
+                receipt,
+            },
+        );
+        Ok(response)
+    }
+
     pub(crate) fn problem(&self, id: &ResidualSystemId) -> Option<&ResidualProblem> {
         self.systems.get(id)
     }
@@ -1374,6 +1654,181 @@ impl CertificationState {
             ));
         }
         match request {
+            CertificationRequest::RegisterObjective {
+                objective,
+                source,
+                variables,
+                ..
+            } => {
+                if self.objectives.contains_key(&objective) {
+                    return Err(CertificationSessionError::DuplicateObject);
+                }
+                if self.objectives.len() >= MAX_OBJECTIVES {
+                    return Err(CertificationSessionError::ObjectLimit);
+                }
+                charge(budget, 1, 4096)?;
+                let problem = ObjectiveProblem::parse_source(&source, &variables, budget)?;
+                charge(
+                    budget,
+                    variables.len(),
+                    variables.iter().map(|v| v.len() + 128).sum(),
+                )?;
+                let response = CertificationResponse::ObjectiveRegistered {
+                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                    variables: problem.variables().to_vec(),
+                    objective: objective.clone(),
+                    context_digest,
+                };
+                admit_response(&response, budget)?;
+                self.objectives.insert(objective, problem);
+                Ok(response)
+            }
+            CertificationRequest::EncloseObjective {
+                objective,
+                domain,
+                precision_digits,
+                ..
+            } => {
+                let problem = self
+                    .objectives
+                    .get(&objective)
+                    .ok_or(CertificationSessionError::UnknownObjective)?;
+                let domain = parse_domain(&domain, problem.variables().len(), budget)?;
+                let lease =
+                    lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+                let receipt = problem.enclose(
+                    &domain,
+                    precision_digits,
+                    &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+                )?;
+                let response = CertificationResponse::ObjectiveEnclosed {
+                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                    objective,
+                    evidence: "certified_numeric",
+                    claim: "whole_box_c2_objective_gradient_hessian_enclosure",
+                    domain: render_domain(receipt.domain(), budget)?,
+                    value: render_ball(receipt.value(), budget)?,
+                    gradient: render_domain(receipt.gradient(), budget)?,
+                    hessian: render_hessian(receipt.hessian(), budget)?,
+                    precision_digits: receipt.precision_digits(),
+                    context_digest,
+                };
+                admit_response(&response, budget)?;
+                Ok(response)
+            }
+            CertificationRequest::CertifyStationaryPoint {
+                objective,
+                certificate,
+                witness,
+                ..
+            } => {
+                self.admit_stationary_point_id(&certificate, budget)?;
+                let problem = self
+                    .objectives
+                    .get(&objective)
+                    .ok_or(CertificationSessionError::UnknownObjective)?;
+                let witness = parse_witness(&witness, problem.variables().len(), budget)?;
+                let lease =
+                    lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+                let receipt = problem.verify_stationary(
+                    &witness,
+                    &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+                )?;
+                self.publish_stationary_point(
+                    objective,
+                    certificate,
+                    receipt,
+                    context_digest,
+                    budget,
+                )
+            }
+            CertificationRequest::ExportStationaryCertificate { certificate, .. } => {
+                let slot = self
+                    .stationary_points
+                    .get(&certificate)
+                    .ok_or(CertificationSessionError::UnknownStationaryPoint)?;
+                let bytes =
+                    export_stationary_certificate(&slot.receipt, slot.context_digest, budget)?;
+                if bytes.len() > MAX_SESSION_ROOT_ARTIFACT_BYTES {
+                    return Err(CertificationSessionError::ArtifactLimit);
+                }
+                let artifact = String::from_utf8(bytes)
+                    .map_err(|error| CertificationSessionError::Serialization(error.to_string()))?;
+                let response = CertificationResponse::StationaryCertificateExported {
+                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                    objective: slot.objective.clone(),
+                    certificate,
+                    artifact,
+                };
+                admit_response(&response, budget)?;
+                Ok(response)
+            }
+            CertificationRequest::ReplayStationaryCertificate {
+                objective,
+                certificate,
+                domain,
+                artifact,
+                ..
+            } => {
+                self.admit_stationary_point_id(&certificate, budget)?;
+                if artifact.len() > MAX_SESSION_ROOT_ARTIFACT_BYTES {
+                    return Err(CertificationSessionError::ArtifactLimit);
+                }
+                let problem = self
+                    .objectives
+                    .get(&objective)
+                    .ok_or(CertificationSessionError::UnknownObjective)?;
+                let domain = parse_domain(&domain, problem.variables().len(), budget)?;
+                let lease =
+                    lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+                let receipt = replay_stationary_certificate(
+                    artifact.as_bytes(),
+                    problem,
+                    &domain,
+                    context_digest,
+                    &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+                )?;
+                self.publish_stationary_point(
+                    objective,
+                    certificate,
+                    receipt,
+                    context_digest,
+                    budget,
+                )
+            }
+            CertificationRequest::ReplayStationaryCertificateFromArtifact {
+                objective,
+                certificate,
+                domain,
+                transfer,
+                ..
+            } => {
+                self.admit_stationary_point_id(&certificate, budget)?;
+                let problem = self
+                    .objectives
+                    .get(&objective)
+                    .ok_or(CertificationSessionError::UnknownObjective)?;
+                let domain = parse_domain(&domain, problem.variables().len(), budget)?;
+                let bytes = self
+                    .artifact_import(&transfer)?
+                    .checked_bytes(ArtifactKind::StationaryCertificate, budget)?;
+                let lease =
+                    lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+                let receipt = replay_stationary_certificate(
+                    bytes,
+                    problem,
+                    &domain,
+                    context_digest,
+                    &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+                )?;
+                self.publish_stationary_point(
+                    objective,
+                    certificate,
+                    receipt,
+                    context_digest,
+                    budget,
+                )
+            }
             CertificationRequest::RegisterResidualSystem {
                 system,
                 residuals,
@@ -1898,6 +2353,20 @@ impl CertificationState {
             } => {
                 self.admit_transfer_id(&transfer, budget)?;
                 let (kind, bytes) = match source {
+                    ArtifactSource::StationaryCertificate(certificate) => {
+                        let slot = self
+                            .stationary_points
+                            .get(&certificate)
+                            .ok_or(CertificationSessionError::UnknownStationaryPoint)?;
+                        (
+                            ArtifactKind::StationaryCertificate,
+                            export_stationary_certificate(
+                                &slot.receipt,
+                                slot.context_digest,
+                                budget,
+                            )?,
+                        )
+                    }
                     ArtifactSource::RootCertificate(certificate) => {
                         let (_, receipt) = self
                             .certificate_record(&certificate)

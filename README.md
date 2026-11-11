@@ -231,6 +231,23 @@ remain open. Clients manage checkpoint files explicitly; automatic durable-store
 publication, recovery, RaptorQ repair and asynchronous cancellation remain
 separate integration obligations.
 
+### Objective derivatives and local stationary points
+
+The native session also accepts `RegisterObjective`, `EncloseObjective`, and
+`CertifyStationaryPoint`. It independently evaluates the original scalar
+expression over an exact real box to enclose its value, gradient and Hessian.
+A proposed stationary witness is accepted only after interval checking proves
+existence and uniqueness in that box. Hessian checks distinguish strict local
+minima, strict local maxima, saddles and an explicitly unclassified result.
+
+`ExportStationaryCertificate` and `ReplayStationaryCertificate` transport the
+typed source and untrusted witness. The receiver supplies its own expected
+objective, coordinate order, box and context and recomputes the claim with
+protected verification resources. Stationary certificates support the existing
+chunked transfer interface. The [session guide](docs/NATIVE_CERTIFICATION_SESSION.md)
+provides a complete two-variable example, Rust APIs and bounds. This local
+stationary-point lane makes no global-optimality or complete-enumeration claim.
+
 ## Compiled sparse residuals (development API)
 
 `compile_residual_system` exposes the checked sparse Jacobian and products with

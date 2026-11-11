@@ -3,7 +3,8 @@
 This development interface connects the root Rust library and the `frankensympy`
 NDJSON command to the existing original-source interval checker. Its scope is
 exact real residual/Jacobian enclosures, unique nonsingular local roots and
-complete finite-box root sets, proper finite real definite integrals, and
+complete finite-box root sets, objective/gradient/Hessian enclosures, locally
+classified stationary points, proper finite real definite integrals, and
 portable candidate search checkpoints. Accepted claims have independently
 replayable artifacts. This interface does not close the complete Certified
 Jacobian campaign or certify a SymPy compatibility profile.
@@ -39,6 +40,58 @@ outside that box. For this example the contraction bound is `1/15`.
 The rational matrix is an untrusted preconditioner proposal. Its entries, a
 small residual, a solver convergence flag or a previously stored acceptance
 flag cannot authorize a root certificate.
+
+## Enclose an objective and certify a stationary point
+
+Register a scalar objective with its explicit coordinate order. Enclosure and
+certification recompute second-order interval derivatives from the immutable
+original expression, including all its domain restrictions:
+
+```json
+{"id":"register","type":"RegisterObjective","payload":{"schema_version":1,"objective":"objective:quadratic","source":"(x-1)^2+2*(y+2)^2","variables":["x","y"]}}
+{"id":"bounds","type":"EncloseObjective","payload":{"schema_version":1,"objective":"objective:quadratic","domain":[{"lower":"0","upper":"2"},{"lower":"-3","upper":"-1"}],"precision_digits":24}}
+{"id":"point","type":"CertifyStationaryPoint","payload":{"schema_version":1,"objective":"objective:quadratic","certificate":"stationary:minimum","witness":{"domain":[{"lower":"0","upper":"2"},{"lower":"-3","upper":"-1"}],"center":["1","-2"],"preconditioner":[["1/2","0"],["0","1/4"]],"precision_digits":24}}}
+{"id":"export","type":"ExportStationaryCertificate","payload":{"schema_version":1,"certificate":"stationary:minimum"}}
+```
+
+`objective_enclosed` returns exact rational intervals for the value, gradient
+and Hessian on the complete box, without asserting a stationary point.
+`stationary_point_certified` proves one unique nonsingular stationary point
+inside the box through strict Krawczyk inclusion and an exact contraction
+bound. Here the point enclosure is exactly `(1, -2)`, the Hessian is
+`diag(2, 4)`, the contraction bound is zero, and `classification` is
+`strict_minimum`. The preconditioner is an untrusted proposal.
+
+Classification can also be `strict_maximum`, `saddle`, or `unclassified`.
+The last variant retains the stationary-point proof without asserting an
+extremum. These are local claims, not global optimality or complete enumeration
+of stationary points. Objective-value bounds cover the whole supplied box.
+Singular stationary points may refuse. All original children are checked, so
+`x^2+0*(1/x)` cannot certify a point at zero.
+
+In a fresh session, register the expected objective and replay the unchanged
+exported artifact against the expected box:
+
+```json
+{"id":"replay","type":"ReplayStationaryCertificate","payload":{"schema_version":1,"objective":"objective:quadratic","certificate":"stationary:received","domain":[{"lower":"0","upper":"2"},{"lower":"-3","upper":"-1"}],"artifact":"<the exact exported result.artifact string, JSON-escaped by your client>"}}
+```
+
+The receiver binds the complete typed source, ordered symbol identities, box
+and context before bounded witness decoding. It independently recomputes the
+stationary enclosure and classification with protected verification resources.
+The artifact stores no classification, derivative bounds or accepted flag.
+Even adding a constant changes the objective statement; moving the box returns
+`domain_mismatch`. Failed verification or output admission publishes no handle
+and retains all consumed resources.
+
+Native Rust callers use `ObjectiveProblem::new` for typed sources or
+`ObjectiveProblem::parse_source` for raw source syntax, then `enclose` or
+`verify_stationary` with a caller-owned meter. The session uses the protected
+meter from the same cumulative ledger for acceptance. `Session::objective_problem`
+and `Session::stationary_point` expose read-only sources and accepted receipts.
+`export_stationary_certificate` and `replay_stationary_certificate` provide
+the same transport in Rust; replay requires the receiver's expected objective,
+domain and context.
 
 ## Certify a proper real definite integral
 
@@ -282,7 +335,7 @@ string through their JSON encoder without parsing and rewriting its contents.
 
 ## Transfer certificates and checkpoints larger than one frame
 
-All four artifact kinds support a chunked route up to the native 1 MiB artifact
+All five artifact kinds support a chunked route up to the native 1 MiB artifact
 limit. This route preserves the 64 KiB input frame limit. Each chunk carries
 at most 16 KiB of bytes encoded as at most 32 KiB of lowercase hexadecimal;
 schema 1 has at most 64 chunks. Clients can forward the returned manifest and
@@ -305,6 +358,7 @@ Select the source and receiving operation for the object being transferred:
 | `{"root_isolation":"isolation:roots"}` | `root_isolation` | `ReplayRootIsolationFromArtifact` |
 | `{"integral_certificate":"integral:area"}` | `integral_certificate` | `ReplayIntegralCertificateFromArtifact` |
 | `{"root_isolation_search":"search:paused"}` | `root_search_checkpoint` | `RestoreRootIsolationSearchFromArtifact` |
+| `{"stationary_certificate":"stationary:minimum"}` | `stationary_certificate` | `ReplayStationaryCertificateFromArtifact` |
 
 The begin response's `result.manifest` contains `schema_version`, `kind`,
 `total_bytes` and `content_id`. The read response's `result.chunk` contains
@@ -352,7 +406,7 @@ The complete content ID is checked before replay or restoration.
 Per-chunk digests bind the full content ID, chunk index and chunk bytes; the
 content ID binds the artifact kind, length and bytes. Neither successful
 transfer nor a matching digest creates a certificate or a search handle.
-Root and integral replay still require protected independent verification of
+Root, integral and stationary-point replay require protected independent verification of
 the canonical artifact and its expected statement. Checkpoint restoration
 rechecks the candidate prefix on ordinary resources; protected finish remains
 necessary for acceptance. Using a checkpoint transfer as a proof fails with
@@ -367,7 +421,7 @@ publication leaves the corresponding transfer or object state intact.
 
 ## Source and object semantics
 
-`RegisterResidualSystem` converts source text into native `Expr` objects once
+`RegisterResidualSystem` and `RegisterObjective` convert source text into native `Expr` objects once
 and freezes those objects and their coordinate order. Text is input syntax;
 typed expressions are the retained mathematical state. Later `Bind`, patch,
 fork or checkout requests do not substitute into a registered problem.
@@ -379,10 +433,11 @@ are exact rational numbers. No binary64 conversion enters this interface.
 
 Session labels have distinct kinds: `system:<identifier>`,
 `certificate:<identifier>`, `isolation:<identifier>`,
-`integral:<identifier>`, `search:<identifier>` and `transfer:<identifier>`.
+`integral:<identifier>`, `search:<identifier>`, `objective:<identifier>`,
+`stationary:<identifier>` and `transfer:<identifier>`.
 They are local references, not stable content IDs. Identifiers use ASCII letters,
-digits, underscores, hyphens or dots. System, certificate, integral, search and
-transfer labels are at most 128 bytes; isolation labels are at most 104 bytes,
+digits, underscores, hyphens or dots. All labels except isolation labels are
+at most 128 bytes; isolation labels are at most 104 bytes,
 leaving space for generated
 `.root-<index>` child certificate suffixes. Existing labels cannot be overwritten.
 Only a successful independent check and successful response admission insert
@@ -426,6 +481,7 @@ its existing small defaults; numerical callers should use
 | Request ID | Optional string of at most 256 bytes, or unsigned integer |
 | Resident systems / certificates / complete isolations | 32 / 128 / 32; child certificates share the certificate limit |
 | Resident integral certificates | 32 |
+| Resident objectives / stationary certificates | 32 / 128 |
 | Resident artifact transfers | 8 total imports and exports; explicit release frees a slot |
 | Resident root searches | 8; explicit release frees a slot without a budget refund |
 | Root-search work quantum | 1–2,047 committed cell transitions per advance |
@@ -455,7 +511,7 @@ and a mathematical `refused` outcome.
 An incomplete root search returns `search_not_ready` when asked to finish.
 Transfers additionally distinguish `incomplete_transfer`, `out_of_order_chunk`,
 `conflicting_chunk`, `artifact_kind_mismatch` and `wrong_transfer_mode`.
-An error never contains an accepted root or integral value.
+An error never contains an accepted root, integral or stationary-point value.
 
 ## Proper real definite integration in Rust
 

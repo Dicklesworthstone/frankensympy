@@ -12,7 +12,8 @@
 
 use crate::certification_session::{
     CertificationRequest, CertificationResponse, CertificationSessionError, CertificationState,
-    ResidualSystemId, RootCertificateId, RootIsolationId, RootIsolationSearchId,
+    ObjectiveId, ResidualSystemId, RootCertificateId, RootIsolationId, RootIsolationSearchId,
+    StationaryPointId,
 };
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_budget::{Budget, BudgetLimits, Dimension, VerifierLease};
@@ -522,6 +523,19 @@ impl Session {
         id: &crate::IntegralCertificateId,
     ) -> Option<&fsym_core::IntegralEnclosureReceipt> {
         self.certification.integral(id)
+    }
+
+    /// The immutable original objective and its ordered typed coordinates.
+    pub fn objective_problem(&self, id: &ObjectiveId) -> Option<&crate::ObjectiveProblem> {
+        self.certification.objective(id)
+    }
+
+    /// An independently checked unique stationary point and local classification.
+    pub fn stationary_point(
+        &self,
+        id: &StationaryPointId,
+    ) -> Option<&fsym_core::StationaryPointReceipt> {
+        self.certification.stationary_point(id)
     }
 
     /// Read-only candidate progress; readiness is not mathematical acceptance.
@@ -1056,6 +1070,12 @@ impl Session {
                     | "ExportIntegralCertificate"
                     | "ReplayIntegralCertificate"
                     | "ReplayIntegralCertificateFromArtifact"
+                    | "RegisterObjective"
+                    | "EncloseObjective"
+                    | "CertifyStationaryPoint"
+                    | "ExportStationaryCertificate"
+                    | "ReplayStationaryCertificate"
+                    | "ReplayStationaryCertificateFromArtifact"
             )
         ) {
             // Bound envelope metadata before the request can publish anything.

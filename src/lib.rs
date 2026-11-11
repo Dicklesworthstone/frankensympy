@@ -19,6 +19,8 @@ pub mod certification;
 pub mod certification_session;
 pub mod integration;
 pub mod isolation_transport;
+pub mod objective;
+pub mod objective_transport;
 pub mod search_checkpoint;
 pub mod session;
 
@@ -34,8 +36,9 @@ pub use certification::{
 pub use certification_session::{
     ArtifactSource, CERTIFICATION_REQUEST_SCHEMA, CertificationRequest, CertificationResponse,
     CertificationSessionError, ExactInterval, ExactRootWitness, IntegralCertificateId,
-    IsolatedRoot, MAX_SESSION_ARTIFACT_TRANSFERS, MAX_SESSION_ROOT_SEARCHES, ResidualSystemId,
-    RootCertificateId, RootIsolationId, RootIsolationSearchId,
+    IsolatedRoot, MAX_SESSION_ARTIFACT_TRANSFERS, MAX_SESSION_ROOT_SEARCHES, ObjectiveId,
+    ResidualSystemId, RootCertificateId, RootIsolationId, RootIsolationSearchId,
+    StationaryPointClassification, StationaryPointId,
 };
 pub use fsym_budget::{Budget, BudgetLimits, BudgetMeter, BudgetSnapshot, Dimension, MeterError};
 pub use fsym_calculus::quadrature::QuadratureOptions;
@@ -44,9 +47,10 @@ pub use fsym_calculus::root_isolation::{
     RootIsolationProgress, RootIsolationSearch, RootIsolationSearchCheckpoint,
 };
 pub use fsym_core::{
-    BigInt, BigRational, Expr, IntegralEnclosureReceipt, QuadratureError, QuadratureWitness,
-    RealBall, ResidualJacobianEnclosure, RootBoxReceipt, RootBoxWitness, RootIsolationError,
-    RootIsolationReceipt, RootIsolationStep, RootIsolationWitness, Symbol, SymbolIdentity,
+    BigInt, BigRational, Expr, IntegralEnclosureReceipt, ObjectiveEnclosure, QuadratureError,
+    QuadratureWitness, RealBall, ResidualJacobianEnclosure, RootBoxReceipt, RootBoxWitness,
+    RootIsolationError, RootIsolationReceipt, RootIsolationStep, RootIsolationWitness,
+    StationaryPointKind, StationaryPointReceipt, Symbol, SymbolIdentity,
 };
 pub use fsym_proof_kernel::{
     MergeCertError, MergePolicy, SemanticMergeCertificate, WitnessKind, verify_merge_certificate,
@@ -65,6 +69,11 @@ pub use integration::{
 };
 pub use isolation_transport::{
     ROOT_ISOLATION_ARTIFACT_SCHEMA_VERSION, export_root_isolation, replay_root_isolation,
+};
+pub use objective::ObjectiveProblem;
+pub use objective_transport::{
+    MAX_STATIONARY_CERTIFICATE_BYTES, STATIONARY_CERTIFICATE_SCHEMA_VERSION,
+    export_stationary_certificate, replay_stationary_certificate,
 };
 pub use search_checkpoint::{
     MAX_ROOT_SEARCH_CHECKPOINT_BYTES, ROOT_SEARCH_CHECKPOINT_SCHEMA_VERSION,

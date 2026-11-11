@@ -114,6 +114,7 @@ pub enum ArtifactKind {
     RootIsolation,
     IntegralCertificate,
     RootSearchCheckpoint,
+    StationaryCertificate,
 }
 
 impl ArtifactKind {
@@ -123,6 +124,7 @@ impl ArtifactKind {
             Self::RootIsolation => 2,
             Self::IntegralCertificate => 3,
             Self::RootSearchCheckpoint => 4,
+            Self::StationaryCertificate => 5,
         }
     }
 }
@@ -263,7 +265,8 @@ fn digest(bytes: &[u8], meter: &mut impl BudgetMeter) -> Result<[u8; 32], Artifa
 /// Derive the content ID from a bounded byte payload and its artifact kind.
 /// With `H = capsule::object_digest`, the fixed stack preimage is
 /// `"fsym.artifact-content.v1\0" || kind_tag || len_u64_le || H(bytes)`.
-/// Kind tags are 1 for root certificates and 2 for complete root isolation.
+/// Stable kind tags distinguish root certificates (1), complete root isolation
+/// (2), integrals (3), candidate search checkpoints (4), and stationary points (5).
 pub fn artifact_content_id(
     kind: ArtifactKind,
     bytes: &[u8],
