@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-11-11T04:08:44Z",
+  "repository": "Dicklesworthstone/frankensympy",
+  "feature": "Exact durable and repairable candidate root-search continuations",
+  "implementation_status": "implemented_uncertified",
+  "implementation_commits": [
+    "cbd1076603c1f014de42e6981d82fb20fff06564",
+    "690a921df4e50fa9c6695b8204c641154b74805b"
+  ],
+  "integration_base": "3b2c11d4880b0283cf4961d7e98c11377f599804",
+  "implemented": [
+    "Canonical bounded durable envelopes, complete exact dependency manifests, validated record handles and exact content-addressed lookup.",
+    "Readback and complete-record validation before publication, synchronized file/directory operations, corrupt-target refusal and idempotent retries.",
+    "Cleanup of the exact temporary file owned by a failed staging attempt; creation collisions preserve pre-existing files and cleanup errors remain explicit.",
+    "Host-owned checkpoint directories in Session and the NDJSON CLI, with SaveRootIsolationSearch and LoadRootIsolationSearch requests.",
+    "SaveRepairableRootIsolationSearch and LoadRepairableRootIsolationSearch, with at most 64 source symbols, exactly 16 repair symbols and manifest-last publication.",
+    "Actual pinned RaptorQ byte recovery followed by exact deterministic manifest regeneration and independent original-source checkpoint restoration.",
+    "Candidate-only resumption, cumulative ordinary-resource charges and protected independent complete-cover verification at Finish."
+  ],
+  "toolchain": {
+    "rust": "nightly-2026-08-20",
+    "rustc": "1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "jobs": 1,
+    "dev_and_test_debug": 0,
+    "incremental": false,
+    "donors": {
+      "asupersync": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+      "franken_numpy-pin": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+      "frankenscipy-pin": "213a417c739025ed865a3875c89a7d86726ecb5a"
+    }
+  },
+  "validation": {
+    "storage": {
+      "command": "cargo test --offline --locked -p fsym-durable --no-default-features --lib --test record_boundaries -j1",
+      "source_commit": "690a921df4e50fa9c6695b8204c641154b74805b",
+      "exit_code": 0,
+      "unit_tests": 14,
+      "independent_boundary_tests": 11,
+      "note": "25 harness passes. The two optional CLI-adapter tests can return early when FrankenSQLite is unavailable; this is not evidence of an actual FrankenSQLite run. The new file-store and independent boundary tests execute real filesystem operations."
+    },
+    "changed_source_format": {
+      "command": "pinned rustfmt --edition 2024 --check on changed Rust files; git diff --check",
+      "exit_code": 0
+    },
+    "planning_registry": {
+      "command": "python tools/validate_planning.py",
+      "exit_code": 0
+    },
+    "root_runtime_first_attempt": {
+      "command": "cargo test --offline --locked -p frankensympy --lib --test durable_root_search --test repairable_root_search --test search_checkpoint_session -j1",
+      "exit_code": 101,
+      "result": "Pinned asupersync rustc received SIGKILL before the root tests compiled or ran."
+    },
+    "workspace_check_attempts": [
+      "The first offline --workspace --all-targets attempt exited 101 because indexmap 2.14.0 was not cached.",
+      "The online retry downloaded the locked dependencies, then its execution transport was lost without a terminal result.",
+      "The resumed offline check reached asupersync; its process handle was subsequently unavailable and no terminal result was recorded. Neither incomplete attempt is counted as a pass."
+    ],
+    "remaining_validation": "The new root integration and repair unit tests have no executable pass recorded. Full-workspace Clippy/tests remain unverified; the shared full-runtime dependency build is blocked. No extracted-source or stub runtime harness is counted as runtime validation.",
+    "storage_clippy": {
+      "command": "cargo clippy --offline --locked -p fsym-durable --no-default-features --lib --test record_boundaries -j1 -- -D warnings",
+      "source_commit": "690a921df4e50fa9c6695b8204c641154b74805b",
+      "exit_code": 0,
+      "toolchain": "Exact pinned cargo-clippy and clippy-driver on PATH"
+    },
+    "workspace_format": {
+      "command": "RUSTFMT=<pinned rustfmt> <pinned cargo> fmt --check",
+      "exit_code": 1,
+      "differences_outside_feature_changes": [
+        "crates/fsym-calculus/src/rational_sum.rs",
+        "crates/fsym-calculus/tests/quadratic_rational_summation.rs",
+        "crates/fsym-matrices/src/sparse_rref.rs",
+        "crates/fsym-matrices/tests/sparse_affine.rs",
+        "crates/fsym-matrices/tests/sparse_named_affine.rs",
+        "crates/fsym-matrices/tests/sparse_rectangular_solve.rs",
+        "crates/fsym-proof-kernel/src/sparse_rref.rs",
+        "crates/fsym-proof-kernel/tests/quadratic_rational_sum.rs",
+        "crates/fsym-proof-kernel/tests/sparse_affine.rs",
+        "crates/fsym-python/src/matrix.rs",
+        "crates/fsym-solvers/tests/linear_pde.rs"
+      ],
+      "feature_file_differences": []
+    },
+    "root_runtime_serial_backend_attempt": {
+      "command": "cargo test --offline --locked -p frankensympy --lib --test durable_root_search --test repairable_root_search --test search_checkpoint_session --config profile.test.package.asupersync.codegen-units=256 -j1",
+      "compiler_adjustment": "RUSTC_WRAPPER appends -Z unstable-options --jobs-backend=1 only for the asupersync crate; all pinned sources, features and checks remain intact. The wrapper invocation was observed.",
+      "exit_code": 101,
+      "result": "Pinned asupersync rustc again received SIGKILL before the root tests compiled or ran. The 600-second deadline was not reached."
+    },
+    "ci": {
+      "head_sha": "690a921df4e50fa9c6695b8204c641154b74805b",
+      "run_id": 42953261590,
+      "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/42953261590",
+      "last_observed_at_utc": "2026-11-11T04:06:39Z",
+      "status": "queued",
+      "conclusion": null
+    }
+  },
+  "independent_source_reviews": [
+    "Store and protocol reviewers independently found temporary-file cleanup and repair prepare-error cleanup gaps; both corrections are included in 690a921.",
+    "Recovery now regenerates the entire manifest, including hashes and addresses of erased symbols, before independently restoring the mathematical prefix.",
+    "Merged Session/router/CLI routes retain response admission before publication, candidate/accepted separation and protected-budget boundaries. Source review does not substitute for executable runtime validation."
+  ],
+  "regressions_added": {
+    "storage_boundary_integration": 11,
+    "ordinary_persistence_integration": 11,
+    "repairable_persistence_integration": 8,
+    "repair_module_unit": 7,
+    "staging_cleanup_unit": 4,
+    "runtime_scope": "Fresh CLI processes, missing/corrupt records, fully redigested false search history, changed receiver source/domain/options/context, exact older snapshots, cancellation, default-budget repair refusal and protected Finish. Runtime tests remain unexecuted unless a later validation entry records their terminal result."
+  },
+  "limitations": [
+    "A stored or recovered checkpoint is heuristic_candidate state. Only protected independent Finish can publish accepted complete-cover evidence.",
+    "Payloads are limited to 1 MiB, manifests to 64 KiB and symbols to 16 KiB. Ordinary envelope admission can refuse near its maximum because of JSON expansion.",
+    "Repair encoding and restoration require explicitly funded ordinary work. Restore reserves a decoder and an encoder pass; the unchanged default CLI allowance intentionally refuses repair encoding.",
+    "Sixteen repair symbols do not guarantee recovery for every sixteen-loss pattern. Invalid or missing manifests, insufficient or dependent equations and source-validation failures refuse.",
+    "Failure before manifest publication can leave at most 80 unreferenced committed symbol records per attempt. There is no garbage collector or automatic disk repair daemon.",
+    "Synchronization errors after rename can leave a visible record despite an error. Exact-key inspection/retry is required; publication is not claimed absent in that case.",
+    "The local directory is a host-controlled capability. This is not a whole-session snapshot, hostile-filesystem race guarantee, asynchronous cancellation endpoint, certified persistence profile or complete campaign recovery gate."
+  ],
+  "governance": {
+    "claims_promoted": false,
+    "profiles_certified": false,
+    "campaign_gate_closed": false,
+    "bead_statuses_and_dependencies_changed": false
+  }
+}
