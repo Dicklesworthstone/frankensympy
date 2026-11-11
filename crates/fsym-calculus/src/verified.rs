@@ -9,7 +9,7 @@
 
 use crate::compile::{
     CompileError, CompiledExpr, CompiledOp, CompiledResidualSystem, EvalError, MAX_COMPILE_OPS,
-    charge_evaluation_allocation, charge_evaluation_steps,
+    SharedEvaluationPlan, charge_evaluation_allocation, charge_evaluation_steps,
 };
 use crate::sparse_jacobian::{
     JacobianVerificationError, MAX_SPARSE_AXES, MAX_SPARSE_SOURCE_WORK, SparseJacobian,
@@ -261,6 +261,7 @@ pub struct VerifiedResidualSystem {
     stored_operation_count: usize,
     sparse_jacobian: SparseJacobian,
     receipt: SparseJacobianReceipt,
+    shared_evaluation: SharedEvaluationPlan,
 }
 
 impl VerifiedResidualSystem {
@@ -292,11 +293,13 @@ impl VerifiedResidualSystem {
     ) -> Result<Self, VerifiedCompilationError> {
         let (residual_programs, stored_operation_count, receipt) =
             Self::check_and_compile(jacobian)?;
+        let shared_evaluation = Self::shared_plan(&residual_programs, jacobian)?;
         Ok(Self {
             residual_programs,
             stored_operation_count,
             sparse_jacobian: jacobian.clone(),
             receipt,
+            shared_evaluation,
         })
     }
 
@@ -305,12 +308,33 @@ impl VerifiedResidualSystem {
     ) -> Result<Self, VerifiedCompilationError> {
         let (residual_programs, stored_operation_count, receipt) =
             Self::check_and_compile(&jacobian)?;
+        let shared_evaluation = Self::shared_plan(&residual_programs, &jacobian)?;
         Ok(Self {
             residual_programs,
             stored_operation_count,
             sparse_jacobian: jacobian,
             receipt,
+            shared_evaluation,
         })
+    }
+
+    fn shared_plan(
+        residuals: &[CompiledExpr],
+        jacobian: &SparseJacobian,
+    ) -> Result<SharedEvaluationPlan, CompileError> {
+        // The programs are already independently source/proof checked and
+        // remain private and immutable for the entire plan lifetime. Rebuild
+        // this derived plan on artifact import; never trust serialized caches.
+        SharedEvaluationPlan::build(
+            (0..residuals.len() + jacobian.entries.len()).map(|index| {
+                if index < residuals.len() {
+                    &residuals[index]
+                } else {
+                    &jacobian.entries[index - residuals.len()].compiled_deriv
+                }
+            }),
+            &mut Unbounded,
+        )
     }
 
     fn check_axes(rows: usize, columns: usize) -> Result<(), VerifiedCompilationError> {
@@ -648,6 +672,12 @@ impl VerifiedResidualSystem {
         self.stored_operation_count
     }
 
+    /// Reusable pure bytecode subexpressions across original sources and
+    /// sparse derivatives. This is a structural count, not a timing claim.
+    pub fn shared_subexpression_count(&self) -> usize {
+        self.shared_evaluation.slot_count()
+    }
+
     /// Preflight explicit dense output before allocating or inspecting a point.
     pub fn dense_jacobian_len(&self) -> Result<usize, VerifiedCompilationError> {
         Self::check_dense_size(self.num_residuals(), self.num_vars())
@@ -782,18 +812,26 @@ impl VerifiedResidualSystem {
     ) -> Result<ResidualEvaluation, ResidualEvaluationError> {
         let dense_len = self.dense_evaluation_len()?;
         Self::input_with_meter(point, self.num_vars(), "point", meter)?;
+        let mut memo = self.shared_evaluation.begin(meter)?;
         let mut residuals = Self::evaluation_buffer(self.num_residuals(), meter)?;
-        for program in self.residual_programs() {
+        for (index, program) in self.residual_programs().iter().enumerate() {
             charge_evaluation_steps(meter, 1)?;
-            residuals.push(program.try_eval_finite_with_meter(point, meter)?);
+            residuals.push(
+                self.shared_evaluation
+                    .evaluate(index, program, point, &mut memo, meter)?,
+            );
         }
         let mut jacobian = Self::evaluation_buffer(dense_len, meter)?;
         charge_evaluation_steps(meter, dense_len)?;
         jacobian.resize(dense_len, 0.0);
-        for entry in &self.sparse_jacobian.entries {
-            let value = entry
-                .compiled_deriv
-                .try_eval_finite_with_meter(point, meter)?;
+        for (index, entry) in self.sparse_jacobian.entries.iter().enumerate() {
+            let value = self.shared_evaluation.evaluate(
+                self.num_residuals() + index,
+                &entry.compiled_deriv,
+                point,
+                &mut memo,
+                meter,
+            )?;
             charge_evaluation_steps(meter, 1)?;
             jacobian[entry.row * self.num_vars() + entry.col] = value;
         }
@@ -871,19 +909,25 @@ impl VerifiedResidualSystem {
         meter: &mut M,
     ) -> Result<SparseResidualEvaluation, ResidualEvaluationError> {
         Self::input_with_meter(point, self.num_vars(), "point", meter)?;
+        let mut memo = self.shared_evaluation.begin(meter)?;
         let mut residuals = Self::evaluation_buffer(self.num_residuals(), meter)?;
-        for program in self.residual_programs() {
+        for (index, program) in self.residual_programs().iter().enumerate() {
             charge_evaluation_steps(meter, 1)?;
-            residuals.push(program.try_eval_finite_with_meter(point, meter)?);
+            residuals.push(
+                self.shared_evaluation
+                    .evaluate(index, program, point, &mut memo, meter)?,
+            );
         }
         let mut jacobian = Self::evaluation_buffer(self.sparse_jacobian.entries.len(), meter)?;
-        for entry in &self.sparse_jacobian.entries {
+        for (index, entry) in self.sparse_jacobian.entries.iter().enumerate() {
             charge_evaluation_steps(meter, 1)?;
-            jacobian.push(
-                entry
-                    .compiled_deriv
-                    .try_eval_finite_with_meter(point, meter)?,
-            );
+            jacobian.push(self.shared_evaluation.evaluate(
+                self.num_residuals() + index,
+                &entry.compiled_deriv,
+                point,
+                &mut memo,
+                meter,
+            )?);
         }
         charge_evaluation_steps(meter, 1)?;
         Ok(SparseResidualEvaluation {
@@ -993,20 +1037,26 @@ impl VerifiedResidualSystem {
         };
         Self::input_with_meter(vector, input_length, lane, meter)?;
         Self::input_with_meter(point, self.num_vars(), "point", meter)?;
+        let mut memo = self.shared_evaluation.begin(meter)?;
         // A derivative can erase an original source domain. Do not infer
         // eligibility from a zero vector or from the sparsity pattern alone.
-        for program in self.residual_programs() {
+        for (index, program) in self.residual_programs().iter().enumerate() {
             charge_evaluation_steps(meter, 1)?;
-            program.try_eval_finite_with_meter(point, meter)?;
+            self.shared_evaluation
+                .evaluate(index, program, point, &mut memo, meter)?;
         }
 
         let mut result = Self::evaluation_buffer(output_length, meter)?;
         charge_evaluation_steps(meter, output_length)?;
         result.resize(output_length, 0.0);
-        for entry in &self.sparse_jacobian.entries {
-            let derivative = entry
-                .compiled_deriv
-                .try_eval_finite_with_meter(point, meter)?;
+        for (index, entry) in self.sparse_jacobian.entries.iter().enumerate() {
+            let derivative = self.shared_evaluation.evaluate(
+                self.num_residuals() + index,
+                &entry.compiled_deriv,
+                point,
+                &mut memo,
+                meter,
+            )?;
             let (output_index, input_index) = if transpose {
                 (entry.col, entry.row)
             } else {

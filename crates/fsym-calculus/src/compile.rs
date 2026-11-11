@@ -4,6 +4,10 @@
 #![forbid(unsafe_code)]
 
 mod error_functions;
+mod shared;
+
+pub use shared::CompiledBatch;
+pub(crate) use shared::SharedEvaluationPlan;
 
 use self::error_functions::evaluate_error_function;
 use crate::diff;
@@ -73,6 +77,10 @@ pub enum CompileError {
     InvalidBytecode(#[source] EvalError),
     #[error("Compiled bytecode does not match the original typed source")]
     SourceProvenanceMismatch,
+    #[error("Shared numeric evaluation exceeds the bounded {0} envelope")]
+    SharedEvaluationLimit(&'static str),
+    #[error("Shared numeric evaluation plan does not preserve the original bytecode")]
+    InvalidSharedEvaluationPlan,
 }
 
 /// Charge an actual compiler/checker work unit before executing it. Buffer
@@ -1165,6 +1173,16 @@ impl CompiledExpr {
         finite_only: bool,
         meter: &mut M,
     ) -> Result<f64, EvalError> {
+        self.try_eval_with_reuse(vars, finite_only, None, meter)
+    }
+
+    fn try_eval_with_reuse<M: BudgetMeter + ?Sized>(
+        &self,
+        vars: &[f64],
+        finite_only: bool,
+        mut reuse: Option<(&shared::ProgramReusePlan, &mut shared::EvaluationMemo)>,
+        meter: &mut M,
+    ) -> Result<f64, EvalError> {
         meter.checkpoint()?;
         if self.ops.len() > MAX_COMPILE_OPS {
             return Err(EvalError::OpLimitExceeded {
@@ -1189,6 +1207,13 @@ impl CompiledExpr {
         while instruction < self.ops.len() {
             let op = &self.ops[instruction];
             charge_evaluation_steps(meter, 1)?;
+            if let Some((plan, memo)) = reuse.as_mut()
+                && let Some((value, end)) = plan.load(instruction, memo, meter)?
+            {
+                stack.push(value);
+                instruction = end + 1;
+                continue;
+            }
             match op {
                 CompiledOp::LoadConst(c) => stack.push(*c),
                 CompiledOp::LoadVar(idx) => {
@@ -1354,6 +1379,9 @@ impl CompiledExpr {
             }
             if finite_only && stack.last().is_some_and(|value| !value.is_finite()) {
                 return Err(EvalError::NonFiniteValue);
+            }
+            if let Some((plan, memo)) = reuse.as_mut() {
+                plan.store(instruction, stack.last().copied(), memo, meter)?;
             }
             instruction += 1;
         }
