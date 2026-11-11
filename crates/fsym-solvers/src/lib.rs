@@ -365,6 +365,11 @@ fn linear_coeffs(expr: &Expr, var: &Symbol) -> Result<(Expr, Expr), SolverError>
             }
         }
         Expr::Pow(base, exp) => {
+            // Both operands must be considered before treating a power as a
+            // coefficient: a constant base does not make 2**var constant.
+            if contains_var(exp) {
+                return Err(SolverError::NonLinear);
+            }
             if contains_var(base) {
                 // Linear only through an exponent-1 passthrough: (expr)^1.
                 if exp.as_ref() == &Expr::from_i64(1) {
@@ -448,6 +453,11 @@ pub fn quadratic_coeffs(expr: &Expr, var: &Symbol) -> Result<(Expr, Expr, Expr),
             }
         }
         Expr::Pow(base, exp) => {
+            // A target-dependent exponent is not a polynomial coefficient,
+            // including when its base is independent of the target variable.
+            if contains_var(exp) {
+                return Err(SolverError::NonLinear);
+            }
             if contains_var(base) {
                 let (a, b, c) = quadratic_coeffs(base, var)?;
                 if exp.as_ref() == &Expr::from_i64(1) {
