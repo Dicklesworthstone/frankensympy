@@ -128,3 +128,23 @@ def test_legacy_homogeneous_assembly_retains_unsplit_complex_roots():
     assert solution.free_symbols == {x, *(s.Symbol(f"C{index}") for index in range(1, 5))}
     for value in basis:
         assert_zero(s.diff(value, x, 4) - 2*s.diff(value, x, 2) + 2*value)
+
+
+@pytest.mark.parametrize("sign", [1, -1])
+def test_gaussian_half_power_residual_and_conjugate_expand_exactly(sign):
+    base = 1 + sign*s.I
+    residual = (
+        -8*base**s.Rational(7, 2)
+        + 24*base**s.Rational(5, 2)
+        - 32*base**s.Rational(3, 2)
+        + 16*s.sqrt(base)
+    )
+    assert_zero(residual)
+
+
+def test_gaussian_power_expansion_keeps_unknown_nested_square_root_branch():
+    z = s.Symbol("gaussian_unknown_branch_z")
+    held = s.Pow(s.Pow(z, 2, evaluate=False), s.Rational(1, 2), evaluate=False)
+    expanded = s.expand(held)
+    assert expanded == held
+    assert expanded.subs(z, -1) == 1

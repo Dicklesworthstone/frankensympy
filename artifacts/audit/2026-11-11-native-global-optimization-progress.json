@@ -16,6 +16,18 @@
     {
       "sha": "3a32d9bc3b16321bd6b4b805d46cdb2d61cfba51",
       "scope": "Select independent core, calculus search and all new native optimization targets in the existing public-feature CI gate."
+    },
+    {
+      "sha": "6128cbf1c4b5d5a70d5d1dc424effaf05b8f44a9",
+      "scope": "Exercise the actual oversized-proof transport boundary and record implemented but uncertified scope."
+    },
+    {
+      "sha": "d2245920f17cd88afd6841b082504c43e0f79103",
+      "scope": "Preserve interned Symbol storage during native result lifting without weakening PDE mutation guards; four regression cases."
+    },
+    {
+      "sha": "13363cb43e5c28cef079a2c1cb03e370f698781f",
+      "scope": "Route non-real numeric powers through the existing complex evaluator and canonically lift matrix spectra; three native and three public regression cases."
     }
   ],
   "implemented": [
@@ -126,6 +138,12 @@
       "status": "passed",
       "scope": "Pinned nightly-2026-08-20 rustfmt parsed/formatted the complete changed core file. Python 3.12 AST parsing passed for the complete changed dense-matrix and quartic-regression modules. This is syntax/format evidence, not type checking or test execution.",
       "formatted_core_sha256": "15d352e7ed6d2efc7a465bea19abe5a596aa632ea27dc9a44694166ed51ae6f6"
+    },
+    {
+      "check": "Gaussian-power source preflight and resource-boundary review",
+      "status": "passed",
+      "scope": "Pinned nightly-2026-08-20 rustfmt parsed/formatted the complete changed simplifier file; Python AST parsing passed for the complete changed ODE regression module. Independent reviewers checked principal-branch validity, termination, shared metering and actual product-cardinality admission. This is static evidence, not type checking or runtime execution.",
+      "formatted_simplifier_sha256": "4b55c76afdce19d80e38a9b040efc44884cebb21c492efecc91bc2e22a2a44b6"
     }
   ],
   "trust_limits": [
@@ -144,7 +162,7 @@
     "new_test_cases": 4,
     "regressions": "Direct wrap/lift handle identity; polynomial-forced transport/reaction solve preserving both coordinate handles; callback replacement with either the same binding or a different binding must still refuse before publication.",
     "validation": "Independent source review and failure-trace analysis completed. AST parsing of the patched core module and full modified PDE test module passed under Python 3.12.14 during a brief executor recovery. No post-fix native-extension/PDE tests have executed; CI is queued.",
-    "remaining_observed_failures": "The five quartic failures are separate and are being investigated; this fix does not claim to resolve them."
+    "remaining_observed_failures": "The separate quartic failures have follow-up source corrections recorded below. No complete post-fix Python result is asserted."
   },
   "quartic_numeric_followup": {
     "observed_failures": 4,
@@ -159,7 +177,37 @@
     "new_native_unit_tests": 3,
     "new_public_parametrized_cases": 3,
     "strengthened_existing_checks": "Require finite real and imaginary components for all quartic numeric observations, and preserve complete matrix-spectrum multiplicities as well as set equality.",
-    "validation": "Source review, pinned formatting and Python syntax checks passed. The new native and Python regressions have not executed; G3 explicitly selects the three native cases and already selects the public quartic modules.",
-    "remaining_observed_failure": "The repeated-quartic Euler residual exposes a separate exact Gaussian-power expansion gap; its correction remains under review."
+    "validation": "Source review, pinned formatting and Python syntax checks passed. This session did not execute the new native or Python regressions. G3 explicitly selects the three native cases and already selects the public quartic modules; a complete post-fix public run has not been verified.",
+    "remaining_observed_failure": "The repeated-quartic Euler residual has a separate exact Gaussian-power expansion correction recorded below; executable validation remains pending in this session."
+  },
+  "gaussian_power_followup": {
+    "observed_failures": 1,
+    "scope": "Exact positive improper rational powers of bounded Gaussian-rational sums, including powers or Gaussian factors formed during product cleanup.",
+    "cause": "Repeated quartic Euler basis residuals reduce to an exact zero polynomial in 1+I or 1-I, but fractional powers retained their integer parts and newly merged products bypassed integer-power expansion.",
+    "corrections": [
+      "Split a bounded positive improper rational exponent into its integer and proper fractional parts using the same principal logarithm, then expand the raw product with the existing meter and depth accounting.",
+      "Re-enter expansion only for admitted Gaussian sums or powers produced during product cleanup. Proper fractional, negative, symbolic, wide and unknown nested-power inputs keep their existing held behavior.",
+      "Check the actual flattened cardinality of newly expanded products with checked addition before growing the accumulator, retaining the existing multiplication preflight and 4096-term working-set envelope."
+    ],
+    "limits": {
+      "coefficient_and_exponent_components": "Must fit i64 before the new rewrite is considered.",
+      "maximum_integer_part": 64,
+      "multiplication_working_set_terms": 4096,
+      "resource_accounting": "Uses the existing shared meter and depth; does not introduce a fresh budget or alter the separate top-level Add input-fanout policy."
+    },
+    "native_regression_path": "crates/fsym-simplify/src/lib.rs",
+    "new_native_tests": 7,
+    "public_regression_path": "python/tests/test_quartic_ode_roots.py",
+    "new_public_cases": 3,
+    "regressions": [
+      "Exact cancellation of the quartic residual and its conjugate.",
+      "Acceptance at integer part 64 and refusal at 65.",
+      "Exhaustion of the original shared meter by introduced expansion work.",
+      "Preservation of wide, symbolic, proper, negative and unknown nested-power branches.",
+      "Raw repeated square-root products, including symbolic cofactors.",
+      "2048 symbols yielding 4096 product terms succeed; 2049 symbols refuse before accumulation.",
+      "Public exact residuals and the held sqrt(z^2) branch at z=-1."
+    ],
+    "validation": "Two independent static reviews found no remaining blocker after the actual-cardinality correction. Pinned formatting and Python AST checks passed. Neither the new Gaussian native tests nor the post-fix ODE regressions executed in this session."
   }
 }

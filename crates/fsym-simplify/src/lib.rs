@@ -740,6 +740,81 @@ pub fn expand_with<M: BudgetMeter>(expr: &Expr, meter: &mut M) -> Result<Expr, S
     expand_at(expr, 0, meter)
 }
 
+/// Recognize a bounded, closed Gaussian rational sum without evaluating it.
+///
+/// Restricting the shape and scalar components prevents this fractional-power
+/// rule from activating integer expansion for arbitrary symbolic expressions
+/// or previously held constants with unbounded coefficient height.
+fn is_bounded_gaussian_rational_sum(expr: &Expr) -> bool {
+    fn rational_atom(expr: &Expr) -> bool {
+        match expr {
+            Expr::Integer(value) => value.to_i64().is_some(),
+            Expr::Rational(value) => {
+                value.numer().to_i64().is_some() && value.denom().to_i64().is_some()
+            }
+            _ => false,
+        }
+    }
+
+    fn imaginary_term(expr: &Expr) -> bool {
+        match expr {
+            Expr::Const(fsym_core::Constant::I) => true,
+            Expr::Mul(factors) => match factors.as_slice() {
+                [coefficient, Expr::Const(fsym_core::Constant::I)]
+                | [Expr::Const(fsym_core::Constant::I), coefficient] => rational_atom(coefficient),
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    let Expr::Add(terms) = expr else {
+        return false;
+    };
+    match terms.as_slice() {
+        [left, right] => {
+            (rational_atom(left) && imaginary_term(right))
+                || (imaginary_term(left) && rational_atom(right))
+        }
+        _ => false,
+    }
+}
+
+/// Product cleanup can create Gaussian sums or powers after the input
+/// factors have already been expanded. Inspect only the result itself and
+/// direct product factors; proper fractional powers need no further pass.
+fn gaussian_product_needs_expansion(expr: &Expr) -> bool {
+    fn gaussian_power(expr: &Expr) -> bool {
+        let Expr::Pow(base, exponent) = expr else {
+            return false;
+        };
+        if !is_bounded_gaussian_rational_sum(base) {
+            return false;
+        }
+        match exponent.as_ref() {
+            Expr::Integer(power) => power.to_i64().is_some_and(|n| n >= 2),
+            Expr::Rational(power) => match (power.numer().to_i64(), power.denom().to_i64()) {
+                (Some(numerator), Some(denominator))
+                    if denominator > 0 && numerator > denominator =>
+                {
+                    let remainder = numerator % denominator;
+                    remainder > 0 && remainder < denominator
+                }
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    match expr {
+        Expr::Pow(_, _) => gaussian_power(expr),
+        Expr::Mul(factors) => factors
+            .iter()
+            .any(|factor| is_bounded_gaussian_rational_sum(factor) || gaussian_power(factor)),
+        _ => false,
+    }
+}
+
 fn expand_at<M: BudgetMeter>(expr: &Expr, depth: usize, m: &mut M) -> Result<Expr, SimplifyError> {
     if depth > MAX_RECURSION_DEPTH {
         return Err(SimplifyError::DepthLimitExceeded(depth));
@@ -788,10 +863,41 @@ fn expand_at<M: BudgetMeter>(expr: &Expr, depth: usize, m: &mut M) -> Result<Exp
                         // through canonical Mul construction, which merges
                         // like exponents as upstream Mul.flatten does
                         // (exp(-x)*exp(x) -> 1, exp(x)*exp(2*x) -> exp(3*x)).
-                        product_terms.push(
-                            simplify_counting_folds_no_trig(&(a.clone() * b.clone()), m)
-                                .map(|(s, _)| s)?,
-                        );
+                        let product = simplify_counting_folds_no_trig(&(a.clone() * b.clone()), m)
+                            .map(|(s, _)| s)?;
+
+                        // Merging powers can expose a Gaussian Add factor or
+                        // create an integer part in a Gaussian exponent after
+                        // the original children were expanded. Revisit only
+                        // that admitted family, under the same depth and meter.
+                        let product = if gaussian_product_needs_expansion(&product) {
+                            expand_at(&product, depth + 1, m)?
+                        } else {
+                            product
+                        };
+                        // Re-entry can produce several additive terms.
+                        // Admit their actual cardinality before flattening or
+                        // growing the accumulator; the original cross-product
+                        // preflight alone cannot account for these new terms.
+                        let additional = match &product {
+                            Expr::Add(terms) => terms.len(),
+                            _ => 1,
+                        };
+                        let actual_count =
+                            product_terms.len().checked_add(additional).ok_or_else(|| {
+                                SimplifyError::General(
+                                    "expanded term-count addition overflowed".to_string(),
+                                )
+                            })?;
+                        if actual_count > MAX_EXPANDED_TERMS {
+                            return Err(SimplifyError::General(format!(
+                                "expansion exceeds the term limit of {MAX_EXPANDED_TERMS}"
+                            )));
+                        }
+                        match product {
+                            Expr::Add(terms) => product_terms.extend(terms),
+                            other => product_terms.push(other),
+                        }
                     }
                 }
                 // Collect like terms after EVERY factor: naive repeated
@@ -810,6 +916,36 @@ fn expand_at<M: BudgetMeter>(expr: &Expr, depth: usize, m: &mut M) -> Result<Exp
         Expr::Pow(base, exp) => {
             let eb = expand_at(base, depth + 1, m)?;
             let ee = expand_at(exp, depth + 1, m)?;
+
+            if let Expr::Rational(power) = &ee
+                && is_bounded_gaussian_rational_sum(&eb)
+                && let (Some(numerator), Some(denominator)) =
+                    (power.numer().to_i64(), power.denom().to_i64())
+                && denominator > 0
+                && numerator > denominator
+            {
+                let whole = numerator / denominator;
+                let remainder = numerator % denominator;
+                if remainder > 0 && remainder < denominator {
+                    if !usize::try_from(whole).is_ok_and(|n| n <= MAX_EXPAND_POWER) {
+                        return Err(SimplifyError::General(format!(
+                            "Gaussian rational power expansion exceeds the integer-part power envelope of {MAX_EXPAND_POWER}"
+                        )));
+                    }
+                    let fractional = Expr::rational(remainder, denominator)
+                        .map_err(|error| SimplifyError::General(error.to_string()))?;
+
+                    // z^(n+r) = z^n * z^r uses the same principal logarithm.
+                    // Keep the product raw: eager Mul would immediately merge
+                    // the powers again before the integer factor is expanded.
+                    let split = Expr::Mul(vec![
+                        Expr::Pow(Arc::new(eb.clone()), Arc::new(Expr::from_i64(whole))),
+                        Expr::Pow(Arc::new(eb), Arc::new(fractional)),
+                    ]);
+                    return expand_at(&split, depth + 1, m);
+                }
+            }
+
             if let Expr::Integer(n) = &ee
                 && matches!(eb, Expr::Add(_))
             {
@@ -1939,5 +2075,145 @@ mod tests {
             simplify_with_assumptions(&sqrt_x_sq, &neg_snap),
             Expr::Mul(vec![Expr::from_i64(-1), Expr::Sym(x)])
         );
+    }
+
+    #[test]
+    fn gaussian_fractional_power_expansion_cancels_quartic_residual_and_conjugate() {
+        let imaginary = Expr::Const(fsym_core::Constant::I);
+        for sign in [1, -1] {
+            let base = Expr::from_i64(1) + Expr::from_i64(sign) * imaginary.clone();
+            let half_power = |numerator| base.clone().pow(Expr::rational(numerator, 2).unwrap());
+            let residual = Expr::Add(vec![
+                Expr::from_i64(-8) * half_power(7),
+                Expr::from_i64(24) * half_power(5),
+                Expr::from_i64(-32) * half_power(3),
+                Expr::from_i64(16) * half_power(1),
+            ]);
+            assert_eq!(try_expand(&residual).unwrap(), Expr::from_i64(0));
+        }
+    }
+
+    #[test]
+    fn gaussian_fractional_power_expansion_obeys_integer_part_envelope() {
+        let base = Expr::from_i64(1) + Expr::Const(fsym_core::Constant::I);
+        let root = base.clone().pow(Expr::rational(1, 2).unwrap());
+        // (1 + I)^64 = 2^32, so the admitted endpoint has an exact result.
+        let at_limit = base.clone().pow(Expr::rational(129, 2).unwrap());
+        assert_eq!(
+            try_expand(&at_limit).unwrap(),
+            Expr::from_i64(4_294_967_296) * root
+        );
+        let beyond_limit = base.pow(Expr::rational(131, 2).unwrap());
+        assert!(matches!(
+            try_expand(&beyond_limit),
+            Err(SimplifyError::General(message))
+                if message.contains("power envelope")
+        ));
+    }
+
+    #[test]
+    fn gaussian_fractional_power_expansion_uses_the_existing_meter() {
+        let base = Expr::from_i64(1) + Expr::Const(fsym_core::Constant::I);
+        let expression = base.pow(Expr::rational(7, 2).unwrap());
+        let limits = fsym_budget::BudgetLimits::uniform(6, 0);
+        let mut budget = fsym_budget::Budget::new(limits);
+        // The original five-node tree fits; introduced work uses this meter.
+        assert!(matches!(
+            expand_with(&expression, &mut budget),
+            Err(SimplifyError::BudgetExhausted(_))
+        ));
+    }
+
+    #[test]
+    fn gaussian_fractional_power_expansion_keeps_wide_inputs_held() {
+        let imaginary = Expr::Const(fsym_core::Constant::I);
+        let large = fsym_core::BigInt::from(2).pow(128);
+        let ordinary_base = Expr::from_i64(1) + imaginary.clone();
+        let wide_exponent = Expr::Rational(BigRational::new(
+            large.clone() + fsym_core::BigInt::from(1),
+            fsym_core::BigInt::from(2),
+        ));
+        let held_exponent = ordinary_base.pow(wide_exponent);
+        assert_eq!(try_expand(&held_exponent), Ok(held_exponent));
+
+        let wide_base = Expr::from_i64(1) + Expr::Integer(large) * imaginary;
+        let wide_base = try_expand(&wide_base).unwrap();
+        let held_base = wide_base.pow(Expr::rational(3, 2).unwrap());
+        assert_eq!(try_expand(&held_base), Ok(held_base));
+    }
+
+    #[test]
+    fn gaussian_fractional_power_expansion_preserves_other_power_branches() {
+        let z = Expr::symbol("gaussian_branch_z");
+        let imaginary = Expr::Const(fsym_core::Constant::I);
+        for base in [
+            z.clone() + imaginary.clone(),
+            Expr::Const(fsym_core::Constant::Pi) + imaginary,
+        ] {
+            let base = try_expand(&base).unwrap();
+            let held = base.pow(Expr::rational(3, 2).unwrap());
+            assert_eq!(try_expand(&held), Ok(held));
+        }
+        let nested = z.pow(Expr::from_i64(2)).pow(Expr::rational(1, 2).unwrap());
+        assert_eq!(try_expand(&nested), Ok(nested));
+
+        let gaussian = Expr::from_i64(1) + Expr::Const(fsym_core::Constant::I);
+        for numerator in [1, -3] {
+            let held = gaussian.clone().pow(Expr::rational(numerator, 2).unwrap());
+            assert_eq!(try_expand(&held), Ok(held));
+        }
+    }
+
+    #[test]
+    fn gaussian_fractional_power_expansion_normalizes_generated_raw_products() {
+        let imaginary = Expr::Const(fsym_core::Constant::I);
+        for sign in [1, -1] {
+            let base = Expr::from_i64(1) + Expr::from_i64(sign) * imaginary.clone();
+            let root = base.pow(Expr::rational(1, 2).unwrap());
+            for with_cofactor in [false, true] {
+                let term = |coefficient, count| {
+                    let mut factors = vec![Expr::from_i64(coefficient)];
+                    if with_cofactor {
+                        factors.push(Expr::symbol("gaussian_product_cofactor"));
+                    }
+                    factors.extend(std::iter::repeat_n(root.clone(), count));
+                    // Preserve repeated roots until expansion creates powers.
+                    Expr::Mul(factors)
+                };
+                let residual = Expr::Add(vec![term(-8, 7), term(24, 5), term(-32, 3), term(16, 1)]);
+                assert_eq!(
+                    try_expand(&residual).unwrap(),
+                    Expr::from_i64(0),
+                    "sign={sign}, with_cofactor={with_cofactor}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn gaussian_fractional_power_expansion_admits_actual_generated_term_count() {
+        let base = Expr::from_i64(1) + Expr::Const(fsym_core::Constant::I);
+        let root = base.pow(Expr::rational(1, 2).unwrap());
+        let input = |count| {
+            let terms = (0..count)
+                .map(|index| {
+                    Expr::Mul(vec![
+                        Expr::symbol(format!("gaussian_fill_{index}")),
+                        root.clone(),
+                    ])
+                })
+                .collect();
+            Expr::Mul(vec![Expr::Add(terms), root.clone()])
+        };
+        let accepted = try_expand(&input(MAX_EXPANDED_TERMS / 2)).unwrap();
+        let Expr::Add(terms) = accepted else {
+            panic!("each distinct symbol has a real and imaginary term");
+        };
+        assert_eq!(terms.len(), MAX_EXPANDED_TERMS);
+        assert!(matches!(
+            try_expand(&input(MAX_EXPANDED_TERMS / 2 + 1)),
+            Err(SimplifyError::General(message))
+                if message.contains("term limit")
+        ));
     }
 }
