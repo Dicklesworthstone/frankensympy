@@ -208,6 +208,19 @@ restores can exhaust the search's 256 MiB cumulative intrinsic allocation cap;
 checkpoints do not authenticate a sender's full resource history or enlarge
 the receiver's allowance.
 
+An explicit host directory enables durable continuation:
+`frankensympy --checkpoint-dir ./root-checkpoints` exposes
+`SaveRootIsolationSearch` and `LoadRootIsolationSearch`. Exact content keys select
+the saved snapshot, with bounded reads, canonical envelopes, dependency checks
+and independent source-bound restoration. Optional
+`SaveRepairableRootIsolationSearch` / `LoadRepairableRootIsolationSearch` store
+up to 64 source symbols and 16 RaptorQ repair symbols, publishing the manifest
+last. Recovery reports missing/corrupt chunks and checks the fully regenerated
+manifest before mathematical restoration. Small repair examples require an
+explicit allowance such as `--compute-steps 100000000`; the ordinary default
+does not fund the codec. Both forms resume candidate state and still require
+protected final verification.
+
 `ExportRootIsolation` and `ReplayRootIsolation` transport the complete coverage
 proof, including a proved empty root set. A fresh receiving process binds the
 artifact to its own equations, typed coordinate order, context and requested
@@ -227,9 +240,8 @@ resources; its distinct artifact kind cannot authorize an accepted root claim.
 See [Native certification sessions](docs/NATIVE_CERTIFICATION_SESSION.md) for a
 complete CLI example, typed Rust APIs, budget controls and precise limits.
 This is a bounded development interface; complete campaign and profile gates
-remain open. Clients manage checkpoint files explicitly; automatic durable-store
-publication, recovery, RaptorQ repair and asynchronous cancellation remain
-separate integration obligations.
+remain open. The opt-in local file store does not yet provide a whole-session
+snapshot, background repair service, or asynchronous cancellation endpoint.
 
 ### Objective derivatives and local stationary points
 

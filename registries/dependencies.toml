@@ -3,6 +3,13 @@ registry_status = "planning"
 registry_authority = "registries/dependencies.toml"
 normative_contract = "docs/DEPENDENCY_SAFETY_AND_TOOLCHAIN.md"
 
+# The L7 frankensympy library/CLI uses the existing L5 fsym-durable file
+# reference adapter only when the host supplies a checkpoint directory.
+# Root-search persistence binds the dependency lock and donor registry, keeps
+# imported state in the candidate namespace, and independently rechecks it
+# before resumption. No storage dependency enters a core/verifier crate;
+# no new external package or runtime is introduced by this internal edge.
+
 [policy]
 project_authored_unsafe = "forbid"
 native_algorithm_dependencies = "forbid"

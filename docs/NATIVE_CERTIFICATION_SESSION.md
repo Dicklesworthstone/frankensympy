@@ -622,5 +622,112 @@ exercise cancellation at every observed safe point and cumulative refusal.
 The synchronous NDJSON session itself does not start background tasks or expose
 an asynchronous cancellation request. A pure `Budget`/`VerifierMeter` has no
 cancellation source. This interface does not imply completion of the wider
-asupersync lifecycle, compiled-program admission, hybrid callback, automatic
-durable-store publication and crash recovery, RaptorQ repair or performance gates.
+asupersync lifecycle, compiled-program admission, hybrid callback or performance
+gates. The following optional file capability adds explicit checkpoint
+publication and fresh-process resumption.
+
+## Saving and resuming root searches on disk
+
+Start the command with `frankensympy --checkpoint-dir ./root-checkpoints`, or
+construct a Rust session with
+`Session::with_budget_limits(limits, 256).with_checkpoint_directory(path)?`.
+The host selects the directory. JSON requests cannot open arbitrary paths, and
+ordinary sessions continue to return `persistence_disabled` for storage calls.
+
+After registering a residual system and beginning or advancing a root search,
+send `SaveRootIsolationSearch` with `schema_version: 1` and its `search` label.
+The `RootIsolationSearchSaved` response includes a `checkpoint` object containing
+the exact record digest and payload byte count. Retain that object with the
+original equations, typed coordinates, requested box and search options.
+
+A fresh process opens the same directory and registers its own expected
+residual system. Send `LoadRootIsolationSearch` with `schema_version: 1`, that
+`system`, a new `search` label, the expected `domain`, `precision_digits`,
+`max_leaves`, and the returned `checkpoint` object. Loading selects that exact
+saved record, including an earlier snapshot if later snapshots also exist.
+Modification times and directory iteration order never choose the continuation.
+
+The reader bounds the physical file before allocating, checks canonical
+encoding and the complete locked dependency/donor manifest, then independently
+reconstructs the original-source traversal prefix. Wrong equations, typed axis
+order, context, box, options, forged counters and altered bytes refuse before a
+resident search is published. Restored state retains `heuristic_candidate`
+evidence. Advance it normally and use `FinishRootIsolationSearch` to spend
+protected verification resources and obtain accepted complete-cover evidence.
+
+The Rust `RootSearchCheckpointStore` exposes the same boundary through
+`prepare`, `commit` and `restore`. Preparation is in memory; the session admits
+its response before writing a staging file. Commit reads back and validates the
+exact record, synchronizes it, renames it into the committed namespace and
+synchronizes the directories. Cancellation safe points precede publication;
+there is no post-commit cancellation check that reports a successful commit as
+cancelled. OS synchronization errors after rename can be indeterminate: inspect
+or retry the exact content key instead of assuming that no file exists.
+
+Storage, encoding and validation use conservative cumulative ordinary-resource
+charges. Stored work counters cannot refill the receiving session or borrow its
+protected verifier allowance. The durable envelope is bounded at 4 MiB and the
+portable payload at 1 MiB; worst-case encoding admission may refuse a payload
+near that maximum. No stored flag or successful file read grants mathematical
+evidence. This local file reference lane does not assert the optional
+FrankenSQLite adapter, recovery from arbitrary filesystem damage, or completion
+of the entire campaign's persistence gate.
+
+## Recovering a saved search after chunk loss
+
+`SaveRepairableRootIsolationSearch` and `LoadRepairableRootIsolationSearch`
+provide the same candidate lifecycle with independently stored RaptorQ source
+and repair symbols. Enable the same host directory and explicitly fund the
+codec work; for example, a small search can use:
+
+```sh
+frankensympy --checkpoint-dir ./root-checkpoints --compute-steps 100000000
+```
+
+The default two-million-step allowance intentionally refuses repair encoding.
+The ordinary exact-record save/load operations remain usable with that default
+for small searches. Codec charges scale with the bounded source block and
+symbol width, so larger checkpoints can require more than the example budget.
+All allowances remain cumulative across requests.
+
+The repairable save request takes `schema_version: 1` and `search`. Its
+`RootIsolationSearchSavedWithRepair` response returns a `checkpoint` object
+with `manifest_digest`, `manifest_bytes` and `payload_bytes`. Retain this exact
+object. The repairable load request takes the same expected `system`, new
+`search`, `domain`, `precision_digits` and `max_leaves` fields as ordinary load,
+with the repairable checkpoint object instead of an ordinary record key.
+
+Each bundle contains at most 64 source symbols and exactly 16 repair symbols,
+with a maximum 1 MiB payload, 64 KiB manifest and 16 KiB symbol width. Every
+symbol is a separately bounded, canonical durable record. The exact manifest
+is committed only after all symbols are written and read back successfully.
+A failed save before manifest publication can leave up to 80 unreferenced
+symbol records; this API does not garbage-collect shared records. The same
+post-rename synchronization uncertainty described above applies to publication.
+
+Restore first validates the exact manifest, context, dependency pins, lengths
+and codec layout. Missing or corrupt symbol records become erasures; genuine
+filesystem/backend failures remain errors. The codec recovers the payload when
+the available equations suffice and checks its digest. Restore then regenerates
+the complete deterministic manifest in memory and requires an exact match,
+including the hashes and record identities of erased symbols. This reserves
+both a decoder and an encoder pass and does not rewrite files. Sixteen repair symbols
+are redundancy, not a guarantee that every pattern of sixteen missing source
+symbols is recoverable: decoding can refuse insufficient or dependent equations.
+An absent or invalid manifest always refuses; it is never replaced by another
+snapshot found on disk.
+
+`RootIsolationSearchRecovered` reports `source_chunks`, `repair_chunks`,
+`source_missing`, `source_corrupt`, `repair_missing`, `repair_corrupt` and
+`recovered`. The last field means missing/corrupt source bytes were reconstructed;
+it remains false when all source records were intact. These are storage facts,
+not mathematical evidence. Recovered bytes still pass independent original-source
+checkpoint restoration, and the result retains `heuristic_candidate` evidence.
+`FinishRootIsolationSearch` must verify the completed cover with protected
+resources before any accepted roots are published.
+
+Rust callers use `RepairableRootSearchCheckpointStore::{prepare, commit,
+restore}`; restore returns the candidate search and `RootSearchRepairReport`.
+Filesystem and codec calls are synchronous. Work is bounded and prepaid, with
+cooperative cancellation between operations. This feature does not add a
+background scheduler, automatic repair daemon, or a whole-session snapshot.

@@ -540,6 +540,48 @@ fn sync_file(path: &Path) -> Result<(), DurableError> {
         .map_err(read_error)
 }
 
+fn write_staging_file(
+    temp: &Path,
+    target: &Path,
+    write_payload: impl FnOnce(&mut fs::File) -> Result<(), DurableError>,
+) -> Result<(), DurableError> {
+    // No cleanup runs unless this invocation actually created the file. A
+    // create_new collision must leave the pre-existing path untouched.
+    let mut written = fs::File::options()
+        .write(true)
+        .create_new(true)
+        .open(temp)
+        .map_err(|error| DurableError::Backend(format!("cannot write temp staging: {error}")))?;
+    let write_result = write_payload(&mut written).and_then(|()| {
+        written
+            .sync_all()
+            .map_err(|error| DurableError::Backend(format!("cannot sync staged bytes: {error}")))
+    });
+    // Close the file before unlinking it, including on platforms that refuse
+    // deletion of an open file. No fallible operation can bypass this close.
+    drop(written);
+    let operation = write_result.and_then(|()| {
+        fs::rename(temp, target).map_err(|error| {
+            DurableError::Backend(format!("cannot finalize staging name: {error}"))
+        })
+    });
+    operation.map_err(|error| cleanup_failed_staging(temp, error))
+}
+
+fn cleanup_failed_staging(temp: &Path, operation: DurableError) -> DurableError {
+    let cleanup = match fs::remove_file(temp) {
+        Ok(()) => temp.parent().map_or(Ok(()), sync_directory),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(directory_error(error)),
+    };
+    match cleanup {
+        Ok(()) => operation,
+        Err(cleanup) => DurableError::Backend(format!(
+            "staging operation failed: {operation}; cleanup of its owned temporary file failed: {cleanup}"
+        )),
+    }
+}
+
 fn parse_universe(name: &str) -> Option<[u8; 32]> {
     if name.len() != 64
         || !name
@@ -613,26 +655,15 @@ impl DurableStore for FileStore {
             NEXT_TEMP.fetch_add(1, Ordering::Relaxed),
             handle.name
         ));
-        {
-            let written = fs::File::options()
-                .write(true)
-                .create_new(true)
-                .open(&temp)
-                .map_err(|error| {
-                    DurableError::Backend(format!("cannot write temp staging: {error}"))
-                })?;
+        write_staging_file(&temp, &target, |written| {
             use std::io::Write as _;
-            let mut written = written;
             written.write_all(&wire).map_err(|error| {
                 DurableError::Backend(format!("cannot write staged bytes: {error}"))
-            })?;
-            written.sync_all().map_err(|error| {
-                DurableError::Backend(format!("cannot sync staged bytes: {error}"))
-            })?;
-        }
-        fs::rename(&temp, &target).map_err(|error| {
-            DurableError::Backend(format!("cannot finalize staging name: {error}"))
+            })
         })?;
+        // A failure here occurs after rename made the staging record visible.
+        // Keep that indeterminate state explicit; caller-owned rollback may
+        // release its known staging record, rather than treating it as a temp.
         sync_directory(&staging)?;
         Ok(handle)
     }
@@ -914,5 +945,82 @@ mod tests {
             ),
             Err(DurableError::Absent)
         ));
+    }
+
+    #[test]
+    fn partial_write_failures_release_owned_temps_without_exhausting_staging() {
+        use std::io::Write as _;
+
+        let root = unique_root("failed-write-cleanup");
+        let store = FileStore::open(&root).unwrap();
+        let record = sample();
+        let staging = store
+            .staging_dir(record.universe_id, &record.payload_schema)
+            .unwrap();
+        let target = staging.join("not-published.record");
+        for attempt in 0..(CLEANUP_RESERVE_LIMIT + 2) {
+            let temp = staging.join(format!(".tmp-failed-write-{attempt}"));
+            let operation = DurableError::Backend("injected failure after partial write".into());
+            let failure = write_staging_file(&temp, &target, |file| {
+                file.write_all(b"partial record bytes")
+                    .map_err(read_error)?;
+                Err(operation.clone())
+            })
+            .unwrap_err();
+            assert_eq!(failure, operation);
+            assert!(!temp.exists());
+            assert!(!target.exists());
+            assert_eq!(store.staging_len().unwrap(), 0);
+        }
+        let handle = store.prepare(&record).expect("reserve remains available");
+        assert_eq!(store.verify_prepared(&handle).unwrap(), record);
+    }
+
+    #[test]
+    fn rename_failure_cleans_only_the_new_temp_and_preserves_existing_targets() {
+        use std::io::Write as _;
+
+        let root = unique_root("failed-rename-cleanup");
+        let temp = root.join(".tmp-owned");
+        let target = root.join("existing-directory");
+        fs::create_dir(&target).unwrap();
+        let sentinel = target.join("sentinel");
+        fs::write(&sentinel, b"preserve target").unwrap();
+        let unrelated = root.join(".tmp-other-attempt");
+        fs::write(&unrelated, b"preserve other temp").unwrap();
+        let failure = write_staging_file(&temp, &target, |file| {
+            file.write_all(b"complete record").map_err(read_error)
+        })
+        .unwrap_err();
+        assert!(failure.to_string().contains("cannot finalize staging name"));
+        assert!(!temp.exists());
+        assert_eq!(fs::read(sentinel).unwrap(), b"preserve target");
+        assert_eq!(fs::read(unrelated).unwrap(), b"preserve other temp");
+    }
+
+    #[test]
+    fn failed_temp_creation_never_claims_or_deletes_the_existing_file() {
+        let root = unique_root("temp-create-collision");
+        let temp = root.join(".tmp-existing");
+        let target = root.join("not-published.record");
+        fs::write(&temp, b"preexisting bytes").unwrap();
+        let failure = write_staging_file(&temp, &target, |_| {
+            panic!("writer must not run when create_new refuses")
+        })
+        .unwrap_err();
+        assert!(failure.to_string().contains("cannot write temp staging"));
+        assert_eq!(fs::read(temp).unwrap(), b"preexisting bytes");
+        assert!(!target.exists());
+    }
+
+    #[test]
+    fn failed_temp_cleanup_reports_both_errors_without_deleting_a_directory() {
+        let changed_temp = unique_root("temp-cleanup-failure");
+        let operation = DurableError::Backend("original write failure".into());
+        let failure = cleanup_failed_staging(&changed_temp, operation);
+        let message = failure.to_string();
+        assert!(message.contains("original write failure"));
+        assert!(message.contains("cleanup of its owned temporary file failed"));
+        assert!(changed_temp.is_dir());
     }
 }

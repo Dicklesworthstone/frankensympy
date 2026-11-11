@@ -482,6 +482,20 @@ impl Session {
         }
     }
 
+    /// Enable persistence through an explicit host-owned directory. Protocol
+    /// requests can select only exact checkpoint identities, never file paths.
+    pub fn with_checkpoint_directory(
+        mut self,
+        root: impl Into<std::path::PathBuf>,
+    ) -> Result<Self, crate::CertificationSessionError> {
+        let root = root.into();
+        let store = crate::RootSearchCheckpointStore::open(&root)?;
+        let repairable = crate::RepairableRootSearchCheckpointStore::open(root)?;
+        self.certification
+            .enable_checkpoint_store(store, repairable);
+        Ok(self)
+    }
+
     /// Remaining cumulative resources, including protected verification fuel.
     pub fn budget_snapshot(&self) -> fsym_budget::BudgetSnapshot {
         self.budget.snapshot()
@@ -1053,6 +1067,10 @@ impl Session {
                     | "FinishRootIsolationSearch"
                     | "ReleaseRootIsolationSearch"
                     | "ExportRootIsolationSearch"
+                    | "SaveRootIsolationSearch"
+                    | "SaveRepairableRootIsolationSearch"
+                    | "LoadRepairableRootIsolationSearch"
+                    | "LoadRootIsolationSearch"
                     | "RestoreRootIsolationSearch"
                     | "RestoreRootIsolationSearchFromArtifact"
                     | "ExportRootIsolation"

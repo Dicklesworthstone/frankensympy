@@ -12,12 +12,19 @@ use crate::artifact_stream::{
 use crate::certification::{
     CertificationError, ResidualProblem, export_root_certificate, replay_root_certificate,
 };
+use crate::durable_search::{
+    DurableSearchError, RootSearchCheckpointStore, StoredRootSearchCheckpoint,
+};
 use crate::integration::{
     IntegrationError, export_integral_certificate, replay_integral_certificate,
 };
 use crate::isolation_transport::{export_root_isolation, replay_root_isolation};
 use crate::objective::ObjectiveProblem;
 use crate::objective_transport::{export_stationary_certificate, replay_stationary_certificate};
+use crate::repairable_search::{
+    RepairableRootSearchCheckpoint, RepairableRootSearchCheckpointStore, RepairableSearchError,
+    RootSearchRepairReport,
+};
 use crate::search_checkpoint::{export_root_search_checkpoint, restore_root_search_checkpoint};
 use fsym_budget::{Budget, BudgetError, BudgetMeter, Dimension, MeterError, VerifierLease};
 use fsym_calculus::quadrature::QuadratureOptions;
@@ -410,6 +417,32 @@ pub enum CertificationRequest {
         schema_version: u32,
         search: RootIsolationSearchId,
     },
+    SaveRootIsolationSearch {
+        schema_version: u32,
+        search: RootIsolationSearchId,
+    },
+    SaveRepairableRootIsolationSearch {
+        schema_version: u32,
+        search: RootIsolationSearchId,
+    },
+    LoadRepairableRootIsolationSearch {
+        schema_version: u32,
+        system: ResidualSystemId,
+        search: RootIsolationSearchId,
+        domain: Vec<ExactInterval>,
+        precision_digits: u32,
+        max_leaves: usize,
+        checkpoint: RepairableRootSearchCheckpoint,
+    },
+    LoadRootIsolationSearch {
+        schema_version: u32,
+        system: ResidualSystemId,
+        search: RootIsolationSearchId,
+        domain: Vec<ExactInterval>,
+        precision_digits: u32,
+        max_leaves: usize,
+        checkpoint: StoredRootSearchCheckpoint,
+    },
     RestoreRootIsolationSearch {
         schema_version: u32,
         system: ResidualSystemId,
@@ -539,6 +572,10 @@ impl CertificationRequest {
             | Self::FinishRootIsolationSearch { schema_version, .. }
             | Self::ReleaseRootIsolationSearch { schema_version, .. }
             | Self::ExportRootIsolationSearch { schema_version, .. }
+            | Self::SaveRootIsolationSearch { schema_version, .. }
+            | Self::SaveRepairableRootIsolationSearch { schema_version, .. }
+            | Self::LoadRepairableRootIsolationSearch { schema_version, .. }
+            | Self::LoadRootIsolationSearch { schema_version, .. }
             | Self::RestoreRootIsolationSearch { schema_version, .. }
             | Self::RestoreRootIsolationSearchFromArtifact { schema_version, .. }
             | Self::ExportRootIsolation { schema_version, .. }
@@ -714,6 +751,29 @@ pub enum CertificationResponse {
         evidence: &'static str,
         artifact: String,
     },
+    RootIsolationSearchSaved {
+        schema_version: u32,
+        system: ResidualSystemId,
+        search: RootIsolationSearchId,
+        evidence: &'static str,
+        checkpoint: StoredRootSearchCheckpoint,
+    },
+    RootIsolationSearchSavedWithRepair {
+        schema_version: u32,
+        system: ResidualSystemId,
+        search: RootIsolationSearchId,
+        evidence: &'static str,
+        checkpoint: RepairableRootSearchCheckpoint,
+    },
+    RootIsolationSearchRecovered {
+        schema_version: u32,
+        system: ResidualSystemId,
+        search: RootIsolationSearchId,
+        evidence: &'static str,
+        progress: RootIsolationProgress,
+        context_digest: [u8; 32],
+        repair: RootSearchRepairReport,
+    },
     RootIsolationSearchRestored {
         schema_version: u32,
         system: ResidualSystemId,
@@ -837,6 +897,10 @@ pub enum CertificationSessionError {
     Integration(#[from] IntegrationError),
     #[error("artifact transfer refused: {0}")]
     Transfer(#[from] ArtifactTransferError),
+    #[error("durable root-search operation refused: {0}")]
+    DurableSearch(#[from] DurableSearchError),
+    #[error("repairable root-search operation refused: {0}")]
+    RepairableSearch(#[from] RepairableSearchError),
 }
 
 impl CertificationSessionError {
@@ -868,7 +932,47 @@ impl CertificationSessionError {
             Self::Certification(error) => certification_error_code(error),
             Self::Integration(error) => integration_error_code(error),
             Self::Transfer(error) => transfer_error_code(error),
+            Self::DurableSearch(error) => durable_search_error_code(error),
+            Self::RepairableSearch(error) => repairable_search_error_code(error),
         }
+    }
+}
+
+fn repairable_search_error_code(error: &RepairableSearchError) -> &'static str {
+    match error {
+        RepairableSearchError::InvalidLength => "resource_limit_exceeded",
+        RepairableSearchError::InvalidManifest(_)
+        | RepairableSearchError::RecordMismatch
+        | RepairableSearchError::Json(_) => "invalid_artifact",
+        RepairableSearchError::Meter(MeterError::Cancelled) => "cancelled",
+        RepairableSearchError::Meter(MeterError::Budget(_)) => "budget_exhausted",
+        RepairableSearchError::Certification(error) => certification_error_code(error),
+        RepairableSearchError::Repair(_) => "repair_failed",
+        RepairableSearchError::Storage(fsym_durable::DurableError::Absent) => "checkpoint_absent",
+        RepairableSearchError::Storage(fsym_durable::DurableError::RecordTooLarge { .. }) => {
+            "resource_limit_exceeded"
+        }
+        RepairableSearchError::Storage(fsym_durable::DurableError::Backend(_))
+        | RepairableSearchError::Cleanup { .. } => "storage_error",
+        RepairableSearchError::Storage(_) => "invalid_artifact",
+    }
+}
+
+fn durable_search_error_code(error: &DurableSearchError) -> &'static str {
+    match error {
+        DurableSearchError::Disabled => "persistence_disabled",
+        DurableSearchError::InvalidLength => "invalid_input",
+        DurableSearchError::RecordMismatch => "invalid_artifact",
+        DurableSearchError::Meter(MeterError::Cancelled) => "cancelled",
+        DurableSearchError::Meter(MeterError::Budget(_)) => "budget_exhausted",
+        DurableSearchError::Certification(error) => certification_error_code(error),
+        DurableSearchError::Storage(fsym_durable::DurableError::Absent) => "checkpoint_absent",
+        DurableSearchError::Storage(fsym_durable::DurableError::RecordTooLarge { .. }) => {
+            "resource_limit_exceeded"
+        }
+        DurableSearchError::Storage(fsym_durable::DurableError::Backend(_))
+        | DurableSearchError::Cleanup { .. } => "storage_error",
+        DurableSearchError::Storage(_) => "invalid_artifact",
     }
 }
 
@@ -1307,6 +1411,8 @@ impl ResidentRootSearch {
 pub(crate) struct CertificationState {
     objectives: BTreeMap<ObjectiveId, ObjectiveProblem>,
     stationary_points: BTreeMap<StationaryPointId, ResidentStationaryPoint>,
+    checkpoint_store: Option<RootSearchCheckpointStore>,
+    repairable_checkpoint_store: Option<RepairableRootSearchCheckpointStore>,
     systems: BTreeMap<ResidualSystemId, ResidualProblem>,
     certificates: BTreeMap<RootCertificateId, (ResidualSystemId, RootBoxReceipt)>,
     // References into immutable complete receipts avoid cloning retained source
@@ -1378,6 +1484,15 @@ impl CertificationState {
             },
         );
         Ok(response)
+    }
+
+    pub(crate) fn enable_checkpoint_store(
+        &mut self,
+        store: RootSearchCheckpointStore,
+        repairable: RepairableRootSearchCheckpointStore,
+    ) {
+        self.checkpoint_store = Some(store);
+        self.repairable_checkpoint_store = Some(repairable);
     }
 
     pub(crate) fn problem(&self, id: &ResidualSystemId) -> Option<&ResidualProblem> {
@@ -1610,13 +1725,37 @@ impl CertificationState {
         context_digest: [u8; 32],
         budget: &mut Budget,
     ) -> Result<CertificationResponse, CertificationSessionError> {
-        let response = CertificationResponse::RootIsolationSearchRestored {
-            schema_version: CERTIFICATION_REQUEST_SCHEMA,
-            system: system.clone(),
-            search: id.clone(),
-            evidence: "heuristic_candidate",
-            progress: search.progress(),
-            context_digest,
+        self.publish_resumed_search(system, id, search, context_digest, budget, None)
+    }
+
+    fn publish_resumed_search(
+        &mut self,
+        system: ResidualSystemId,
+        id: RootIsolationSearchId,
+        search: RootIsolationSearch,
+        context_digest: [u8; 32],
+        budget: &mut Budget,
+        repair: Option<RootSearchRepairReport>,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        let response = if let Some(repair) = repair {
+            CertificationResponse::RootIsolationSearchRecovered {
+                schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                system: system.clone(),
+                search: id.clone(),
+                evidence: "heuristic_candidate",
+                progress: search.progress(),
+                context_digest,
+                repair,
+            }
+        } else {
+            CertificationResponse::RootIsolationSearchRestored {
+                schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                system: system.clone(),
+                search: id.clone(),
+                evidence: "heuristic_candidate",
+                progress: search.progress(),
+                context_digest,
+            }
         };
         admit_response(&response, budget)?;
         self.searches.insert(
@@ -2113,6 +2252,121 @@ impl CertificationState {
                 };
                 admit_response(&response, budget)?;
                 Ok(response)
+            }
+            CertificationRequest::SaveRootIsolationSearch { search, .. } => {
+                let store = self
+                    .checkpoint_store
+                    .as_ref()
+                    .ok_or(DurableSearchError::Disabled)?;
+                let slot = self
+                    .searches
+                    .get_mut(&search)
+                    .ok_or(CertificationSessionError::UnknownSearch)?;
+                let prepared = store.prepare(&mut slot.search, slot.context_digest, budget)?;
+                let response = CertificationResponse::RootIsolationSearchSaved {
+                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                    system: slot.system.clone(),
+                    search,
+                    evidence: "heuristic_candidate",
+                    checkpoint: prepared.key(),
+                };
+                // Encoding and response resources are admitted before any disk
+                // publication. A successful commit is the final effect.
+                admit_response(&response, budget)?;
+                store.commit(prepared, budget)?;
+                Ok(response)
+            }
+            CertificationRequest::SaveRepairableRootIsolationSearch { search, .. } => {
+                let store = self
+                    .repairable_checkpoint_store
+                    .as_ref()
+                    .ok_or(DurableSearchError::Disabled)?;
+                let slot = self
+                    .searches
+                    .get_mut(&search)
+                    .ok_or(CertificationSessionError::UnknownSearch)?;
+                let prepared = store.prepare(&mut slot.search, slot.context_digest, budget)?;
+                let response = CertificationResponse::RootIsolationSearchSavedWithRepair {
+                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                    system: slot.system.clone(),
+                    search,
+                    evidence: "heuristic_candidate",
+                    checkpoint: prepared.key(),
+                };
+                admit_response(&response, budget)?;
+                store.commit(prepared, budget)?;
+                Ok(response)
+            }
+            CertificationRequest::LoadRepairableRootIsolationSearch {
+                system,
+                search,
+                domain,
+                precision_digits,
+                max_leaves,
+                checkpoint,
+                ..
+            } => {
+                let store = self
+                    .repairable_checkpoint_store
+                    .as_ref()
+                    .ok_or(DurableSearchError::Disabled)?;
+                self.admit_search_id(&search, budget)?;
+                let problem = self
+                    .systems
+                    .get(&system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                let domain = parse_domain(&domain, problem.variables().len(), budget)?;
+                let (restored, repair) = store.restore(
+                    checkpoint,
+                    problem,
+                    &domain,
+                    RootIsolationOptions {
+                        precision_digits,
+                        max_leaves,
+                    },
+                    context_digest,
+                    budget,
+                )?;
+                self.publish_resumed_search(
+                    system,
+                    search,
+                    restored,
+                    context_digest,
+                    budget,
+                    Some(repair),
+                )
+            }
+            CertificationRequest::LoadRootIsolationSearch {
+                system,
+                search,
+                domain,
+                precision_digits,
+                max_leaves,
+                checkpoint,
+                ..
+            } => {
+                let store = self
+                    .checkpoint_store
+                    .as_ref()
+                    .ok_or(DurableSearchError::Disabled)?;
+                self.admit_search_id(&search, budget)?;
+                let problem = self
+                    .systems
+                    .get(&system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                let domain = parse_domain(&domain, problem.variables().len(), budget)?;
+                let restored = store.restore(
+                    checkpoint,
+                    problem,
+                    &domain,
+                    RootIsolationOptions {
+                        precision_digits,
+                        max_leaves,
+                    },
+                    context_digest,
+                    budget,
+                )?;
+                self.publish_restored_search(system, search, restored, context_digest, budget)
             }
             CertificationRequest::RestoreRootIsolationSearch {
                 system,

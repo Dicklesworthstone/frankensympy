@@ -40,6 +40,7 @@ fsym-assumptions.workspace = true
 fsym-budget.workspace = true
 fsym-calculus.workspace = true
 fsym-core.workspace = true
+fsym-durable.workspace = true
 fsym-polys.workspace = true
 fsym-proof-kernel.workspace = true
 fsym-runtime.workspace = true
@@ -72,6 +73,7 @@ fsym-bigint = { path = "crates/fsym-bigint" }
 fsym-rational = { path = "crates/fsym-rational" }
 fsym-modular = { path = "crates/fsym-modular" }
 fsym-core = { path = "crates/fsym-core" }
+fsym-durable = { path = "crates/fsym-durable", default-features = false }
 fsym-polys = { path = "crates/fsym-polys" }
 fsym-simplify = { path = "crates/fsym-simplify" }
 fsym-calculus = { path = "crates/fsym-calculus" }

@@ -610,6 +610,7 @@ dependencies = [
  "fsym-budget",
  "fsym-calculus",
  "fsym-core",
+ "fsym-durable",
  "fsym-polys",
  "fsym-proof-kernel",
  "fsym-runtime",

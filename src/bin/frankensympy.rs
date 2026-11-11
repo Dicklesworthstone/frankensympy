@@ -41,24 +41,42 @@ fn read_frame(reader: &mut impl BufRead, frame: &mut Vec<u8>) -> std::io::Result
     }
 }
 
-const USAGE: &str = "frankensympy [--compute-steps N] [--memory-bytes N] [--allocations N] [--verifier-steps N]\n\
+const USAGE: &str = "frankensympy [--compute-steps N] [--memory-bytes N] [--allocations N] [--verifier-steps N] [--checkpoint-dir PATH]\n\
 Reads one typed JSON request per line and flushes one JSON response per request.\n\
 Allowances are cumulative for the entire session; requests cannot reset them.\n\
 Defaults: 2000000 ordinary steps, 1073741824 logical memory bytes,\n\
 1000000 allocations and 100000000 protected verification steps.\n\
 Exact source certification reserves bounded scratch space on the same ledger.\n\
+--checkpoint-dir explicitly enables local candidate checkpoint save/restore.\n\
 Use --help to display this text.\n";
 
-fn arguments() -> Result<Option<BudgetLimits>, String> {
+struct Options {
+    limits: BudgetLimits,
+    checkpoint_directory: Option<std::path::PathBuf>,
+}
+
+fn arguments() -> Result<Option<Options>, String> {
     let mut limits = BudgetLimits::uniform(0, 100_000_000);
     limits.dimensions[Dimension::ComputeSteps.index()] = 2_000_000;
     limits.dimensions[Dimension::MemoryBytes.index()] = 1024 * 1024 * 1024;
     limits.dimensions[Dimension::AllocationCount.index()] = 1_000_000;
     limits.dimensions[Dimension::DepthLimit.index()] = 256;
+    let mut checkpoint_directory = None;
     let mut arguments = std::env::args().skip(1);
     while let Some(argument) = arguments.next() {
         if argument == "--help" || argument == "-h" {
             return Ok(None);
+        }
+        if argument == "--checkpoint-dir" {
+            if checkpoint_directory.is_some() {
+                return Err("--checkpoint-dir may be supplied only once".into());
+            }
+            let path = arguments
+                .next()
+                .filter(|path| !path.is_empty() && !path.starts_with("--"))
+                .ok_or("--checkpoint-dir requires a directory path")?;
+            checkpoint_directory = Some(std::path::PathBuf::from(path));
+            continue;
         }
         let slot = match argument.as_str() {
             "--compute-steps" => &mut limits.dimensions[Dimension::ComputeSteps.index()],
@@ -74,12 +92,15 @@ fn arguments() -> Result<Option<BudgetLimits>, String> {
             .parse::<u64>()
             .map_err(|_| format!("{argument} requires a nonnegative integer"))?;
     }
-    Ok(Some(limits))
+    Ok(Some(Options {
+        limits,
+        checkpoint_directory,
+    }))
 }
 
 fn main() -> ExitCode {
-    let limits = match arguments() {
-        Ok(Some(limits)) => limits,
+    let options = match arguments() {
+        Ok(Some(options)) => options,
         Ok(None) => {
             print!("{USAGE}");
             return ExitCode::SUCCESS;
@@ -89,7 +110,16 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let mut session = Session::with_budget_limits(limits, 256);
+    let mut session = Session::with_budget_limits(options.limits, 256);
+    if let Some(directory) = options.checkpoint_directory {
+        session = match session.with_checkpoint_directory(directory) {
+            Ok(session) => session,
+            Err(error) => {
+                eprintln!("frankensympy: {error}");
+                return ExitCode::from(2);
+            }
+        };
+    }
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     let mut out = stdout.lock();

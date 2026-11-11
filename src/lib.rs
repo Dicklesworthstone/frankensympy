@@ -17,10 +17,12 @@ pub const IMPLEMENTATION_STATUS: &str = "implemented_uncertified";
 pub mod artifact_stream;
 pub mod certification;
 pub mod certification_session;
+pub mod durable_search;
 pub mod integration;
 pub mod isolation_transport;
 pub mod objective;
 pub mod objective_transport;
+pub mod repairable_search;
 pub mod search_checkpoint;
 pub mod session;
 
@@ -39,6 +41,10 @@ pub use certification_session::{
     IsolatedRoot, MAX_SESSION_ARTIFACT_TRANSFERS, MAX_SESSION_ROOT_SEARCHES, ObjectiveId,
     ResidualSystemId, RootCertificateId, RootIsolationId, RootIsolationSearchId,
     StationaryPointClassification, StationaryPointId,
+};
+pub use durable_search::{
+    DURABLE_ROOT_SEARCH_SCHEMA, DurableSearchError, PreparedRootSearchCheckpoint,
+    RootSearchCheckpointStore, StoredRootSearchCheckpoint,
 };
 pub use fsym_budget::{Budget, BudgetLimits, BudgetMeter, BudgetSnapshot, Dimension, MeterError};
 pub use fsym_calculus::quadrature::QuadratureOptions;
@@ -74,6 +80,10 @@ pub use objective::ObjectiveProblem;
 pub use objective_transport::{
     MAX_STATIONARY_CERTIFICATE_BYTES, STATIONARY_CERTIFICATE_SCHEMA_VERSION,
     export_stationary_certificate, replay_stationary_certificate,
+};
+pub use repairable_search::{
+    PreparedRepairableRootSearchCheckpoint, RepairableRootSearchCheckpoint,
+    RepairableRootSearchCheckpointStore, RepairableSearchError, RootSearchRepairReport,
 };
 pub use search_checkpoint::{
     MAX_ROOT_SEARCH_CHECKPOINT_BYTES, ROOT_SEARCH_CHECKPOINT_SCHEMA_VERSION,
