@@ -413,3 +413,56 @@ def test_degree_power_text_and_original_source_bounds_fail_explicitly():
     target = s.Function("pde_long_u")(huge, y)
     with pytest.raises(ValueError):
         s.pdsolve(s.Derivative(target, huge), target)
+
+
+def test_plain_coordinate_lifting_preserves_its_original_native_handle():
+    from sympy.core import _lift_native_result, _wrap
+
+    x = s.Symbol("pde_lift_storage_x")
+    slot = s.Basic.__dict__["_value"]
+    original = slot.__get__(x, s.Basic)
+    fresh = _native.py_symbol(x.name)
+    assert fresh is not original
+    assert _wrap(fresh) is x
+    assert slot.__get__(x, s.Basic) is original
+    assert _lift_native_result(fresh, x) is x
+    assert slot.__get__(x, s.Basic) is original
+
+
+def test_pdsolve_preserves_plain_coordinate_handles_through_solution_lifting():
+    x, y = s.symbols("pde_stable_storage_x pde_stable_storage_y")
+    u = s.Function("pde_stable_storage_u")(x, y)
+    forcing = x*y + 3
+    source = s.Eq(2*s.Derivative(u, x) - 3*s.Derivative(u, y) + 5*u,
+                  forcing, evaluate=False)
+    slot = s.Basic.__dict__["_value"]
+    original = tuple(slot.__get__(axis, s.Basic) for axis in (x, y))
+    answer = s.pdsolve(source, u)
+    for axis, native in zip((x, y), original):
+        assert slot.__get__(axis, s.Basic) is native
+    assert_family(answer, u, x, y, 2, -3, 5, forcing)
+
+
+@pytest.mark.parametrize("same_binding", [False, True])
+def test_coordinate_native_handle_replacement_blocks_pde_publication(same_binding):
+    x, y = s.symbols("pde_handle_race_x pde_handle_race_y")
+    u = s.Function("pde_handle_race_u")(x, y)
+    source = s.Derivative(u, x)
+    slot = s.Basic.__dict__["_value"]
+    original = slot.__get__(x, s.Basic)
+    replacement = _native.py_symbol(x.name if same_binding else y.name)
+    assert replacement is not original
+    original_native = _native.linear_first_order_pde_native
+
+    def mutate(*args):
+        result = original_native(*args)
+        slot.__set__(x, replacement)
+        return result
+
+    try:
+        with patch.object(_native, "linear_first_order_pde_native", side_effect=mutate) as called:
+            with pytest.raises(RuntimeError, match="original source changed"):
+                s.pdsolve(source, u)
+            assert called.call_count == 1
+    finally:
+        slot.__set__(x, original)

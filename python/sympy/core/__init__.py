@@ -523,13 +523,10 @@ def _surface_symbol(native_value: Any) -> "Symbol":
     binding = getattr(native_value, "symbol_binding", None)
     if binding is None:
         return _symbol_from_intern_name(str(native_value))
-    if not binding.plain:
-        return _symbol_from_binding(binding)
-    symbol = Symbol(binding.name)
-    # Refresh the handle so later lowering reuses the interned atom.
-    symbol._value = native_value
-    _register_surface_symbol(symbol)
-    return symbol
+    # Reuse the owner and its original native handle. Plain Symbols are
+    # interned too; refreshing their handle during lifting mutates source
+    # storage that active solvers have already snapshotted.
+    return _symbol_from_binding(binding)
 
 
 _known_functions: dict[str, type] = {}

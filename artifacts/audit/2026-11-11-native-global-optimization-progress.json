@@ -91,6 +91,27 @@
       "check": "Full workspace gates",
       "status": "not_passed",
       "detail": "The exact feature-commit G1 formatting gate failed on 11 unchanged baseline files, so its dependent G2 unit-test job was skipped. Full workspace check, Clippy, test and native public-feature success are not claimed."
+    },
+    {
+      "check": "Existing native public-feature commands and full Python extension build",
+      "status": "passed",
+      "commit": "e0a76d92a3c8b3c56347e6662b74bda2914fbbf7",
+      "ci_job_url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/42970189135/job/130356823344",
+      "scope": "All commands in the existing Native feature regressions step passed, then the full Python extension built. The new 39 optimization tests were not selected in that earlier workflow and are not covered by this pass."
+    },
+    {
+      "check": "Focused Python mathematical regressions",
+      "status": "failed",
+      "commit": "e0a76d92a3c8b3c56347e6662b74bda2914fbbf7",
+      "ci_job_url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/42970189135/job/130356823344",
+      "passed": 801,
+      "failed": 31,
+      "detail": "26 failures report a PDE original-source mutation guard; five concern mixed quartic complex conversion, matrix spectrum lifting and repeated quartic ODE residual simplification. No full public-feature or workspace pass is claimed."
+    },
+    {
+      "check": "Local recovery attempt",
+      "status": "blocked_before_test_execution",
+      "detail": "A clean exact-6128 validation checkout and preserved cache were prepared on writable temporary storage after recovery. The executor disconnected again before Cargo could start; neither the follow-up formatter/planning checks nor the new test retry executed."
     }
   ],
   "trust_limits": [
@@ -98,5 +119,17 @@
     "This finite closed-box C2 slice does not add arbitrary constraints, unbounded domains or general nonsmooth optimization.",
     "MATH-003 and AGENT-001 remain implemented_uncertified with present_tense_allowed=false. M4 campaign, release/profile gates, bead status, priority and dependencies remain unchanged.",
     "No new dependency, runtime substitution or weakened gate is introduced."
-  ]
+  ],
+  "public_math_followup": {
+    "scope": "Preserve original interned plain-Symbol native handles during result lifting.",
+    "observed_failure_count": 26,
+    "cause": "_surface_symbol refreshed an interned plain Symbol's _value with a new native wrapper. Correct PDE storage-identity guards then mistook ordinary traversal, forcing construction and result lifting for source mutation.",
+    "correction": "Use the existing _symbol_from_binding owner lookup for both plain and declared typed bindings. Keep missing-binding fallback and every source, storage, class, assumption and implementation guard unchanged.",
+    "regression_path": "python/tests/test_linear_pde.py",
+    "new_test_functions": 3,
+    "new_test_cases": 4,
+    "regressions": "Direct wrap/lift handle identity; polynomial-forced transport/reaction solve preserving both coordinate handles; callback replacement with either the same binding or a different binding must still refuse before publication.",
+    "validation": "Independent source review and failure-trace analysis completed. AST parsing of the patched core module and full modified PDE test module passed under Python 3.12.14 during a brief executor recovery. No post-fix native-extension/PDE tests have executed; CI is queued.",
+    "remaining_observed_failures": "The five quartic failures are separate and are being investigated; this fix does not claim to resolve them."
+  }
 }
