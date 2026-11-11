@@ -21,20 +21,23 @@ use crate::integration::{
 use crate::isolation_transport::{export_root_isolation, replay_root_isolation};
 use crate::objective::ObjectiveProblem;
 use crate::objective_transport::{export_stationary_certificate, replay_stationary_certificate};
+use crate::optimization::{OptimizationError, export_box_optimization, replay_box_optimization};
 use crate::repairable_search::{
     RepairableRootSearchCheckpoint, RepairableRootSearchCheckpointStore, RepairableSearchError,
     RootSearchRepairReport,
 };
 use crate::search_checkpoint::{export_root_search_checkpoint, restore_root_search_checkpoint};
 use fsym_budget::{Budget, BudgetError, BudgetMeter, Dimension, MeterError, VerifierLease};
+use fsym_calculus::box_optimization::BoxOptimizationOptions;
 use fsym_calculus::quadrature::QuadratureOptions;
 use fsym_calculus::root_isolation::{
     MAX_ROOT_ISOLATION_ADVANCE_CELLS, RootIsolationOptions, RootIsolationProgress,
     RootIsolationSearch,
 };
 use fsym_core::{
-    BigInt, BigRational, IntegralEnclosureReceipt, QuadratureError, RealBall, RootBoxError,
-    RootBoxReceipt, RootBoxWitness, RootIsolationError, RootIsolationReceipt, StationaryPointKind,
+    BigInt, BigRational, BoxExtremumKind, BoxOptimizationError, BoxOptimizationReceipt,
+    IntegralEnclosureReceipt, QuadratureError, RealBall, RootBoxError, RootBoxReceipt,
+    RootBoxWitness, RootIsolationError, RootIsolationReceipt, StationaryPointKind,
     StationaryPointReceipt, Symbol,
 };
 use serde::{Deserialize, Deserializer, Serialize};
@@ -52,6 +55,7 @@ const MAX_ISOLATIONS: usize = 32;
 const MAX_INTEGRALS: usize = 32;
 const MAX_OBJECTIVES: usize = 32;
 const MAX_STATIONARY_POINTS: usize = 128;
+const MAX_BOX_OPTIMIZATIONS: usize = 32;
 /// Imports and exports share this resident bound; releasing a transfer does not
 /// refund any work or allocation already charged to the session ledger.
 pub const MAX_SESSION_ARTIFACT_TRANSFERS: usize = 8;
@@ -258,6 +262,32 @@ impl<'de> Deserialize<'de> for StationaryPointId {
     }
 }
 
+/// An accepted global value enclosure and tolerance-optimal feasible point.
+/// This reference grants neither exact optimizer coordinates nor uniqueness.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct BoxOptimizationId(Box<str>);
+
+impl BoxOptimizationId {
+    pub fn new(value: impl Into<String>) -> Result<Self, CertificationSessionError> {
+        let value = value.into();
+        if !valid_label(&value, "optimization:") {
+            return Err(CertificationSessionError::InvalidLabel);
+        }
+        Ok(Self(value.into_boxed_str()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for BoxOptimizationId {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::new(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
 /// Local classification granted by the independent interval Hessian checker.
 /// `Unclassified` grants no positive or negative extremum assertion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -318,6 +348,7 @@ pub enum ArtifactSource {
     IntegralCertificate(IntegralCertificateId),
     RootIsolationSearch(RootIsolationSearchId),
     StationaryCertificate(StationaryPointId),
+    BoxOptimization(BoxOptimizationId),
 }
 
 /// Bounded certification operations accepted by the native session and NDJSON
@@ -359,6 +390,38 @@ pub enum CertificationRequest {
         objective: ObjectiveId,
         certificate: StationaryPointId,
         domain: Vec<ExactInterval>,
+        transfer: ArtifactTransferId,
+    },
+    OptimizeBox {
+        schema_version: u32,
+        objective: ObjectiveId,
+        optimization: BoxOptimizationId,
+        domain: Vec<ExactInterval>,
+        extremum: BoxExtremumKind,
+        absolute_tolerance: String,
+        precision_digits: u32,
+        max_leaves: usize,
+    },
+    ExportBoxOptimization {
+        schema_version: u32,
+        optimization: BoxOptimizationId,
+    },
+    ReplayBoxOptimization {
+        schema_version: u32,
+        objective: ObjectiveId,
+        optimization: BoxOptimizationId,
+        domain: Vec<ExactInterval>,
+        extremum: BoxExtremumKind,
+        absolute_tolerance: String,
+        artifact: String,
+    },
+    ReplayBoxOptimizationFromArtifact {
+        schema_version: u32,
+        objective: ObjectiveId,
+        optimization: BoxOptimizationId,
+        domain: Vec<ExactInterval>,
+        extremum: BoxExtremumKind,
+        absolute_tolerance: String,
         transfer: ArtifactTransferId,
     },
     RegisterResidualSystem {
@@ -562,6 +625,10 @@ impl CertificationRequest {
             | Self::ExportStationaryCertificate { schema_version, .. }
             | Self::ReplayStationaryCertificate { schema_version, .. }
             | Self::ReplayStationaryCertificateFromArtifact { schema_version, .. }
+            | Self::OptimizeBox { schema_version, .. }
+            | Self::ExportBoxOptimization { schema_version, .. }
+            | Self::ReplayBoxOptimization { schema_version, .. }
+            | Self::ReplayBoxOptimizationFromArtifact { schema_version, .. }
             | Self::RegisterResidualSystem { schema_version, .. }
             | Self::EncloseResidualJacobian { schema_version, .. }
             | Self::CertifyRootBox { schema_version, .. }
@@ -678,6 +745,29 @@ pub enum CertificationResponse {
         schema_version: u32,
         objective: ObjectiveId,
         certificate: StationaryPointId,
+        artifact: String,
+    },
+    BoxOptimized {
+        schema_version: u32,
+        objective: ObjectiveId,
+        optimization: BoxOptimizationId,
+        evidence: &'static str,
+        claim: &'static str,
+        extremum: BoxExtremumKind,
+        domain: Vec<ExactInterval>,
+        point: Vec<String>,
+        value: ExactInterval,
+        point_value: ExactInterval,
+        absolute_tolerance: String,
+        gap: String,
+        leaf_count: usize,
+        precision_digits: u32,
+        context_digest: [u8; 32],
+    },
+    BoxOptimizationExported {
+        schema_version: u32,
+        objective: ObjectiveId,
+        optimization: BoxOptimizationId,
         artifact: String,
     },
     ResidualSystemRegistered {
@@ -846,7 +936,7 @@ pub enum CertificationSessionError {
     #[error("unsupported certification request schema {0}")]
     UnsupportedVersion(u32),
     #[error(
-        "object label must have the proper system:, certificate:, isolation:, search:, integral:, objective: or stationary: kind and a bounded identifier"
+        "object label must have the proper system:, certificate:, isolation:, search:, integral:, objective:, stationary: or optimization: kind and a bounded identifier"
     )]
     InvalidLabel,
     #[error("object label already exists in this session")]
@@ -865,6 +955,8 @@ pub enum CertificationSessionError {
     UnknownObjective,
     #[error("unknown accepted stationary-point certificate")]
     UnknownStationaryPoint,
+    #[error("unknown accepted global box optimization")]
+    UnknownBoxOptimization,
     #[error("root isolation search still has pending cells")]
     SearchNotReady,
     #[error("root search work quantum is outside the supported range")]
@@ -895,6 +987,8 @@ pub enum CertificationSessionError {
     Certification(#[from] CertificationError),
     #[error("integral certification refused: {0}")]
     Integration(#[from] IntegrationError),
+    #[error("global box optimization refused: {0}")]
+    Optimization(#[from] OptimizationError),
     #[error("artifact transfer refused: {0}")]
     Transfer(#[from] ArtifactTransferError),
     #[error("durable root-search operation refused: {0}")]
@@ -921,6 +1015,7 @@ impl CertificationSessionError {
             | Self::UnknownIntegral
             | Self::UnknownObjective
             | Self::UnknownStationaryPoint
+            | Self::UnknownBoxOptimization
             | Self::UnknownTransfer => "unknown_object",
             Self::SearchNotReady => "search_not_ready",
             Self::WrongTransferMode => "wrong_transfer_mode",
@@ -931,10 +1026,32 @@ impl CertificationSessionError {
             Self::Meter(MeterError::Budget(_)) => "budget_exhausted",
             Self::Certification(error) => certification_error_code(error),
             Self::Integration(error) => integration_error_code(error),
+            Self::Optimization(error) => optimization_error_code(error),
             Self::Transfer(error) => transfer_error_code(error),
             Self::DurableSearch(error) => durable_search_error_code(error),
             Self::RepairableSearch(error) => repairable_search_error_code(error),
         }
+    }
+}
+
+fn optimization_error_code(error: &OptimizationError) -> &'static str {
+    match error {
+        OptimizationError::Certification(error) => certification_error_code(error),
+        OptimizationError::StatementMismatch => "statement_mismatch",
+        OptimizationError::Optimization(BoxOptimizationError::Verification(error)) => match error {
+            RootBoxError::Meter(MeterError::Cancelled) => "cancelled",
+            RootBoxError::Meter(MeterError::Budget(_)) => "budget_exhausted",
+            RootBoxError::Domain(_) => "domain_not_certified",
+            RootBoxError::Unsupported(_) => "unsupported_operation",
+            RootBoxError::ResourceLimit(_) => "resource_limit_exceeded",
+            _ => "refused",
+        },
+        OptimizationError::Optimization(BoxOptimizationError::InvalidTolerance) => "invalid_input",
+        OptimizationError::Optimization(BoxOptimizationError::InvalidPartition(_)) => {
+            "invalid_artifact"
+        }
+        OptimizationError::Optimization(BoxOptimizationError::AccuracyNotReached) => "inconclusive",
+        OptimizationError::Optimization(BoxOptimizationError::InconsistentEnclosure) => "refused",
     }
 }
 
@@ -1367,6 +1484,41 @@ fn stationary_response(
     })
 }
 
+fn optimization_response(
+    receipt: &BoxOptimizationReceipt,
+    objective: ObjectiveId,
+    optimization: BoxOptimizationId,
+    context_digest: [u8; 32],
+    meter: &mut impl BudgetMeter,
+) -> Result<CertificationResponse, CertificationSessionError> {
+    charge(
+        meter,
+        receipt.point().len(),
+        receipt.point().len() * std::mem::size_of::<String>(),
+    )?;
+    Ok(CertificationResponse::BoxOptimized {
+        schema_version: CERTIFICATION_REQUEST_SCHEMA,
+        objective,
+        optimization,
+        evidence: "certified_numeric",
+        claim: "global_box_optimum_with_absolute_value_gap_bound",
+        extremum: receipt.kind(),
+        domain: render_domain(receipt.domain(), meter)?,
+        point: receipt
+            .point()
+            .iter()
+            .map(|value| render_scalar(value, meter))
+            .collect::<Result<_, _>>()?,
+        value: render_ball(receipt.value(), meter)?,
+        point_value: render_ball(receipt.point_value(), meter)?,
+        absolute_tolerance: render_scalar(receipt.absolute_tolerance(), meter)?,
+        gap: render_scalar(receipt.gap(), meter)?,
+        leaf_count: receipt.leaf_count(),
+        precision_digits: receipt.precision_digits(),
+        context_digest,
+    })
+}
+
 enum ResidentArtifact {
     Export(ArtifactExport),
     Import(ArtifactImport),
@@ -1390,6 +1542,12 @@ struct ResidentStationaryPoint {
     receipt: StationaryPointReceipt,
 }
 
+struct ResidentBoxOptimization {
+    objective: ObjectiveId,
+    context_digest: [u8; 32],
+    receipt: BoxOptimizationReceipt,
+}
+
 impl ResidentRootSearch {
     fn response(
         &self,
@@ -1411,6 +1569,7 @@ impl ResidentRootSearch {
 pub(crate) struct CertificationState {
     objectives: BTreeMap<ObjectiveId, ObjectiveProblem>,
     stationary_points: BTreeMap<StationaryPointId, ResidentStationaryPoint>,
+    optimizations: BTreeMap<BoxOptimizationId, ResidentBoxOptimization>,
     checkpoint_store: Option<RootSearchCheckpointStore>,
     repairable_checkpoint_store: Option<RepairableRootSearchCheckpointStore>,
     systems: BTreeMap<ResidualSystemId, ResidualProblem>,
@@ -1429,6 +1588,57 @@ pub(crate) struct CertificationState {
 }
 
 impl CertificationState {
+    pub(crate) fn box_optimization(
+        &self,
+        id: &BoxOptimizationId,
+    ) -> Option<&BoxOptimizationReceipt> {
+        self.optimizations.get(id).map(|slot| &slot.receipt)
+    }
+
+    fn admit_optimization_id(
+        &self,
+        id: &BoxOptimizationId,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<(), CertificationSessionError> {
+        if self.optimizations.contains_key(id) {
+            return Err(CertificationSessionError::DuplicateObject);
+        }
+        if self.optimizations.len() >= MAX_BOX_OPTIMIZATIONS {
+            return Err(CertificationSessionError::ObjectLimit);
+        }
+        charge(meter, 1, 4096)?;
+        Ok(())
+    }
+
+    fn publish_optimization(
+        &mut self,
+        objective: ObjectiveId,
+        optimization: BoxOptimizationId,
+        receipt: BoxOptimizationReceipt,
+        context_digest: [u8; 32],
+        budget: &mut Budget,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        let response = optimization_response(
+            &receipt,
+            objective.clone(),
+            optimization.clone(),
+            context_digest,
+            budget,
+        )?;
+        // Full output admission and the last cancellation check precede the
+        // only write. A valid certificate with a refused response stays unpublished.
+        admit_response(&response, budget)?;
+        self.optimizations.insert(
+            optimization,
+            ResidentBoxOptimization {
+                objective,
+                context_digest,
+                receipt,
+            },
+        );
+        Ok(response)
+    }
+
     pub(crate) fn objective(&self, id: &ObjectiveId) -> Option<&ObjectiveProblem> {
         self.objectives.get(id)
     }
@@ -1967,6 +2177,128 @@ impl CertificationState {
                     context_digest,
                     budget,
                 )
+            }
+            CertificationRequest::OptimizeBox {
+                objective,
+                optimization,
+                domain,
+                extremum,
+                absolute_tolerance,
+                precision_digits,
+                max_leaves,
+                ..
+            } => {
+                self.admit_optimization_id(&optimization, budget)?;
+                let problem = self
+                    .objectives
+                    .get(&objective)
+                    .ok_or(CertificationSessionError::UnknownObjective)?;
+                let domain = parse_domain(&domain, problem.variables().len(), budget)?;
+                let tolerance = parse_scalar(&absolute_tolerance, budget)?;
+                let witness = problem.propose_box_optimization(
+                    &domain,
+                    extremum,
+                    &tolerance,
+                    BoxOptimizationOptions {
+                        precision_digits,
+                        max_leaves,
+                    },
+                    budget,
+                )?;
+                let lease =
+                    lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+                let receipt = problem.verify_box_optimization(
+                    &domain,
+                    extremum,
+                    &tolerance,
+                    &witness,
+                    &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+                )?;
+                self.publish_optimization(objective, optimization, receipt, context_digest, budget)
+            }
+            CertificationRequest::ExportBoxOptimization { optimization, .. } => {
+                let slot = self
+                    .optimizations
+                    .get(&optimization)
+                    .ok_or(CertificationSessionError::UnknownBoxOptimization)?;
+                let bytes = export_box_optimization(&slot.receipt, slot.context_digest, budget)?;
+                if bytes.len() > MAX_SESSION_ROOT_ARTIFACT_BYTES {
+                    return Err(CertificationSessionError::ArtifactLimit);
+                }
+                let artifact = String::from_utf8(bytes)
+                    .map_err(|error| CertificationSessionError::Serialization(error.to_string()))?;
+                let response = CertificationResponse::BoxOptimizationExported {
+                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                    objective: slot.objective.clone(),
+                    optimization,
+                    artifact,
+                };
+                admit_response(&response, budget)?;
+                Ok(response)
+            }
+            CertificationRequest::ReplayBoxOptimization {
+                objective,
+                optimization,
+                domain,
+                extremum,
+                absolute_tolerance,
+                artifact,
+                ..
+            } => {
+                self.admit_optimization_id(&optimization, budget)?;
+                if artifact.len() > MAX_SESSION_ROOT_ARTIFACT_BYTES {
+                    return Err(CertificationSessionError::ArtifactLimit);
+                }
+                let problem = self
+                    .objectives
+                    .get(&objective)
+                    .ok_or(CertificationSessionError::UnknownObjective)?;
+                let domain = parse_domain(&domain, problem.variables().len(), budget)?;
+                let tolerance = parse_scalar(&absolute_tolerance, budget)?;
+                let lease =
+                    lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+                let receipt = replay_box_optimization(
+                    artifact.as_bytes(),
+                    problem,
+                    &domain,
+                    extremum,
+                    &tolerance,
+                    context_digest,
+                    &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+                )?;
+                self.publish_optimization(objective, optimization, receipt, context_digest, budget)
+            }
+            CertificationRequest::ReplayBoxOptimizationFromArtifact {
+                objective,
+                optimization,
+                domain,
+                extremum,
+                absolute_tolerance,
+                transfer,
+                ..
+            } => {
+                self.admit_optimization_id(&optimization, budget)?;
+                let problem = self
+                    .objectives
+                    .get(&objective)
+                    .ok_or(CertificationSessionError::UnknownObjective)?;
+                let domain = parse_domain(&domain, problem.variables().len(), budget)?;
+                let tolerance = parse_scalar(&absolute_tolerance, budget)?;
+                let bytes = self
+                    .artifact_import(&transfer)?
+                    .checked_bytes(ArtifactKind::BoxOptimization, budget)?;
+                let lease =
+                    lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+                let receipt = replay_box_optimization(
+                    bytes,
+                    problem,
+                    &domain,
+                    extremum,
+                    &tolerance,
+                    context_digest,
+                    &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+                )?;
+                self.publish_optimization(objective, optimization, receipt, context_digest, budget)
             }
             CertificationRequest::RegisterResidualSystem {
                 system,
@@ -2607,6 +2939,16 @@ impl CertificationState {
             } => {
                 self.admit_transfer_id(&transfer, budget)?;
                 let (kind, bytes) = match source {
+                    ArtifactSource::BoxOptimization(optimization) => {
+                        let slot = self
+                            .optimizations
+                            .get(&optimization)
+                            .ok_or(CertificationSessionError::UnknownBoxOptimization)?;
+                        (
+                            ArtifactKind::BoxOptimization,
+                            export_box_optimization(&slot.receipt, slot.context_digest, budget)?,
+                        )
+                    }
                     ArtifactSource::StationaryCertificate(certificate) => {
                         let slot = self
                             .stationary_points

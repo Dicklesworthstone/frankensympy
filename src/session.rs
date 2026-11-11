@@ -11,9 +11,9 @@
 #![forbid(unsafe_code)]
 
 use crate::certification_session::{
-    CertificationRequest, CertificationResponse, CertificationSessionError, CertificationState,
-    ObjectiveId, ResidualSystemId, RootCertificateId, RootIsolationId, RootIsolationSearchId,
-    StationaryPointId,
+    BoxOptimizationId, CertificationRequest, CertificationResponse, CertificationSessionError,
+    CertificationState, ObjectiveId, ResidualSystemId, RootCertificateId, RootIsolationId,
+    RootIsolationSearchId, StationaryPointId,
 };
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_budget::{Budget, BudgetLimits, Dimension, VerifierLease};
@@ -550,6 +550,15 @@ impl Session {
         id: &StationaryPointId,
     ) -> Option<&fsym_core::StationaryPointReceipt> {
         self.certification.stationary_point(id)
+    }
+
+    /// Independently certified global optimum value and feasible-point error
+    /// on the complete declared box. This does not certify optimizer uniqueness.
+    pub fn box_optimization(
+        &self,
+        id: &BoxOptimizationId,
+    ) -> Option<&fsym_core::BoxOptimizationReceipt> {
+        self.certification.box_optimization(id)
     }
 
     /// Read-only candidate progress; readiness is not mathematical acceptance.
@@ -1094,6 +1103,10 @@ impl Session {
                     | "ExportStationaryCertificate"
                     | "ReplayStationaryCertificate"
                     | "ReplayStationaryCertificateFromArtifact"
+                    | "OptimizeBox"
+                    | "ExportBoxOptimization"
+                    | "ReplayBoxOptimization"
+                    | "ReplayBoxOptimizationFromArtifact"
             )
         ) {
             // Bound envelope metadata before the request can publish anything.

@@ -115,6 +115,7 @@ pub enum ArtifactKind {
     IntegralCertificate,
     RootSearchCheckpoint,
     StationaryCertificate,
+    BoxOptimization,
 }
 
 impl ArtifactKind {
@@ -125,6 +126,7 @@ impl ArtifactKind {
             Self::IntegralCertificate => 3,
             Self::RootSearchCheckpoint => 4,
             Self::StationaryCertificate => 5,
+            Self::BoxOptimization => 6,
         }
     }
 }

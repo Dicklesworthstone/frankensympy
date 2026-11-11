@@ -4,7 +4,7 @@ This development interface connects the root Rust library and the `frankensympy`
 NDJSON command to the existing original-source interval checker. Its scope is
 exact real residual/Jacobian enclosures, unique nonsingular local roots and
 complete finite-box root sets, objective/gradient/Hessian enclosures, locally
-classified stationary points, proper finite real definite integrals, and
+classified stationary points, global box optimum value bounds, proper finite real definite integrals, and
 portable candidate search checkpoints. Accepted claims have independently
 replayable artifacts. This interface does not close the complete Certified
 Jacobian campaign or certify a SymPy compatibility profile.
@@ -92,6 +92,71 @@ and `Session::stationary_point` expose read-only sources and accepted receipts.
 `export_stationary_certificate` and `replay_stationary_certificate` provide
 the same transport in Rust; replay requires the receiver's expected objective,
 domain and context.
+
+## Find a global minimum or maximum on a finite box
+
+`OptimizeBox` searches an immutable scalar objective over the complete closed
+box. It returns an exact feasible point and a certified interval containing the
+global minimum or maximum **value**. The reported `gap` bounds the point's
+absolute objective-value error and is at most the requested positive exact
+`absolute_tolerance`.
+
+For example, the objective below has two irrational global minimizers. No
+initial guess or stationary-point preconditioner is required:
+
+```json
+{"id":"register","type":"RegisterObjective","payload":{"schema_version":1,"objective":"objective:well","source":"(x^2-2)^2","variables":["x"]}}
+{"id":"optimize","type":"OptimizeBox","payload":{"schema_version":1,"objective":"objective:well","optimization":"optimization:minimum","domain":[{"lower":"-2","upper":"2"}],"extremum":"minimum","absolute_tolerance":"1/1000","precision_digits":16,"max_leaves":512}}
+{"id":"export","type":"ExportBoxOptimization","payload":{"schema_version":1,"optimization":"optimization:minimum"}}
+```
+
+The response has `kind: "box_optimized"`, `evidence: "certified_numeric"` and
+claim `global_box_optimum_with_absolute_value_gap_bound`. Its fields distinguish
+the optimum-value interval `value` from the original objective's interval
+`point_value` at the exact rational `point`. It also retains the requested box,
+minimum/maximum direction, tolerance, partition leaf count, precision and
+assumptions-context digest. `extremum: "maximum"` requests the corresponding
+global maximum. Boundary optima and fixed coordinates with equal endpoints
+are supported.
+
+Search produces an untrusted point and complete dyadic partition using ordinary
+resources. The independent core checker reconstructs every partition leaf and
+reevaluates the original source and point using protected verification resources
+from the same cumulative ledger. It visits all regions, including those pruned
+by search. Only a complete checked response can publish an
+`optimization:<identifier>` handle; failed verification or output admission
+keeps that handle free and does not refund consumed work.
+
+This lane admits 1..16 real coordinates, precision 8..128 and 1..1024 leaves.
+Supported original source expressions must be C2 on a neighborhood of every
+closed cell. Poles, unsupported functions and unresolved Piecewise seams refuse.
+An exhausted partition returns `inconclusive` without an accepted partial or
+local result. The receipt does not assert exact optimizer coordinates,
+coordinate-distance error, uniqueness or a complete set of optimizing points.
+
+To replay in a fresh session, register the receiver's expected original source
+and send the exported bytes with the exact expected statement:
+
+```json
+{"id":"replay","type":"ReplayBoxOptimization","payload":{"schema_version":1,"objective":"objective:well","optimization":"optimization:received","domain":[{"lower":"-2","upper":"2"}],"extremum":"minimum","absolute_tolerance":"1/1000","artifact":"<the exact exported result.artifact string, JSON-escaped by your client>"}}
+```
+
+Export carries the original source, ordered typed axes, box, direction,
+tolerance, context and bounded candidate witness. It stores no optimum value,
+point value, gap or accepted flag. Replay compares the receiver's statement
+before decoding bounded exact coordinates, then independently reconstructs the
+complete cover. A changed direction or tolerance returns `statement_mismatch`;
+changed source, box or context retain their respective mismatch errors.
+Noncanonical encodings, unknown fields and incomplete partitions are rejected.
+
+Native callers use `ObjectiveProblem::propose_box_optimization` and
+`ObjectiveProblem::verify_box_optimization` with caller-owned meters and the
+existing `BoxOptimizationOptions`. `Session::box_optimization` exposes accepted
+receipts. `export_box_optimization` and `replay_box_optimization` provide the
+same canonical transport in Rust. Large proofs use `BeginArtifactExport` with
+`{"box_optimization":"optimization:minimum"}` and the existing bounded chunk
+transfer; `ReplayBoxOptimizationFromArtifact` supplies the same expected
+statement and a completed import transfer instead of inline bytes.
 
 ## Certify a proper real definite integral
 
@@ -359,6 +424,7 @@ Select the source and receiving operation for the object being transferred:
 | `{"integral_certificate":"integral:area"}` | `integral_certificate` | `ReplayIntegralCertificateFromArtifact` |
 | `{"root_isolation_search":"search:paused"}` | `root_search_checkpoint` | `RestoreRootIsolationSearchFromArtifact` |
 | `{"stationary_certificate":"stationary:minimum"}` | `stationary_certificate` | `ReplayStationaryCertificateFromArtifact` |
+| `{"box_optimization":"optimization:minimum"}` | `box_optimization` | `ReplayBoxOptimizationFromArtifact` |
 
 The begin response's `result.manifest` contains `schema_version`, `kind`,
 `total_bytes` and `content_id`. The read response's `result.chunk` contains
@@ -406,7 +472,7 @@ The complete content ID is checked before replay or restoration.
 Per-chunk digests bind the full content ID, chunk index and chunk bytes; the
 content ID binds the artifact kind, length and bytes. Neither successful
 transfer nor a matching digest creates a certificate or a search handle.
-Root, integral and stationary-point replay require protected independent verification of
+Root, integral, stationary-point and global-optimization replay require protected independent verification of
 the canonical artifact and its expected statement. Checkpoint restoration
 rechecks the candidate prefix on ordinary resources; protected finish remains
 necessary for acceptance. Using a checkpoint transfer as a proof fails with
@@ -434,7 +500,7 @@ are exact rational numbers. No binary64 conversion enters this interface.
 Session labels have distinct kinds: `system:<identifier>`,
 `certificate:<identifier>`, `isolation:<identifier>`,
 `integral:<identifier>`, `search:<identifier>`, `objective:<identifier>`,
-`stationary:<identifier>` and `transfer:<identifier>`.
+`stationary:<identifier>`, `optimization:<identifier>` and `transfer:<identifier>`.
 They are local references, not stable content IDs. Identifiers use ASCII letters,
 digits, underscores, hyphens or dots. All labels except isolation labels are
 at most 128 bytes; isolation labels are at most 104 bytes,
@@ -482,6 +548,7 @@ its existing small defaults; numerical callers should use
 | Resident systems / certificates / complete isolations | 32 / 128 / 32; child certificates share the certificate limit |
 | Resident integral certificates | 32 |
 | Resident objectives / stationary certificates | 32 / 128 |
+| Resident global box optimization receipts | 32 |
 | Resident artifact transfers | 8 total imports and exports; explicit release frees a slot |
 | Resident root searches | 8; explicit release frees a slot without a budget refund |
 | Root-search work quantum | 1–2,047 committed cell transitions per advance |
@@ -511,7 +578,7 @@ and a mathematical `refused` outcome.
 An incomplete root search returns `search_not_ready` when asked to finish.
 Transfers additionally distinguish `incomplete_transfer`, `out_of_order_chunk`,
 `conflicting_chunk`, `artifact_kind_mismatch` and `wrong_transfer_mode`.
-An error never contains an accepted root, integral or stationary-point value.
+An error never contains an accepted root, integral, stationary-point or global-optimization value.
 
 ## Proper real definite integration in Rust
 
