@@ -240,6 +240,8 @@ jobs:
               "python/tests/test_exact_dsolve.py",
               "python/tests/test_surface.py::SurfaceTests::test_ode_checkodesol_and_verifiers",
               "python/tests/test_surface.py::SurfaceTests::test_calculus_and_series_advanced",
+              "python/tests/test_surface.py::SurfaceTests::test_integral_subsystem",
+              "python/tests/test_integral_bindings.py",
           ]))
           PY
       - name: Test the checked-out shell against the current native extension

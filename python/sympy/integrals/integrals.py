@@ -1,10 +1,10 @@
 """Unevaluated integrals for FrankenSymPy.
 
-``Integral(f, (x, a, b), ...)`` is a native binding construct: its args are
-``(f, Tuple(x, a, b), ...)`` (or ``Tuple(x)`` for an indefinite limit), so it
-takes part in native arithmetic, while the kernel treats the limit variables
-as bound — substitution never reaches them inside the body and
-differentiation follows the Leibniz rule.
+``Integral(f, (x, a, b), ...)`` has args
+``(f, Tuple(x, a, b), ...)`` (or ``Tuple(x)`` for an indefinite limit).
+An indefinite integration coordinate remains free, even for a constant
+integrand. A definite limit binds its coordinate in the integrand and
+all earlier limits, while its own endpoints remain outside that scope.
 """
 
 from __future__ import annotations
@@ -65,12 +65,21 @@ class Integral(Function):
         return [lim[0] for lim in self.limits]
 
     @property
+    def bound_symbols(self) -> list:
+        return [lim[0] for lim in self.limits if len(lim) > 1]
+
+    @property
     def free_symbols(self) -> set:
         syms = set(self.function.free_symbols)
         for lim in self.limits:
-            syms.discard(lim[0])
-            for bound in lim[1:]:
-                syms |= set(getattr(bound, "free_symbols", set()))
+            if len(lim) == 1:
+                # Even Integral(1, x) depends on x. Work from the innermost
+                # limit out so a later definite limit can bind this occurrence.
+                syms.add(lim[0])
+            else:
+                syms.discard(lim[0])
+                for bound in lim[1:]:
+                    syms |= set(bound.free_symbols)
         return syms
 
     @property

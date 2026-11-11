@@ -4897,7 +4897,8 @@ print(json.dumps({
         self.assertEqual(i1, i2)
         self.assertEqual(hash(i1), hash(i2))
         self.assertEqual(i1.variables, [x])
-        self.assertTrue(i1.is_number)
+        # SymPy 1.14.0: an indefinite integral still depends on its variable.
+        self.assertFalse(i1.is_number)
 
         # Leibniz differentiation
         self.assertEqual(i1.diff(x), x**2)
