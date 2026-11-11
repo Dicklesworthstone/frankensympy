@@ -23,8 +23,10 @@
 
 #![forbid(unsafe_code)]
 
+use serde::ser::SerializeMap;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::io::{self, Write};
 
 pub mod cli_store;
 pub mod file_store;
@@ -72,6 +74,8 @@ pub enum DurableError {
     },
     #[error("dependency manifest is missing pinned entry {0}")]
     DependencyMissing(String),
+    #[error("dependency manifest contains unexpected pinned entry {0}")]
+    DependencyUnexpected(String),
     #[error("staging cleanup reserve exhausted: {held} records held, limit {limit}")]
     InsufficientCleanupReserve { held: usize, limit: usize },
     #[error("prepared record {0} is not available for the requested operation")]
@@ -139,6 +143,49 @@ pub struct DurableRecord {
     pub record_digest: [u8; 32],
 }
 
+struct BoundedRecordWriter {
+    bytes: Vec<u8>,
+    attempted_len: Option<usize>,
+}
+
+impl Write for BoundedRecordWriter {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let attempted = self.bytes.len().saturating_add(buffer.len());
+        if attempted > MAX_RECORD_WIRE_BYTES {
+            self.attempted_len = Some(attempted);
+            return Err(io::Error::other("durable record exceeds wire limit"));
+        }
+        self.bytes
+            .try_reserve(buffer.len())
+            .map_err(|_| io::Error::other("durable record allocation failed"))?;
+        self.bytes.extend_from_slice(buffer);
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+fn encode_bounded(value: &impl Serialize) -> Result<Vec<u8>, DurableError> {
+    let mut writer = BoundedRecordWriter {
+        bytes: Vec::new(),
+        attempted_len: None,
+    };
+    if let Err(error) = serde_json::to_writer(&mut writer, value) {
+        return Err(match writer.attempted_len {
+            Some(actual) => DurableError::RecordTooLarge {
+                actual,
+                limit: MAX_RECORD_WIRE_BYTES,
+            },
+            None => DurableError::MalformedRecord(format!(
+                "bounded record serialization failed: {error}"
+            )),
+        });
+    }
+    Ok(writer.bytes)
+}
+
 impl DurableRecord {
     /// Assembles and self-digests a record after bounding every field.
     pub fn new(
@@ -180,36 +227,56 @@ impl DurableRecord {
     }
 
     fn compute_record_digest(&self) -> Result<[u8; 32], DurableError> {
-        // Canonical tree over every field except record_digest itself.
-        let canonical = serde_json::json!({
-            "schema_version": self.schema_version,
-            "record_schema": self.record_schema,
-            "universe_id": hex_lower(&self.universe_id),
-            "payload_schema": self.payload_schema,
-            "payload_digest": hex_lower(&self.payload_digest),
-            "dependencies": self.dependencies.entries,
-        });
-        let mut serialized = serde_json::to_vec(&canonical).map_err(|error| {
-            DurableError::MalformedRecord(format!("canonical record encoding failed: {error}"))
-        })?;
-        if serialized.len() > MAX_RECORD_WIRE_BYTES {
-            return Err(DurableError::RecordTooLarge {
-                actual: serialized.len(),
-                limit: MAX_RECORD_WIRE_BYTES,
-            });
+        // Preserve the original v1 json! object's field order under both
+        // serde_json map implementations. Only six fixed keys enter that map;
+        // the untrusted manifest remains borrowed throughout bounded encoding.
+        struct DigestView<'a> {
+            record: &'a DurableRecord,
         }
+        impl Serialize for DigestView<'_> {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                let mut fields = serde_json::Map::new();
+                for key in [
+                    "schema_version",
+                    "record_schema",
+                    "universe_id",
+                    "payload_schema",
+                    "payload_digest",
+                    "dependencies",
+                ] {
+                    fields.insert(key.into(), serde_json::Value::Null);
+                }
+                let mut map = serializer.serialize_map(Some(fields.len()))?;
+                for key in fields.keys() {
+                    match key.as_str() {
+                        "schema_version" => {
+                            map.serialize_entry(key, &self.record.schema_version)?
+                        }
+                        "record_schema" => map.serialize_entry(key, &self.record.record_schema)?,
+                        "universe_id" => {
+                            map.serialize_entry(key, &hex_lower(&self.record.universe_id))?;
+                        }
+                        "payload_schema" => {
+                            map.serialize_entry(key, &self.record.payload_schema)?
+                        }
+                        "payload_digest" => {
+                            map.serialize_entry(key, &hex_lower(&self.record.payload_digest))?;
+                        }
+                        "dependencies" => {
+                            map.serialize_entry(key, &self.record.dependencies.entries)?;
+                        }
+                        _ => unreachable!("fixed durable digest fields"),
+                    }
+                }
+                map.end()
+            }
+        }
+        let mut serialized = encode_bounded(&DigestView { record: self })?;
         serialized.push(b'\n');
         Ok(*blake3::hash(&serialized).as_bytes())
     }
 
-    /// Full boundary validation: schema identity, payload digest, record
-    /// digest, and the exact dependency manifest presented as `expected`.
-    /// Returns the validated payload bytes.
-    pub fn validate(
-        &self,
-        expected_universe: [u8; 32],
-        expected_dependencies: &DependencyManifest,
-    ) -> Result<&[u8], DurableError> {
+    fn validate_shape(&self) -> Result<(), DurableError> {
         if self.schema_version != DURABLE_RECORD_SCHEMA_VERSION {
             return Err(DurableError::SchemaMismatch {
                 expected: format!("schema_version {DURABLE_RECORD_SCHEMA_VERSION}"),
@@ -222,12 +289,27 @@ impl DurableRecord {
                 found: self.record_schema.clone(),
             });
         }
-        if self.universe_id != expected_universe {
-            return Err(DurableError::UniverseMismatch {
-                expected: expected_universe,
-                found: self.universe_id,
+        if self.payload_schema.is_empty() || self.payload_schema.len() > 256 {
+            return Err(DurableError::MalformedRecord(
+                "payload schema id must contain 1..=256 bytes".into(),
+            ));
+        }
+        if self.payload.is_empty() {
+            return Err(DurableError::MalformedRecord(
+                "durable records cannot carry an empty payload".into(),
+            ));
+        }
+        if self.payload.len() > MAX_RECORD_WIRE_BYTES {
+            return Err(DurableError::RecordTooLarge {
+                actual: self.payload.len(),
+                limit: MAX_RECORD_WIRE_BYTES,
             });
         }
+        Ok(())
+    }
+
+    fn validate_integrity(&self) -> Result<(), DurableError> {
+        self.validate_shape()?;
         let computed_payload = *blake3::hash(&self.payload).as_bytes();
         if computed_payload != self.payload_digest {
             return Err(DurableError::DigestMismatch {
@@ -242,6 +324,26 @@ impl DurableRecord {
                 computed: computed_record,
             });
         }
+        Ok(())
+    }
+
+    /// Full boundary validation: schema identity, payload digest, record
+    /// digest, and the exact dependency manifest presented as `expected`.
+    /// Returns the validated payload bytes. The caller also binds the payload
+    /// schema and performs its schema-specific semantic verification.
+    pub fn validate(
+        &self,
+        expected_universe: [u8; 32],
+        expected_dependencies: &DependencyManifest,
+    ) -> Result<&[u8], DurableError> {
+        self.validate_shape()?;
+        if self.universe_id != expected_universe {
+            return Err(DurableError::UniverseMismatch {
+                expected: expected_universe,
+                found: self.universe_id,
+            });
+        }
+        self.validate_integrity()?;
         for (name, expected_pin) in &expected_dependencies.entries {
             match self.dependencies.entries.get(name) {
                 Some(found) if found == expected_pin => {}
@@ -255,27 +357,18 @@ impl DurableRecord {
                 None => return Err(DurableError::DependencyMissing(name.clone())),
             }
         }
-        if self.payload.len() > MAX_RECORD_WIRE_BYTES {
-            return Err(DurableError::RecordTooLarge {
-                actual: self.payload.len(),
-                limit: MAX_RECORD_WIRE_BYTES,
-            });
+        for name in self.dependencies.entries.keys() {
+            if !expected_dependencies.entries.contains_key(name) {
+                return Err(DurableError::DependencyUnexpected(name.clone()));
+            }
         }
         Ok(&self.payload)
     }
 
     /// Canonical wire encoding; decode must round-trip byte-identically.
     pub fn to_wire(&self) -> Result<Vec<u8>, DurableError> {
-        let wire = serde_json::to_vec(self).map_err(|error| {
-            DurableError::MalformedRecord(format!("record serialization failed: {error}"))
-        })?;
-        if wire.len() > MAX_RECORD_WIRE_BYTES {
-            return Err(DurableError::RecordTooLarge {
-                actual: wire.len(),
-                limit: MAX_RECORD_WIRE_BYTES,
-            });
-        }
-        Ok(wire)
+        self.validate_integrity()?;
+        encode_bounded(self)
     }
 
     /// Strict decode: unknown fields refuse; the decoded record is then
@@ -290,19 +383,11 @@ impl DurableRecord {
         let record: Self = serde_json::from_slice(wire).map_err(|error| {
             DurableError::MalformedRecord(format!("record decode refused: {error}"))
         })?;
-        let computed_payload = *blake3::hash(&record.payload).as_bytes();
-        if computed_payload != record.payload_digest {
-            return Err(DurableError::DigestMismatch {
-                expected: record.payload_digest,
-                computed: computed_payload,
-            });
-        }
-        let computed_record = record.compute_record_digest()?;
-        if computed_record != record.record_digest {
-            return Err(DurableError::DigestMismatch {
-                expected: record.record_digest,
-                computed: computed_record,
-            });
+        record.validate_integrity()?;
+        if encode_bounded(&record)? != wire {
+            return Err(DurableError::MalformedRecord(
+                "durable record is not in canonical wire form".into(),
+            ));
         }
         Ok(record)
     }

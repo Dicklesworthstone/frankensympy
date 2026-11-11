@@ -7,7 +7,7 @@
 //! refuses. Crash testing drives real process death at each boundary; nothing
 //! is implicitly published and nothing staged is trusted.
 
-use crate::{DurableError, DurableRecord};
+use crate::{DurableError, DurableRecord, MAX_RECORD_WIRE_BYTES, hex_decode};
 use std::fmt;
 
 /// Opaque staging handle minted by [`DurableStore::prepare`].
@@ -25,6 +25,40 @@ impl PreparedHandle {
     /// receipts). Handles are content-addressed names, never capabilities.
     pub fn from_name(name: impl Into<String>) -> Self {
         Self { name: name.into() }
+    }
+
+    /// Check the content-addressed basename before it is used by a backend.
+    /// Reconstructing a handle does not grant path or SQL authority.
+    pub fn validate(&self) -> Result<(), DurableError> {
+        self.parts().map(|_| ())
+    }
+
+    pub(crate) fn parts(&self) -> Result<([u8; 32], usize), DurableError> {
+        let invalid = || DurableError::MalformedRecord("invalid prepared record handle".into());
+        if self.name.len() > 92 {
+            return Err(invalid());
+        }
+        let (digest, length) = self.name.split_once('-').ok_or_else(invalid)?;
+        if digest.len() != 64
+            || !digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(invalid());
+        }
+        let length = length.strip_suffix(".record").ok_or_else(invalid)?;
+        if length.is_empty()
+            || !length.bytes().all(|byte| byte.is_ascii_digit())
+            || length.starts_with('0')
+        {
+            return Err(invalid());
+        }
+        let payload_len = length.parse::<usize>().map_err(|_| invalid())?;
+        if payload_len > MAX_RECORD_WIRE_BYTES {
+            return Err(invalid());
+        }
+        let digest = hex_decode(digest)?.try_into().map_err(|_| invalid())?;
+        Ok((digest, payload_len))
     }
 }
 

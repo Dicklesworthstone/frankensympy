@@ -7,14 +7,35 @@ repository.workspace = true
 publish = false
 description = "Storage-neutral durable checkpoint boundary with a canonical file reference lane and an optional pinned FrankenSQLite adapter (L5). Home of the fresh-process factor-frontier crash matrix."
 
+[features]
+default = ["factor-worker"]
+# The storage library itself has no mathematical or async runtime dependency.
+# Preserve the existing worker/default test suite while allowing its ordinary
+# file/record boundary to be used and tested independently.
+factor-worker = [
+    "dep:fsym-runtime", "dep:fsym-core", "dep:fsym-polys",
+    "dep:fsym-proof-kernel", "dep:fsym-assumptions", "dep:fsym-budget",
+    "dep:asupersync",
+]
+
+[[bin]]
+name = "factor_frontier_worker"
+path = "src/bin/factor_frontier_worker.rs"
+required-features = ["factor-worker"]
+
+[[test]]
+name = "fresh_process_crash_matrix"
+path = "tests/fresh_process_crash_matrix.rs"
+required-features = ["factor-worker"]
+
 [dependencies]
-fsym-runtime.workspace = true
-fsym-core.workspace = true
-fsym-polys.workspace = true
-fsym-proof-kernel.workspace = true
-fsym-assumptions.workspace = true
-fsym-budget.workspace = true
-asupersync.workspace = true
+fsym-runtime = { workspace = true, optional = true }
+fsym-core = { workspace = true, optional = true }
+fsym-polys = { workspace = true, optional = true }
+fsym-proof-kernel = { workspace = true, optional = true }
+fsym-assumptions = { workspace = true, optional = true }
+fsym-budget = { workspace = true, optional = true }
+asupersync = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

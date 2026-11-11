@@ -149,6 +149,7 @@ impl DurableStore for FsqliteCliStore {
     }
 
     fn verify_prepared(&self, handle: &PreparedHandle) -> Result<DurableRecord, DurableError> {
+        handle.validate()?;
         // Handles are content-addressed names; the staging scan mirrors the
         // file lane (first match wins, digests verified on readback).
         let scopes = self.run(&format!(
@@ -164,6 +165,7 @@ impl DurableStore for FsqliteCliStore {
     }
 
     fn commit(&self, handle: &PreparedHandle) -> Result<(), DurableError> {
+        handle.validate()?;
         let record = self.verify_prepared(handle)?;
         let scope = Self::scope(record.universe_id, &record.payload_schema)?;
         let name = handle.as_str();
@@ -203,6 +205,7 @@ impl DurableStore for FsqliteCliStore {
     }
 
     fn release(&self, handle: &PreparedHandle) -> Result<(), DurableError> {
+        handle.validate()?;
         self.run(&format!(
             "DELETE FROM durable_records WHERE kind='{STAGING}' AND name='{}';",
             handle.as_str()
