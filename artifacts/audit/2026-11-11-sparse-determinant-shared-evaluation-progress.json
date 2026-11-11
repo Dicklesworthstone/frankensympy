@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-11-11T19:19:19Z",
+  "status": "bounded_implementation_progress",
+  "scope": [
+    "portable exact rational sparse determinant checker and native APIs",
+    "lazy exact-bytecode sharing in verified residual/Jacobian evaluation",
+    "source-retaining exact rational equation-list linsolve integration"
+  ],
+  "no_claim_promotion": true,
+  "no_bead_closure": true,
+  "performance_claim": false,
+  "repository": "Dicklesworthstone/frankensympy",
+  "initial_checkout": "0e711616bb889d46b429cca1e2b73896f0cab861",
+  "preserved_concurrent_commit": "3941425f9fb941d78f80dfd6d3247b4872618434",
+  "verified_direct_main_commits": {
+    "independent_determinant_kernel": "cbc5065f0d0cfedb41444a52449af15b18c6f994",
+    "determinant_native_api": "ac97390ba6d970c6efcc1bf79dac6f5d1383b85c",
+    "shared_numeric_evaluation": "8062fcb92b5f4b8186bf8dfe0b25d6de277d7ce8",
+    "equation_list_integration": "the commit containing this artifact"
+  },
+  "source_git_blobs": {
+    "Cargo.lock": "e695f7067ed92750c8c221e5738fbc9907712e70",
+    "Cargo.toml": "218683be3b96de4c5f0fec3e07ee464cc3dcdf61",
+    "crates/fsym-calculus/src/compile.rs": "f31f9f0bb3f9b94e276c297395eb432058802350",
+    "crates/fsym-calculus/src/compile/shared.rs": "9ed995acf94499fd47ab871615567daa36c5c1df",
+    "crates/fsym-calculus/src/verified.rs": "e33a56aaf2cee3dc6fcc5c4ce3b10673de8ef56b",
+    "crates/fsym-calculus/tests/shared_numeric_evaluation.rs": "bd4309763f0fcef3af7156e126d40858081ad931",
+    "crates/fsym-calculus/tests/verified_shared_evaluation.rs": "05e0d61d68f80a8d9ca255eefa3f500bcedddce5",
+    "crates/fsym-matrices/src/lib.rs": "ab993a32d4cfff59469d9dd60033a04c4fac5e15",
+    "crates/fsym-matrices/src/sparse_rref.rs": "912b738662cf56fc53c53127a62c943824c7f015",
+    "crates/fsym-matrices/tests/sparse_determinant.rs": "32d1a3db704404f71840bf766fec0ec7184d2aa4",
+    "crates/fsym-proof-kernel/src/lib.rs": "0b5074dd0654ba19f093826716acd9135726c55f",
+    "crates/fsym-proof-kernel/src/sparse_determinant.rs": "7eff351723100cdb29c2f543a1f2e993c1b12982",
+    "crates/fsym-proof-kernel/src/sparse_rref.rs": "35f11963ab3a3029530c0ff3b311273dec491ea9",
+    "crates/fsym-proof-kernel/tests/sparse_determinant.rs": "82be0dade3c8efb76a1c0b76236edec11c570373",
+    "rust-toolchain.toml": "e325a230747ac250490047f0a3a6625ea82e5831",
+    "python/sympy/solvers/_sparse_linear.py": "3d9bcba36584fe560f0edddf5c65ceffa70bfa2f",
+    "python/sympy/solvers/solvers.py": "917dd080b077920b4fa07eaf9781ae159da84995",
+    "python/tests/test_sparse_linear_equations.py": "8bd04879e441af47de1601e78e7acdf1ec42b645"
+  },
+  "toolchain": {
+    "pin": "nightly-2026-08-20",
+    "rustc": "1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "cargo": "1.100.0-nightly (514c56dd7 2026-08-19)"
+  },
+  "build_scope": {
+    "kind": "actual production Cargo workspace",
+    "source_scoped_harness": false,
+    "substituted_manifest": false,
+    "removed_dependencies": false,
+    "environment": {
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0"
+    },
+    "test_threads": "corrected shared_numeric_evaluation and direct target executions ran serially",
+    "executable_layout": "Pinned Cargo emitted test executables under target/debug/build/<package>/<hash>/out. Its JSON artifact record bound the production manifest and test source; no Rustc wrapper or build-dir override was configured."
+  },
+  "confirmed_native_results": [
+    {
+      "target": "fsym-proof-kernel::sparse_determinant",
+      "command": "cargo test --locked -p fsym-proof-kernel --test sparse_determinant",
+      "passed": 14,
+      "exit_code": 0,
+      "elapsed_seconds": 458.204,
+      "log_basename": "sparse-determinant-kernel.log"
+    },
+    {
+      "target": "fsym-calculus::shared_numeric_evaluation",
+      "command": "cargo test --locked -p fsym-calculus --test shared_numeric_evaluation --message-format=json-render-diagnostics -- --test-threads=1",
+      "passed": 10,
+      "exit_code": 0,
+      "log_basename": "shared-numeric-cargo.log"
+    },
+    {
+      "target": "fsym-calculus::verified_shared_evaluation",
+      "execution": "newly production-Cargo-built executable, --test-threads=1",
+      "passed": 4,
+      "exit_code": 0,
+      "log_basename": "verified-shared-direct.log"
+    },
+    {
+      "target": "fsym-calculus::verified_sparse_storage",
+      "execution": "newly production-Cargo-built executable, serial",
+      "passed": 10,
+      "exit_code": 0,
+      "log_status": "terminal output observed in tool response, no separate saved log"
+    },
+    {
+      "target": "fsym-calculus::verified_sparse_products",
+      "execution": "newly production-Cargo-built executable, serial",
+      "passed": 12,
+      "exit_code": 0,
+      "log_basename": "verified_sparse_products-direct.log"
+    },
+    {
+      "target": "fsym-calculus::verified_artifact_transport",
+      "execution": "newly production-Cargo-built executable, serial",
+      "passed": 14,
+      "exit_code": 0,
+      "log_basename": "verified_artifact_transport-direct.log"
+    }
+  ],
+  "distinct_passed_tests": 64,
+  "new_passed_tests": 28,
+  "existing_regression_tests_passed": 36,
+  "failed_attempts": [
+    {
+      "scope": "cargo check --locked -p fsym-core -p fsym-calculus",
+      "result": "fsym-core checked; fsym-proof-kernel compiler received SIGKILL without a Rust diagnostic"
+    },
+    {
+      "scope": "first complete fsym-python extension-module build",
+      "result": "syn 2.0.119 compiler received SIGKILL without a Rust diagnostic; no usable extension",
+      "log_basename": "fsym-python-build.log"
+    },
+    {
+      "scope": "cargo test --locked -p fsym-matrices --test sparse_determinant",
+      "result": "unchanged fsym-solvers code generation received SIGKILL without a Rust diagnostic",
+      "exit_code": 101,
+      "elapsed_seconds": 761.906,
+      "tests_executed": 0,
+      "log_basename": "sparse-determinant-matrices.log"
+    },
+    {
+      "scope": "initial seven-target fsym-calculus Cargo invocation",
+      "result": "E0046 in the new Interrupt test meter: charge_batch was missing. Corrected before the successful complete 10-test rerun. The initial aggregate command did not pass.",
+      "exit_code": 101,
+      "log_basename": "shared-calculus-tests.log"
+    }
+  ],
+  "not_completed": [
+    "12 native matrix determinant tests",
+    "private compile::shared::tests mutation target: execution request never started",
+    "final aggregate calculus rerun: execution request never started",
+    "piecewise_programs and metered_compiled_evaluation final execution",
+    "matrix retry with package-specific 256 codegen units: not started",
+    "strict Clippy, cargo fmt --check, full cargo check --workspace --all-targets, full cargo clippy --workspace --all-targets -- -D warnings, and full cargo test --workspace",
+    "warmed full Python extension retry, actual Python candidate import, pytest collection and public regressions",
+    "post-recovery Python syntax/runtime checks and full planning validation"
+  ],
+  "pre_outage_source_checks": [
+    "changed Rust sources formatted with pinned nightly rustfmt",
+    "Python py_compile of the three changed public files, including final source edits",
+    "git diff --check",
+    "independent determinant, shared-evaluation and Python source reviews"
+  ],
+  "supplementary_python_checks": {
+    "scope": "not a candidate extension or compatibility-profile pass",
+    "exact_affine_helper": {
+      "trees": 2000,
+      "independent_exact_point_evaluations": 10000,
+      "scalar_power_cases": 3,
+      "refusal_cases": 5,
+      "result": "passed before outage"
+    },
+    "fraction_interface": {
+      "members": 62,
+      "result": "metadata capture and in-place property getter code mutation detection passed before outage"
+    },
+    "isolated_oracle": {
+      "sympy": "1.14.0",
+      "python": "3.12.14",
+      "isolated_mode": true,
+      "cases_passed": 22,
+      "cases_total": 22,
+      "scope": "ordinary public expectations only, including 601-coordinate family and exact 10^-100 perturbation; private hooks and intentionally stricter refusals excluded"
+    }
+  },
+  "recovery": {
+    "cause": "execution environment reported unavailable; exec-server recovery timed out after 45 seconds",
+    "rust": "All native implementation changes were committed and independently read back before the outage. The three Python files were the remaining uncommitted feature.",
+    "python_tree": "b2e5e157de44a9072e3e979c09061bc4121c49fc",
+    "method": "Reconstructed deterministically from retained complete tool-read snapshots, unchanged remote baseline blobs, and each recorded exact patch.",
+    "final_pre_loss_whole_file_hashes_available": false,
+    "final_recorded_counts": {
+      "_sparse_linear.py": {
+        "lines": 796,
+        "added": 456,
+        "removed": 5
+      },
+      "solvers.py": {
+        "lines": 377,
+        "added": 8,
+        "removed": 1
+      },
+      "test_sparse_linear_equations.py": {
+        "lines": 331
+      }
+    },
+    "independent_review": "Recovered Fraction excerpts matched the reviewer's pre-loss reads exactly; matrix solver body remained unchanged. All final Fraction/Equality guards, imports, tests and source/domain/dispatch logic were reviewed again through GitHub.",
+    "remote_readback": "All three recovered blob payloads matched their reconstruction byte for byte; root verified that the recovered tree changes only those three paths.",
+    "raw_logs": "Terminal outcomes above were observed before outage. Named scratch logs and the full oracle output could not be recovered after environment loss; this artifact does not claim they are durably present.",
+    "ci": "Existing G3 selection is extended by the new public module and focused native targets. Queueing or source selection is not an execution pass."
+  },
+  "remaining_scope": [
+    "Caller-supplied protected verifier budget reservation is separate from determinant convenience APIs.",
+    "Determinant source lowering from arbitrary symbolic domains and broad linear algebra certification remain open.",
+    "Shared comparison work has explicit admission bounds; no Hessian integration or competitive timing win is claimed.",
+    "Broader symbolic/nonlinear equation admission and compatibility/profile gates remain open.",
+    "All existing workstream statuses, priorities, dependency edges, evidence minima and claim tiers remain unchanged."
+  ]
+}

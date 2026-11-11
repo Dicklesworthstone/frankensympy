@@ -22,7 +22,11 @@ from ..polys.polyerrors import GeneratorsError
 from ..sets import EmptySet, FiniteSet, Set
 from ..core import expand, simplify
 from .numerical import nsolve
-from ._sparse_linear import checked_linear_system as _checked_linear_system, UNSUPPORTED as _LINEAR_UNSUPPORTED
+from ._sparse_linear import (
+    checked_linear_system as _checked_linear_system,
+    checked_linear_equations as _checked_linear_equations,
+    UNSUPPORTED as _LINEAR_UNSUPPORTED,
+)
 
 
 def _extract_linear_coeffs(expr, symbols):
@@ -231,6 +235,9 @@ def linsolve(system: Any, *symbols: Any) -> Set:
                     "\nWhen passing a system of equations, the explicit symbols for which a\n"
                     "solution is being sought must be given as a sequence, too."
                 )
+            checked = _checked_linear_equations(system, sym_list)
+            if checked is not _LINEAR_UNSUPPORTED:
+                return checked
             if len(set(sym_list)) != len(sym_list):
                 raise ValueError("duplicate symbols given")
             eq_list = []
