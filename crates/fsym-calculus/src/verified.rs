@@ -9,12 +9,13 @@
 
 use crate::compile::{
     CompileError, CompiledExpr, CompiledOp, CompiledResidualSystem, EvalError, MAX_COMPILE_OPS,
-    SharedEvaluationPlan, charge_evaluation_allocation, charge_evaluation_steps,
+    SharedEvaluationPlan, charge_compilation_work, charge_evaluation_allocation,
+    charge_evaluation_steps,
 };
 use crate::sparse_jacobian::{
     JacobianVerificationError, MAX_SPARSE_AXES, MAX_SPARSE_SOURCE_WORK, SparseJacobian,
-    SparseJacobianReceipt, compiled_expression_matches, plan_sparse_sources,
-    verify_sparse_jacobian_certificate,
+    SparseJacobianReceipt, compiled_expression_matches_with_meter, plan_sparse_sources_with_meter,
+    verify_sparse_jacobian_certificate_with_meter,
 };
 use fsym_budget::{BudgetMeter, Unbounded};
 use fsym_core::{Expr, Symbol};
@@ -270,10 +271,23 @@ impl VerifiedResidualSystem {
         residuals: &[Expr],
         vars: &[Symbol],
     ) -> Result<Self, VerifiedCompilationError> {
+        Self::try_compile_with_meter(residuals, vars, &mut Unbounded)
+    }
+
+    /// Compile and independently admit a complete program on a cumulative
+    /// ledger. Callers with a reserved verifier pool can instead generate with
+    /// `SparseJacobian::try_build_with_meter`, then pass its owned candidate to
+    /// [`Self::try_from_owned_sparse_jacobian_with_meter`] using the verifier meter.
+    pub fn try_compile_with_meter<M: BudgetMeter + ?Sized>(
+        residuals: &[Expr],
+        vars: &[Symbol],
+        meter: &mut M,
+    ) -> Result<Self, VerifiedCompilationError> {
+        charge_compilation_work(meter, 1, 0, 0)?;
         Self::check_axes(residuals.len(), vars.len())?;
         let mut expression_nodes = 0;
         for residual in residuals {
-            let nodes = Self::check_expression_shape(residual)?;
+            let nodes = Self::check_expression_shape(residual, meter)?;
             Self::add_admission_count(
                 &mut expression_nodes,
                 nodes,
@@ -282,8 +296,11 @@ impl VerifiedResidualSystem {
             )?;
         }
         // Bound row-local differentiation work before constructing any proofs.
-        Self::check_source_plan(residuals, vars)?;
-        Self::try_from_owned_sparse_jacobian(SparseJacobian::try_build(residuals, vars)?)
+        Self::check_source_plan(residuals, vars, meter)?;
+        Self::try_from_owned_sparse_jacobian_with_meter(
+            SparseJacobian::try_build_with_meter(residuals, vars, meter)?,
+            meter,
+        )
     }
 
     /// Admits a possibly untrusted sparse artifact and retains its full proof.
@@ -292,8 +309,8 @@ impl VerifiedResidualSystem {
         jacobian: &SparseJacobian,
     ) -> Result<Self, VerifiedCompilationError> {
         let (residual_programs, stored_operation_count, receipt) =
-            Self::check_and_compile(jacobian)?;
-        let shared_evaluation = Self::shared_plan(&residual_programs, jacobian)?;
+            Self::check_and_compile(jacobian, &mut Unbounded)?;
+        let shared_evaluation = Self::shared_plan(&residual_programs, jacobian, &mut Unbounded)?;
         Ok(Self {
             residual_programs,
             stored_operation_count,
@@ -306,9 +323,21 @@ impl VerifiedResidualSystem {
     fn try_from_owned_sparse_jacobian(
         jacobian: SparseJacobian,
     ) -> Result<Self, VerifiedCompilationError> {
+        Self::try_from_owned_sparse_jacobian_with_meter(jacobian, &mut Unbounded)
+    }
+
+    /// Consume and independently admit an untrusted sparse candidate. All
+    /// structural, derivative and bytecode checks run under the supplied meter;
+    /// a cancelled or exhausted check cannot return a partially verified value.
+    /// Taking ownership avoids cloning the retained expression/proof forest.
+    pub fn try_from_owned_sparse_jacobian_with_meter<M: BudgetMeter + ?Sized>(
+        jacobian: SparseJacobian,
+        meter: &mut M,
+    ) -> Result<Self, VerifiedCompilationError> {
         let (residual_programs, stored_operation_count, receipt) =
-            Self::check_and_compile(&jacobian)?;
-        let shared_evaluation = Self::shared_plan(&residual_programs, &jacobian)?;
+            Self::check_and_compile(&jacobian, meter)?;
+        let shared_evaluation = Self::shared_plan(&residual_programs, &jacobian, meter)?;
+        charge_compilation_work(meter, 1, 0, 0)?;
         Ok(Self {
             residual_programs,
             stored_operation_count,
@@ -318,9 +347,10 @@ impl VerifiedResidualSystem {
         })
     }
 
-    fn shared_plan(
+    fn shared_plan<M: BudgetMeter + ?Sized>(
         residuals: &[CompiledExpr],
         jacobian: &SparseJacobian,
+        meter: &mut M,
     ) -> Result<SharedEvaluationPlan, CompileError> {
         // The programs are already independently source/proof checked and
         // remain private and immutable for the entire plan lifetime. Rebuild
@@ -333,7 +363,7 @@ impl VerifiedResidualSystem {
                     &jacobian.entries[index - residuals.len()].compiled_deriv
                 }
             }),
-            &mut Unbounded,
+            meter,
         )
     }
 
@@ -387,13 +417,15 @@ impl VerifiedResidualSystem {
         Ok(())
     }
 
-    fn check_source_plan(
+    fn check_source_plan<M: BudgetMeter + ?Sized>(
         residuals: &[Expr],
         vars: &[Symbol],
+        meter: &mut M,
     ) -> Result<(), VerifiedCompilationError> {
-        let plan = plan_sparse_sources(residuals, vars)?;
+        let plan = plan_sparse_sources_with_meter(residuals, vars, meter)?;
         let mut coordinates = 0;
         for dependencies in plan.row_dependencies {
+            charge_compilation_work(meter, 1, 0, 0)?;
             Self::add_admission_count(
                 &mut coordinates,
                 dependencies.len(),
@@ -404,22 +436,35 @@ impl VerifiedResidualSystem {
         Ok(())
     }
 
-    fn check_expression_shape(expr: &Expr) -> Result<usize, VerifiedCompilationError> {
-        Self::check_expression_limits(expr, MAX_VERIFIED_SOURCE_DEPTH, MAX_COMPILE_OPS)
+    fn check_expression_shape<M: BudgetMeter + ?Sized>(
+        expr: &Expr,
+        meter: &mut M,
+    ) -> Result<usize, VerifiedCompilationError> {
+        Self::check_expression_limits(expr, MAX_VERIFIED_SOURCE_DEPTH, MAX_COMPILE_OPS, meter)
     }
 
-    fn check_proof_expression(expr: &Expr) -> Result<(), VerifiedCompilationError> {
+    fn check_proof_expression<M: BudgetMeter + ?Sized>(
+        expr: &Expr,
+        meter: &mut M,
+    ) -> Result<(), VerifiedCompilationError> {
         // The independently checked differentiation claim adds a diff(source,
         // variable) wrapper: one level and two nodes beyond the source.
-        Self::check_expression_limits(expr, MAX_VERIFIED_SOURCE_DEPTH + 1, MAX_COMPILE_OPS + 2)
-            .map(|_| ())
+        Self::check_expression_limits(
+            expr,
+            MAX_VERIFIED_SOURCE_DEPTH + 1,
+            MAX_COMPILE_OPS + 2,
+            meter,
+        )
+        .map(|_| ())
     }
 
-    fn check_expression_limits(
+    fn check_expression_limits<M: BudgetMeter + ?Sized>(
         expr: &Expr,
         maximum_depth: usize,
         maximum_nodes: usize,
+        meter: &mut M,
     ) -> Result<usize, VerifiedCompilationError> {
+        charge_compilation_work(meter, 1, std::mem::size_of::<(&Expr, usize)>(), 1)?;
         let mut pending = Vec::new();
         pending
             .try_reserve(1)
@@ -427,6 +472,7 @@ impl VerifiedResidualSystem {
         pending.push((expr, 0usize));
         let mut visited = 0usize;
         while let Some((current, depth)) = pending.pop() {
+            charge_compilation_work(meter, 1, 0, 0)?;
             if depth > maximum_depth {
                 return Err(VerifiedCompilationError::SourceDepthLimit {
                     depth,
@@ -450,6 +496,12 @@ impl VerifiedResidualSystem {
                 }
                 .into());
             }
+            charge_compilation_work(
+                meter,
+                children,
+                children * std::mem::size_of::<(&Expr, usize)>(),
+                usize::from(children != 0),
+            )?;
             pending
                 .try_reserve(children)
                 .map_err(|_| CompileError::AllocationFailure)?;
@@ -467,32 +519,40 @@ impl VerifiedResidualSystem {
         Ok(visited)
     }
 
-    fn check_proof_claim(claim: &Claim) -> Result<(), VerifiedCompilationError> {
+    fn check_proof_claim<M: BudgetMeter + ?Sized>(
+        claim: &Claim,
+        meter: &mut M,
+    ) -> Result<(), VerifiedCompilationError> {
         match claim {
             Claim::Equality { lhs, rhs } | Claim::AlgebraicIdentity { lhs, rhs } => {
-                Self::check_proof_expression(lhs)?;
-                Self::check_proof_expression(rhs)
+                Self::check_proof_expression(lhs, meter)?;
+                Self::check_proof_expression(rhs, meter)
             }
             Claim::PredicateHold { expr, .. }
             | Claim::DomainMembership { expr, .. }
-            | Claim::NonZero(expr) => Self::check_proof_expression(expr),
+            | Claim::NonZero(expr) => Self::check_proof_expression(expr, meter),
             Claim::IrreducibleModPrime { .. } => Err(VerifiedCompilationError::ProofEnvelope(
                 "modular irreducibility does not certify a residual-system expression".into(),
             )),
         }
     }
 
-    fn check_proof_rule(rule: &ProofRule) -> Result<(), VerifiedCompilationError> {
+    fn check_proof_rule<M: BudgetMeter + ?Sized>(
+        rule: &ProofRule,
+        meter: &mut M,
+    ) -> Result<(), VerifiedCompilationError> {
         match rule {
             ProofRule::Reflexivity(expr)
             | ProofRule::ContextPredicate { expr, .. }
-            | ProofRule::ContextDomain { expr, .. } => Self::check_proof_expression(expr),
-            ProofRule::Substitution { template, .. } => Self::check_proof_expression(template),
-            ProofRule::DefinitionalReduction { lhs, rhs, .. } => {
-                Self::check_proof_expression(lhs)?;
-                Self::check_proof_expression(rhs)
+            | ProofRule::ContextDomain { expr, .. } => Self::check_proof_expression(expr, meter),
+            ProofRule::Substitution { template, .. } => {
+                Self::check_proof_expression(template, meter)
             }
-            ProofRule::CertificateLemma { claim, .. } => Self::check_proof_claim(claim),
+            ProofRule::DefinitionalReduction { lhs, rhs, .. } => {
+                Self::check_proof_expression(lhs, meter)?;
+                Self::check_proof_expression(rhs, meter)
+            }
+            ProofRule::CertificateLemma { claim, .. } => Self::check_proof_claim(claim, meter),
             ProofRule::Symmetry(_)
             | ProofRule::Transitivity(_, _)
             | ProofRule::CongruenceAdd(_)
@@ -502,9 +562,11 @@ impl VerifiedResidualSystem {
         }
     }
 
-    fn check_and_compile(
+    fn check_and_compile<M: BudgetMeter + ?Sized>(
         jacobian: &SparseJacobian,
+        meter: &mut M,
     ) -> Result<(Vec<CompiledExpr>, usize, SparseJacobianReceipt), VerifiedCompilationError> {
+        charge_compilation_work(meter, 1, 0, 0)?;
         let num_residuals = jacobian.residuals.len();
         let num_vars = jacobian.vars.len();
         Self::check_axes(num_residuals, num_vars)?;
@@ -517,14 +579,14 @@ impl VerifiedResidualSystem {
         )?;
         // Reject duplicate/extra coordinates and inconsistent counts before
         // traversing any untrusted symbolic or proof payload.
-        jacobian.validate_structure()?;
+        jacobian.validate_structure_with_meter(meter)?;
         let mut expression_nodes = 0;
         for expression in jacobian
             .residuals
             .iter()
             .chain(jacobian.entries.iter().map(|entry| &entry.symbolic_deriv))
         {
-            let nodes = Self::check_expression_shape(expression)?;
+            let nodes = Self::check_expression_shape(expression, meter)?;
             Self::add_admission_count(
                 &mut expression_nodes,
                 nodes,
@@ -534,10 +596,11 @@ impl VerifiedResidualSystem {
         }
         // This is an admission/work plan only. The independent checker below
         // reconstructs source dependencies and replays every retained proof.
-        Self::check_source_plan(&jacobian.residuals, &jacobian.vars)?;
+        Self::check_source_plan(&jacobian.residuals, &jacobian.vars, meter)?;
         let mut proof_units = 0u64;
         let mut stored_operation_count = 0;
         for entry in &jacobian.entries {
+            charge_compilation_work(meter, entry.derivation.steps.len() + 1, 0, 0)?;
             Self::add_admission_count(
                 &mut stored_operation_count,
                 entry.compiled_deriv.ops().len(),
@@ -564,36 +627,50 @@ impl VerifiedResidualSystem {
                 });
             }
             for step in &entry.derivation.steps {
-                Self::check_proof_claim(&step.claim)?;
-                Self::check_proof_rule(&step.rule)?;
+                Self::check_proof_claim(&step.claim, meter)?;
+                Self::check_proof_rule(&step.rule, meter)?;
             }
         }
-        let receipt = verify_sparse_jacobian_certificate(jacobian, &[])?;
+        let receipt = verify_sparse_jacobian_certificate_with_meter(jacobian, &[], meter)?;
         let mut var_map = HashMap::new();
+        charge_compilation_work(
+            meter,
+            num_vars,
+            num_vars * std::mem::size_of::<(Symbol, usize)>(),
+            usize::from(num_vars != 0),
+        )?;
         var_map
             .try_reserve(num_vars)
             .map_err(|_| CompileError::AllocationFailure)?;
         for (index, variable) in jacobian.vars.iter().enumerate() {
+            charge_compilation_work(meter, variable.name.len() + 1, variable.name.len(), 1)?;
             var_map.insert(variable.clone(), index);
         }
 
         let mut compiled_residuals = Vec::new();
+        charge_compilation_work(
+            meter,
+            num_residuals,
+            num_residuals * std::mem::size_of::<CompiledExpr>(),
+            usize::from(num_residuals != 0),
+        )?;
         compiled_residuals
             .try_reserve_exact(num_residuals)
             .map_err(|_| CompileError::AllocationFailure)?;
         for (residual, source) in jacobian.residuals.iter().enumerate() {
-            let compiled = CompiledExpr::try_compile(source, &var_map)?;
+            let compiled = CompiledExpr::try_compile_with_meter(source, &var_map, meter)?;
             Self::add_admission_count(
                 &mut stored_operation_count,
                 compiled.ops().len(),
                 MAX_VERIFIED_STORED_OPS,
                 "stored bytecode operations",
             )?;
-            if !compiled_expression_matches(source, &var_map, &compiled)? {
+            if !compiled_expression_matches_with_meter(source, &var_map, &compiled, meter)? {
                 return Err(VerifiedCompilationError::ResidualProvenanceMismatch { residual });
             }
             compiled_residuals.push(compiled);
         }
+        charge_compilation_work(meter, 1, 0, 0)?;
         Ok((compiled_residuals, stored_operation_count, receipt))
     }
 

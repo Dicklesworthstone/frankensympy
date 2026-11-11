@@ -51,29 +51,46 @@ pub fn plan_sparse_sources(
     residuals: &[Expr],
     variables: &[Symbol],
 ) -> Result<SparseSourcePlan, CompileError> {
+    plan_sparse_sources_with_meter(residuals, variables, &mut Unbounded)
+}
+
+/// Plan raw source dependencies under the same cumulative ledger as compilation.
+/// Every source child is visited, including domains hidden by a zero multiplier.
+pub fn plan_sparse_sources_with_meter<M: BudgetMeter + ?Sized>(
+    residuals: &[Expr],
+    variables: &[Symbol],
+    meter: &mut M,
+) -> Result<SparseSourcePlan, CompileError> {
+    charge_compilation_work(meter, 1, 0, 0)?;
     sparse_limit(residuals.len(), MAX_SPARSE_AXES)?;
     sparse_limit(variables.len(), MAX_SPARSE_AXES)?;
     let mut positions = HashMap::new();
+    charge_sparse_buffer::<(&Symbol, usize), _>(variables.len(), meter)?;
     positions
         .try_reserve(variables.len())
         .map_err(|_| CompileError::AllocationFailure)?;
     for (column, variable) in variables.iter().enumerate() {
-        admit_compilation_name(&variable.name, &mut Unbounded)?;
+        admit_compilation_name(&variable.name, meter)?;
+        charge_compilation_work(meter, variable.name.len() + 1, 0, 0)?;
         if positions.insert(variable, column).is_some() {
+            charge_compilation_work(meter, variable.name.len(), variable.name.len(), 1)?;
             return Err(CompileError::DuplicateVariable(variable.clone()));
         }
     }
     let mut row_dependencies = Vec::new();
+    charge_sparse_buffer::<Vec<usize>, _>(residuals.len(), meter)?;
     row_dependencies
         .try_reserve_exact(residuals.len())
         .map_err(|_| CompileError::AllocationFailure)?;
     let mut source_nodes = 0usize;
     let mut differentiation_units = 0usize;
     for source in residuals {
+        charge_sparse_buffer::<(&Expr, usize), _>(1, meter)?;
         let mut pending = vec![(source, 0usize)];
         let mut nodes = 0usize;
         let mut dependencies = HashSet::new();
         while let Some((expression, depth)) = pending.pop() {
+            charge_compilation_work(meter, 1, 0, 0)?;
             if depth > MAX_COMPILE_DEPTH {
                 return Err(CompileError::DepthLimitExceeded {
                     depth,
@@ -84,8 +101,10 @@ pub fn plan_sparse_sources(
             sparse_limit(nodes, MAX_COMPILE_OPS)?;
             match expression {
                 Expr::Sym(symbol) => {
-                    admit_compilation_name(&symbol.name, &mut Unbounded)?;
+                    admit_compilation_name(&symbol.name, meter)?;
+                    charge_compilation_work(meter, symbol.name.len() + 1, 0, 0)?;
                     if let Some(&column) = positions.get(symbol) {
+                        charge_sparse_buffer::<usize, _>(1, meter)?;
                         dependencies
                             .try_reserve(1)
                             .map_err(|_| CompileError::AllocationFailure)?;
@@ -94,7 +113,7 @@ pub fn plan_sparse_sources(
                 }
                 Expr::Add(children) | Expr::Mul(children) | Expr::Function(_, children) => {
                     if let Expr::Function(name, _) = expression {
-                        admit_compilation_name(name, &mut Unbounded)?;
+                        admit_compilation_name(name, meter)?;
                     }
                     sparse_limit(
                         nodes
@@ -102,6 +121,7 @@ pub fn plan_sparse_sources(
                             .saturating_add(children.len()),
                         MAX_COMPILE_OPS,
                     )?;
+                    charge_sparse_buffer::<(&Expr, usize), _>(children.len(), meter)?;
                     pending
                         .try_reserve(children.len())
                         .map_err(|_| CompileError::AllocationFailure)?;
@@ -112,6 +132,7 @@ pub fn plan_sparse_sources(
                         nodes.saturating_add(pending.len()).saturating_add(2),
                         MAX_COMPILE_OPS,
                     )?;
+                    charge_sparse_buffer::<(&Expr, usize), _>(2, meter)?;
                     pending
                         .try_reserve(2)
                         .map_err(|_| CompileError::AllocationFailure)?;
@@ -126,15 +147,132 @@ pub fn plan_sparse_sources(
             differentiation_units.saturating_add(nodes.saturating_mul(dependencies.len().max(1)));
         sparse_limit(source_nodes, MAX_SPARSE_SOURCE_WORK)?;
         sparse_limit(differentiation_units, MAX_SPARSE_SOURCE_WORK)?;
+        charge_sparse_buffer::<usize, _>(dependencies.len(), meter)?;
+        charge_compilation_work(
+            meter,
+            dependencies
+                .len()
+                .saturating_mul(dependencies.len().max(1).ilog2() as usize + 1),
+            0,
+            0,
+        )?;
         let mut columns: Vec<_> = dependencies.into_iter().collect();
         columns.sort_unstable();
         row_dependencies.push(columns);
     }
+    charge_compilation_work(meter, 1, 0, 0)?;
     Ok(SparseSourcePlan {
         row_dependencies,
         source_nodes,
         differentiation_units,
     })
+}
+
+fn charge_sparse_buffer<T, M: BudgetMeter + ?Sized>(
+    count: usize,
+    meter: &mut M,
+) -> Result<(), CompileError> {
+    let bytes = count
+        .checked_mul(std::mem::size_of::<T>())
+        .ok_or(CompileError::DimensionOverflow)?;
+    charge_compilation_work(meter, count, bytes, usize::from(count != 0))
+}
+
+/// Charge a bounded structural copy before cloning its typed tree. Numeric
+/// limbs and identifier bytes participate in storage accounting, not just nodes.
+pub(crate) fn charge_expression_copy<M: BudgetMeter + ?Sized>(
+    expression: &Expr,
+    meter: &mut M,
+) -> Result<(usize, usize), CompileError> {
+    fn visit<M: BudgetMeter + ?Sized>(
+        expression: &Expr,
+        depth: usize,
+        nodes: &mut usize,
+        bytes: &mut usize,
+        meter: &mut M,
+    ) -> Result<(), CompileError> {
+        charge_compilation_work(meter, 1, 0, 0)?;
+        if depth > MAX_COMPILE_DEPTH {
+            return Err(CompileError::DepthLimitExceeded {
+                depth,
+                max: MAX_COMPILE_DEPTH,
+            });
+        }
+        *nodes = nodes.saturating_add(1);
+        sparse_limit(*nodes, MAX_COMPILE_OPS + 2)?;
+        let payload = match expression {
+            Expr::Integer(value) => usize::try_from(value.limb_count())
+                .ok()
+                .and_then(|limbs| limbs.checked_mul(8)),
+            Expr::Rational(value) => value
+                .numer()
+                .limb_count()
+                .checked_add(value.denom().limb_count())
+                .and_then(|limbs| usize::try_from(limbs).ok())
+                .and_then(|limbs| limbs.checked_mul(8)),
+            Expr::Sym(symbol) => {
+                admit_compilation_name(&symbol.name, meter)?;
+                Some(symbol.name.len())
+            }
+            Expr::Function(name, _) => {
+                admit_compilation_name(name, meter)?;
+                Some(name.len())
+            }
+            _ => Some(0),
+        }
+        .ok_or(CompileError::DimensionOverflow)?;
+        let owned = payload
+            .checked_add(std::mem::size_of::<Expr>())
+            .ok_or(CompileError::DimensionOverflow)?;
+        *bytes = bytes
+            .checked_add(owned)
+            .ok_or(CompileError::DimensionOverflow)?;
+        charge_compilation_work(meter, payload.div_ceil(8).max(1), owned, 1)?;
+        match expression {
+            Expr::Add(children) | Expr::Mul(children) | Expr::Function(_, children) => {
+                sparse_limit(nodes.saturating_add(children.len()), MAX_COMPILE_OPS + 2)?;
+                for child in children {
+                    visit(child, depth + 1, nodes, bytes, meter)?;
+                }
+            }
+            Expr::Pow(base, exponent) => {
+                visit(base, depth + 1, nodes, bytes, meter)?;
+                visit(exponent, depth + 1, nodes, bytes, meter)?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    let mut nodes = 0;
+    let mut bytes = 0;
+    visit(expression, 0, &mut nodes, &mut bytes, meter)?;
+    Ok((nodes, bytes))
+}
+
+/// Differentiation and its simple reference checker are bounded synchronous
+/// kernels. Charge the existing product/chain-rule growth envelope and all
+/// source payloads before either kernel starts, then poll at its boundary.
+/// This is conservative logical work/storage, not an allocator or latency claim.
+fn charge_derivative_kernel<M: BudgetMeter + ?Sized>(
+    source: &Expr,
+    meter: &mut M,
+) -> Result<(), CompileError> {
+    let (source_nodes, source_bytes) = charge_expression_copy(source, meter)?;
+    charge_compilation_work(meter, source_nodes, 0, 0)?;
+    let (_, predicted) = derivative_growth(source);
+    sparse_limit(predicted, MAX_COMPILE_OPS)?;
+    let envelope = source_nodes
+        .checked_add(predicted)
+        .ok_or(CompileError::DimensionOverflow)?;
+    let storage = source_bytes
+        .checked_mul(envelope)
+        .and_then(|bytes| bytes.checked_mul(4))
+        .ok_or(CompileError::DimensionOverflow)?;
+    let work = envelope
+        .checked_mul(envelope)
+        .and_then(|steps| steps.checked_add(storage.div_ceil(8)))
+        .ok_or(CompileError::DimensionOverflow)?;
+    charge_compilation_work(meter, work, storage, envelope.saturating_mul(4))
 }
 
 /// Conservative raw product/chain-rule growth, evaluated only after bounded
@@ -204,7 +342,11 @@ fn admit_derivative_growth(
     Ok(())
 }
 
-fn zero_indices(length: usize) -> Result<Vec<usize>, CompileError> {
+fn zero_indices<M: BudgetMeter + ?Sized>(
+    length: usize,
+    meter: &mut M,
+) -> Result<Vec<usize>, CompileError> {
+    charge_sparse_buffer::<usize, _>(length, meter)?;
     let mut result = Vec::new();
     result
         .try_reserve_exact(length)
@@ -217,37 +359,46 @@ fn zero_indices(length: usize) -> Result<Vec<usize>, CompileError> {
 /// through sparse row/column incidence instead of storing every conflict pair.
 /// Each row of width k costs O(k^2) visits, bounded by its source_nodes*k
 /// admission score; table storage is O(rows + columns + nonzeros).
-fn color_sparse_incidence(
+fn color_sparse_incidence<M: BudgetMeter + ?Sized>(
     rows: usize,
     columns: usize,
     nonzeros: &[(usize, usize)],
+    meter: &mut M,
 ) -> Result<(Vec<usize>, usize), CompileError> {
-    let mut row_offsets = zero_indices(rows + 1)?;
-    let mut column_offsets = zero_indices(columns + 1)?;
+    let mut row_offsets = zero_indices(rows + 1, meter)?;
+    let mut column_offsets = zero_indices(columns + 1, meter)?;
     for &(row, column) in nonzeros {
+        charge_compilation_work(meter, 1, 0, 0)?;
         row_offsets[row + 1] += 1;
         column_offsets[column + 1] += 1;
     }
     for row in 0..rows {
+        charge_compilation_work(meter, 1, 0, 0)?;
         row_offsets[row + 1] += row_offsets[row];
     }
     for column in 0..columns {
+        charge_compilation_work(meter, 1, 0, 0)?;
         column_offsets[column + 1] += column_offsets[column];
     }
-    let mut next = zero_indices(columns)?;
+    let mut next = zero_indices(columns, meter)?;
+    charge_compilation_work(meter, columns, 0, 0)?;
     next.copy_from_slice(&column_offsets[..columns]);
-    let mut column_rows = zero_indices(nonzeros.len())?;
+    let mut column_rows = zero_indices(nonzeros.len(), meter)?;
     for &(row, column) in nonzeros {
+        charge_compilation_work(meter, 1, 0, 0)?;
         column_rows[next[column]] = row;
         next[column] += 1;
     }
-    let mut colors = zero_indices(columns)?;
-    let mut marked = zero_indices(columns)?;
+    let mut colors = zero_indices(columns, meter)?;
+    let mut marked = zero_indices(columns, meter)?;
     let mut color_count = 0usize;
     for column in 0..columns {
+        charge_compilation_work(meter, 1, 0, 0)?;
         let mark = column + 1;
         for &row in &column_rows[column_offsets[column]..column_offsets[column + 1]] {
+            charge_compilation_work(meter, 1, 0, 0)?;
             for &(_, neighbor) in &nonzeros[row_offsets[row]..row_offsets[row + 1]] {
+                charge_compilation_work(meter, 1, 0, 0)?;
                 if neighbor >= column {
                     break;
                 }
@@ -256,6 +407,7 @@ fn color_sparse_incidence(
         }
         let mut color = 0usize;
         while marked[color] == mark {
+            charge_compilation_work(meter, 1, 0, 0)?;
             color += 1;
         }
         colors[column] = color;
@@ -438,13 +590,28 @@ fn charge_structure_allocation<M: BudgetMeter + ?Sized, T>(
 impl SparseJacobian {
     /// Builds a compiled sparse Jacobian system with verified differentiation proofs and graph coloring.
     pub fn try_build(residuals: &[Expr], vars: &[Symbol]) -> Result<Self, CompileError> {
-        let plan = plan_sparse_sources(residuals, vars)?;
+        Self::try_build_with_meter(residuals, vars, &mut Unbounded)
+    }
+
+    /// Build an untrusted derivative candidate with cumulative source, proof,
+    /// bytecode and coloring accounting. The caller must independently admit it
+    /// before using it as a verified program; the generator never has access to
+    /// a separately reserved verifier budget.
+    pub fn try_build_with_meter<M: BudgetMeter + ?Sized>(
+        residuals: &[Expr],
+        vars: &[Symbol],
+        meter: &mut M,
+    ) -> Result<Self, CompileError> {
+        let plan = plan_sparse_sources_with_meter(residuals, vars, meter)?;
+        charge_compilation_work(meter, plan.source_nodes, 0, 0)?;
         admit_derivative_growth(residuals, &plan.row_dependencies)?;
         let mut var_map = HashMap::new();
+        charge_sparse_buffer::<(Symbol, usize), _>(vars.len(), meter)?;
         var_map
             .try_reserve(vars.len())
             .map_err(|_| CompileError::AllocationFailure)?;
         for (column, variable) in vars.iter().enumerate() {
+            charge_compilation_work(meter, variable.name.len() + 1, variable.name.len(), 1)?;
             var_map.insert(variable.clone(), column);
         }
         let num_residuals = residuals.len();
@@ -453,12 +620,17 @@ impl SparseJacobian {
         let mut nonzeros = Vec::new();
         for (row, columns) in plan.row_dependencies.iter().enumerate() {
             for &col in columns {
+                charge_derivative_kernel(&residuals[row], meter)?;
                 let (symbolic_deriv, derivation) = verified_diff(&residuals[row], &vars[col]);
+                charge_compilation_work(meter, 1, 0, 0)?;
                 if !symbolic_deriv.is_zero() {
-                    let compiled_deriv = CompiledExpr::try_compile(&symbolic_deriv, &var_map)?;
+                    let compiled_deriv =
+                        CompiledExpr::try_compile_with_meter(&symbolic_deriv, &var_map, meter)?;
+                    charge_sparse_buffer::<SparseJacobianEntry, _>(1, meter)?;
                     entries
                         .try_reserve(1)
                         .map_err(|_| CompileError::AllocationFailure)?;
+                    charge_sparse_buffer::<(usize, usize), _>(1, meter)?;
                     nonzeros
                         .try_reserve(1)
                         .map_err(|_| CompileError::AllocationFailure)?;
@@ -474,7 +646,7 @@ impl SparseJacobian {
             }
         }
         let (column_colors, num_colors) =
-            color_sparse_incidence(num_residuals, num_vars, &nonzeros)?;
+            color_sparse_incidence(num_residuals, num_vars, &nonzeros, meter)?;
 
         let pattern = SparsityPattern {
             num_rows: num_residuals,
@@ -483,14 +655,24 @@ impl SparseJacobian {
             nonzeros,
         };
 
-        Ok(Self {
+        charge_sparse_buffer::<Expr, _>(residuals.len(), meter)?;
+        for source in residuals {
+            charge_expression_copy(source, meter)?;
+        }
+        charge_sparse_buffer::<Symbol, _>(vars.len(), meter)?;
+        for variable in vars {
+            charge_compilation_work(meter, variable.name.len() + 1, variable.name.len(), 1)?;
+        }
+        let result = Self {
             residuals: residuals.to_vec(),
             vars: vars.to_vec(),
             pattern,
             entries,
             column_colors,
             num_colors,
-        })
+        };
+        charge_compilation_work(meter, 1, 0, 0)?;
+        Ok(result)
     }
 
     /// Checks all dimensions, coordinates, and colors before any indexed access.
@@ -807,17 +989,20 @@ impl SparseJacobian {
 /// generator planner: every raw expression variant is visited independently,
 /// and no cached dependency summary, free-symbol optimization, or name match
 /// can authorize an omitted coordinate.
-fn verifier_dependencies(
+fn verifier_dependencies<M: BudgetMeter + ?Sized>(
     system: &SparseJacobian,
     positions: &HashMap<Symbol, usize>,
+    meter: &mut M,
 ) -> Result<Vec<Vec<usize>>, CompileError> {
-    fn visit(
+    fn visit<M: BudgetMeter + ?Sized>(
         expression: &Expr,
         depth: usize,
         nodes: &mut usize,
         positions: &HashMap<Symbol, usize>,
         columns: &mut HashSet<usize>,
+        meter: &mut M,
     ) -> Result<(), CompileError> {
+        charge_compilation_work(meter, 1, 0, 0)?;
         if depth > MAX_COMPILE_DEPTH {
             return Err(CompileError::DepthLimitExceeded {
                 depth,
@@ -828,8 +1013,10 @@ fn verifier_dependencies(
         sparse_limit(*nodes, MAX_COMPILE_OPS)?;
         match expression {
             Expr::Sym(symbol) => {
-                admit_compilation_name(&symbol.name, &mut Unbounded)?;
+                admit_compilation_name(&symbol.name, meter)?;
+                charge_compilation_work(meter, symbol.name.len() + 1, 0, 0)?;
                 if let Some(&column) = positions.get(symbol) {
+                    charge_sparse_buffer::<usize, _>(1, meter)?;
                     columns
                         .try_reserve(1)
                         .map_err(|_| CompileError::AllocationFailure)?;
@@ -838,17 +1025,17 @@ fn verifier_dependencies(
             }
             Expr::Add(children) | Expr::Mul(children) => {
                 for child in children {
-                    visit(child, depth + 1, nodes, positions, columns)?;
+                    visit(child, depth + 1, nodes, positions, columns, meter)?;
                 }
             }
             Expr::Pow(base, exponent) => {
-                visit(base, depth + 1, nodes, positions, columns)?;
-                visit(exponent, depth + 1, nodes, positions, columns)?;
+                visit(base, depth + 1, nodes, positions, columns, meter)?;
+                visit(exponent, depth + 1, nodes, positions, columns, meter)?;
             }
             Expr::Function(name, arguments) => {
-                admit_compilation_name(name, &mut Unbounded)?;
+                admit_compilation_name(name, meter)?;
                 for argument in arguments {
-                    visit(argument, depth + 1, nodes, positions, columns)?;
+                    visit(argument, depth + 1, nodes, positions, columns, meter)?;
                 }
             }
             Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => {}
@@ -857,6 +1044,7 @@ fn verifier_dependencies(
     }
 
     let mut result = Vec::new();
+    charge_sparse_buffer::<Vec<usize>, _>(system.residuals.len(), meter)?;
     result
         .try_reserve_exact(system.residuals.len())
         .map_err(|_| CompileError::AllocationFailure)?;
@@ -865,17 +1053,27 @@ fn verifier_dependencies(
     for source in &system.residuals {
         let mut nodes = 0usize;
         let mut columns = HashSet::new();
-        visit(source, 0, &mut nodes, positions, &mut columns)?;
+        visit(source, 0, &mut nodes, positions, &mut columns, meter)?;
         total_nodes = total_nodes.saturating_add(nodes);
         total_units = total_units.saturating_add(nodes.saturating_mul(columns.len().max(1)));
         sparse_limit(total_nodes, MAX_SPARSE_SOURCE_WORK)?;
         sparse_limit(total_units, MAX_SPARSE_SOURCE_WORK)?;
+        charge_sparse_buffer::<usize, _>(columns.len(), meter)?;
+        charge_compilation_work(
+            meter,
+            columns
+                .len()
+                .saturating_mul(columns.len().max(1).ilog2() as usize + 1),
+            0,
+            0,
+        )?;
         let mut columns: Vec<_> = columns.into_iter().collect();
         columns.sort_unstable();
         result.push(columns);
     }
     // This is only a resource estimator shared with construction. Mathematical
     // coverage below uses the separate reference derivative and this traversal.
+    charge_compilation_work(meter, total_nodes, 0, 0)?;
     admit_derivative_growth(&system.residuals, &result)?;
     Ok(result)
 }
@@ -890,29 +1088,46 @@ pub fn verify_sparse_jacobian_certificate(
     system: &SparseJacobian,
     test_points: &[Vec<f64>],
 ) -> Result<SparseJacobianReceipt, JacobianVerificationError> {
+    verify_sparse_jacobian_certificate_with_meter(system, test_points, &mut Unbounded)
+}
+
+/// Independently replay derivative, completeness, coloring and bytecode checks
+/// using a caller-owned meter. A protected verifier meter may be used here;
+/// none of its resources are exposed to candidate construction.
+pub fn verify_sparse_jacobian_certificate_with_meter<M: BudgetMeter + ?Sized>(
+    system: &SparseJacobian,
+    test_points: &[Vec<f64>],
+    meter: &mut M,
+) -> Result<SparseJacobianReceipt, JacobianVerificationError> {
+    charge_compilation_work(meter, 1, 0, 0)?;
     sparse_limit(system.residuals.len(), MAX_SPARSE_AXES)?;
     sparse_limit(system.vars.len(), MAX_SPARSE_AXES)?;
     sparse_limit(system.entries.len(), MAX_SPARSE_SOURCE_WORK)?;
     sparse_limit(system.pattern.nonzeros.len(), MAX_SPARSE_SOURCE_WORK)?;
-    system.validate_structure()?;
+    system.validate_structure_with_meter(meter)?;
     let m = system.pattern.num_rows;
     let n = system.pattern.num_cols;
     let mut var_map = HashMap::new();
+    charge_sparse_buffer::<(Symbol, usize), _>(n, meter)?;
     var_map
         .try_reserve(n)
         .map_err(|_| EvalError::AllocationFailure)?;
     for (column, variable) in system.vars.iter().enumerate() {
-        admit_compilation_name(&variable.name, &mut Unbounded)?;
+        admit_compilation_name(&variable.name, meter)?;
+        charge_compilation_work(meter, variable.name.len() + 1, variable.name.len(), 1)?;
         var_map.insert(variable.clone(), column);
     }
-    let dependencies = verifier_dependencies(system, &var_map)?;
+    let dependencies = verifier_dependencies(system, &var_map, meter)?;
     let mut proof_units = 0u64;
     let mut operation_count = 0usize;
     let mut derivative_nodes = 0usize;
     for entry in &system.entries {
-        derivative_nodes =
-            derivative_nodes.saturating_add(validate_expression_limits(&entry.symbolic_deriv)?);
+        derivative_nodes = derivative_nodes.saturating_add(validate_expression_limits_with_meter(
+            &entry.symbolic_deriv,
+            meter,
+        )?);
         sparse_limit(derivative_nodes, MAX_SPARSE_SOURCE_WORK)?;
+        charge_compilation_work(meter, entry.derivation.steps.len() + 1, 0, 0)?;
         let units = derivation_verification_units(&entry.derivation).map_err(|error| {
             JacobianVerificationError::ProofFailed {
                 row: entry.row,
@@ -927,9 +1142,19 @@ pub fn verify_sparse_jacobian_certificate(
         )?;
         operation_count = operation_count.saturating_add(entry.compiled_deriv.ops().len());
         sparse_limit(operation_count, MAX_SPARSE_SOURCE_WORK)?;
+        charge_compilation_work(
+            meter,
+            usize::try_from(units)
+                .map_err(|_| CompileError::DimensionOverflow)?
+                .saturating_mul(64),
+            0,
+            0,
+        )?;
     }
 
     for entry in &system.entries {
+        charge_derivative_kernel(&system.residuals[entry.row], meter)?;
+        charge_expression_copy(&entry.symbolic_deriv, meter)?;
         verify_diff_derivation(
             &entry.derivation,
             &system.residuals[entry.row],
@@ -941,7 +1166,13 @@ pub fn verify_sparse_jacobian_certificate(
             col: entry.col,
             reason: error.to_string(),
         })?;
-        if !compiled_expression_matches(&entry.symbolic_deriv, &var_map, &entry.compiled_deriv)? {
+        charge_compilation_work(meter, 1, 0, 0)?;
+        if !compiled_expression_matches_with_meter(
+            &entry.symbolic_deriv,
+            &var_map,
+            &entry.compiled_deriv,
+            meter,
+        )? {
             return Err(JacobianVerificationError::CompiledProvenanceMismatch {
                 row: entry.row,
                 col: entry.col,
@@ -957,17 +1188,21 @@ pub fn verify_sparse_jacobian_certificate(
     let mut present = system.pattern.nonzeros.iter().peekable();
     for (row, columns) in dependencies.iter().enumerate() {
         for &col in columns {
+            charge_compilation_work(meter, 1, 0, 0)?;
             while present
                 .peek()
                 .is_some_and(|&&coordinate| coordinate < (row, col))
             {
+                charge_compilation_work(meter, 1, 0, 0)?;
                 present.next();
             }
             if present.peek() == Some(&&(row, col)) {
                 present.next();
             } else {
+                charge_derivative_kernel(&system.residuals[row], meter)?;
                 let derivative =
                     reference_sub_derivative(&system.residuals[row], &system.vars[col]);
+                charge_compilation_work(meter, 1, 0, 0)?;
                 if !derivative.is_zero() {
                     return Err(JacobianVerificationError::OmittedNonzero {
                         row,
@@ -980,6 +1215,7 @@ pub fn verify_sparse_jacobian_certificate(
     }
 
     for (point_idx, point) in test_points.iter().enumerate() {
+        charge_compilation_work(meter, point.len() + 1, 0, 0)?;
         if point.len() != n || point.iter().any(|value| !value.is_finite()) {
             return Err(JacobianVerificationError::InvalidTestPoint {
                 point_idx,
@@ -987,7 +1223,11 @@ pub fn verify_sparse_jacobian_certificate(
             });
         }
         for entry in &system.entries {
-            if !entry.compiled_deriv.try_eval(point)?.is_finite() {
+            if !entry
+                .compiled_deriv
+                .try_eval_with_meter(point, meter)?
+                .is_finite()
+            {
                 return Err(JacobianVerificationError::NonFiniteEvaluation {
                     point_idx,
                     row: entry.row,
@@ -997,6 +1237,7 @@ pub fn verify_sparse_jacobian_certificate(
         }
     }
 
+    charge_compilation_work(meter, 1, std::mem::size_of::<SparseJacobianReceipt>(), 0)?;
     Ok(SparseJacobianReceipt {
         num_residuals: m,
         num_vars: n,
@@ -1009,10 +1250,6 @@ pub fn verify_sparse_jacobian_certificate(
 }
 
 /// Bound recursive reference work before traversing untrusted symbolic inputs.
-fn validate_expression_limits(expr: &Expr) -> Result<usize, CompileError> {
-    validate_expression_limits_with_meter(expr, &mut Unbounded)
-}
-
 fn validate_expression_limits_with_meter<M: BudgetMeter + ?Sized>(
     expr: &Expr,
     meter: &mut M,
