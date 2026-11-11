@@ -293,6 +293,7 @@ jobs:
           raise SystemExit(pytest.main([
               "-q", "-p", "no:cacheprovider",
               "python/tests/test_polynomial_system_checked.py",
+              "python/tests/test_solve_assumptions.py",
               "python/tests/test_checked_ideal_operations.py",
               "python/tests/test_prime_field_factorization.py",
               "python/tests/test_finite_field_poly.py",

@@ -264,7 +264,9 @@ def _solve_rational_fallback(expr, symbol):
     if num == expr or symbol not in num.free_symbols:
         return None
     try:
-        cands = solve(num, symbol)
+        # The outer scalar solve owns assumption admission for the complete
+        # result. Do not filter twice or lose its check=False convention here.
+        cands = solve(num, symbol, check=False)
     except (ValueError, NotImplementedError):
         return None
     out = []
@@ -313,6 +315,44 @@ def _nfloat_tree(obj):
     if isinstance(v, Rational):
         return Float(v)
     return v
+
+
+def _filter_solve_assumptions(roots, symbol, snapshot):
+    """Remove only roots that contradict a captured scalar declaration.
+
+    These are compatibility assumption checks, not root-completeness proofs.
+    The signed query boundary preserves unknown facts and the real-domain
+    meaning of nonzero; approximate evaluation never decides admission.
+    """
+    from .assumptions._query import QueryProblem, UnsupportedAssumptions, typed_symbol
+    from .core import _surface_binding_key
+
+    binding, declarations = snapshot
+    current_binding, current_declarations = typed_symbol(symbol)
+    if (_surface_binding_key(current_binding) != _surface_binding_key(binding)
+            or current_declarations != declarations):
+        raise ValueError("solve variable assumptions changed during root generation")
+    if not declarations:
+        return roots
+    problem = QueryProblem()
+    admitted = []
+    for root in roots:
+        compatible = True
+        for name, expected in declarations.items():
+            try:
+                observed = problem.answer(root, name, [{}])
+            except UnsupportedAssumptions:
+                observed = None
+            if type(observed) is bool and observed is not expected:
+                compatible = False
+                break
+        if compatible:
+            admitted.append(root)
+    current_binding, current_declarations = typed_symbol(symbol)
+    if (_surface_binding_key(current_binding) != _surface_binding_key(binding)
+            or current_declarations != declarations):
+        raise ValueError("solve variable assumptions changed during root admission")
+    return admitted
 
 
 def solve(expression, *symbols, **flags):
@@ -471,9 +511,18 @@ def solve(expression, *symbols, **flags):
     if expr == 0 or (not expr.free_symbols):
         return []
 
+    # Scalar roots must satisfy the solved symbol's declared assumptions.
+    # Capture the typed declaration before generation, and validate it again
+    # at publication. check=False keeps the profile's unfiltered candidates.
+    assumption_snapshot = None
+    if flags.get("check", True):
+        from .assumptions._query import typed_symbol
+
+        assumption_snapshot = typed_symbol(symbol)
     try:
         results = _native.solve_native(
-            _native_expr(expr), _symbol_binding(symbol)
+            _native_expr(expr),
+            assumption_snapshot[0] if assumption_snapshot is not None else _symbol_binding(symbol),
         )
     except Exception as exc:
         msg = str(exc)
@@ -486,6 +535,8 @@ def solve(expression, *symbols, **flags):
             raise
     else:
         roots = [_lift_native_result(r, expr, symbol) for r in results]
+    if assumption_snapshot is not None:
+        roots = _filter_solve_assumptions(roots, symbol, assumption_snapshot)
     if dict_flag:
         return [{symbol: r} for r in roots]
     if set_flag:
