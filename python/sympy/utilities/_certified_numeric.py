@@ -303,15 +303,17 @@ def search_root_box(program, candidate, precision, max_attempts, *, budget=None)
         raise RootSearchError("candidate", "certified root search received an invalid finite-real candidate")
     # Exact conversion does not upgrade a float's evidence: these rationals
     # are merely witness centers, checked independently against the source.
-    _charge_exact_work(budget, bits=1075, operations=2 * dimension)
+    _charge_exact_work(budget, bits=1096, operations=4 * dimension)
     center = tuple(Fraction(*value.as_integer_ratio()) for value in candidate)
-    radii = tuple((abs(value) or Fraction(1)) / (1 << 20) for value in center)
+    relative_radii = tuple((abs(value) or Fraction(1)) / (1 << 20) for value in center)
+    absolute_radii = tuple(max(abs(value), Fraction(1)) / (1 << 20) for value in center)
     failures = []
     for attempt in range(max_attempts):
-        # Start near the candidate, then alternate shrinking and widening.
-        # Narrow boxes resolve local domain/dependency excess; wider boxes can
-        # include a root just outside an inaccurate binary64 proposal. Neither
-        # direction grants acceptance, and no global search is implied.
+        # An absolute scale lets tiny nonzero candidates enclose a zero root:
+        # relative widening alone can stop just short of that root. Retain
+        # relative shrinking for tiny roots whose domains exclude zero.
+        # Neither proposal grants acceptance, and no global search is implied.
+        radii = relative_radii if attempt % 2 else absolute_radii
         exponent = 0 if attempt == 0 else 4 * ((attempt + 1) // 2) * (-1 if attempt % 2 else 1)
         _charge_exact_work(budget, *center, *radii, bits=None, operations=4 * dimension + 1)
         scale = Fraction(1 << exponent) if exponent >= 0 else Fraction(1, 1 << -exponent)

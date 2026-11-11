@@ -966,6 +966,8 @@ pub(crate) fn check_certified_sources(sources: &[Expr], variables: &[Symbol]) ->
                         | "asinh"
                         | "acosh"
                         | "atanh"
+                        | "erf"
+                        | "erfc"
                 ) && arguments.len() == 1 =>
             {
                 pending.push((&arguments[0], false));
@@ -2115,6 +2117,33 @@ mod tests {
         assert!(PyCompiledFunction::compile(&[parse("x").unwrap()], &[]).is_err());
         assert!(PyCompiledFunction::compile(&[], &[x.clone(), x]).is_err());
         assert!(PyCompiledFunction::compile(&[parse("unknown(1)").unwrap()], &[]).is_err());
+    }
+
+    #[test]
+    fn certified_gaussian_sources_require_unary_bound_arguments() {
+        let x = Symbol::new("gaussian_source");
+        let other = Symbol::with_identity(
+            "gaussian_source",
+            SymbolIdentity::from_assumptions_digest([1; 32]),
+        );
+        for name in ["erf", "erfc"] {
+            let source = Expr::Function(name.into(), vec![Expr::Sym(x.clone())]);
+            assert!(check_certified_sources(&[source], std::slice::from_ref(&x)).is_ok());
+            for arguments in [
+                vec![],
+                vec![Expr::Sym(x.clone()), Expr::from_i64(0)],
+                vec![Expr::Sym(other.clone())],
+            ] {
+                let source = Expr::Function(name.into(), arguments);
+                assert!(check_certified_sources(&[source], std::slice::from_ref(&x)).is_err());
+            }
+        }
+        // Admitting the two real Gaussian kernels does not authorize related
+        // special functions or spellings without an independent checker.
+        for name in ["erfi", "erfinv", "erfcinv", "Erf", "Erfc"] {
+            let source = Expr::Function(name.into(), vec![Expr::Sym(x.clone())]);
+            assert!(check_certified_sources(&[source], std::slice::from_ref(&x)).is_err());
+        }
     }
 
     #[test]

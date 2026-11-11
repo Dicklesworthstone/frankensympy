@@ -180,6 +180,37 @@ def test_imperfect_candidate_can_be_recovered_only_after_actual_native_acceptanc
     assert receipt.precision_digits == precisions[-1]
 
 
+@pytest.mark.parametrize("candidate", [-2.0**-60, 2.0**-60])
+def test_tiny_nonzero_candidates_can_certify_a_zero_root(monkeypatch, candidate):
+    numerical = importlib.import_module("sympy.solvers.numerical")
+    x = Symbol("automatic_near_zero_x")
+    monkeypatch.setattr(numerical, "_iterate_system", lambda *args: [candidate])
+    receipt = nsolve_certified(x, x, 1, max_attempts=1)
+    assert receipt.root_enclosure == ((0, 0),)
+    assert receipt.domain[0][0] < 0 < receipt.domain[0][1]
+    assert receipt.contraction_bound == 0
+
+
+def test_relative_retry_preserves_tiny_positive_root_domains(monkeypatch):
+    numerical = importlib.import_module("sympy.solvers.numerical")
+    x = Symbol("automatic_tiny_positive_x", positive=True)
+    exact_root = Rational(1, 10**100)
+    monkeypatch.setattr(numerical, "_iterate_system", lambda *args: [float(exact_root)])
+    receipt = nsolve_certified(x-exact_root, x, 1, max_attempts=2)
+    assert receipt.root_enclosure == ((exact_root, exact_root),)
+    assert 0 < receipt.domain[0][0] < exact_root < receipt.domain[0][1]
+
+
+def test_absolute_near_zero_trial_does_not_erase_original_singularities(monkeypatch):
+    numerical = importlib.import_module("sympy.solvers.numerical")
+    x = Symbol("automatic_near_zero_domain_x")
+    source = Add(x, Mul(0, Pow(x, -1, evaluate=False), evaluate=False), evaluate=False)
+    monkeypatch.setattr(numerical, "_iterate_system", lambda *args: [2.0**-60])
+    with pytest.raises(RootSearchError) as failed:
+        nsolve_certified(source, x, 1, max_attempts=1)
+    assert failed.value.stage == "certification" and failed.value.attempts == 1
+
+
 def test_every_rejected_native_trial_consumes_the_same_outer_attempt_budget(monkeypatch):
     numerical = importlib.import_module("sympy.solvers.numerical")
     certified = importlib.import_module("sympy.utilities._certified_numeric")

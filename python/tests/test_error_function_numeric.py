@@ -5,7 +5,7 @@ import math
 import pytest
 import sympy as s
 
-from sympy.core import _native, _native_expr
+from sympy.core import _native, _native_expr, _wrap
 from sympy.solvers.numerical import nsolve_certified
 
 
@@ -134,6 +134,68 @@ def test_undefined_names_cannot_acquire_builtin_function_authority(name):
         s.compile_numeric(x, source)
     with pytest.raises(NotImplementedError):
         s.enclose_objective(source, x, [(0, 0)])
+
+
+@pytest.mark.parametrize("function,reference,sign", CASES)
+def test_undefined_names_cannot_capture_native_gaussian_results(function, reference, sign):
+    x = s.Symbol("gaussian_native_identity")
+    unknown = s.Function(function.__name__)
+    opaque = unknown(x)
+    raw = _native.py_function(function.__name__, _native_expr(x))
+    recovered = _wrap(raw)
+    assert type(recovered) is function and recovered.args[0] is x
+    assert type(function(x)) is function
+    assert type(opaque) is unknown
+    assert s.compile_numeric(x, function(x) + x)(0.5) == pytest.approx(reference(0.5) + 0.5)
+    assert s.compile_numeric_hybrid(x, recovered, callbacks={})(0.5) == pytest.approx(reference(0.5))
+    with pytest.raises(NotImplementedError):
+        s.compile_numeric(x, opaque)
+
+
+@pytest.mark.parametrize("function,reference,sign", CASES)
+def test_gaussian_native_identity_preserves_changed_implementation_refusals(
+    function, reference, sign, monkeypatch,
+):
+    x = s.Symbol("gaussian_changed_implementation")
+    source = function(x, evaluate=False)
+    raw = _native_expr(source)
+    unknown = s.Function(function.__name__)
+    assert unknown is not function
+    calls = []
+
+    def forbidden(*args):
+        calls.append(args)
+        raise AssertionError("closed Gaussian admission must not execute changed hooks")
+
+    monkeypatch.setattr(function, "_eval_derivative", forbidden, raising=False)
+    assert type(_wrap(raw)) is function
+    for candidate in (source, raw):
+        for operation in (
+            lambda: _native_expr(candidate),
+            lambda: s.compile_numeric(x, candidate),
+            lambda: s.compile_numeric_hybrid(x, candidate, callbacks={}),
+            lambda: s.enclose_objective(candidate, x, [(0, 0)]),
+        ):
+            with pytest.raises(NotImplementedError):
+                operation()
+    assert calls == []
+
+
+@pytest.mark.parametrize("function,reference,sign", CASES)
+def test_gaussian_subclasses_do_not_inherit_closed_authority(function, reference, sign):
+    class CustomGaussian(function):
+        pass
+
+    x = s.Symbol("gaussian_subclass")
+    source = CustomGaussian(x, evaluate=False)
+    assert type(source) is CustomGaussian
+    for operation in (
+        lambda: s.compile_numeric(x, source),
+        lambda: s.compile_numeric_hybrid(x, source, callbacks={}),
+        lambda: s.enclose_objective(source, x, [(0, 0)]),
+    ):
+        with pytest.raises(NotImplementedError):
+            operation()
 
 
 @pytest.mark.parametrize("function,reference,sign", CASES)

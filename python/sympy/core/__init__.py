@@ -587,10 +587,11 @@ def _lookup_known_function(name: str) -> type | None:
     if root_type is not None and name == root_type.__name__:
         return root_type
     known = _known_functions.get(name)
-    native_class = globals().get("_NativeFunction")
-    if known is not None and native_class is not None and issubclass(known, native_class):
+    if known is not None and _is_registered_function_class(known):
         # Native intrinsic tags denote the registered built-in class. A user
         # class with the same spelling must not capture lifted native nodes.
+        # This also applies to built-ins with a Python-owned implementation,
+        # such as erf/erfc. Exact capability checks still reject changed classes.
         return known
     cls = _user_functions.get(name)
     if cls is not None:
