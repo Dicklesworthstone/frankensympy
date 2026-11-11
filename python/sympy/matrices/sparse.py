@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from operator import index as _index
 from collections import OrderedDict
 from types import MemberDescriptorType
 from typing import Any, Dict, Tuple
@@ -103,6 +104,165 @@ def _checked_entry(value, sources):
     # A callback's result can itself carry an effectful _sympy_ converter.
     _check_sources(sources)
     return result
+
+
+def _structural_sources(*matrices):
+    """Freeze retained coordinates before inspecting effectful selectors."""
+    sources = _capture_sources(*matrices)
+    retained = []
+    for matrix, _, surface, _, shape in sources:
+        if (type(shape) is not tuple or len(shape) != 2
+                or any(type(size) is not int or size < 0 for size in shape)):
+            raise ValueError("invalid sparse structural source shape")
+        _sparse_dimensions(*shape)
+        if isinstance(matrix, SparseMatrix) and surface is not None:
+            if type(surface) is not dict:
+                raise ValueError("invalid sparse structural stored cells")
+            _stored_entries(surface)
+            for coordinate in surface:
+                if (type(coordinate) is not tuple or len(coordinate) != 2
+                        or any(type(index) is not int for index in coordinate)
+                        or not (0 <= coordinate[0] < shape[0]
+                                and 0 <= coordinate[1] < shape[1])):
+                    raise ValueError("invalid sparse structural stored coordinate")
+            retained.append(dict(surface))
+        else:
+            retained.append(None)
+    _check_sources(sources)
+    return sources, tuple(retained)
+
+
+def _check_structural_sources(snapshot):
+    sources, retained = snapshot
+    _check_sources(sources)
+    for source, previous in zip(sources, retained):
+        if previous is not None:
+            surface = source[2]
+            if (len(surface) != len(previous)
+                    or any(surface.get(key) is not value for key, value in previous.items())):
+                raise RuntimeError("Matrix retained cells mutated during structural selection")
+
+
+def _structural_integer(value):
+    # The shell's exact Integer currently has no __index__. Do not admit
+    # float/string/__int__-only coercions that would silently truncate indices.
+    return int(value) if isinstance(value, Integer) else _index(value)
+
+
+def _structural_index(value, dimension):
+    try:
+        value = _structural_integer(value)
+    except TypeError:
+        raise IndexError("Invalid matrix index") from None
+    if value < 0:
+        value += dimension
+    if not 0 <= value < dimension:
+        raise IndexError("Matrix index out of bounds")
+    return value
+
+
+def _structural_sequence(value):
+    # As in the pinned profile, generators and unordered containers are not
+    # selectors. Bounded sequence-like objects (including Tuple) are allowed.
+    return (not isinstance(value, (str, bytes, bytearray, dict, set, frozenset))
+            and hasattr(value, "__len__") and hasattr(value, "__getitem__"))
+
+
+def _range_count(values):
+    # len(range(...)) overflows at sys.maxsize, although sparse dimensions
+    # can legitimately exceed it. No range element is enumerated here.
+    if values.step > 0:
+        return max(0, (values.stop - values.start - 1)//values.step + 1)
+    return max(0, (values.start - values.stop - 1)//(-values.step) + 1)
+
+
+def _structural_slice(value, dimension):
+    bounds = tuple(None if part is None else _structural_integer(part)
+                   for part in (value.start, value.stop, value.step))
+    return range(*slice(*bounds).indices(dimension))
+
+
+class _SparseAxisSelection:
+    """Compressed arithmetic selectors or bounded repeated-coordinate maps."""
+
+    __slots__ = ("size", "_dimension", "_span", "_positions")
+
+    def __init__(self, selector, dimension, *, scalar=False, sliced=False):
+        self._dimension = dimension
+        self._span = None
+        self._positions = None
+        if isinstance(selector, slice):
+            if not sliced:
+                raise TypeError("rowsList and colsList must be iterable")
+            span = _structural_slice(selector, dimension)
+        elif type(selector) is range:
+            span = selector
+        elif scalar and not _structural_sequence(selector):
+            index = _structural_index(selector, dimension)
+            span = range(index, index + 1)
+        else:
+            if not _structural_sequence(selector):
+                raise TypeError("rowsList and colsList must be iterable")
+            if len(selector) > _MAX_SPARSE_ENTRIES:
+                raise ValueError("sparse selector exceeds the stored-entry limit")
+            values = []
+            for value in selector:
+                if len(values) >= _MAX_SPARSE_ENTRIES:
+                    raise ValueError("sparse selector exceeds the stored-entry limit")
+                values.append(value)
+            if values and all(isinstance(value, bool) for value in values):
+                values = [index for index, value in enumerate(values) if value]
+            self.size = len(values)
+            self._positions = {}
+            for output, value in enumerate(values):
+                coordinate = _structural_index(value, dimension)
+                self._positions.setdefault(coordinate, []).append(output)
+            return
+        count = _range_count(span)
+        if count:
+            last = span.start + (count - 1)*span.step
+            if min(span.start, last) < -dimension or max(span.start, last) >= dimension:
+                raise IndexError("Matrix index out of bounds")
+        self.size = count
+        self._span = span
+
+    def positions(self, coordinate):
+        if self._positions is not None:
+            return self._positions.get(coordinate, ())
+        # A range may select both k and k-dimension; those are two distinct
+        # output positions. Keep both, in their original selector order.
+        span = self._span
+        return tuple(sorted((value - span.start)//span.step
+                            for value in (coordinate, coordinate - self._dimension)
+                            if value in span))
+
+
+def _structural_entries(matrix):
+    """Copy stored values without inventing owners for native-only functions."""
+    native = matrix._native_storage
+    if matrix._surface is None:
+        if native.shape != matrix.shape:
+            raise ValueError("native and retained matrix shapes differ")
+        if isinstance(matrix, SparseMatrix):
+            return _stored_entries(native.todok()), True
+        return _stored_entries(native.to_sparse().todok()), True
+    if isinstance(matrix, SparseMatrix):
+        return _stored_entries(matrix._operation_entries()), False
+    surface = matrix._surface
+    rows, cols = matrix.shape
+    if type(surface) is not tuple or len(surface) != rows*cols:
+        raise ValueError("dense retained cells do not match the matrix shape")
+    _stored_entries(surface)
+    return {divmod(index, cols): value for index, value in enumerate(surface)
+            if not _is_exact_zero(value)}, False
+
+
+def _lift_structural_entries(entries):
+    # Admit the entire selected native region before lifting the first cell.
+    # In particular, a bare function name cannot recover a Python subclass.
+    for value in entries.values():
+        _admit_native_cell(value)
+    return {coordinate: _wrap(value) for coordinate, value in entries.items()}
 
 
 def _reduction_options(iszerofunc=None, simplify=False):
@@ -771,22 +931,94 @@ class SparseMatrix(MatrixBase):
 
     colspace = columnspace
 
+    def _finish_structure(self, rows, cols, entries, native_only, snapshot):
+        _check_structural_sources(snapshot)
+        if native_only:
+            result = self._new(_NativeSparseMatrix(rows, cols, entries))
+        else:
+            result = self._finish_operation(rows, cols, entries, snapshot[0])
+        _check_structural_sources(snapshot)
+        return result
+
+    def _extract_structure(self, rows, cols, snapshot, *, scalar=False, sliced=False):
+        source_rows, source_cols = snapshot[0][0][4]
+        selected_rows = _SparseAxisSelection(rows, source_rows, scalar=scalar, sliced=sliced)
+        selected_cols = _SparseAxisSelection(cols, source_cols, scalar=scalar, sliced=sliced)
+        _check_structural_sources(snapshot)
+        shape = _sparse_dimensions(selected_rows.size, selected_cols.size)
+        entries, native_only = _structural_entries(self)
+        _check_structural_sources(snapshot)
+        count = 0
+        for row, col in entries:
+            count += len(selected_rows.positions(row))*len(selected_cols.positions(col))
+            if count > _MAX_SPARSE_ENTRIES:
+                raise ValueError("sparse selection exceeds the stored-entry limit")
+        result = {}
+        for (row, col), value in entries.items():
+            for output_row in selected_rows.positions(row):
+                for output_col in selected_cols.positions(col):
+                    result[(output_row, output_col)] = value
+        return self._finish_structure(*shape, result, native_only, snapshot)
+
     def col(self, j: int) -> "SparseMatrix":
-        return self.to_dense().col(j).to_sparse()
+        return self._extract_structure(slice(None), j, _structural_sources(self),
+                                       scalar=True, sliced=True)
 
     def row(self, i: int) -> "SparseMatrix":
-        return self.to_dense().row(i).to_sparse()
+        return self._extract_structure(i, slice(None), _structural_sources(self),
+                                       scalar=True, sliced=True)
+
+    def _join_structure(self, other, *, horizontal):
+        if not isinstance(other, (SparseMatrix, Matrix)):
+            raise TypeError("sparse joins require a Matrix")
+        snapshot = _structural_sources(self, other)
+        left_rows, left_cols = snapshot[0][0][4]
+        right_rows, right_cols = snapshot[0][1][4]
+        if horizontal:
+            if left_cols == 0:
+                left_rows = right_rows
+            if left_rows != right_rows:
+                raise ValueError(
+                    f"Shape mismatch for row_join: {left_rows} vs {right_rows} rows"
+                )
+            shape = _sparse_dimensions(left_rows, left_cols + right_cols)
+        else:
+            if left_rows == 0:
+                left_cols = right_cols
+            if left_cols != right_cols:
+                raise ValueError(
+                    f"Shape mismatch for col_join: {left_cols} vs {right_cols} columns"
+                )
+            shape = _sparse_dimensions(left_rows + right_rows, left_cols)
+        left, left_native = _structural_entries(self)
+        right, right_native = _structural_entries(other)
+        _check_structural_sources(snapshot)
+        if len(left) + len(right) > _MAX_SPARSE_ENTRIES:
+            raise ValueError("sparse join exceeds the stored-entry limit")
+        # An empty retained side carries no scalar owner that needs lifting.
+        native_only = (left_native or not left) and (right_native or not right)
+        if not native_only:
+            if left_native:
+                left = _lift_structural_entries(left)
+            if right_native:
+                right = _lift_structural_entries(right)
+        result = dict(left)
+        for (row, col), value in right.items():
+            coordinate = (row, col + left_cols) if horizontal else (row + left_rows, col)
+            result[coordinate] = value
+        return self._finish_structure(*shape, result, native_only, snapshot)
 
     def col_join(self, other: Any) -> "SparseMatrix":
-        rhs = other.to_dense() if hasattr(other, "to_dense") else other
-        return self.to_dense().col_join(rhs).to_sparse()
+        """Stack stored rows, preserving this class and every scalar owner."""
+        return self._join_structure(other, horizontal=False)
 
     def row_join(self, other: Any) -> "SparseMatrix":
-        rhs = other.to_dense() if hasattr(other, "to_dense") else other
-        return self.to_dense().row_join(rhs).to_sparse()
+        """Join stored columns without materializing either sparse rectangle."""
+        return self._join_structure(other, horizontal=True)
 
     def extract(self, rowsList: Any, colsList: Any) -> "SparseMatrix":
-        return self.to_dense().extract(rowsList, colsList).to_sparse()
+        """Select ordered, repeated or boolean-mask axes using stored cells."""
+        return self._extract_structure(rowsList, colsList, _structural_sources(self))
 
     def copy(self) -> "SparseMatrix":
         return self._new(self)
@@ -934,32 +1166,62 @@ class SparseMatrix(MatrixBase):
         return self.rows*self.cols
 
     def _coordinate(self, key):
+        sources = _capture_sources(self)
+        rows, cols = sources[0][4]
         if isinstance(key, tuple):
             if len(key) != 2:
                 raise IndexError("Matrix index must be a 2-tuple (row, col)")
-            row, col = map(int, key)
-            if row < 0:
-                row += self.rows
-            if col < 0:
-                col += self.cols
-        elif isinstance(key, int):
-            size = self.rows*self.cols
-            if key < 0:
-                key += size
-            if not 0 <= key < size:
-                raise IndexError("Matrix index out of bounds")
-            row, col = divmod(key, self.cols)
+            row = _structural_index(key[0], rows)
+            col = _structural_index(key[1], cols)
         else:
-            raise TypeError("SparseMatrix index must be an integer or (row, col) integer pair")
-        if not (0 <= row < self.rows and 0 <= col < self.cols):
-            raise IndexError("Matrix index out of bounds")
+            position = _structural_integer(key)
+            if position < 0:
+                position += rows*cols
+            if not 0 <= position < rows*cols:
+                raise IndexError("Matrix index out of bounds")
+            row, col = divmod(position, cols)
+        _check_sources(sources)
         return row, col
 
     def __getitem__(self, key: Any) -> Any:
+        if isinstance(key, slice):
+            snapshot = _structural_sources(self)
+            rows, cols = snapshot[0][0][4]
+            indices = _structural_slice(key, rows*cols)
+            _check_structural_sources(snapshot)
+            if _range_count(indices) > _MAX_SPARSE_ENTRIES:
+                raise ValueError("sparse flat slice exceeds the stored-entry limit")
+            entries, native_only = _structural_entries(self)
+            _check_structural_sources(snapshot)
+            if native_only:
+                selected = {coordinate: value for coordinate, value in entries.items()
+                            if coordinate[0]*cols + coordinate[1] in indices}
+                entries = _lift_structural_entries(selected)
+            result = [entries.get(divmod(index, cols), _ZERO) for index in indices]
+            _check_structural_sources(snapshot)
+            return result
+        if isinstance(key, tuple):
+            if len(key) != 2:
+                raise IndexError("Matrix index must be a 2-tuple (row, col)")
+            if all(type(axis) in (int, bool) for axis in key):
+                snapshot = None
+            else:
+                snapshot = _structural_sources(self)
+                if any(isinstance(axis, slice) or _structural_sequence(axis) for axis in key):
+                    return self._extract_structure(*key, snapshot, scalar=True, sliced=True)
+                _check_structural_sources(snapshot)
+        else:
+            snapshot = None if type(key) in (int, bool) else _structural_sources(self)
+        sources = _capture_sources(self)
         coordinate = self._coordinate(key)
         if self._surface is not None:
-            return self._surface.get(coordinate, _ZERO)
-        return _wrap(self._native_storage[coordinate])
+            result = self._surface.get(coordinate, _ZERO)
+        else:
+            result = _sparse_entry(self._native_storage[coordinate])
+        _check_sources(sources)
+        if snapshot is not None:
+            _check_structural_sources(snapshot)
+        return result
 
     def __setitem__(self, key: Any, value: Any) -> None:
         sources = _capture_sources(self)
