@@ -880,42 +880,178 @@ fn groebner_basis_expr(
     Ok(out)
 }
 
-/// Multivariate polynomial GCD (monic under Lex order).
+fn polynomial_content(
+    polynomial: &fsym_polys::MultivariatePoly,
+    meter: &mut Budget,
+) -> PyResult<BigRational> {
+    let mut numerator = BigInt::from(0);
+    let mut denominator = BigInt::from(1);
+    for coefficient in polynomial.terms().values() {
+        numerator = fsym_core::arith::metered_gcd(&numerator, coefficient.numer(), meter)
+            .map_err(to_value_error)?;
+        denominator = polynomial_integer_lcm(&denominator, coefficient.denom(), meter)?;
+    }
+    BigRational::metered_new(&numerator, &denominator, meter).map_err(to_value_error)
+}
+
+fn polynomial_integer_lcm(a: &BigInt, b: &BigInt, meter: &mut Budget) -> PyResult<BigInt> {
+    if a == &BigInt::from(0) || b == &BigInt::from(0) {
+        return Ok(BigInt::from(0));
+    }
+    let common = fsym_core::arith::metered_gcd(a, b, meter).map_err(to_value_error)?;
+    let quotient = fsym_core::arith::metered_exact_div(a, &common, meter)
+        .map_err(to_value_error)?
+        .ok_or_else(|| PyValueError::new_err("polynomial content division was not exact"))?;
+    let result = fsym_core::arith::metered_mul(&quotient, b, meter).map_err(to_value_error)?;
+    if result.bits() > 4096 {
+        return Err(PyValueError::new_err("polynomial content exceeds 4096 bits"));
+    }
+    Ok(result)
+}
+
+/// The compatibility shell chooses ZZ content normalization or monic QQ
+/// normalization only after both original sources have entered the bounded
+/// typed ring. Generation, independent acceptance, normalization and lifting
+/// retain the same pair of ledgers; a failure never retries by factorization.
+fn multivariate_gcd_lcm_core(
+    left: &Expr,
+    right: &Expr,
+    variables: &[Symbol],
+    lcm: bool,
+    domain: &str,
+    generator: &mut Budget,
+    verifier: &mut Budget,
+) -> PyResult<PyExpr> {
+    if !matches!(domain, "QQ" | "ZZ" | "auto") {
+        return Err(PyValueError::new_err(
+            "polynomial GCD domain must be ZZ, QQ, or auto",
+        ));
+    }
+    let left = fsym_polys::bounded_polynomial_from_expr(left, variables, generator)
+        .map_err(to_value_error)?;
+    let right = fsym_polys::bounded_polynomial_from_expr(right, variables, generator)
+        .map_err(to_value_error)?;
+    let integral = left
+        .terms()
+        .values()
+        .chain(right.terms().values())
+        .all(|coefficient| coefficient.is_integer());
+    if domain == "ZZ" && !integral {
+        return Err(PyValueError::new_err(
+            "noninteger coefficients cannot be represented in ZZ",
+        ));
+    }
+    let accepted = fsym_polys::checked_multivariate_gcd(&left, &right, generator, verifier)
+        .map_err(to_value_error)?;
+    let (gcd, multiple) = accepted.into_parts();
+    let mut result = if lcm { multiple } else { gcd };
+    let scalar_content = domain == "auto" && variables.is_empty();
+    if (domain == "ZZ" || (domain == "auto" && integral) || scalar_content)
+        && !result.is_zero()
+    {
+        let left_content = polynomial_content(&left, generator)?;
+        let right_content = polynomial_content(&right, generator)?;
+        let numerator = if lcm {
+            polynomial_integer_lcm(left_content.numer(), right_content.numer(), generator)?
+        } else {
+            fsym_core::arith::metered_gcd(left_content.numer(), right_content.numer(), generator)
+                .map_err(to_value_error)?
+        };
+        let denominator = if !scalar_content {
+            BigInt::from(1)
+        } else if lcm {
+            fsym_core::arith::metered_gcd(left_content.denom(), right_content.denom(), generator)
+                .map_err(to_value_error)?
+        } else {
+            polynomial_integer_lcm(left_content.denom(), right_content.denom(), generator)?
+        };
+        let content = BigRational::metered_new(&numerator, &denominator, generator)
+            .map_err(to_value_error)?;
+        let result_content = polynomial_content(&result, generator)?;
+        let scale = content
+            .metered_div(&result_content, generator)
+            .map_err(to_value_error)?;
+        if scale.numer().bits() > 4096 || scale.denom().bits() > 4096 {
+            return Err(PyValueError::new_err("polynomial content exceeds 4096 bits"));
+        }
+        for coefficient in result.terms.values_mut() {
+            let scaled = coefficient
+                .metered_mul(&scale, generator)
+                .map_err(to_value_error)?;
+            if scaled.numer().bits() > 4096 || scaled.denom().bits() > 4096 {
+                return Err(PyValueError::new_err(
+                    "polynomial coefficient exceeds 4096 bits",
+                ));
+            }
+            *coefficient = scaled;
+        }
+    }
+    let ring_bytes = variables
+        .iter()
+        .map(|symbol| symbol.name.len() + 128)
+        .sum();
+    let mut lifted =
+        ideal_operations::lift_basis(vec![result], ring_bytes, generator, verifier)?;
+    lifted
+        .pop()
+        .ok_or_else(|| PyValueError::new_err("missing checked polynomial result"))
+}
+
+fn multivariate_gcd_lcm_strings(
+    left: &str,
+    right: &str,
+    variables: &Bound<'_, pyo3::types::PyList>,
+    lcm: bool,
+    domain: &str,
+) -> PyResult<String> {
+    if left.len() > 65_536 || right.len() > 65_536 {
+        return Err(PyValueError::new_err(
+            "polynomial input exceeds 65536 bytes",
+        ));
+    }
+    let mut generator = ideal_operations::budget();
+    let mut verifier = ideal_operations::budget();
+    let variables = ideal_operations::symbols(variables, &mut generator)?;
+    ideal_operations::charge(
+        &mut generator,
+        left.len() + right.len(),
+        (left.len() + right.len()) * 64,
+    )?;
+    let (left, right) = (parse_expr(left)?, parse_expr(right)?);
+    let result = multivariate_gcd_lcm_core(
+        &left,
+        &right,
+        &variables,
+        lcm,
+        domain,
+        &mut generator,
+        &mut verifier,
+    )?;
+    Ok(result.inner.to_string())
+}
+
+/// Independently checked multivariate GCD, monic over QQ by default.
 #[pyfunction]
+#[pyo3(signature = (p1_src, p2_src, var_names, domain="QQ"))]
 fn poly_multivariate_gcd_expr(
     p1_src: &str,
     p2_src: &str,
-    var_names: Vec<String>,
+    var_names: &Bound<'_, pyo3::types::PyList>,
+    domain: &str,
 ) -> PyResult<String> {
-    let e1 = parse_expr(p1_src)?;
-    let e2 = parse_expr(p2_src)?;
-    let gens: Vec<Symbol> = var_names.into_iter().map(Symbol::new).collect();
-    let poly1 = fsym_polys::multivariate::MultivariatePoly::from_expr(&e1, &gens)
-        .map_err(to_value_error)?;
-    let poly2 = fsym_polys::multivariate::MultivariatePoly::from_expr(&e2, &gens)
-        .map_err(to_value_error)?;
-    let g = poly1.gcd(&poly2).map_err(to_value_error)?;
-    let expr = g.to_expr().map_err(to_value_error)?;
-    Ok(expr.to_string())
+    multivariate_gcd_lcm_strings(p1_src, p2_src, var_names, false, domain)
 }
 
-/// Multivariate polynomial LCM (monic under Lex order).
+/// Independently checked multivariate LCM, monic over QQ by default.
 #[pyfunction]
+#[pyo3(signature = (p1_src, p2_src, var_names, domain="QQ"))]
 fn poly_multivariate_lcm_expr(
     p1_src: &str,
     p2_src: &str,
-    var_names: Vec<String>,
+    var_names: &Bound<'_, pyo3::types::PyList>,
+    domain: &str,
 ) -> PyResult<String> {
-    let e1 = parse_expr(p1_src)?;
-    let e2 = parse_expr(p2_src)?;
-    let gens: Vec<Symbol> = var_names.into_iter().map(Symbol::new).collect();
-    let poly1 = fsym_polys::multivariate::MultivariatePoly::from_expr(&e1, &gens)
-        .map_err(to_value_error)?;
-    let poly2 = fsym_polys::multivariate::MultivariatePoly::from_expr(&e2, &gens)
-        .map_err(to_value_error)?;
-    let lcm = poly1.lcm(&poly2).map_err(to_value_error)?;
-    let expr = lcm.to_expr().map_err(to_value_error)?;
-    Ok(expr.to_string())
+    multivariate_gcd_lcm_strings(p1_src, p2_src, var_names, true, domain)
 }
 
 /// Multivariate polynomial division with remainder returning (quotient, remainder).
@@ -1074,13 +1210,14 @@ fn limit_native(
 
 /// Structured one-sided series about `x0` to absolute order `n`.
 #[pyfunction]
-#[pyo3(signature = (expr, var, x0, n, dir="+"))]
+#[pyo3(signature = (expr, var, x0, n, dir="+", facts=Vec::new()))]
 fn series_expansion_native(
     expr: &PyExpr,
     var: &Bound<'_, PyAny>,
     x0: &PyExpr,
     n: i64,
     dir: &str,
+    facts: Vec<(Bound<'_, PyAny>, Vec<String>)>,
 ) -> PyResult<PySeriesResult> {
     let sym = extract_symbol_arg(var)?;
     let direction = match dir {
@@ -1088,9 +1225,10 @@ fn series_expansion_native(
         "-" => fsym_calculus::gruntz::Direction::Minus,
         _ => return Err(PyValueError::new_err("series direction must be '+' or '-'")),
     };
-    let (terms, order) =
+    let (terms, order) = with_typed_or_named_facts(facts, || {
         fsym_calculus::series_expansion_dir(&expr.inner, &sym, &x0.inner, n, direction)
-            .map_err(to_value_error)?;
+    })?
+    .map_err(to_value_error)?;
     Ok((
         terms
             .into_iter()
@@ -1737,44 +1875,50 @@ fn groebner_basis_native(
     Ok(out)
 }
 
-/// Structured multivariate polynomial GCD (monic under Lex order).
+/// Structured, independently checked multivariate GCD in the exact typed ring.
 #[pyfunction]
+#[pyo3(signature = (p1, p2, vars, domain="QQ"))]
 fn poly_multivariate_gcd_native(
     p1: &PyExpr,
     p2: &PyExpr,
-    vars: Vec<Bound<'_, PyAny>>,
+    vars: &Bound<'_, pyo3::types::PyList>,
+    domain: &str,
 ) -> PyResult<PyExpr> {
-    let gens = vars
-        .iter()
-        .map(extract_symbol_arg)
-        .collect::<PyResult<Vec<Symbol>>>()?;
-    let poly1 = fsym_polys::multivariate::MultivariatePoly::from_expr(&p1.inner, &gens)
-        .map_err(to_value_error)?;
-    let poly2 = fsym_polys::multivariate::MultivariatePoly::from_expr(&p2.inner, &gens)
-        .map_err(to_value_error)?;
-    let g = poly1.gcd(&poly2).map_err(to_value_error)?;
-    let expr = g.to_expr().map_err(to_value_error)?;
-    Ok(PyExpr::from_expr(expr))
+    let mut generator = ideal_operations::budget();
+    let mut verifier = ideal_operations::budget();
+    let variables = ideal_operations::symbols(vars, &mut generator)?;
+    multivariate_gcd_lcm_core(
+        &p1.inner,
+        &p2.inner,
+        &variables,
+        false,
+        domain,
+        &mut generator,
+        &mut verifier,
+    )
 }
 
-/// Structured multivariate polynomial LCM (monic under Lex order).
+/// Structured, independently checked multivariate LCM in the exact typed ring.
 #[pyfunction]
+#[pyo3(signature = (p1, p2, vars, domain="QQ"))]
 fn poly_multivariate_lcm_native(
     p1: &PyExpr,
     p2: &PyExpr,
-    vars: Vec<Bound<'_, PyAny>>,
+    vars: &Bound<'_, pyo3::types::PyList>,
+    domain: &str,
 ) -> PyResult<PyExpr> {
-    let gens = vars
-        .iter()
-        .map(extract_symbol_arg)
-        .collect::<PyResult<Vec<Symbol>>>()?;
-    let poly1 = fsym_polys::multivariate::MultivariatePoly::from_expr(&p1.inner, &gens)
-        .map_err(to_value_error)?;
-    let poly2 = fsym_polys::multivariate::MultivariatePoly::from_expr(&p2.inner, &gens)
-        .map_err(to_value_error)?;
-    let lcm = poly1.lcm(&poly2).map_err(to_value_error)?;
-    let expr = lcm.to_expr().map_err(to_value_error)?;
-    Ok(PyExpr::from_expr(expr))
+    let mut generator = ideal_operations::budget();
+    let mut verifier = ideal_operations::budget();
+    let variables = ideal_operations::symbols(vars, &mut generator)?;
+    multivariate_gcd_lcm_core(
+        &p1.inner,
+        &p2.inner,
+        &variables,
+        true,
+        domain,
+        &mut generator,
+        &mut verifier,
+    )
 }
 
 /// Structured multivariate polynomial division with remainder.

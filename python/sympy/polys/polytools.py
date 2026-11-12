@@ -561,44 +561,20 @@ class Poly(Basic):
         return _lift_native_result(raw, self._expr, *self._gens)
 
     def gcd(self, other: Any) -> "Poly":
-        """Greatest common divisor (monic)."""
+        """Checked greatest common divisor in the unified ZZ or QQ ring."""
         if _finitefield.is_finite(self):
             return _finitefield.operation(self, "gcd", other)
         if _finitefield.is_finite(other):
             return _finitefield.operation(other, "gcd", self)
-        other_expr = other.as_expr() if isinstance(other, Poly) else _wrap(_native_expr(other))
-        other_gens = other._gens if isinstance(other, Poly) else ()
-        if len(self._gens) > 1 or len(other_gens) > 1:
-            all_gens = tuple(dict.fromkeys(self._gens + other_gens))
-            var_bindings = [_symbol_binding(g) for g in all_gens]
-            raw = _native.poly_multivariate_gcd_native(
-                _native_expr(self._expr), _native_expr(other_expr), var_bindings
-            )
-            return Poly(_lift_native_result(raw, self._expr, other_expr, *all_gens), *all_gens)
-        raw = _native.poly_gcd_native(
-            _native_expr(self._expr), _native_expr(other_expr), _symbol_binding(self.gen)
-        )
-        return Poly(_lift_native_result(raw, self._expr, other_expr, *self._gens), *self._gens)
+        return _multivariate_gcd_lcm(self, other, lcm=False, polys=True)
 
     def lcm(self, other: Any) -> "Poly":
-        """Least common multiple (monic)."""
+        """Checked least common multiple in the unified ZZ or QQ ring."""
         if _finitefield.is_finite(self):
             return _finitefield.operation(self, "lcm", other)
         if _finitefield.is_finite(other):
             return _finitefield.operation(other, "lcm", self)
-        other_expr = other.as_expr() if isinstance(other, Poly) else _wrap(_native_expr(other))
-        other_gens = other._gens if isinstance(other, Poly) else ()
-        if len(self._gens) > 1 or len(other_gens) > 1:
-            all_gens = tuple(dict.fromkeys(self._gens + other_gens))
-            var_bindings = [_symbol_binding(g) for g in all_gens]
-            raw = _native.poly_multivariate_lcm_native(
-                _native_expr(self._expr), _native_expr(other_expr), var_bindings
-            )
-            return Poly(_lift_native_result(raw, self._expr, other_expr, *all_gens), *all_gens)
-        raw = _native.poly_lcm_native(
-            _native_expr(self._expr), _native_expr(other_expr), _symbol_binding(self.gen)
-        )
-        return Poly(_lift_native_result(raw, self._expr, other_expr, *self._gens), *self._gens)
+        return _multivariate_gcd_lcm(self, other, lcm=True, polys=True)
 
     def gcdex(self, other: Any) -> Tuple["Poly", "Poly", "Poly"]:
         """Extended Euclidean algorithm: returns (s, t, h) such that s*self + t*other = h."""
@@ -1257,50 +1233,101 @@ def gcd(a: Any, b: Any, *gens: Any, **kwargs: Any) -> Any:
     modular = _finitefield.binary_entry(a, b, gens, kwargs, "gcd")
     if modular is not None:
         return modular
-    if gens or kwargs:
-        raise TypeError("explicit gcd options currently require a prime field")
-    if isinstance(a, int) and isinstance(b, int):
+    if type(a) is int and type(b) is int and not gens and not kwargs:
         return math.gcd(a, b)
-    if isinstance(a, Poly):
-        return a.gcd(b)
-    if isinstance(b, Poly):
-        return b.gcd(a)
-    multi = _multivariate_gcd_lcm(a, b, lcm=False)
-    if multi is not None:
-        return multi
-    p_a = Poly(a)
-    res = p_a.gcd(b)
-    return res.as_expr()
+    return _multivariate_gcd_lcm(a, b, lcm=False, gens=gens, **kwargs)
 
 
-def _multivariate_gcd_lcm(a: Any, b: Any, lcm: bool) -> Any:
-    """gcd/lcm over ZZ[x, y, ...] from the two complete factorizations:
-    shared irreducible factors at the min (max) multiplicity times the gcd
-    (lcm) of the integer contents, expanded as upstream returns it."""
-    from ..core import expand as _expand, sympify as _s
+def _multivariate_gcd_lcm(a: Any, b: Any, lcm: bool, *, gens=(), domain=None,
+                          polys=None) -> Any:
+    """Source-bound GCD/LCM without a complete-factorization prerequisite.
 
-    mgens = _sort_gens(_s(a).free_symbols | _s(b).free_symbols)
-    if not mgens:
-        return None
-    fa = _native_factor_multivariate(a, mgens)
-    fb = _native_factor_multivariate(b, mgens)
-    if fa is None or fb is None:
-        return None
-    (ca, la), (cb, lb) = fa, fb
-    if not (isinstance(ca, Integer) and isinstance(cb, Integer)) or ca == 0 or cb == 0:
-        return None
-    ia, ib = abs(int(ca)), abs(int(cb))
-    content = (ia * ib // math.gcd(ia, ib)) if lcm else math.gcd(ia, ib)
-    mult_b = {f: m for f, m in lb}
-    mult_a = {f: m for f, m in la}
-    out = Integer(content)
-    keys = list(mult_a) + [f for f in mult_b if f not in mult_a]
-    for f in keys:
-        ma, mb = mult_a.get(f, 0), mult_b.get(f, 0)
-        k = max(ma, mb) if lcm else min(ma, mb)
-        if k:
-            out = out * f**k
-    return _expand(out)
+    The native QQ certificate establishes greatestness through a complete
+    principal-ideal intersection. ZZ results additionally retain integer
+    content. Original typed symbols, held children and Poly metadata remain
+    captured until the public result has been lifted.
+    """
+    from ..core import Dummy
+
+    if domain is not None and (type(domain) is not str or domain not in ("ZZ", "QQ")):
+        raise NotImplementedError("checked polynomial GCD supports only ZZ and QQ")
+    if polys is not None and type(polys) is not bool:
+        raise TypeError("polys must be a bool")
+    if len(gens) == 1 and type(gens[0]) in (tuple, list):
+        if len(gens[0]) > 8:
+            raise ValueError("checked polynomial GCD requires at most eight generators")
+        gens = tuple(gens[0])
+    if len(gens) > 8:
+        raise ValueError("checked polynomial GCD requires at most eight generators")
+
+    originals = (a, b)
+    poly_states = []
+    for value in originals:
+        if isinstance(value, Poly):
+            _rational_ideal_source(value)
+            namespace = object.__getattribute__(value, "__dict__")
+            ring = namespace.get("_gens")
+            if type(ring) is not tuple or len(ring) > 8:
+                raise ValueError("polynomial GCD requires a bounded original generator tuple")
+            poly_states.append((value, namespace, ring))
+
+    original_basis = GroebnerBasis(list(originals), tuple(gens), "QQ", "lex")
+    retained = _IdealQuotientSnapshot(original_basis)
+    sources, _, _, _ = retained.inputs()[0]
+    if not gens:
+        if poly_states:
+            gens = tuple(dict.fromkeys(g for _, _, ring in poly_states for g in ring))
+        else:
+            # A name is a display field, not the tie breaker for distinct
+            # assumption-bound symbols which happen to print identically.
+            symbols = set().union(*(source.free_symbols for source in sources))
+            symbols = sorted(symbols, key=lambda symbol:
+                             (symbol.name, _symbol_binding(symbol).identity_hex))
+            gens = tuple(_sort_gens(symbols))
+    if len(gens) > 8:
+        raise ValueError("checked polynomial GCD requires at most eight generators")
+    all_symbols = set(gens).union(*(source.free_symbols for source in sources))
+    for variable in all_symbols:
+        if type(variable) not in (Symbol, Dummy):
+            raise TypeError("polynomial GCD requires exact built-in generators")
+        assumptions = object.__getattribute__(variable, "_assumptions")
+        if assumptions.get("commutative", True) is not True:
+            raise PolynomialError("noncommutative polynomial generators are not supported")
+    retained.unchanged()
+
+    basis = GroebnerBasis(list(originals), tuple(gens), "QQ", "lex")
+    snapshot = _IdealQuotientSnapshot(basis)
+    sources, gens, equations, bindings = snapshot.inputs()[0]
+    requested = domain
+    if requested is None and any(namespace.get("_domain_given") is True
+                                 and namespace.get("_domain") == "QQ"
+                                 for _, namespace, _ in poly_states):
+        requested = "QQ"
+    if not gens and not poly_states:
+        # Scalar gcd/lcm retains rational content even when a domain option
+        # was supplied. A declared nonempty QQ polynomial ring instead uses
+        # monic units. Both computations stay in the metered native lane.
+        requested = None
+    operation = (_native.poly_multivariate_lcm_native if lcm
+                 else _native.poly_multivariate_gcd_native)
+    raw = operation(equations[0], equations[1], bindings, requested or "auto")
+    snapshot.unchanged()
+    retained.unchanged()
+    value = _lift_native_result(raw, *sources, *gens)
+    result = value
+    if gens and (polys is True or (polys is None and poly_states)):
+        inferred = [Poly(source, *gens)._infer_domain() for source in sources]
+        for polynomial, namespace, _ in poly_states:
+            expression = _rational_ideal_source(polynomial)
+            if (namespace.get("_domain_given") is True and namespace.get("_domain") == "ZZ"
+                    and Poly(expression, *gens)._infer_domain() != "ZZ"):
+                raise ValueError("noninteger coefficients cannot be represented in ZZ")
+        result_domain = requested or ("ZZ" if all(item == "ZZ" for item in inferred) else "QQ")
+        cls = type(poly_states[0][0]) if poly_states else Poly
+        result = cls(value, *gens, domain=result_domain)
+    snapshot.unchanged()
+    retained.unchanged()
+    return result
 
 
 def lcm(a: Any, b: Any, *gens: Any, **kwargs: Any) -> Any:
@@ -1308,20 +1335,9 @@ def lcm(a: Any, b: Any, *gens: Any, **kwargs: Any) -> Any:
     modular = _finitefield.binary_entry(a, b, gens, kwargs, "lcm")
     if modular is not None:
         return modular
-    if gens or kwargs:
-        raise TypeError("explicit lcm options currently require a prime field")
-    if isinstance(a, int) and isinstance(b, int):
+    if type(a) is int and type(b) is int and not gens and not kwargs:
         return abs(a * b) // math.gcd(a, b) if a and b else 0
-    if isinstance(a, Poly):
-        return a.lcm(b)
-    if isinstance(b, Poly):
-        return b.lcm(a)
-    multi = _multivariate_gcd_lcm(a, b, lcm=True)
-    if multi is not None:
-        return multi
-    p_a = Poly(a)
-    res = p_a.lcm(b)
-    return res.as_expr()
+    return _multivariate_gcd_lcm(a, b, lcm=True, gens=gens, **kwargs)
 
 
 def gcdex(f: Any, g: Any, x: Any = None, **kwargs: Any) -> Tuple[Any, Any, Any]:

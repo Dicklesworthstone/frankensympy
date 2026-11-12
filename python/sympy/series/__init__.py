@@ -56,6 +56,7 @@ def series(expression, x=None, x0=0, n=6, dir="+", **kwargs):
         _native_expr(x0),
         int(n),
         dir,
+        _typed_symbol_facts(expr, symbol, x0),
     )
     from ..core import oo, Integer
 

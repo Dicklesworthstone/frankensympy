@@ -4,8 +4,8 @@ import unittest
 from unittest.mock import patch
 
 from sympy import (
-    Abs, Add, Dummy, I, Mul, Order, Pow, Rational, Symbol,
-    exp, expand, log, oo, pi, series, simplify, sqrt,
+    Abs, Add, Dummy, I, Limit, Mul, Order, Pow, Rational, Symbol,
+    exp, expand, limit, log, oo, pi, series, simplify, sqrt,
 )
 from sympy.core import _lift_native_result, _native, _native_expr, _symbol_binding
 
@@ -72,6 +72,50 @@ class DirectionalSeriesTests(unittest.TestCase):
         self.assert_zero(series(sqrt(x), x, 0, 4, dir="+") - sqrt(x))
         self.assert_zero(series(sqrt(-x), x, 0, 4, dir="-") - sqrt(-x))
         self.assert_zero(series(sqrt(x - 2), x, 2, 4, dir="-") - I*sqrt(2 - x))
+
+    def test_negative_cut_continuation_uses_the_actual_complex_approach(self):
+        x = self.x
+        cases = (
+            (log(-1 - I*x), -I*pi + I*x + x**2/2, -I*pi, I*pi),
+            (sqrt(-1 - I*x), -I + x/2 - I*x**2/8, -I, I),
+            (log(-1 + I*x), I*pi - I*x + x**2/2, I*pi, -I*pi),
+            (sqrt(-1 + I*x), I + x/2 + I*x**2/8, I, -I),
+        )
+        for source, expected, right_limit, left_limit in cases:
+            with self.subTest(source=source):
+                result = series(source, x, 0, 3)
+                self.assert_zero(result.removeO() - expected)
+                self.assert_zero(limit(source, x, 0, dir="+") - right_limit)
+                self.assert_zero(limit(source, x, 0, dir="-") - left_limit)
+
+    def test_imaginary_terms_above_requested_order_still_select_the_branch(self):
+        x = self.x
+        for source, expected in (
+            (log(-1 - I*x**100), -I*pi),
+            (sqrt(-1 - I*x**100), -I),
+            (log(-1 - I*x + I*x**2), -I*pi),
+        ):
+            with self.subTest(source=source):
+                result = series(source, x, 0, 1)
+                self.assert_zero(result.removeO() - expected)
+
+    def test_typed_parameter_assumptions_select_the_cut_and_unknowns_refuse(self):
+        x = self.x
+        for parameter, expected in (
+            (Symbol("a", positive=True), -I*pi),
+            (Symbol("a", negative=True), I*pi),
+        ):
+            with self.subTest(parameter=parameter, expected=expected):
+                source = log(-1 - I*parameter*x)
+                result = series(source, x, 0, 2)
+                self.assert_zero(result.removeO() - expected - I*parameter*x)
+                self.assertEqual(result.free_symbols, {x, parameter})
+                self.assert_zero(limit(source, x, 0) - expected)
+        unknown = Symbol("a", real=True)
+        source = log(-1 - I*unknown*x)
+        with self.assertRaises(ValueError):
+            series(source, x, 0, 2)
+        self.assertIsInstance(limit(source, x, 0), Limit)
 
     def test_logarithmic_coefficients_use_the_same_ray_as_power_terms(self):
         x = self.x

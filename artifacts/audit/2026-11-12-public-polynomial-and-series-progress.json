@@ -1,0 +1,31 @@
+{
+  "date": "2026-11-12",
+  "beads": [
+    "fra-o4g",
+    "fra-546",
+    "fra-a5x"
+  ],
+  "scope": "Public checked QQ/ZZ multivariate GCD/LCM and typed parameter assumptions in directional series.",
+  "changes": [
+    "Route Poly, PurePoly, module-level and native string/typed GCD/LCM APIs through complete checked rational polynomial composition without requiring full factorization.",
+    "Preserve integer content in ZZ, monic normalization in QQ, scalar rational content, ordered generators, and typed same-name symbols.",
+    "Keep original source/Poly metadata snapshots through lifting and propagate refusal or verification failure without algebraic fallback.",
+    "Forward typed symbol facts into native series expansion so proven parameter signs determine branch-cut approach."
+  ],
+  "tests_added": {
+    "rational_gcd_functions": 12,
+    "rational_gcd_planned_parametrized_cases": 30,
+    "directional_series_functions": 3
+  },
+  "verification": {
+    "oracle": "Numeric content/monic normalization and branch-cut formulas were compared with isolated SymPy 1.14.0 before executor loss.",
+    "source": "Reviewed source conversions, domain decisions, immutable accepted native result, shared budget ledgers and typed-source lifting. Git blobs were independently read back.",
+    "execution": "New Rust/public regression execution remains pending in GitHub Actions. No local compilation/test success is claimed after the local execution service became unavailable.",
+    "guards": "Existing pinned fmt/check/Clippy/workspace tests and actual-extension gates remain in place; the new public regression file is explicitly selected."
+  },
+  "limitations": [
+    "Bounded polynomial service and conservative branch-side refusal remain intentional",
+    "No portable GCD/calculus transport or workstream/profile certification is asserted"
+  ],
+  "planning_status": "No residual task is closed by this progress record."
+}
