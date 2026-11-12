@@ -2083,6 +2083,7 @@ mod rational_cancel;
 mod rational_laplace;
 mod rational_mellin;
 mod real_inequality;
+mod recursive_division;
 pub mod sets;
 mod square_free;
 pub mod tensor;
@@ -2355,7 +2356,22 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
         square_free::poly_multivariate_sqf_native,
         m
     )?)?;
-    m.add_function(wrap_pyfunction!(rational_cancel::rational_cancel_native, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        rational_cancel::rational_cancel_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        recursive_division::poly_recursive_div_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        recursive_division::poly_recursive_sources_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        rational_cancel::rational_cancel_candidate_native,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(
         rational_cancel::rational_cancel_source_native,
         m

@@ -269,6 +269,34 @@ def _trig_contract(e: Any) -> Any:
     return e
 
 
+def _cancellation_candidate(source: Any) -> bool:
+    """Select an optional rational rewrite without running its operation."""
+    from ..core import Dummy, _native, _symbol_from_binding
+
+    if not any(type(source) is kind for kind in (Add, Mul, Pow)):
+        return False
+    native = Basic.__dict__["_value"].__get__(source, Basic)
+    selected = _native.rational_cancel_candidate_native(native)
+    if type(selected) is not bool:
+        raise RuntimeError("rational cancellation candidate selection is invalid")
+    if not selected:
+        return False
+    # Native bounds have admitted at most eight typed axes before exporting
+    # bindings. Their digests do not expose Python commutativity declarations.
+    for binding in native.free_symbol_bindings:
+        owner = _symbol_from_binding(binding)
+        if type(owner) is not Symbol and type(owner) is not Dummy:
+            return False
+        facts = Symbol.__dict__["_assumptions"].__get__(owner, Symbol)
+        if (type(facts) is not dict or len(facts) > 128
+                or any(type(key) is not str or len(key) > 4096
+                       or type(value) is not bool for key, value in facts.items())):
+            raise ValueError("rational cancellation requires bounded exact symbol assumptions")
+        if facts.get("commutative", True) is not True:
+            return False
+    return True
+
+
 def _shortest(original: Any, simplified: Any) -> Any:
     """Pick the cheapest of the native result and the standard rewrites,
     as upstream simplify does by count_ops."""
@@ -286,6 +314,15 @@ def _shortest(original: Any, simplified: Any) -> Any:
         extra.append(lambda z: _gamma_ratio_pass(z, keep_factorial=True))
     for transform in (expand, cancel, _trig_contract, *extra):
         for source in (original, simplified):
+            if transform is cancel:
+                # Bound and classify the borrowed native tree before choosing
+                # this optional candidate. General simplify also handles
+                # shapes outside cancellation's rational grammar and limits.
+                # Once selected, the checked operation owns all admission and
+                # verification failures; none may retry on a rewritten source.
+                if _cancellation_candidate(source):
+                    candidates.append(cancel(source))
+                continue
             try:
                 candidates.append(transform(source))
             except Exception:

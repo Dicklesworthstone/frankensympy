@@ -239,9 +239,11 @@ def test_expression_and_request_mutations_are_terminal_through_publication(targe
 
 @pytest.mark.parametrize("operation", ["cancel", "simplify"])
 @pytest.mark.parametrize("reason", ["verification refused", "generator budget exhausted", "cancelled"])
-def test_native_failure_never_returns_a_partially_cancelled_result(operation, reason, monkeypatch):
+@pytest.mark.parametrize("form", ["rational", "polynomial"])
+def test_native_failure_never_returns_a_partially_cancelled_result(operation, reason, form, monkeypatch):
     x, y = sp.symbols("cancel_terminal_x cancel_terminal_y")
-    source = held_fraction((x + y)**2, x + y)
+    source = (held_fraction((x + y)**2, x + y) if form == "rational"
+              else sp.Mul(x, x + 1, evaluate=False))
     calls = []
 
     def fail(*args, **kwargs):
@@ -252,6 +254,75 @@ def test_native_failure_never_returns_a_partially_cancelled_result(operation, re
     with pytest.raises(ValueError, match=reason):
         getattr(sp, operation)(source)
     assert calls == [True]
+
+
+def optional_cancellation_source(kind):
+    x = sp.Symbol("cancel_optional_x")
+    if kind == "high_nonrational_power":
+        return sp.Pow(sp.sin(x), 257, evaluate=False)
+    if kind == "nine_axes":
+        ordinary = sp.Symbol("cancel_optional_axis")
+        positive = sp.Symbol("cancel_optional_axis", positive=True)
+        others = tuple(sp.Symbol(f"cancel_optional_extra_{index}") for index in range(7))
+        source = sp.Add(ordinary, positive, *others)
+        assert len(source.free_symbols) == 9
+        return source
+    if kind == "noncommutative":
+        return sp.Symbol("cancel_optional_noncommutative", commutative=False) + 1
+    if kind == "polynomial":
+        return sp.Mul(x, x + 1, evaluate=False)
+    if kind == "undefined_inverse":
+        return sp.Pow(0, -1, evaluate=False)
+    if kind == "power_bound":
+        return sp.Pow(x, 257, evaluate=False)
+    if kind == "nonrational":
+        return sp.sin(x) + 1
+    if kind == "composite_degree":
+        y = sp.Symbol("cancel_optional_y")
+        return x**256*y
+    if kind == "expansion_bound":
+        axes = tuple(sp.Symbol(f"cancel_optional_expansion_{index}") for index in range(8))
+        return sp.Pow(sp.Add(*axes), 10, evaluate=False)
+    raise AssertionError(f"unknown optional cancellation case: {kind}")
+
+
+@pytest.mark.parametrize("kind", [
+    "high_nonrational_power", "nine_axes", "composite_degree", "noncommutative",
+])
+def test_optional_simplify_cancellation_skips_ineligible_sources(kind, monkeypatch):
+    from sympy.simplify.simplify import _shortest
+
+    source = optional_cancellation_source(kind)
+    calls = []
+
+    def forbidden(*args, **kwargs):
+        calls.append(True)
+        raise AssertionError("an ineligible optional rewrite entered checked QQ cancellation")
+
+    monkeypatch.setattr(_native, "rational_cancel_native", forbidden)
+    result = _shortest(source, source) if kind == "noncommutative" else sp.simplify(source)
+    assert result == source
+    assert calls == []
+
+
+@pytest.mark.parametrize("kind,native_expected,shell_expected", [
+    ("polynomial", True, True),
+    ("undefined_inverse", True, True),
+    ("power_bound", False, False),
+    ("nine_axes", False, False),
+    ("nonrational", False, False),
+    ("noncommutative", True, False),
+    ("composite_degree", False, False),
+    ("expansion_bound", False, False),
+])
+def test_optional_cancellation_selector_declines_shape_limits_without_admitting_sources(
+    kind, native_expected, shell_expected,
+):
+    from sympy.simplify.simplify import _cancellation_candidate
+
+    source = optional_cancellation_source(kind)
+    assert _native.rational_cancel_candidate_native(_native_expr(source)) is native_expected
+    assert _cancellation_candidate(source) is shell_expected
 
 
 @pytest.mark.parametrize("kind", ["function", "float", "radical", "constant"])

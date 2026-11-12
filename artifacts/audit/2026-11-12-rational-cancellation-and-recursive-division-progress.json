@@ -1,0 +1,146 @@
+{
+  "date": "2026-11-12",
+  "base_commit": "24b180e79dfa36eea4e37f242b2173cea1ba78f9",
+  "parent_before_public_division": "83c3e3d30fe743940fd50e8d0d7b3e02a64f403f",
+  "scope": "Checked complete rational cancellation and recursive polynomial division; original source/domain ownership and deterministic public value conventions. In-process native receipts only; no portable-proof, performance or compatibility-profile certification claim.",
+  "feature_checkpoints": [
+    {
+      "commit": "ddcd1788fbb5499e159494dcff64937f064fcbb5",
+      "feature": "Finite-field sqf scalar reconstruction dispatch; existing failing regression broadened from one case to eight"
+    },
+    {
+      "commit": "883964f639efb3c30de16b0cbbe6f10aaf1e9ab7",
+      "feature": "Complete original-source rational cancellation and native expression consumer"
+    },
+    {
+      "commit": "efedc7d872c77cc22c2d0280c4666c60cd7a037d",
+      "feature": "Public rational cancellation, bounded closed-source identity routing and finite-field Poly identity"
+    },
+    {
+      "commit": "83c3e3d30fe743940fd50e8d0d7b3e02a64f403f",
+      "feature": "Independent forced-step recursive division over QQ and strict ZZ"
+    }
+  ],
+  "accompanying_changes": "Public recursive div/rem/quo/exquo, original declared-ring admission including the parametric route, and terminal checked-cancellation errors after a bounded optional-candidate selection in simplify are bound by the source blobs below.",
+  "validation_environment": {
+    "toolchain": "nightly-2026-08-20",
+    "rustflags": "-D warnings",
+    "cargo": "--locked --offline; one build job; no dependency or bound changes",
+    "dependency_pins": {
+      "asupersync": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+      "franken_numpy": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+      "frankenscipy": "213a417c739025ed865a3875c89a7d86726ecb5a"
+    }
+  },
+  "native_validation": [
+    {
+      "scope": "Complete fsym-polys and fsym-simplify crates after cancellation",
+      "passed": 629,
+      "partition": {
+        "fsym-polys": 579,
+        "fsym-simplify": 50
+      },
+      "included": {
+        "polynomial_rational_cancel": 17,
+        "native_consumer_rational_cancel": 9,
+        "rational_localization": 21
+      },
+      "log": "rational-cancel-native-regressions.log"
+    },
+    {
+      "scope": "fsym-calculus hermite_reduction integration after native cancellation replacement",
+      "passed": 5,
+      "log": "rational-cancel-hermite.log"
+    },
+    {
+      "scope": "fsym-polys recursive_division after adding the independent new operation",
+      "passed": 17,
+      "log": "recursive-division-focused.log"
+    }
+  ],
+  "distinct_native_tests_passed": 651,
+  "native_clippy": [
+    {
+      "scope": "fsym-polys and fsym-simplify, all targets, after cancellation",
+      "status": "passed",
+      "log": "rational-cancel-clippy.log"
+    },
+    {
+      "scope": "fsym-polys all targets, after recursive division",
+      "status": "passed",
+      "log": "recursive-division-clippy.log"
+    }
+  ],
+  "public_tests": {
+    "python/tests/test_rational_cancel.py": {
+      "authored_cases": 92,
+      "status": "authored and independently source-reviewed; actual-extension execution pending CI",
+      "details": "74 at efedc7d, plus six polynomial candidate-path terminal-error cases and twelve bounded optional-selection cases accompanying this record"
+    },
+    "python/tests/test_recursive_polynomial_division.py": {
+      "authored_cases": 81,
+      "status": "authored and independently source-reviewed; actual-extension execution pending CI"
+    },
+    "python/tests/test_rational_multivariate_square_free.py": {
+      "additional_parameter_cases": 7,
+      "status": "failing actual-extension case repaired in ddcd178; corrected execution pending CI"
+    }
+  },
+  "compatibility_oracle": {
+    "version": "SymPy 1.14.0",
+    "environment": "isolated installed upstream package, outside repository Python path",
+    "scope": "Rational normalization, explicit generator order, Poly identity, recursive versus distributed division, strictZZ/QQ promotion, class/ring conventions and scalar coercion. Never a production fallback."
+  },
+  "earlier_actual_extension_evidence": {
+    "commit": "f51a9c9ffd3f9d711aa3aaba193adcfec77fbb89",
+    "run_id": 43265001349,
+    "job_id": 131366379269,
+    "focused_batch_passed": 911,
+    "broader_batch_passed": 3629,
+    "broader_batch_failed": 1,
+    "failure": "test_prime_field_square_free_expression_entry_retains_its_polynomial_result: left scalar multiplication selected opaque admission; corrected in ddcd178",
+    "scope": "This earlier head exercises the previous square-free and exponential-summation features. Batches overlap; they are not summed into a distinct-test total. It does not execute the new cancellation/division public code."
+  },
+  "public_execution_limit": {
+    "status": "pending",
+    "reason": "Earlier attempts to compile the full extension locally were killed while rustc compiled unchanged pinned asupersync, including metadata-only compilation. Those same attempts were not repeated here. New exact-head CI jobs remain queued; no linked-extension or whole-workspace pass is claimed.",
+    "prior_record": "artifacts/audit/2026-11-12-square-free-and-factorial-sums-progress.json"
+  },
+  "integration_checks": {
+    "repository_fmt": "passed after formatting native registration changes",
+    "python_syntax": "passed for changed shell and public-test files",
+    "planning_integrity": "passed; repeated after final notes below",
+    "source_reviews": "Independent generator/verifier, public boundary, normalized output, original declarations, mutation, terminal-error and conservative optional-selection reviews completed."
+  },
+  "limits_and_remaining_work": [
+    "Existing limits retained: at most eight typed axes, degree 256, 4096 polynomial terms and coefficient bits, 4096 rational source nodes/depth 64, and cumulative 20M compute/128MiB per native phase. Complete GCD retains its existing auxiliary-ring constraints; eight-axis monomials have their separate complete lane.",
+    "Native rational receipts retain original inverse guards. Ordinary cancel expressions may extend across removed poles and are not global-domain equality certificates.",
+    "Closed non-QQ cancellation expressions retain identity after bounded source checks; opaque applications retain the existing separate lane. Tuple-form cancel and broader factorization are not implemented by this slice.",
+    "Legacy one-primary-variable parameter division remains a separate Python compatibility route after bounded original-source and declared-ring admission; its output is not a new checked recursive receipt. Strict division in symbolic coefficient rings remains unsupported.",
+    "General optional simplify transforms retain their existing policies. Checked cancellation candidates are selected before operation with borrowed grammar/size bounds, conservative degree/term estimates and exact symbol commutativity facts; all failures of a selected checked operation are terminal.",
+    "Multivariate QQ resultant/discriminant consumers still have a substantive univariate/expansion gap; general irreducible factorization remains separate work."
+  ],
+  "source_blob_bindings": {
+    ".github/workflows/ci.yml": "01b0663a73cd8534a6f5414736cf9583e8456e75",
+    "crates/fsym-polys/src/lib.rs": "13f45b06b284ebd34c8100fefdcbc312a5a33b54",
+    "crates/fsym-polys/src/rational.rs": "7fa461838c692c6af50c8434dfc587a69ab080ce",
+    "crates/fsym-polys/src/rational_cancel.rs": "87e8c0f045873e708e57dd5092ead45a00a6d02e",
+    "crates/fsym-polys/tests/rational_cancel.rs": "5f57a17fca65abf9020f4d4a2c1c7a488d42501b",
+    "crates/fsym-polys/src/recursive_division.rs": "b18abf77583fff055044415500ae8e4a6fec15fb",
+    "crates/fsym-polys/tests/recursive_division.rs": "cd2c008f0923268ed05e10dac0a20427a33e98f1",
+    "crates/fsym-simplify/src/lib.rs": "d9ebfa14a27afdc195f6d1a56534dbb1af060b44",
+    "crates/fsym-simplify/src/rational_cancel.rs": "94680a037b89c6c93a10b7d0f8349b50ec1dc18a",
+    "crates/fsym-simplify/tests/rational_cancel.rs": "9381057a84e89bae30ba7f135bb251615d6adad6",
+    "crates/fsym-python/src/lib.rs": "7444893a4600feb68d3cac334a28e22c30f707e0",
+    "crates/fsym-python/src/rational_cancel.rs": "cd8711306d6f322e8a930e109120d98f9f64a00b",
+    "crates/fsym-python/src/recursive_division.rs": "4b68bc288d75cb3dd1a984b567226fb2cd7d2ea3",
+    "python/sympy/__init__.py": "b7f9007bdc24e604a9e9f21db29e5a1bb31ebee9",
+    "python/sympy/polys/__init__.py": "0f7adca1a4e8f005fb34486198a6ca9b4832c34e",
+    "python/sympy/polys/polytools.py": "9d8a84dc6d999a5914175b92b57f592ae3204321",
+    "python/sympy/simplify/simplify.py": "f369ae8dc0b89995a4ef87c148ba5f7a00c95f71",
+    "python/tests/test_rational_cancel.py": "2eb3fdffeaa28cb8024604e4aa469173fc95fe7d",
+    "python/tests/test_recursive_polynomial_division.py": "8f5f8215630a34f20e969de7680158415507843a",
+    "python/tests/test_rational_multivariate_square_free.py": "1818cac633465487f7d8db111a6799a2005b448b"
+  },
+  "claim_status": "No workstream, bead, profile or broad capability status/dependency was closed or changed."
+}

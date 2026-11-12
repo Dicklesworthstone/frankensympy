@@ -7,7 +7,7 @@
 use crate::expr::PyExpr;
 use crate::ideal_operations::{budget, charge, symbols};
 use crate::{polynomial_integer_lcm, to_value_error};
-use fsym_core::{BigInt, BigRational, Expr};
+use fsym_core::{BigInt, BigRational, Expr, Symbol};
 use fsym_polys::{
     MultivariatePoly, bounded_polynomial_from_expr, checked_rational_cancel,
     metered_rational_source,
@@ -18,6 +18,190 @@ use pyo3::prelude::*;
 use pyo3::types::PyList;
 use std::collections::BTreeSet;
 use std::sync::Arc;
+
+/// Decide whether general simplify should try its optional cancellation
+/// candidate. This bounded borrowed-tree scan performs no algebra and makes
+/// no admission claim: a selected operation must still check its complete
+/// retained source, and every failure of that operation remains terminal.
+#[pyfunction]
+pub fn rational_cancel_candidate_native(source: &PyExpr) -> bool {
+    let mut pending = vec![(&source.inner, 0usize)];
+    let mut variables: Vec<&Symbol> = Vec::with_capacity(8);
+    let mut visited = 0usize;
+    let mut name_bytes = 0usize;
+    while let Some((node, depth)) = pending.pop() {
+        visited += 1;
+        if visited > 4096 || depth > 64 {
+            return false;
+        }
+        let children = match node {
+            Expr::Integer(value) => {
+                if value.bits() > 4096 {
+                    return false;
+                }
+                None
+            }
+            Expr::Rational(value) => {
+                if value.numer().bits() > 4096 || value.denom().bits() > 4096 {
+                    return false;
+                }
+                None
+            }
+            Expr::Sym(symbol) => {
+                name_bytes = name_bytes.saturating_add(symbol.name.len());
+                if name_bytes > 65_536 {
+                    return false;
+                }
+                if !variables.contains(&symbol) {
+                    if variables.len() == 8 {
+                        return false;
+                    }
+                    variables.push(symbol);
+                }
+                None
+            }
+            Expr::Const(_) | Expr::Function(_, _) => return false,
+            Expr::Add(children) | Expr::Mul(children) => Some(children),
+            Expr::Pow(base, exponent) => {
+                let Expr::Integer(power) = exponent.as_ref() else {
+                    return false;
+                };
+                if power
+                    .to_i64()
+                    .is_none_or(|value| !(-256..=256).contains(&value))
+                    || 2 > 4096 - visited - pending.len()
+                {
+                    return false;
+                }
+                pending.push((base.as_ref(), depth + 1));
+                pending.push((exponent.as_ref(), depth + 1));
+                None
+            }
+        };
+        if let Some(children) = children {
+            if children.len() > 4096 - visited - pending.len() {
+                return false;
+            }
+            pending.extend(children.iter().map(|child| (child, depth + 1)));
+        }
+    }
+    cancellation_candidate_size(&source.inner).is_some()
+}
+
+/// Upper bounds only: no coefficients, monomials or cancellations are
+/// computed. A conservative decline is safe for this optional rewrite.
+#[derive(Clone, Copy)]
+struct CandidatePolynomialSize {
+    degree: u32,
+    terms: usize,
+}
+
+impl CandidatePolynomialSize {
+    const CONSTANT: Self = Self {
+        degree: 0,
+        terms: 1,
+    };
+
+    fn add(self, other: Self) -> Option<Self> {
+        let degree = self.degree.max(other.degree);
+        let terms = self.terms.checked_add(other.terms)?;
+        (degree <= 256 && terms <= 4096).then_some(Self { degree, terms })
+    }
+
+    fn multiply(self, other: Self) -> Option<Self> {
+        let degree = self.degree.checked_add(other.degree)?;
+        let terms = self.terms.checked_mul(other.terms)?;
+        (degree <= 256 && terms <= 4096).then_some(Self { degree, terms })
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CandidateFractionSize {
+    numerator: CandidatePolynomialSize,
+    denominator: CandidatePolynomialSize,
+}
+
+impl CandidateFractionSize {
+    const CONSTANT: Self = Self {
+        numerator: CandidatePolynomialSize::CONSTANT,
+        denominator: CandidatePolynomialSize::CONSTANT,
+    };
+
+    fn add(self, other: Self) -> Option<Self> {
+        Some(Self {
+            numerator: self
+                .numerator
+                .multiply(other.denominator)?
+                .add(other.numerator.multiply(self.denominator)?)?,
+            denominator: self.denominator.multiply(other.denominator)?,
+        })
+    }
+
+    fn multiply(self, other: Self) -> Option<Self> {
+        Some(Self {
+            numerator: self.numerator.multiply(other.numerator)?,
+            denominator: self.denominator.multiply(other.denominator)?,
+        })
+    }
+}
+
+/// Called only after the borrowed pass has bounded the entire original tree
+/// to depth 64 and 4096 nodes. Recursion retains those original bounds even
+/// below a zero power; it never simplifies an unsupported child away.
+fn cancellation_candidate_size(source: &Expr) -> Option<CandidateFractionSize> {
+    match source {
+        Expr::Integer(_) | Expr::Rational(_) => Some(CandidateFractionSize::CONSTANT),
+        Expr::Sym(_) => Some(CandidateFractionSize {
+            numerator: CandidatePolynomialSize {
+                degree: 1,
+                terms: 1,
+            },
+            denominator: CandidatePolynomialSize::CONSTANT,
+        }),
+        Expr::Add(children) => {
+            let mut children = children.iter();
+            let Some(first) = children.next() else {
+                return Some(CandidateFractionSize::CONSTANT);
+            };
+            children.try_fold(cancellation_candidate_size(first)?, |left, right| {
+                left.add(cancellation_candidate_size(right)?)
+            })
+        }
+        Expr::Mul(children) => children
+            .iter()
+            .try_fold(CandidateFractionSize::CONSTANT, |left, right| {
+                left.multiply(cancellation_candidate_size(right)?)
+            }),
+        Expr::Pow(base, exponent) => {
+            let Expr::Integer(power) = exponent.as_ref() else {
+                return None;
+            };
+            let power = power.to_i64()?;
+            let base = cancellation_candidate_size(base)?;
+            let mut factor = if power < 0 {
+                CandidateFractionSize {
+                    numerator: base.denominator,
+                    denominator: base.numerator,
+                }
+            } else {
+                base
+            };
+            let mut remaining = power.unsigned_abs();
+            let mut result = CandidateFractionSize::CONSTANT;
+            while remaining != 0 {
+                if remaining & 1 != 0 {
+                    result = result.multiply(factor)?;
+                }
+                remaining >>= 1;
+                if remaining != 0 {
+                    factor = factor.multiply(factor)?;
+                }
+            }
+            Some(result)
+        }
+        Expr::Const(_) | Expr::Function(_, _) => None,
+    }
+}
 
 /// Route only the exact rational grammar. Unsupported closed forms decline
 /// without evaluation; size failures remain errors even below those forms.

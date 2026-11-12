@@ -476,47 +476,26 @@ class Poly(Basic):
         raw = _native.poly_monic_native(_native_expr(self._expr), _symbol_binding(self.gen))
         return Poly(_lift_native_result(raw, self._expr, *self._gens), *self._gens)
 
-    def div(self, other: Any) -> Tuple["Poly", "Poly"]:
-        """Polynomial division with remainder returning (quotient, remainder)."""
+    def div(self, other: Any, auto: bool = True) -> Tuple["Poly", "Poly"]:
+        """Divide in the ordered coefficient ring, with optional QQ promotion."""
+        if type(auto) is not bool:
+            raise TypeError("auto must be a bool")
         if _finitefield.is_finite(self):
             return _finitefield.operation(self, "divrem", other)
         if _finitefield.is_finite(other):
             from .polyerrors import UnificationFailed
             raise UnificationFailed("cannot unify rational and prime-field polynomials")
-        other_expr = other.as_expr() if isinstance(other, Poly) else _wrap(_native_expr(other))
-        other_gens = other._gens if isinstance(other, Poly) else ()
-        if len(self._gens) == 1 and len(other_gens) <= 1 and (
-            self._parametric or (other_expr.free_symbols - set(self._gens))
-        ):
-            q, r = _parametric_div(self._expr, other_expr, self.gen)
-            return self._like(q, other), self._like(r, other)
-        if len(self._gens) > 1 or len(other_gens) > 1:
-            all_gens = tuple(dict.fromkeys(self._gens + other_gens))
-            var_bindings = [_symbol_binding(g) for g in all_gens]
-            q_raw, r_raw = _native.poly_multivariate_div_rem_native(
-                _native_expr(self._expr), _native_expr(other_expr), var_bindings
-            )
-            return (
-                Poly(_lift_native_result(q_raw, self._expr, other_expr, *all_gens), *all_gens),
-                Poly(_lift_native_result(r_raw, self._expr, other_expr, *all_gens), *all_gens),
-            )
-        q_raw, r_raw = _native.poly_div_rem_native(
-            _native_expr(self._expr), _native_expr(other_expr), _symbol_binding(self.gen)
-        )
-        return (
-            Poly(_lift_native_result(q_raw, self._expr, other_expr, *self._gens), *self._gens),
-            Poly(_lift_native_result(r_raw, self._expr, other_expr, *self._gens), *self._gens),
-        )
+        return _recursive_polynomial_division(self, other, auto=auto, _method=True)
 
-    def rem(self, other: Any) -> "Poly":
-        return self.div(other)[1]
+    def rem(self, other: Any, auto: bool = True) -> "Poly":
+        return self.div(other, auto=auto)[1]
 
-    def quo(self, other: Any) -> "Poly":
-        return self.div(other)[0]
+    def quo(self, other: Any, auto: bool = True) -> "Poly":
+        return self.div(other, auto=auto)[0]
 
-    def exquo(self, other: Any) -> "Poly":
+    def exquo(self, other: Any, auto: bool = True) -> "Poly":
         """Return an exact polynomial quotient, refusing a nonzero remainder."""
-        quotient, remainder = self.div(other)
+        quotient, remainder = self.div(other, auto=auto)
         if not remainder.is_zero:
             raise ExactQuotientFailed("polynomial division has a nonzero remainder")
         return quotient
@@ -991,6 +970,193 @@ def _parametric_div(f: Any, g: Any, x: Any) -> tuple:
         r = _expand(cancel(r - t * g))
     del fc
     return _expand(q), r
+
+
+def _recursive_polynomial_division(left: Any, right: Any, *, gens=(), domain=None,
+                                   auto=None, polys=None, _method=False) -> tuple:
+    """Retain original rings around one checked recursive QQ/ZZ division.
+
+    The first operation generator is primary. The native checker proves each
+    whole leading-coefficient cancellation and the first coefficient-ring
+    obstruction. Original Poly declarations are admitted in their own rings,
+    even when a module call subsequently unifies or reorders generators.
+    """
+    from ..core import Dummy
+    from .polyerrors import GeneratorsNeeded, UnificationFailed
+
+    if domain is not None and (type(domain) is not str or domain not in ("ZZ", "QQ")):
+        raise NotImplementedError("checked recursive division supports only ZZ and QQ")
+    if auto is not None and type(auto) is not bool:
+        raise TypeError("auto must be a bool")
+    if polys is not None and type(polys) is not bool:
+        raise TypeError("polys must be a bool")
+    automatic = domain is None if auto is None else auto
+    container = None
+    if len(gens) == 1 and type(gens[0]) in (tuple, list):
+        container = gens[0]
+        if len(container) > 8:
+            raise ValueError("recursive division supports at most eight generators")
+        gens = tuple(container)
+    if len(gens) > 8:
+        raise ValueError("recursive division supports at most eight generators")
+    requested_gens = tuple(gens)
+    for variable in requested_gens:
+        if type(variable) is not Symbol and type(variable) is not Dummy:
+            raise TypeError("recursive division requires exact built-in generators")
+    originals = (left, right)
+    states = []
+    original_bases = []
+    for value in originals:
+        if not issubclass(type(value), Poly):
+            states.append(None)
+            continue
+        _rational_ideal_source(value)
+        namespace = object.__getattribute__(value, "__dict__")
+        ring = namespace.get("_gens")
+        if type(ring) is not tuple or len(ring) > 8:
+            raise ValueError("recursive division requires bounded original generator tuples")
+        extra = namespace.get("_extra_syms", frozenset())
+        if type(extra) is not frozenset or len(extra) > 8:
+            raise ValueError("recursive division requires bounded coefficient parameters")
+        for variable in (*ring, *extra):
+            if type(variable) is not Symbol and type(variable) is not Dummy:
+                raise TypeError("recursive division requires exact built-in generators")
+        declared = (namespace.get("_domain")
+                    if namespace.get("_domain_given") is True else None)
+        states.append((value, namespace, ring, extra, declared))
+        # Empty bases bind unused original axes and coefficient parameters.
+        # They cannot disappear merely because explicit operation gens omit them.
+        original_bases.append(GroebnerBasis([], ring, "QQ", "lex"))
+        if extra:
+            original_bases.append(GroebnerBasis([], tuple(extra), "QQ", "lex"))
+
+    retained = _IdealQuotientSnapshot(
+        GroebnerBasis(list(originals), requested_gens, "QQ", "lex"), *original_bases,
+    )
+    sources, _, _, _ = retained.inputs()[0]
+    source_symbols = [source.free_symbols for source in sources]
+    carry_ring = _method or all(state is not None for state in states)
+    if _method and states[0] is None:
+        raise TypeError("recursive division methods require an exact Poly owner")
+    if _method and states[1] is None:
+        coefficient_symbols = source_symbols[0] - set(states[0][2]) | states[0][3]
+        if source_symbols[1] - coefficient_symbols:
+            raise UnificationFailed("symbolic operand does not belong to the left polynomial coefficient domain")
+    if not requested_gens:
+        if carry_ring:
+            gens = tuple(dict.fromkeys(variable for state in states if state is not None
+                                       for variable in state[2]))
+        else:
+            variables = sorted(set().union(*source_symbols), key=lambda variable:
+                               (variable.name, _symbol_binding(variable).identity_hex))
+            gens = tuple(_sort_gens(variables))
+    else:
+        gens = requested_gens
+    if not gens:
+        raise GeneratorsNeeded("recursive polynomial division requires at least one generator")
+    if len(gens) > 8:
+        raise ValueError("recursive division supports at most eight generators")
+    parameters = set().union(*source_symbols) - set(gens)
+    if carry_ring:
+        parameters |= set().union(*(state[3] for state in states if state is not None)) - set(gens)
+    all_symbols = set(gens) | set().union(*source_symbols)
+    for state in states:
+        if state is not None:
+            all_symbols.update(state[2])
+            all_symbols.update(state[3])
+    for variable in all_symbols:
+        if type(variable) is not Symbol and type(variable) is not Dummy:
+            raise TypeError("recursive division requires exact built-in generators")
+        assumptions = object.__getattribute__(variable, "_assumptions")
+        if assumptions.get("commutative", True) is not True:
+            raise PolynomialError("noncommutative polynomial division is not supported")
+    retained.unchanged()
+
+    parameter_order = tuple(sorted(parameters, key=lambda variable:
+                                  (variable.name, _symbol_binding(variable).identity_hex)))
+    if len(gens) + len(parameter_order) > 8:
+        raise ValueError("recursive division supports at most eight total typed variables")
+    parameter_basis = ([GroebnerBasis([], parameter_order, "QQ", "lex")]
+                       if parameter_order else [])
+    snapshot = _IdealQuotientSnapshot(
+        GroebnerBasis(list(originals), tuple(gens), "QQ", "lex"),
+        *original_bases, *parameter_basis,
+    )
+    sources, gens, equations, bindings = snapshot.inputs()[0]
+
+    def unchanged():
+        snapshot.unchanged()
+        retained.unchanged()
+        if container is not None and (len(container) != len(requested_gens)
+                or any(current is not original for current, original in zip(container, requested_gens))):
+            raise RuntimeError("recursive division generator container mutated during evaluation")
+
+    unchanged()
+    output_class = type(left) if carry_ring else Poly
+    want_polys = _method or (polys if polys is not None else any(state is not None for state in states))
+    original_bindings = []
+    original_domains = []
+    for state in states:
+        declared = state[4] if state is not None else None
+        if declared in ("ZZ", "QQ"):
+            original_bindings.append([_symbol_binding(variable) for variable in state[2]])
+            original_domains.append(declared)
+        else:
+            original_bindings.append(None)
+            original_domains.append(None)
+
+    if parameter_order:
+        if len(gens) != 1:
+            raise NotImplementedError("symbolic coefficient division supports one main generator")
+        full_bindings = [*bindings, *(_symbol_binding(variable) for variable in parameter_order)]
+        # Admit each original declared Poly as a polynomial in its own ring;
+        # choosing a smaller operation ring cannot turn an original pole into
+        # a coefficient parameter and thereby repair an invalid declaration.
+        _native.poly_recursive_sources_native(
+            equations[0], equations[1], full_bindings, 0,
+            left_variables=original_bindings[0], right_variables=original_bindings[1],
+            left_domain=original_domains[0], right_domain=original_domains[1],
+        )
+        unchanged()
+        if domain is not None:
+            raise ValueError("symbolic coefficients cannot be represented in the requested numeric domain")
+        if not automatic:
+            raise NotImplementedError("strict division in a symbolic coefficient ring is not implemented")
+        quotient, remainder = _parametric_div(sources[0], sources[1], gens[0])
+        unchanged()
+        if want_polys:
+            result = (output_class(quotient, *gens, _extra=parameter_order),
+                      output_class(remainder, *gens, _extra=parameter_order))
+        else:
+            result = quotient, remainder
+        unchanged()
+        return result
+
+    requested_domain = domain or ("QQ" if carry_ring and "QQ" in original_domains else "auto")
+    try:
+        quotient, remainder, result_domain = _native.poly_recursive_div_native(
+            equations[0], equations[1], bindings,
+            left_variables=original_bindings[0], right_variables=original_bindings[1],
+            left_domain=original_domains[0], right_domain=original_domains[1],
+            domain=requested_domain, auto=automatic,
+            method_scalar=_method and states[1] is None,
+        )
+    except ValueError as error:
+        if str(error) == "scalar does not belong to the left polynomial coefficient domain":
+            raise UnificationFailed(str(error)) from error
+        raise
+    unchanged()
+    if type(result_domain) is not str or result_domain not in ("ZZ", "QQ"):
+        raise RuntimeError("recursive division returned an invalid coefficient domain")
+    context = (*sources, *gens)
+    quotient = _lift_native_result(quotient, *context)
+    remainder = _lift_native_result(remainder, *context)
+    unchanged()
+    result = ((output_class(quotient, *gens, domain=result_domain),
+               output_class(remainder, *gens, domain=result_domain))
+              if want_polys else (quotient, remainder))
+    unchanged()
+    return result
 
 
 def _sqrt_squares_out(d: Any) -> Any:
@@ -3778,17 +3944,28 @@ def poly(expr: Any, *gens: Any, **args: Any) -> Poly:
 
 
 def div(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Tuple[Any, Any]:
-    """Polynomial division with remainder returning (quotient, remainder)."""
-    modular = _finitefield.binary_entry(f, g, gens, kwargs, "divrem")
+    """Divide recursively in the declared ordered polynomial coefficient ring."""
+    options = dict(kwargs)
+    auto = options.pop("auto", None)
+    if auto is not None and type(auto) is not bool:
+        raise TypeError("auto must be a bool")
+    modular = _finitefield.binary_entry(f, g, gens, options, "divrem")
     if modular is not None:
+        if options.get("polys") is False:
+            return tuple(value.as_expr() if isinstance(value, Poly) else value for value in modular)
         return modular
-    is_poly = isinstance(f, Poly) or isinstance(g, Poly)
-    p_f = f if isinstance(f, Poly) else Poly(f, *gens, **kwargs)
-    p_g = g if isinstance(g, Poly) else Poly(g, *p_f.gens)
-    q, r = p_f.div(p_g)
-    if is_poly or kwargs.get("polys", False):
-        return (q, r)
-    return (q.as_expr(), r.as_expr())
+    if "gens" in options:
+        if gens:
+            raise TypeError("polynomial generators were supplied twice")
+        requested = options.pop("gens")
+        gens = () if requested is None else (requested,)
+    unsupported = set(options) - {"domain", "polys"}
+    if unsupported:
+        raise NotImplementedError("unsupported recursive division option: " + ", ".join(sorted(unsupported)))
+    return _recursive_polynomial_division(
+        f, g, gens=gens, domain=options.get("domain"),
+        auto=auto, polys=options.get("polys"),
+    )
 
 
 def reduced(f: Any, G: Any, *gens: Any, **kwargs: Any) -> Tuple[list, Any]:
@@ -3810,6 +3987,15 @@ def rem(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Any:
 def quo(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Any:
     """Polynomial quotient of f divided by g."""
     return div(f, g, *gens, **kwargs)[0]
+
+
+def exquo(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Any:
+    """Return the exact recursive quotient, refusing any nonzero remainder."""
+    quotient, remainder = div(f, g, *gens, **kwargs)
+    zero = remainder.is_zero if isinstance(remainder, Poly) else remainder == 0
+    if not zero:
+        raise ExactQuotientFailed("polynomial division has a nonzero remainder")
+    return quotient
 
 
 def sturm(f: Any, *gens: Any, **kwargs: Any) -> List[Poly]:
@@ -3932,6 +4118,7 @@ __all__ = [
     "degree",
     "discriminant",
     "div",
+    "exquo",
     "factor",
     "factor_list",
     "gcd",

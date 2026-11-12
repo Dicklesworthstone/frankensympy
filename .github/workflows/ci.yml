@@ -292,6 +292,8 @@ jobs:
           assert hasattr(native, "polynomial_laplace_native")
           assert hasattr(native, "exact_rational_integral_native")
           assert hasattr(native, "rational_cancel_native")
+          assert hasattr(native, "rational_cancel_candidate_native")
+          assert hasattr(native, "poly_recursive_div_native")
           import pytest
           with binary.open("rb") as stream:
               digest = hashlib.file_digest(stream, "sha256").hexdigest()
@@ -316,6 +318,7 @@ jobs:
               "python/tests/test_rational_multivariate_gcd.py",
               "python/tests/test_rational_multivariate_square_free.py",
               "python/tests/test_rational_cancel.py",
+              "python/tests/test_recursive_polynomial_division.py",
               "python/tests/test_finite_field_ideal_operations.py",
               "python/tests/test_finite_field_ideal_quotient.py",
               "python/tests/test_polynomial_system_extensions.py",
