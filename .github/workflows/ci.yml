@@ -175,7 +175,8 @@ jobs:
           cargo test --locked -p fsym-calculus --test geometric_summation --test rational_summation -j1
           cargo test --locked -p fsym-solvers --test linear_ode_system --test polynomial_ode_system --test general_ode_system --test forced_ode_system --test exact_ode --test ode_radicals -j1
           cargo test --locked -p fsym-solvers --test linear_pde --test linear_pde_elementary -j1
-          cargo test --locked -p fsym-calculus --test general_power_programs --test directional_series --test generalized_series -j1
+          cargo test --locked -p fsym-calculus --test general_power_programs --test directional_series --test branch_cut_series --test generalized_series -j1
+          cargo test --locked -p fsym-calculus --lib series::branch::tests -j1
           cargo test --locked -p fsym-calculus --test piecewise_programs -j1
           cargo test --locked -p fsym-calculus --test error_function_programs -j1
           cargo test --locked -p fsym-solvers --test coefficient_dependencies -j1

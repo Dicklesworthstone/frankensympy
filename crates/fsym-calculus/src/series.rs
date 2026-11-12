@@ -27,6 +27,9 @@ use num_traits::{Signed, Zero};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use thiserror::Error;
 
+mod branch;
+pub(crate) use branch::avoids_principal_cut;
+
 /// Preferred name of the fresh placeholder for `log(t)` in coefficients.
 pub const LOG_T: &str = "_fsym_log_t";
 
@@ -540,7 +543,22 @@ fn expand_pow(base: &Expr, exp: &Expr, target: &BigRational, ctx: &mut Ctx) -> S
         let _ = (v, c0, u, rel_target);
         return Ok(acc);
     }
-    let lead = func_pow(&c0, exp);
+    let correction = if fsym_core::assume::is_integer(exp)
+        || (u.terms.is_empty() && u.order.is_none())
+    {
+        Expr::from_i64(0)
+    } else {
+        branch::logarithm_correction(base, &c0, ctx.t)?
+    };
+    let lead = if correction.is_zero() {
+        func_pow(&c0, exp)
+    } else {
+        // The source approaches a negative real leading value from below.
+        // Use its positive magnitude and the limiting argument -pi directly,
+        // so arbitrary rational powers retain their own principal phase.
+        let argument = Expr::Const(Constant::I) * Expr::Const(Constant::Pi) + correction;
+        func_pow(&(-c0.clone()), exp) * func("exp", exp.clone() * argument)
+    };
     let body = Series::compose(&u, |k| binomial_coeff(exp, k), &rel_target)?;
     let _ = v;
     Ok(body.scale(&lead).shift(&scaled_v).truncate(target))
@@ -663,7 +681,12 @@ fn expand_function(name: &str, arg: &Expr, target: &BigRational, ctx: &mut Ctx) 
                 },
                 target,
             )?;
-            let constant = func("log", c0) + rational_expr(v) * ctx.log_t.clone();
+            let correction = if u.terms.is_empty() && u.order.is_none() {
+                Expr::from_i64(0)
+            } else {
+                branch::logarithm_correction(arg, &c0, ctx.t)?
+            };
+            let constant = func("log", c0) + correction + rational_expr(v) * ctx.log_t.clone();
             Ok(body
                 .add(&Series::constant(normalize(&constant)))
                 .truncate(target))

@@ -1,0 +1,31 @@
+{
+  "date": "2026-11-12",
+  "workstreams": [
+    "WS18"
+  ],
+  "beads": [
+    "fra-a5x"
+  ],
+  "scope": "Bounded principal logarithm and noninteger-power continuation across the negative real branch cut for directional series and limits.",
+  "changes": [
+    "Establish the eventual side from the complete original source rather than its truncated expansion.",
+    "Correct lower-plane logarithm constants and exponent-specific fractional-power phases.",
+    "Require continuity at a principal branch cut before finite-point substitution.",
+    "Bound source traversal before recursive assumptions, cloning, or expansion; refuse unknown branch sides."
+  ],
+  "tests_added": {
+    "native_integration_functions": 8,
+    "native_unit_functions": 1
+  },
+  "verification": {
+    "source_review": "Independent mathematical and source/API review; custom BigInt index conversion and borrowed-tree preflight corrected before commit.",
+    "oracle": "Four isolated SymPy 1.14.0 upper/lower logarithm and square-root expansion/limit probes were executed before local runtime loss.",
+    "execution": "Native regression tests have not executed locally. The local execution service became unavailable after a baseline fsym-core build was terminated by SIGKILL. Pinned formatting, check, Clippy and regression execution are delegated to the unchanged GitHub Actions gates plus newly selected tests.",
+    "limitations": [
+      "No broad WS18 or compatibility-profile closure",
+      "No portable calculus certificate",
+      "No general inverse-function cut or transseries coverage"
+    ]
+  },
+  "planning_status": "Existing residual bead status and acceptance gates remain open."
+}

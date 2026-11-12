@@ -1300,7 +1300,7 @@ pub fn limit_dir(
         Expr::Const(Constant::Infinity) | Expr::Const(Constant::NegativeInfinity)
     );
     if !infinite_point
-        && continuous_shape(expr)
+        && continuous_shape(expr, var, to)
         && let Some(value) = direct_substitution(expr, var, to)
     {
         return Ok(value);
@@ -1308,18 +1308,33 @@ pub fn limit_dir(
     gruntz::limit(expr, var, to, dir).map_err(|e| CalculusError::Undetermined(e.to_string()))
 }
 
-/// Functions whose elementary formulas are continuous wherever they
-/// evaluate to a finite value (no jump discontinuities).
-fn continuous_shape(expr: &Expr) -> bool {
+/// Direct substitution requires continuity along the original source. A finite
+/// principal value on a branch cut alone does not establish that continuity.
+fn continuous_shape(expr: &Expr, var: &Symbol, to: &Expr) -> bool {
+    if is_free_of(expr, var) {
+        return true;
+    }
+    let branch_is_continuous = |base: &Expr| {
+        is_free_of(base, var)
+            || series::avoids_principal_cut(
+                &base.subs(&HashMap::from([(var.clone(), to.clone())])),
+            )
+    };
     match expr {
         Expr::Function(name, args) => {
             !matches!(
                 name.as_str(),
                 "floor" | "ceiling" | "sign" | "frac" | "Heaviside" | "Piecewise" | "Mod"
-            ) && args.iter().all(continuous_shape)
+            ) && (!matches!(name.as_str(), "log" | "ln" | "sqrt")
+                || (args.len() == 1 && branch_is_continuous(&args[0])))
+                && args.iter().all(|arg| continuous_shape(arg, var, to))
         }
-        Expr::Add(xs) | Expr::Mul(xs) => xs.iter().all(continuous_shape),
-        Expr::Pow(b, e) => continuous_shape(b) && continuous_shape(e),
+        Expr::Add(xs) | Expr::Mul(xs) => xs.iter().all(|arg| continuous_shape(arg, var, to)),
+        Expr::Pow(b, e) => {
+            ((is_free_of(e, var) && fsym_core::assume::is_integer(e)) || branch_is_continuous(b))
+                && continuous_shape(b, var, to)
+                && continuous_shape(e, var, to)
+        }
         _ => true,
     }
 }
