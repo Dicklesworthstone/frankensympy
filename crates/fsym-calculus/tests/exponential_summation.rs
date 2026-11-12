@@ -294,6 +294,84 @@ fn unsupported_and_nonfinite_families_do_not_publish_a_formula() {
 }
 
 #[test]
+fn checked_dispatch_does_not_drop_a_second_exponential_base() {
+    let k = Symbol::new("k");
+    for bases in [[2, 3], [3, 2]] {
+        let summand = Expr::Mul(vec![
+            power(e(bases[0]), Expr::Sym(k.clone())),
+            power(e(bases[1]), Expr::Sym(k.clone())),
+            power(factorial(&k), e(-1)),
+        ]);
+        assert!(
+            fsym_calculus::summation::checked_summation(&summand, &k, &e(0), &infinity())
+                .unwrap()
+                .is_none()
+        );
+    }
+}
+
+#[test]
+fn checked_dispatch_does_not_drop_a_second_reciprocal_factorial() {
+    let k = Symbol::new("k");
+    let reciprocal = power(factorial(&k), e(-1));
+    let summand = Expr::Mul(vec![
+        power(e(2), Expr::Sym(k.clone())),
+        reciprocal.clone(),
+        reciprocal,
+    ]);
+    assert!(
+        fsym_calculus::summation::checked_summation(&summand, &k, &e(0), &infinity())
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn checked_legacy_factorial_rule_requires_exact_function_arity() {
+    let k = Symbol::new("k");
+    let empty = Expr::Function("factorial".into(), vec![]);
+    let extra = Expr::Function("factorial".into(), vec![Expr::Sym(k.clone()), e(7)]);
+    let originals = [
+        // Constant extraction sees empty**-1 * empty as one, so the whole
+        // original reaches the legacy matcher. It must not index args[0].
+        Expr::Mul(vec![
+            power(e(2), Expr::Sym(k.clone())),
+            power(empty.clone(), e(-1)),
+            empty,
+            power(factorial(&k), e(-1)),
+        ]),
+        Expr::Mul(vec![power(e(2), Expr::Sym(k.clone())), power(extra, e(-1))]),
+    ];
+    for original in originals {
+        assert!(
+            fsym_calculus::summation::checked_summation(&original, &k, &e(0), &infinity())
+                .unwrap()
+                .is_none()
+        );
+    }
+}
+
+#[test]
+fn checked_dispatch_preserves_the_single_base_legacy_factorial_rule() {
+    let k = Symbol::new("k");
+    // A compound index-free base is outside the new atomic-parameter lane,
+    // so this exercises the existing valid legacy rule after Unsupported.
+    let parameter = Expr::Add(vec![Expr::symbol("z"), e(1)]);
+    let summand = Expr::Mul(vec![
+        power(parameter.clone(), Expr::Sym(k.clone())),
+        power(factorial(&k), e(-1)),
+    ]);
+    assert!(matches!(
+        polynomial_exponential_sum(&summand, &k, &e(0), &infinity()),
+        Err(ExponentialSummationError::Unsupported(_))
+    ));
+    let answer = fsym_calculus::summation::checked_summation(&summand, &k, &e(0), &infinity())
+        .unwrap()
+        .unwrap();
+    equal(&answer, &Expr::Function("exp".into(), vec![parameter]));
+}
+
+#[test]
 fn degree_head_and_scalar_boundaries_are_checked_before_expansion() {
     let k = Symbol::new("k");
     let summand = source(&[q(1, 1)], &e(2), &k);
@@ -381,7 +459,7 @@ fn generator_and_verifier_failures_remain_terminal() {
     ] {
         let mut limits = BudgetLimits::uniform(1_000_000, 0);
         limits.dimensions[dimension.index()] = 0;
-        let mut generator = Budget::new(limits.clone());
+        let mut generator = Budget::new(limits);
         let mut verifier = Budget::new(limits);
         assert!(matches!(
             metered_polynomial_exponential_sum(

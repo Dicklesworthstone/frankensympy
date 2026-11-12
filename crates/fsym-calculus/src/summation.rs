@@ -330,12 +330,21 @@ fn sum_exp_series(e: &Expr, k: &Symbol, a: &Expr) -> Option<Expr> {
     let mut has_fact = false;
     for f in fs {
         match f {
-            Expr::Pow(b, p) if **p == ke && is_free_of(b, k) => base = Some((**b).clone()),
+            Expr::Pow(b, p) if **p == ke && is_free_of(b, k) => {
+                if base.is_some() {
+                    return None;
+                }
+                base = Some((**b).clone());
+            }
             Expr::Pow(b, p)
                 if **p == Expr::from_i64(-1)
-                    && matches!(b.as_ref(), Expr::Function(n, args) if n == "factorial" && args[0] == ke) =>
+                    && matches!(b.as_ref(), Expr::Function(n, args)
+                        if n == "factorial" && args.len() == 1 && args[0] == ke) =>
             {
-                has_fact = true
+                if has_fact {
+                    return None;
+                }
+                has_fact = true;
             }
             _ => return None,
         }
@@ -365,7 +374,7 @@ pub fn checked_summation(
     use crate::geometric_sum::{GeometricSummationError, metered_polynomial_geometric_sum};
     let mut limits = BudgetLimits::uniform(128 * 1024 * 1024, 0);
     limits.dimensions[Dimension::ComputeSteps.index()] = 20_000_000;
-    let mut generator = Budget::new(limits.clone());
+    let mut generator = Budget::new(limits);
     let mut verifier = Budget::new(limits);
     // Both checked candidates retain this same accounting across Unsupported
     // fallback. The legacy table/direct rules below retain their prior scope.

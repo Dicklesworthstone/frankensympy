@@ -431,7 +431,7 @@ fn add_exponents(left: &[u32], right: &[u32], meter: &mut impl BudgetMeter) -> R
         return Err(invalid("identity exponent widths differ"));
     }
     work(meter, left.len() + 1)?;
-    reserve_reference(left.len() * size_of::<u32>(), meter)?;
+    reserve_reference(std::mem::size_of_val(left), meter)?;
     let mut result = Vec::with_capacity(left.len());
     for (&a, &b) in left.iter().zip(right) {
         result.push(

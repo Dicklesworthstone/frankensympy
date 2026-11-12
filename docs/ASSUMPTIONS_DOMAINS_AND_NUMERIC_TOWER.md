@@ -1763,6 +1763,8 @@ explicit finiteness fact: symbolic output denotes the entire-function identity.
 The Python boundary retains an unevaluated infinite Sum for an exponential
 parameter explicitly declared finite=False or infinite=True, preserving its
 typed identity and held source. Concrete finite ranges retain their prior lane.
+Default Sum.doit() sends closed held factorial sources directly to native
+admission; unsupported held inputs remain unevaluated.
 
 The weight degree is at most 32, original source nodes at most 4096 and depth
 at most 64. Input rationals have at most 4096 bits; work scalars are bounded

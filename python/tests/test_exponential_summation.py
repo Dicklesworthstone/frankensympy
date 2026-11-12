@@ -1,11 +1,13 @@
 """Polynomial-weighted factorial series through the actual native extension."""
 
 import unittest
+from unittest.mock import patch
 
 from sympy import (
-    Add, Dummy, E, I, Mul, Pow, Rational, Sum, Symbol, exp, expand,
-    factorial, oo, simplify, summation,
+    Add, Derivative, Dummy, E, I, Mul, Pow, Product, Rational, Sum, Symbol,
+    exp, expand, factorial, oo, simplify, sin, summation,
 )
+from sympy.core import _native, _native_expr
 
 
 class ExponentialSummationTests(unittest.TestCase):
@@ -89,6 +91,68 @@ class ExponentialSummationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             summation(basic, (k, 257, oo))
 
+    def test_default_doit_checks_original_poles_before_evaluating_held_arithmetic(self):
+        k = self.k
+        for denominator_power in (-1, -2):
+            reciprocal = Pow(factorial(k), denominator_power, evaluate=False)
+            for invalid in (
+                factorial(-1, evaluate=False),
+                Pow(0, -1, evaluate=False),
+                oo,
+            ):
+                for erased in (Mul(0, invalid, evaluate=False), Pow(invalid, 0, evaluate=False)):
+                    source = Mul(erased, reciprocal, evaluate=False)
+                    with self.subTest(power=denominator_power, invalid=invalid, erased=erased):
+                        with self.assertRaises(ValueError):
+                            Sum(source, (k, 0, oo)).doit()
+
+    def test_default_doit_cannot_erase_original_degree_or_source_depth(self):
+        k = self.k
+        reciprocal = Pow(factorial(k), -1, evaluate=False)
+        excessive = Pow(k, 33, evaluate=False)
+        for erased in (Mul(0, excessive, evaluate=False), Pow(excessive, 0, evaluate=False)):
+            source = Mul(erased, reciprocal, evaluate=False)
+            with self.subTest(erased=erased):
+                with self.assertRaises(ValueError):
+                    Sum(source, (k, 0, oo)).doit()
+        deep_source = reciprocal
+        for _ in range(70):
+            deep_source = Mul(deep_source, 1, evaluate=False)
+        with self.assertRaises(ValueError):
+            Sum(deep_source, (k, 0, oo)).doit()
+
+    def test_default_doit_uses_one_native_call_on_the_original_accepted_source(self):
+        k, z = self.k, self.z
+        source = Mul(
+            Add(k, k, evaluate=False), Pow(z, k, evaluate=False),
+            Pow(factorial(k), -1, evaluate=False), evaluate=False,
+        )
+        original = _native_expr(source)
+        with patch.object(_native, "summation_native", wraps=_native.summation_native) as checked:
+            answer = Sum(source, (k, 0, oo)).doit()
+        self.assertEqual(checked.call_count, 1)
+        self.assertEqual(checked.call_args.args[0], original)
+        self.assert_zero(answer - 2*z*exp(z))
+
+    def test_default_doit_preserves_unsupported_held_factorial_sources(self):
+        k = self.k
+        source = Mul(
+            Pow(sin(k), 0, evaluate=False),
+            Pow(factorial(k), -1, evaluate=False), evaluate=False,
+        )
+        answer = Sum(source, (k, 0, oo)).doit()
+        self.assertIsInstance(answer, Sum)
+        self.assertEqual(answer.function, source)
+
+    def test_unrelated_sum_and_product_keep_deep_derivative_evaluation(self):
+        k = self.k
+        derivative = Derivative(k**2, k, evaluate=False)
+        self.assertEqual(Sum(derivative, (k, 1, 3)).doit(), 12)
+        self.assertEqual(Product(derivative, (k, 1, 3)).doit(), 48)
+        parameter = Symbol("unrelated_deep_parameter")
+        geometric = Derivative(parameter*Rational(1, 2)**k, parameter, evaluate=False)
+        self.assertEqual(Sum(geometric, (k, 0, oo)).doit(), 2)
+
     def test_unsupported_weights_bounds_and_factorial_powers_remain_unevaluated(self):
         k, z = self.k, self.z
         lower = Symbol("symbolic_lower", nonnegative=True, integer=True)
@@ -100,6 +164,22 @@ class ExponentialSummationTests(unittest.TestCase):
         for source, first in sources:
             with self.subTest(source=source, first=first):
                 self.assertIsInstance(summation(source, (k, first, oo)), Sum)
+
+    def test_legacy_fallback_cannot_discard_duplicate_bases_or_factorials(self):
+        k = self.k
+        reciprocal = Pow(factorial(k), -1, evaluate=False)
+        for factors in (
+            (Pow(2, k, evaluate=False), Pow(3, k, evaluate=False), reciprocal),
+            (Pow(2, k, evaluate=False), reciprocal, reciprocal),
+        ):
+            source = Mul(*factors, evaluate=False)
+            for deep in (False, True):
+                with self.subTest(source=source, deep=deep):
+                    answer = Sum(source, (k, 0, oo)).doit(deep=deep)
+                    self.assertIsInstance(answer, Sum)
+                    self.assertEqual(answer.function, source)
+        valid = Mul(Pow(2, k, evaluate=False), reciprocal, evaluate=False)
+        self.assert_zero(Sum(valid, (k, 0, oo)).doit() - exp(2))
 
     def test_finite_ranges_keep_the_existing_direct_sum(self):
         k, z = self.k, self.z
@@ -138,6 +218,9 @@ class ExponentialSummationTests(unittest.TestCase):
         answer = summation(source, (k, 0, oo))
         self.assertIsInstance(answer, Sum)
         self.assertEqual(answer.function, source)
+        deep_answer = Sum(source, (k, 0, oo)).doit()
+        self.assertIsInstance(deep_answer, Sum)
+        self.assertEqual(deep_answer.function, source)
 
 
 if __name__ == "__main__":

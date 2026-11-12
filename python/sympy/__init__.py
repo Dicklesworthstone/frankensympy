@@ -1554,6 +1554,23 @@ def _limit_triples(limits):
     return out
 
 
+def _contains_index_factorial(native_source, index, *, reciprocal=False):
+    """Bound and identify exact typed index-factorial syntax without evaluation."""
+    # This is only a dispatch probe. Domain and polynomial-work admission
+    # belong to the single checked summation call, on its existing ledgers.
+    # Bound the borrowed tree before recursive native has() queries.
+    _native.CompiledFunction._validate_source(native_source)
+    if not native_source.has_function("factorial"):
+        return False
+    native_index = _native_expr(index)
+    pattern = _native.py_function("factorial", native_index)
+    if reciprocal:
+        pattern = _native.Pow(
+            pattern, _native.py_integer(-1), evaluate=False,
+        ).as_expr()
+    return native_source.has(pattern)
+
+
 def _nonfinite_factorial_parameter(expression, index, native_source):
     """Keep an entire-function summation identity off infinite arguments.
 
@@ -1562,19 +1579,9 @@ def _nonfinite_factorial_parameter(expression, index, native_source):
     keep the formal entire-function parameter; only a declared contradiction
     blocks this particular positive-infinite factorial family.
     """
-    # Bound the complete borrowed source before even the recursive family
-    # probes or typed symbol metadata collection. Matching below uses native
-    # has(), never exported child trees.
-    _native.CompiledFunction._validate_source(native_source)
-    if not native_source.has_function("factorial"):
+    if not _contains_index_factorial(native_source, index, reciprocal=True):
         return False
     native_index = _native_expr(index)
-    reciprocal_factorial = _native.Pow(
-        _native.py_function("factorial", native_index),
-        _native.py_integer(-1), evaluate=False,
-    ).as_expr()
-    if not native_source.has(reciprocal_factorial):
-        return False
     for parameter in expression.free_symbols:
         if type(parameter) not in (Symbol, Dummy) or parameter == index:
             continue
@@ -1625,21 +1632,36 @@ class _ConcreteOperator(Function):
 
     def doit(self, **hints):
         current = self.function
-        if hints.get("deep", True) and hasattr(current, "doit"):
+        limits = self.limits
+        deep = hints.get("deep", True)
+        if deep and type(self) is Sum and any(b == oo for _, _, b in limits):
+            from .core import _contains_opaque
+
+            # Basic.doit reconstructs held arithmetic with evaluation enabled,
+            # which can erase original poles and excessive work under **0.
+            # Closed factorial candidates must reach native admission intact;
+            # unsupported sources remain held without a second folded attempt.
+            # Other expressions retain their established deep evaluation path.
+            if not _contains_opaque(current):
+                original_source = _native_expr(current)
+                if any(b == oo and _contains_index_factorial(original_source, k)
+                       for k, _, b in limits):
+                    deep = False
+        if deep and hasattr(current, "doit"):
             current = current.doit(**hints)
-        for index, (k, a, b) in enumerate(self.limits):
+        for index, (k, a, b) in enumerate(limits):
             native_source = _native_expr(current)
             native_index = _symbol_binding(k)
             native_lower = _native_expr(a)
             native_upper = _native_expr(b)
             if (type(self) is Sum and b == oo
                     and _nonfinite_factorial_parameter(current, k, native_source)):
-                return type(self)(current, *self.limits[index:])
+                return type(self)(current, *limits[index:])
             native = getattr(_native, self._native_fn)(
                 native_source, native_index, native_lower, native_upper,
             )
             if native is None:
-                remaining = self.limits[index:]
+                remaining = limits[index:]
                 return type(self)(current, *remaining)
             current = _lift_native_result(native, current, k, a, b)
         return current
