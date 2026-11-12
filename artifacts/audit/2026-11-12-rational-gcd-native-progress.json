@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-11-12",
+  "base_commit": "19ba7f32689945d9b1f23b29ec9541490b0ec274",
+  "workstreams": [
+    "WS08",
+    "WS17"
+  ],
+  "beads": [
+    "fra-o4g",
+    "fra-546"
+  ],
+  "implemented": [
+    "Complete monic QQ multivariate GCD/LCM from a checked complete principal-ideal intersection, without factoring either input.",
+    "Independent composition binds the exact original ordered typed coefficients, monic LCM, and lc(f)*lc(g)*gcd*lcm=f*g coefficient identity.",
+    "Zero/scalar normalization, separately cumulative generator/verifier meters, bounded intermediate arithmetic, and accepted-result publication checks.",
+    "Existing MultivariatePoly::gcd/lcm use the same checked path; the older serialized common-divisor certificate retains its weaker claim."
+  ],
+  "limits": {
+    "original_variables_nonconstant_pair": 7,
+    "original_variables_zero_or_scalar": 8,
+    "degree": 256,
+    "terms": 4096,
+    "rational_component_bits": 4096,
+    "phase_compute_units": 20000000,
+    "phase_logical_allocation_bytes": 134217728,
+    "notes": "Auxiliary ideal construction and intermediate growth can refuse otherwise admitted sources. Existing Rust convenience methods now inherit these bounded refusals. Receipts are immutable in-process compositions, not portable proofs."
+  },
+  "regressions": {
+    "native_functions": 15,
+    "coverage": [
+      "Repeated nonlinear factors and rational units",
+      "High-degree unrelated cofactors and twice-degree product identity",
+      "20 independently derived monomial pairs",
+      "Zero, scalar, constant-ring, generator identity and order",
+      "Changed source/operation and product-preserving false greatestness certificates",
+      "Cancellation and cumulative resource exhaustion"
+    ]
+  },
+  "validation": {
+    "source_review": "Separate implementation and integration review; reconstructed GitHub blobs independently fetched and compared.",
+    "local_tests": "Did not reach test execution: unchanged fsym-core compiler terminated with SIGKILL, then executor unavailable.",
+    "recovery": "Recovered from retained patches and immutable GitHub source; exact final workspace formatting hashes unavailable.",
+    "remote_tests": "Selected in existing G3 workflow; full formatting, compilation, Clippy and workspace gates remain required."
+  },
+  "claim_changes": "No claim-tier, Beads-status, dependency-edge, workstream or compatibility-profile closure."
+}

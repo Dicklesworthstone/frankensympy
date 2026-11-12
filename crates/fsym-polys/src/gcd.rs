@@ -5,10 +5,10 @@
 use crate::PolyError;
 use crate::multivariate::{MultivariatePoly, TermOrder};
 use crate::univariate::UnivariatePoly;
-use fsym_core::{BigRational, Symbol};
+use fsym_budget::Unbounded;
+use fsym_core::BigRational;
 use num_traits::{One, Zero};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 /// Bezout identity certificate for polynomial GCD:
 /// $\gcd(A, B) = U \cdot A + V \cdot B$.
@@ -22,8 +22,8 @@ pub struct BezoutCertificate {
 /// Exact divisibility certificate for a monic multivariate common divisor.
 ///
 /// This certificate proves only `divisor | A` and `divisor | B`. It does not prove that the
-/// divisor is greatest: multivariate maximality needs an additional domain-appropriate witness
-/// that this initial implementation does not provide.
+/// divisor is greatest. Use [`crate::checked_multivariate_gcd`] for a complete GCD/LCM claim
+/// with independently checked principal-intersection evidence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MultivariateDivisibilityCertificate {
     pub divisor: MultivariatePoly,
@@ -222,134 +222,32 @@ pub fn verify_bezout_certificate(
 impl MultivariatePoly {
     /// Computes the monic GCD of two multivariate polynomials in $\mathbb{Q}[x_1, \ldots, x_n]$.
     ///
-    /// For general multivariate polynomials, computes the ideal intersection $\langle f \rangle \cap \langle g \rangle = \langle \text{lcm}(f, g) \rangle$
-    /// via Groebner basis elimination of an auxiliary variable $t$, then derives $\gcd(f, g) = \frac{f \cdot g}{\text{lcm}(f, g)}$.
+    /// Uses the complete, independently checked principal-intersection path in
+    /// [`crate::checked_multivariate_gcd`], including its degree, term, coefficient,
+    /// allocation and work limits. Call that API directly to supply cancellation-aware
+    /// meters and retain the accepted evidence instead of just its polynomial value.
     pub fn gcd(&self, other: &Self) -> Result<Self, PolyError> {
-        self.validate_shape()?;
-        other.validate_shape()?;
-        if self.generators != other.generators {
-            return Err(PolyError::IncompatibleGenerators(
-                format!("{:?}", self.generators),
-                format!("{:?}", other.generators),
-            ));
-        }
-        if self.is_zero() {
-            return other.to_monic(TermOrder::Lex);
-        }
-        if other.is_zero() {
-            return self.to_monic(TermOrder::Lex);
-        }
-        if self == other {
-            return self.to_monic(TermOrder::Lex);
-        }
-
-        // Lift to ring k[t, x1, ..., xn]
-        let mut t_name = "t_gcd".to_string();
-        while self.generators.iter().any(|g| g.name == t_name) {
-            t_name.push('_');
-        }
-        let t_sym = Symbol::new(t_name);
-        let mut lifted_gens = vec![t_sym.clone()];
-        lifted_gens.extend(self.generators.clone());
-
-        // Lift f to t * f
-        let mut tf_terms = BTreeMap::new();
-        for (exp, coeff) in &self.terms {
-            let mut lifted_exp = vec![1]; // t^1
-            lifted_exp.extend(exp.clone());
-            tf_terms.insert(lifted_exp, coeff.clone());
-        }
-        let tf_poly = MultivariatePoly::new(lifted_gens.clone(), tf_terms)?;
-
-        // Lift g to (1 - t) * g = g - t * g
-        let mut g_terms = BTreeMap::new();
-        for (exp, coeff) in &other.terms {
-            // +1 * g (t^0)
-            let mut exp0 = vec![0];
-            exp0.extend(exp.clone());
-            g_terms.insert(exp0, coeff.clone());
-
-            // -1 * t * g (t^1)
-            let mut exp1 = vec![1];
-            exp1.extend(exp.clone());
-            g_terms.insert(exp1, -coeff.clone());
-        }
-        let one_minus_t_g_poly = MultivariatePoly::new(lifted_gens.clone(), g_terms)?;
-
-        // Eliminate t under Lex order
-        let elim_basis = crate::groebner::eliminate(&[tf_poly, one_minus_t_g_poly], &[t_sym])?;
-
-        // Find the lowest non-zero generator in elim_basis
-        let lcm_candidate = elim_basis
-            .into_iter()
-            .find(|p| !p.is_zero())
-            .ok_or_else(|| PolyError::General("Multivariate LCM elimination failed".to_string()))?;
-
-        // Drop the t coordinate (which is 0) from lcm_candidate
-        let mut lcm_terms = BTreeMap::new();
-        for (exp, coeff) in &lcm_candidate.terms {
-            let orig_exp = exp
-                .get(1..)
-                .ok_or_else(|| {
-                    PolyError::General(
-                        "elimination result is missing the auxiliary-variable coordinate"
-                            .to_string(),
-                    )
-                })?
-                .to_vec();
-            lcm_terms.insert(orig_exp, coeff.clone());
-        }
-        let lcm_poly =
-            MultivariatePoly::new(self.generators.clone(), lcm_terms)?.to_monic(TermOrder::Lex)?;
-
-        // gcd = (f * g) / lcm
-        let fg = self.mul(other)?;
-        let (quotients, rem) = fg.div_rem(&[lcm_poly], TermOrder::Lex)?;
-        if !rem.is_zero() {
-            return Err(PolyError::General(
-                "Exact GCD quotient division failed".to_string(),
-            ));
-        }
-        quotients
-            .into_iter()
-            .next()
-            .ok_or_else(|| PolyError::General("GCD quotient is missing".to_string()))?
-            .to_monic(TermOrder::Lex)
+        let (gcd, _) =
+            crate::checked_multivariate_gcd(self, other, &mut Unbounded, &mut Unbounded)?
+                .into_parts();
+        Ok(gcd)
     }
 
     /// Computes the monic least common multiple (LCM) of two multivariate polynomials in $\mathbb{Q}[x_1, \ldots, x_n]$.
+    ///
+    /// Shares the checked and bounded path used by [`Self::gcd`].
     pub fn lcm(&self, other: &Self) -> Result<Self, PolyError> {
-        self.validate_shape()?;
-        other.validate_shape()?;
-        if self.generators != other.generators {
-            return Err(PolyError::IncompatibleGenerators(
-                format!("{:?}", self.generators),
-                format!("{:?}", other.generators),
-            ));
-        }
-        if self.is_zero() || other.is_zero() {
-            return Ok(Self::zero(self.generators.clone()));
-        }
-        let g = self.gcd(other)?;
-        let fg = self.mul(other)?;
-        let (quotients, rem) = fg.div_rem(&[g], TermOrder::Lex)?;
-        if !rem.is_zero() {
-            return Err(PolyError::General(
-                "Exact LCM quotient division failed".to_string(),
-            ));
-        }
-        quotients
-            .into_iter()
-            .next()
-            .ok_or_else(|| PolyError::General("LCM quotient is missing".to_string()))?
-            .to_monic(TermOrder::Lex)
+        let (_, lcm) =
+            crate::checked_multivariate_gcd(self, other, &mut Unbounded, &mut Unbounded)?
+                .into_parts();
+        Ok(lcm)
     }
 
     /// Computes a GCD candidate with an exact certificate that it divides both inputs.
     ///
     /// The candidate comes from [`Self::gcd`], but the certificate intentionally grants only the
-    /// weaker common-divisor claim. Callers must not promote it to a verified GCD until an
-    /// independent multivariate maximality criterion is implemented.
+    /// weaker common-divisor claim. This serialized certificate omits the complete
+    /// intersection evidence, so verifying it does not establish greatestness.
     pub fn gcd_candidate_with_divisibility_certificate(
         &self,
         other: &Self,

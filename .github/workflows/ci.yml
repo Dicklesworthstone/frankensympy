@@ -150,6 +150,7 @@ jobs:
           cargo test --locked -p fsym-polys --test finite_field_groebner --test finite_field_groebner_adversaries --test finite_field_elimination --test finite_field_ideal_operations --test finite_field_ideal_quotient --test finite_field_fglm --test finite_field_quotient_algebra -j1
           cargo test --locked -p fsym-polys --test finite_field_recursive_division --test finite_field_recursive_division_adversaries -j1
           cargo test --locked -p fsym-polys --test finite_field_evaluation -j1
+          cargo test --locked -p fsym-polys --test multivariate_gcd -j1
           cargo test --locked -p fsym-polys --test finite_field_ideal_inverse --test finite_field_quotient_minpoly --test finite_field_syzygy -j1
           cargo test --locked -p fsym-python --lib assumptions::tests -j1
           cargo test --locked -p fsym-python --lib numeric::tests::certified_gaussian_sources_require_unary_bound_arguments -j1
