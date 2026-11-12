@@ -1,0 +1,179 @@
+{
+  "date": "2026-11-12",
+  "base_commit": "315e38d046570cd9e7da4197e88ac252debaea52",
+  "toolchain": "nightly-2026-08-20",
+  "rustflags": "-D warnings",
+  "dependency_pins": {
+    "asupersync": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+    "franken_numpy": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+    "frankenscipy": "213a417c739025ed865a3875c89a7d86726ecb5a"
+  },
+  "native_validation": [
+    {
+      "scope": "fsym-proof-kernel, complete crate",
+      "passed": 183,
+      "test_targets": 13,
+      "log": "kernel-sparse-identity-tests.log"
+    },
+    {
+      "scope": "fsym-polys, complete crate",
+      "passed": 562,
+      "test_targets": 36,
+      "included": {
+        "multivariate_square_free": 17,
+        "multivariate_gcd": 16
+      },
+      "log": "polys-complete-tests.log"
+    },
+    {
+      "scope": "fsym-calculus exponential/geometric/rational summation on final f51a9c9 source",
+      "passed": 34,
+      "included": {
+        "exponential": 14,
+        "geometric": 12,
+        "rational": 8
+      },
+      "log": "final-summation-tests.log"
+    },
+    {
+      "scope": "fsym-calculus branch-cut/directional/generalized series",
+      "passed": 28,
+      "included": {
+        "branch_cut": 8,
+        "directional": 8,
+        "generalized": 12
+      }
+    }
+  ],
+  "remote_baseline": {
+    "commit": "6864870d285d2558315a74b48bb7540ccc22f450",
+    "g1_job": 131317851496,
+    "g1": "fmt/workspace all-target check/strict Clippy passed on that earlier head",
+    "g2_job": 131321318856,
+    "durable_fixture": "digest_consistent_false_proof_is_refused_by_mathematical_reverification passed",
+    "overall": "G2/G3 failed on the two GCD cases subsequently corrected in31d034 and passing in the complete local polynomial suite; no final-head CI pass is claimed"
+  },
+  "scope": "Bounded exact algebra and summation functionality; immutable in-process composition receipts. No general irreducibility, portable calculus certificate, performance, profile certification, or workstream closure claim.",
+  "remote_gcd_public_validation": {
+    "commit": "31d034bb66d4d7cf55bf7f10646fcf92f5e6ab76",
+    "run_id": 43257892532,
+    "job_id": 131322218850,
+    "focused_batch_passed": 911,
+    "broader_batch_passed": 3552,
+    "includes": [
+      "python/tests/test_rational_multivariate_gcd.py",
+      "python/tests/test_positive_rational_power_simplification.py",
+      "python/tests/test_directional_series.py"
+    ],
+    "scope": "Actual extension-backed earlier-head runs; batches may overlap, and new square-free/exponential public APIs were not yet present.",
+    "other_jobs": "G0 and G1 passed; G2 was cancelled. Only the observed public G3 batches are claimed here."
+  },
+  "native_clippy": {
+    "command": "cargo +nightly-2026-08-20 clippy --locked --offline -p fsym-proof-kernel -p fsym-polys -p fsym-calculus --all-targets -j1 -- -D warnings",
+    "status": "passed on final feature source",
+    "log": "final-native-clippy.log",
+    "corrections": "Use size_of_val for a borrowed exponent slice and copy the Copy BudgetLimits value directly; no resource limit or algorithm changed.",
+    "commit": "f51a9c9ffd3f9d711aa3aaba193adcfec77fbb89"
+  },
+  "public_new_tests": {
+    "square_free": {
+      "functions": 18,
+      "parameterized_cases": 61,
+      "status": "authored; actual extension execution pending CI"
+    },
+    "exponential": {
+      "methods": 17,
+      "status": "authored; actual extension execution pending CI"
+    }
+  },
+  "python_clippy": {
+    "status": "blocked",
+    "command": "cargo +nightly-2026-08-20 clippy --locked --offline -p fsym-python --features extension-module --all-targets -j1 -- -D warnings",
+    "cause": "rustc for unchanged pinned asupersync exited with SIGKILL, even for metadata-only compilation; no Rust source diagnostic",
+    "log": "python-bridge-clippy.log"
+  },
+  "source_commits": [
+    "6864870d285d2558315a74b48bb7540ccc22f450",
+    "31d034bb66d4d7cf55bf7f10646fcf92f5e6ab76",
+    "953b3afb3ce8c2390362730a00b374bec31c9af5",
+    "f44e15cc7be1f8e2ba32e889de979b94a3230629",
+    "9adda16efa7e1117f85ad3682af4665fb0032a55",
+    "6a5e47885582ce8164feb808d89f27c98d04bdce",
+    "f51a9c9ffd3f9d711aa3aaba193adcfec77fbb89"
+  ],
+  "hardening": {
+    "commit": "f51a9c9ffd3f9d711aa3aaba193adcfec77fbb89",
+    "native_regressions": "All four legacy duplicate-factor/arity/retained-single-base regressions passed within the final 14-test exponential target.",
+    "public_regressions": "Default deep evaluation, held poles/source bounds and retained unsupported sources: authored, independently reviewed, pending CI execution."
+  },
+  "final_feature_commit": "f51a9c9ffd3f9d711aa3aaba193adcfec77fbb89",
+  "source_blob_bindings": {
+    "crates/fsym-calculus/src/lib.rs": "e79fb97b60b953b2a1873afa445588d3b8b5246a",
+    "crates/fsym-calculus/src/exponential_sum.rs": "6bb93624993114b4836aa42e746e9fe2e8ab04fb",
+    "crates/fsym-calculus/src/summation.rs": "7497a974ffe09852c5ad3a6debe36482edf30ca9",
+    "crates/fsym-calculus/tests/exponential_summation.rs": "2d603132c2b4be889a8caf58881602b21a36b434",
+    "python/sympy/__init__.py": "4543dddb06c51e68b8878c3673c6c7121c665241",
+    "python/tests/test_exponential_summation.py": "2eed529d1b1899e1acea7408d1283cba4912a4d9",
+    "docs/ASSUMPTIONS_DOMAINS_AND_NUMERIC_TOWER.md": "14fef41fd869d4ebf9aca80c4eeca712d61bebdf",
+    ".github/workflows/ci.yml": "1170a24ce69d6148acb52c13cd244cda2681291c",
+    "crates/fsym-polys/src/lib.rs": "1f7d7500291ff8356641bc0852bbb44622a3bf80",
+    "crates/fsym-polys/src/multivariate_square_free.rs": "43f6a6c5d6ea97c838702d72f454d88d732d0a6e",
+    "crates/fsym-polys/tests/multivariate_square_free.rs": "83b2050d82e65c3848c99fd9838dc5d50a63690c",
+    "crates/fsym-python/src/lib.rs": "4ac285b709e2c48a4fbc6da6aa5bdec2e052078d",
+    "crates/fsym-python/src/square_free.rs": "77f9df36cecc3b0bbecae86b63f8945c3a29c8e3",
+    "python/sympy/polys/polytools.py": "2e3e20bb43d9be01d403898a5655bfadd33e54ba",
+    "python/tests/test_rational_multivariate_square_free.py": "ceff4b560ba9615ee46f2b4e482a759fc3f815de",
+    "crates/fsym-proof-kernel/src/groebner.rs": "b34aafefb267252fe38782979b39d59c9c89cd45",
+    "crates/fsym-polys/src/multivariate_gcd.rs": "8c022d2dc693e50e515f6a9d36bc8423724ed1a6",
+    "crates/fsym-polys/tests/multivariate_gcd.rs": "aa89626fbf6626eeb8ccd6974f05ba0218b1b261",
+    "python/tests/test_rational_multivariate_gcd.py": "0f5749903bf2758c7987fac6798e6780b236681c"
+  },
+  "format_and_python_syntax": {
+    "repository_rustfmt": "passed",
+    "changed_python_ast": "passed",
+    "diff_whitespace": "passed"
+  },
+  "failed_attempts": [
+    {
+      "scope": "initial extension build",
+      "outcome": "SIGKILL in unchanged pinned asupersync; no Rust diagnostic"
+    },
+    {
+      "scope": "extension retry with per-package frontend/backend=1, fewer-names and mostly-unused hint",
+      "outcome": "same SIGKILL"
+    },
+    {
+      "scope": "isolated asupersync-only retry, identical features, codegen-units=512 and phase timings",
+      "outcome": "same SIGKILL during frontend/type checking; last reported RSS about 3.4 GB, before LLVM code generation"
+    },
+    {
+      "scope": "fsym-python metadata-only strict Clippy",
+      "outcome": "same unchanged-dependency SIGKILL; no bridge compilation pass claimed"
+    }
+  ],
+  "planning": {
+    "beads_updated": [
+      "fra-o4g",
+      "fra-546",
+      "fra-a5x"
+    ],
+    "changes": "notes and updated_at only; statuses, priorities, dependency graph and acceptance gates unchanged",
+    "artifact_claim": "Scoped implementation/validation progress, no workstream closure or profile promotion",
+    "validation": "passed: python tools/validate_planning.py; all 124 Beads records parse and only three notes/updated_at fields changed"
+  },
+  "final_groebner_rerun": {
+    "passed": 12,
+    "filtered": 50,
+    "commit": "f51a9c9ffd3f9d711aa3aaba193adcfec77fbb89",
+    "command": "cargo +nightly-2026-08-20 test --locked --offline -p fsym-proof-kernel --lib groebner::tests -j1",
+    "log": "final-groebner-tests.log"
+  },
+  "source_scopes": {
+    "square_free": "Complete bounded characteristic-zero QQ multiplicity groups, QQ monic/ZZ primitive public normalization and content-free parts, preserving original ordered typed rings and retained domain declarations; no irreducibility claim.",
+    "factorial_sums": "p(k)*z**k/k! for rational polynomial weights of degree at most 32 and integer lower bounds 0..256 through infinity, with exact finite heads, a separately checked falling-factorial decomposition and original-source admission.",
+    "high_degree_proofs": "Direct independent sparse reference identities retain complete Groebner obligations and existing resource bounds without expanding sparse powers through the generic expression normalizer's exponent limit of 64."
+  },
+  "validation_revision_note": "Complete kernel and polynomial suites ran on the feature implementations before an equivalent slice-size Clippy cleanup. All 12 Groebner tests were rerun after that cleanup. Final 34 summation tests and strict all-target Clippy for proof-kernel/polys/calculus ran on f51a9c9. Native test totals are distinct tests across these scoped runs, not a full final-head workspace run.",
+  "native_distinct_tests_passed": 807,
+  "recorded_at": "2026-11-12T17:05:44Z"
+}
