@@ -235,27 +235,29 @@ def test_retained_piecewise_mutation_during_native_work_is_not_published(monkeyp
         s.solveset(source, x, s.S.Reals)
 
 
-def test_plain_symbol_native_handle_refresh_preserves_the_captured_source(monkeypatch):
-    name = "piecewise_plain_refresh"
+def test_plain_symbol_lifting_preserves_the_captured_native_handle(monkeypatch):
+    name = "piecewise_plain_lift"
     x = s.Symbol(name)
     source = s.Piecewise((x-1, x >= 0), (x+1, True), evaluate=False)
     native = _native.solve_real_rational_native
     slot = Basic.__dict__["_value"]
-    refreshed = []
+    original = slot.__get__(x, Basic)
+    lifted = []
 
-    def refresh(*args):
+    def lift_identical_symbol(*args):
         result = native(*args)
-        old = slot.__get__(x, Basic)
         new = _native.py_symbol(name)
-        assert new is not old and new == old
+        assert new is not original and new == original
         assert _surface_symbol(new) is x
-        assert slot.__get__(x, Basic) is new
-        refreshed.append(new)
+        # Active solvers retain the interned owner's original storage.
+        assert slot.__get__(x, Basic) is original
+        lifted.append(new)
         return result
 
-    monkeypatch.setattr(_native, "solve_real_rational_native", refresh)
+    monkeypatch.setattr(_native, "solve_real_rational_native", lift_identical_symbol)
     assert s.solveset(source, x, s.S.Reals) == s.FiniteSet(-1, 1)
-    assert refreshed
+    assert lifted
+    assert slot.__get__(x, Basic) is original
 
 
 def test_same_named_symbol_binding_mutation_is_still_rejected(monkeypatch):

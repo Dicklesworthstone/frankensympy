@@ -163,7 +163,7 @@ fn monic(
     work.tick(polynomial.terms().len() * polynomial.generators().len().max(1))?;
     if let Some(leading) = polynomial.leading_coeff(TermOrder::Lex) {
         for coefficient in result.terms.values_mut() {
-            *coefficient = work.divide(coefficient, leading)?;
+            *coefficient = work.divide(coefficient, &leading)?;
         }
     }
     Ok(result)

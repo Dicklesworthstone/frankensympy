@@ -1,0 +1,24 @@
+{
+  "date": "2026-11-12",
+  "native_build_repair": {
+    "ci_job": 131100511082,
+    "commit_tested": "45d3c78a23c05b59def8dedaab696f0a31d7c37c",
+    "diagnostic": "E0308 in multivariate_gcd.rs:166: PolynomialWork::divide requires &BigRational but leading_coeff returns an owned BigRational.",
+    "correction": "Borrow the owned leading coefficient; retain the independently checked algorithm and exact pinned formatting.",
+    "execution": "Compilation rerun pending; the reported diagnostic is corrected, not treated as a passing build."
+  },
+  "symbol_regression_alignment": {
+    "failing_job": 131098225620,
+    "production_contract": "_surface_symbol intentionally preserves the interned surface owner and its original native handle. Sparse coordinate snapshots depend on that stable handle; equal native wrapper allocation does not require ownership mutation.",
+    "change": "Keep production core unchanged. Rename the obsolete handle-refresh test and assert original-handle identity across every equal-wrapper lift and the completed Piecewise solve.",
+    "retained_assertions": [
+      "distinct but native-equal newly allocated wrapper",
+      "same interned surface owner",
+      "callback actually executes",
+      "correct finite solution set",
+      "adjacent changed typed-binding mutation remains rejected"
+    ],
+    "review": "Independent source review traced _surface_symbol, _check_symbol_snapshot, _lift_scalar and Piecewise capture semantics."
+  },
+  "status": "Both changes require executable rerun; local execution service is unavailable and GitHub jobs are queued. No full-suite, compatibility-profile or proof-tier pass is asserted."
+}
