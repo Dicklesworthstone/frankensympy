@@ -200,7 +200,9 @@ fn same_polynomial(
 ) -> Result<(), PolyError> {
     check_polynomial(actual, expected.generators(), work)?;
     if actual.terms().len() != expected.terms().len() {
-        return Err(refused("multivariate GCD/LCM witness changed term coverage"));
+        return Err(refused(
+            "multivariate GCD/LCM witness changed term coverage",
+        ));
     }
     for ((powers, value), (expected_powers, expected_value)) in
         actual.terms().iter().zip(expected.terms())

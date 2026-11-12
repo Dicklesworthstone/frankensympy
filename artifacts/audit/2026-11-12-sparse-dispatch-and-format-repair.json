@@ -1,0 +1,25 @@
+{
+  "date": "2026-11-12",
+  "observed_failures": {
+    "baseline_commit": "19ba7f32689945d9b1f23b29ec9541490b0ec274",
+    "public_job": 131098225620,
+    "tests": [
+      "test_changed_accessors_never_enter_the_native_lane[matrix_accessor]",
+      "test_changed_accessors_never_enter_the_native_lane[symbol_accessor]"
+    ],
+    "symptom": "Pre-admission isinstance checks invoked replaced __class__ accessors twice before the expected original-interface refusal.",
+    "native_gcd_commit": "45d3c78a23c05b59def8dedaab696f0a31d7c37c",
+    "format_job": 131100510866,
+    "formatter": "Pinned rustfmt required exactly two layout/trailing-comma changes in the new native GCD module and test."
+  },
+  "fixes": [
+    "Classify actual list/tuple types through issubclass(type(...), ...) before sealed solver admission, retaining genuine container-subclass behavior without invoking an instance accessor.",
+    "Apply this to the initial linsolve input probe and both linsolve/solve_linear_system coordinate-container probes.",
+    "Extend the unchanged accessor refusal and zero-callback assertions to both solver entrypoints.",
+    "Apply the two exact pinned-rustfmt diff hunks, preserving native GCD semantics and test assertions."
+  ],
+  "verification": {
+    "source_review": "Independent review confirmed exactly three production type-probe changes and unchanged refusal assertions; Git blobs independently fetched and compared.",
+    "execution": "Corrective changes await rerun. Local execution service remains unavailable, and other feature jobs are queued. This record does not claim the new native GCD or branch-cut test suites have passed."
+  }
+}

@@ -291,10 +291,7 @@ fn zero_and_scalar_mutants_cannot_erase_or_renormalize_nonzero_inputs() {
     let mut candidate = result.certificate().clone();
     candidate.gcd = one;
     rejected(&result, &candidate);
-    let nontrivial = solve(
-        &expression("x", &generators),
-        &expression("y", &generators),
-    );
+    let nontrivial = solve(&expression("x", &generators), &expression("y", &generators));
     let mut candidate = result.certificate().clone();
     candidate.intersection = nontrivial.certificate().intersection.clone();
     rejected(&result, &candidate);

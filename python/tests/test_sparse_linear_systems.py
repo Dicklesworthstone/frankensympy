@@ -195,8 +195,9 @@ def test_both_original_retained_sources_are_bound(matrix_class, side, monkeypatc
         linsolve((a, b), x)
 
 
+@pytest.mark.parametrize("solver", (linsolve, solve_linear_system))
 @pytest.mark.parametrize("target", ("matrix_accessor", "symbol_accessor", "symbol_storage"))
-def test_changed_accessors_never_enter_the_native_lane(target, monkeypatch):
+def test_changed_accessors_never_enter_the_native_lane(target, solver, monkeypatch):
     x = Symbol("linear_accessor_x")
     a = SparseMatrix([[1, 2]])
     calls = []
@@ -210,7 +211,7 @@ def test_changed_accessors_never_enter_the_native_lane(target, monkeypatch):
     else:
         monkeypatch.setattr(Symbol, "_value", property(lambda self: _native.py_integer(0)), raising=False)
     with pytest.raises(NotImplementedError, match="original"):
-        linsolve(a, x)
+        solver(a, x)
     assert calls == []
 
 

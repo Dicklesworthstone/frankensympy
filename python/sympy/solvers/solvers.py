@@ -167,11 +167,13 @@ def linsolve(system: Any, *symbols: Any) -> Set:
     # Empty top-level inputs have a distinct public result from a present
     # zero equation or an (A, b) pair describing unconstrained variables.
     # Handle them before augmented-matrix shape validation and RREF.
-    if isinstance(system, (list, tuple)) and len(system) == 0:
+    # Classify real container types without invoking a user __class__ accessor
+    # before the checked matrix and symbol interface admission.
+    if issubclass(type(system), (list, tuple)) and len(system) == 0:
         return EmptySet()
 
     # Parse symbols
-    if len(symbols) == 1 and isinstance(symbols[0], (list, tuple)):
+    if len(symbols) == 1 and issubclass(type(symbols[0]), (list, tuple)):
         sym_list = list(symbols[0])
     elif symbols:
         sym_list = list(symbols)
@@ -281,7 +283,7 @@ def solve_linear_system(system: MatrixBase, *symbols: Any) -> Optional[dict]:
     dict or None
         A dictionary mapping each symbol to its solution, or None if inconsistent.
     """
-    if len(symbols) == 1 and isinstance(symbols[0], (list, tuple)):
+    if len(symbols) == 1 and issubclass(type(symbols[0]), (list, tuple)):
         sym_list = list(symbols[0])
     elif symbols:
         sym_list = list(symbols)
