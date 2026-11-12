@@ -2079,6 +2079,7 @@ mod polynomial_relations;
 mod polynomial_systems;
 mod quadrature;
 mod quotient_algebra;
+mod rational_cancel;
 mod rational_laplace;
 mod rational_mellin;
 mod real_inequality;
@@ -2352,6 +2353,15 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(poly_sqf_list_native, m)?)?;
     m.add_function(wrap_pyfunction!(
         square_free::poly_multivariate_sqf_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(rational_cancel::rational_cancel_native, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        rational_cancel::rational_cancel_source_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        rational_cancel::rational_cancel_arguments_native,
         m
     )?)?;
     m.add_function(wrap_pyfunction!(poly_factor_list_native, m)?)?;

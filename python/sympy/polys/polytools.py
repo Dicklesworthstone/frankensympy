@@ -3105,74 +3105,254 @@ def primitive(f: Any, *gens: Any) -> Tuple[Any, Any]:
 
 
 def cancel(f: Any, *gens: Any) -> Any:
-    """Cancel common factors in a rational function f = p / q."""
+    """Cancel a bounded original rational source through one checked QQ call.
+
+    Closed expressions outside the rational grammar retain their original
+    structure. Once exact cancellation starts, admission and proof failures
+    propagate without retrying an expanded or partially divided source.
+    """
     from . import _opaque
-    if _opaque.applies(f):
-        return _opaque.cancel(f, gens)
-    from ..core import Integer, expand
-    is_poly = isinstance(f, Poly)
-    wrapped = f.as_expr() if is_poly else _wrap(_native_expr(f))
-    if not hasattr(wrapped, "as_numer_denom"):
+    from ..core import Float
+
+    if _finitefield.is_finite(f):
+        # Poly cancellation is an identity operation in its original field.
+        # Existing checked field admission binds its retained source and
+        # metadata through lifting without converting it into QQ.
+        _finitefield.expression(f)
         return f
-    numer, denom = wrapped.as_numer_denom()
-    if denom == 1 or denom == Integer(1):
-        # Upstream cancel returns the polynomial expanded
-        # (cancel(x*(x + 1)) -> x**2 + x).
-        return f if is_poly else expand(numer)
+    is_poly = issubclass(type(f), Poly)
+    if not is_poly and _opaque.applies(f):
+        return _opaque.cancel(f, gens)
+    if type(f) is int:
+        if f.bit_length() > 4096:
+            raise ValueError("rational cancellation integer exceeds 4096 bits")
+        f = Integer(f)
+    elif type(f) is float:
+        f = Float(f)
+    return _checked_rational_cancel(f, gens, is_poly)
 
-    try:
-        if gens:
-            all_gens = tuple(gens)
-        elif is_poly:
-            all_gens = f.gens
-        else:
-            all_gens = tuple(sorted(list(numer.free_symbols | denom.free_symbols), key=lambda s: s.name))
 
-        if not all_gens:
-            res = numer / denom
-            return Poly(res) if is_poly else res
+class _RationalCancelSource(_IdealQuotientSnapshot):
+    """Retain closed sources before choosing the exact rational grammar.
 
-        p_poly = Poly(numer, *all_gens)
-        q_poly = Poly(denom, *all_gens)
+    The broader routing walk performs no algebra. It also binds held children
+    which a native-only walk cannot see, so an unchanged return cannot conceal
+    a forged surface tree or a source mutation during admission.
+    """
 
-        p_cont, p_prim = p_poly.primitive()
-        q_cont, q_prim = q_poly.primitive()
+    def __init__(self, source, generators):
+        from ..core import (
+            Add, ComplexInfinity, Dummy, Float, Half, NegativeOne, One, Zero,
+            _ExactDecimalFloat, _FLOAT_INTERN, _is_closed_function_class,
+            _lookup_known_function, _symbol_from_binding, _surface_binding_key,
+        )
 
-        if q_cont == 0:
-            return f if is_poly else wrapped
+        super().__init__()
+        self.functions = []
+        self.nodes = []
+        self.symbol_snapshot = None
+        retained = []
+        pending = [(source, 0), *((variable, 0) for variable in generators)]
+        seen = set()
+        count = 0
+        atoms = (Integer, Rational, Zero, One, NegativeOne, Half, Symbol, Dummy,
+                 Float, _ExactDecimalFloat, ComplexInfinity, Expr)
+        while pending:
+            node, depth = pending.pop()
+            count += 1
+            if count > 4096 or depth > 64:
+                raise ValueError("rational cancellation source exceeds its node/depth envelope")
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            kind = type(node)
+            arithmetic = any(kind is cls for cls in (Add, Mul, Pow))
+            function = _is_closed_function_class(kind)
+            if not any(kind is cls for cls in atoms) and not arithmetic and not function:
+                raise TypeError("rational cancellation requires exact built-in source owners")
+            if function and not any(kind is previous for previous in self.functions):
+                self.functions.append(kind)
+            native = self.retain(node, Basic, "_value")
+            if type(native) is not _native.Expr:
+                raise ValueError("rational cancellation requires a closed native source")
+            self.nodes.append((node, native))
+            operator = ("add" if kind is Add else "mul" if kind is Mul else "pow" if kind is Pow
+                        else "function:" + type.__dict__["__name__"].__get__(kind) if function else None)
+            fields = [(Basic, "_struct_args"), (Basic, "_surface_args")]
+            if arithmetic:
+                fields.append((kind, "_args"))
+            elif function:
+                fields.append((Function, "_args"))
+            for owner, name in fields:
+                children = self.retain(node, owner, name)
+                if children is _IDEAL_ABSENT or children is None:
+                    continue
+                if type(children) is not tuple or len(children) > 4096 - count - len(pending):
+                    raise ValueError("rational cancellation requires bounded original argument tuples")
+                if operator is None:
+                    raise ValueError("rational cancellation atom has unexpected retained children")
+                retained.append((native, operator, children))
+                pending.extend((child, depth + 1) for child in children)
+            if kind is Symbol or kind is Dummy:
+                assumptions = self.retain(node, Symbol, "_assumptions")
+                if (type(assumptions) is not dict or len(assumptions) > 128
+                        or any(type(key) is not str or len(key) > 4096
+                               or type(value) is not bool for key, value in assumptions.items())):
+                    raise ValueError("rational cancellation requires bounded exact symbol assumptions")
+                self.dictionaries.append((assumptions, tuple(assumptions.items())))
+                if kind is Dummy:
+                    self.retain(node, Dummy, "_dummy_name")
+                    self.retain(node, Dummy, "_dummy_number")
+            if kind is Float or kind is _ExactDecimalFloat:
+                self.retain(node, Float, "_dps")
+                if kind is _ExactDecimalFloat:
+                    decimal = self.retain(node, _ExactDecimalFloat, "_decimal")
+                    if type(decimal) is not str or len(decimal) > 65_536:
+                        raise ValueError("rational cancellation Float metadata exceeds its bound")
 
-        c = p_cont / q_cont
-        c_num = c.p if hasattr(c, "p") else c
-        c_den = c.q if hasattr(c, "q") else 1
+        self.eligible = True
+        for node, native in self.nodes:
+            eligible, functions = _native.rational_cancel_source_native(native)
+            if type(eligible) is not bool:
+                raise RuntimeError("rational cancellation eligibility is invalid")
+            self.eligible = self.eligible and eligible
+            for name in functions:
+                if name == _FLOAT_INTERN:
+                    continue
+                cls = _lookup_known_function(name)
+                if cls is None or not _is_closed_function_class(cls):
+                    raise NotImplementedError("rational cancellation cannot recover an opaque native function")
+                if not any(cls is previous for previous in self.functions):
+                    self.functions.append(cls)
+            # Raw slot checks are safe before every borrowed native subtree
+            # has passed its bounds. The full capability check scans trees.
+            super().unchanged()
 
-        try:
-            g = p_prim.gcd(q_prim)
-            p_div = p_prim.div(g)[0]
-            q_div = q_prim.div(g)[0]
-            num_final = expand(p_div.as_expr() * c_num)
-            den_final = expand(q_div.as_expr() * c_den)
-        except Exception:
-            num_final = expand(p_prim.as_expr() * c_num)
-            den_final = expand(q_prim.as_expr() * c_den)
+        # Native-owned arithmetic has no retained Python children. Recover
+        # its typed symbol owners only after borrowed bounds, then bind their
+        # declarations to the immutable atoms already present in the source.
+        bindings = {}
+        for _, native in self.nodes:
+            for binding in native.free_symbol_bindings:
+                bindings.setdefault(_surface_binding_key(binding), binding)
+                if len(bindings) > 4096:
+                    raise ValueError("rational cancellation has too many source symbols")
+        owners = [_symbol_from_binding(binding) for binding in bindings.values()]
+        self.symbol_snapshot = _IdealQuotientSnapshot(*(
+            GroebnerBasis([], tuple(owners[index:index + 8]), "QQ", "lex")
+            for index in range(0, len(owners), 8)
+        ))
+        for owner in owners:
+            native = self.slot(Basic, "_value").__get__(owner, Basic)
+            if type(native) is not _native.Expr or not native.is_symbol:
+                raise RuntimeError("rational cancellation source symbol identity mutated during admission")
+            _native.rational_cancel_source_native(native)
+            self.symbol_snapshot.unchanged()
+        observed = [binding for _, _, _, group in self.symbol_snapshot.inputs() for binding in group]
+        if len(observed) != len(bindings) or any(
+                _surface_binding_key(binding) != original for binding, original in zip(observed, bindings)):
+            raise RuntimeError("rational cancellation source symbol declarations mutated during admission")
+        self.unchanged()
+        for native, operator, children in retained:
+            _native.rational_cancel_arguments_native(
+                native, operator, [_native_expr(child) for child in children]
+            )
+            self.unchanged()
 
-        # Upstream cancel keeps the denominator's lex-leading coefficient
-        # positive: -1/(-a - 1) -> 1/(a + 1).
-        try:
-            lead_c, _ = _leading(den_final, all_gens)
-            if lead_c < 0:
-                num_final, den_final = expand(-num_final), expand(-den_final)
-        except Exception:
-            pass
-        if den_final == 1 or den_final == Integer(1):
-            res = num_final
-        else:
-            res = num_final / den_final
+    def unchanged(self):
+        from ..core import _require_closed_function_class
 
-        if is_poly:
-            return Poly(res, *all_gens)
-        return _split_combined_denominator(res) if not is_poly else res
-    except Exception:
-        return f if is_poly else wrapped
+        super().unchanged()
+        if self.symbol_snapshot is not None:
+            self.symbol_snapshot.unchanged()
+        for cls in self.functions:
+            _require_closed_function_class(cls)
+        for node, native in self.nodes:
+            current = _native_expr(node)
+            if (current is not native and not
+                    (type(node) is Symbol and current.is_symbol and native.is_symbol and current == native)):
+                raise RuntimeError("rational cancellation source mutated during admission")
+
+
+def _checked_rational_cancel(source, gens, is_poly):
+    from ..core import Dummy
+
+    container = None
+    namespace = None
+    if is_poly:
+        _rational_ideal_source(source)
+        namespace = object.__getattribute__(source, "__dict__")
+        gens = namespace.get("_gens")
+        if type(gens) is not tuple or len(gens) > 8:
+            raise ValueError("rational cancellation requires a bounded original generator tuple")
+        # The pinned Poly entry is an identity operation; supplied generators
+        # cannot reinterpret its original ring or repair a false domain.
+    elif len(gens) == 1 and type(gens[0]) in (tuple, list):
+        container = gens[0]
+        if len(container) > 8:
+            raise ValueError("rational cancellation requires at most eight generators")
+        gens = tuple(container)
+    if len(gens) > 8:
+        raise ValueError("rational cancellation requires at most eight generators")
+    captured_gens = tuple(gens)
+    for variable in gens:
+        if type(variable) is not Symbol and type(variable) is not Dummy:
+            raise TypeError("rational cancellation requires exact built-in generators")
+    if len(set(gens)) != len(gens):
+        raise ValueError("rational cancellation requires distinct typed generators")
+
+    def unchanged_container():
+        if container is not None and (len(container) != len(captured_gens)
+                or any(current is not original for current, original in zip(container, captured_gens))):
+            raise RuntimeError("rational cancellation generator container mutated during evaluation")
+
+    routed = None
+    if not is_poly:
+        routed = _RationalCancelSource(source, gens)
+        unchanged_container()
+        if not routed.eligible:
+            routed.unchanged()
+            return source
+        if type(source) is Expr:
+            # A generic native-owned Expr has no additional Python children.
+            # Its exact original value remains bound by the routing snapshot.
+            source = _wrap(_native_expr(source))
+
+    retained = _IdealQuotientSnapshot(GroebnerBasis([source], tuple(gens), "QQ", "lex"))
+    sources, _, _, _ = retained.inputs()[0]
+    if not is_poly:
+        remaining = sorted(sources[0].free_symbols - set(gens), key=lambda variable:
+                           (variable.name, _symbol_binding(variable).identity_hex))
+        # Explicit generators determine leading signs; the remaining exact
+        # parameters are ordinary QQ variables for this expression result.
+        gens = tuple(gens) + tuple(_sort_gens(remaining))
+    if len(gens) > 8:
+        raise ValueError("rational cancellation requires at most eight generators")
+    for variable in set(gens) | sources[0].free_symbols:
+        if type(variable) is not Symbol and type(variable) is not Dummy:
+            raise TypeError("rational cancellation requires exact built-in generators")
+        assumptions = object.__getattribute__(variable, "_assumptions")
+        if assumptions.get("commutative", True) is not True:
+            raise PolynomialError("noncommutative rational cancellation is not supported")
+    retained.unchanged()
+    snapshot = _IdealQuotientSnapshot(GroebnerBasis([source], tuple(gens), "QQ", "lex"))
+    sources, gens, equations, bindings = snapshot.inputs()[0]
+
+    def unchanged():
+        snapshot.unchanged()
+        retained.unchanged()
+        if routed is not None:
+            routed.unchanged()
+        unchanged_container()
+
+    poly_domain = None
+    if is_poly:
+        poly_domain = (namespace.get("_domain") if namespace.get("_domain_given") is True else None) or "auto"
+    result = _native.rational_cancel_native(equations[0], bindings, poly_domain)
+    unchanged()
+    result = source if is_poly else _lift_native_result(result, *sources, *gens)
+    unchanged()
+    return result
 
 def _split_combined_denominator(expr: Any) -> Any:
     """Oracle-pinned normalization: Pow(Mul(f1, f2), -n) splits into
