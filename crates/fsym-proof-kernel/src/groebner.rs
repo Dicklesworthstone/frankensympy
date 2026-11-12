@@ -1,17 +1,19 @@
 //! Independent complete Groebner-basis certificates over a declared rational polynomial ring.
 //!
-//! This module depends on canonical sparse data and the kernel's reference normalizer,
-//! never on `fsym-polys` or its search, multiplication, division, or term-order routines.
+//! This module checks canonical sparse data with direct reference coefficient
+//! convolution, never with `fsym-polys` or its search, multiplication, division,
+//! or term-order routines. Sparse exponents are added with overflow checks;
+//! they are not expanded through the generic expression-power normalizer.
 
-use crate::{
-    Claim, KernelError, ProofKernel, derivation_verification_units, verify_derivation_independent,
-};
-use fsym_assumptions::ImmutableAssumptionsSnapshot;
+use crate::KernelError;
 use fsym_budget::{BudgetMeter, Dimension, MeterError};
+use fsym_core::arith::RationalArithmeticError;
 use fsym_core::{BigRational, Expr, Symbol};
 use num_traits::{One, Zero};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
+use std::mem::size_of;
 use thiserror::Error;
 
 const MAX_BASIS: usize = 1_024;
@@ -313,43 +315,6 @@ fn leading_monomials<'a>(
     Ok(leading)
 }
 
-fn monomial_expr(generators: &[Symbol], exponents: &[u32]) -> Expr {
-    let factors = generators
-        .iter()
-        .zip(exponents)
-        .filter_map(|(symbol, &power)| match power {
-            0 => None,
-            1 => Some(Expr::Sym(symbol.clone())),
-            _ => Some(Expr::Pow(
-                std::sync::Arc::new(Expr::Sym(symbol.clone())),
-                std::sync::Arc::new(Expr::Integer(power.into())),
-            )),
-        })
-        .collect::<Vec<_>>();
-    if factors.is_empty() {
-        Expr::from_i64(1)
-    } else {
-        Expr::Mul(factors)
-    }
-}
-
-fn polynomial_expr(poly: &SparseRationalPolynomial, generators: &[Symbol]) -> Expr {
-    if poly.terms.is_empty() {
-        return Expr::from_i64(0);
-    }
-    Expr::Add(
-        poly.terms
-            .iter()
-            .map(|term| {
-                Expr::Mul(vec![
-                    Expr::Rational(term.coefficient.clone()),
-                    monomial_expr(generators, &term.exponents),
-                ])
-            })
-            .collect(),
-    )
-}
-
 fn reserve_identity<'a>(
     generators: &[Symbol],
     polynomials: impl IntoIterator<Item = &'a SparseRationalPolynomial>,
@@ -380,47 +345,148 @@ fn reserve_identity<'a>(
     Ok(())
 }
 
-fn combination_expr(
-    generators: &[Symbol],
-    inputs: &[SparseRationalPolynomial],
-    coefficients: &[SparseRationalPolynomial],
-) -> Expr {
-    if inputs.is_empty() {
-        return Expr::from_i64(0);
-    }
-    Expr::Add(
-        inputs
-            .iter()
-            .zip(coefficients)
-            .map(|(input, coefficient)| {
-                Expr::Mul(vec![
-                    polynomial_expr(coefficient, generators),
-                    polynomial_expr(input, generators),
-                ])
-            })
-            .collect(),
-    )
+type IdentityTerms = BTreeMap<Vec<u32>, BigRational>;
+
+fn reserve_reference(bytes: usize, meter: &mut impl BudgetMeter) -> Result<()> {
+    meter.checkpoint()?;
+    meter.charge_batch(&[
+        (Dimension::MemoryBytes, bytes.max(1) as u64),
+        (Dimension::AllocationCount, 1),
+    ])?;
+    Ok(())
 }
 
-fn verify_identity(lhs: Expr, rhs: Expr, meter: &mut impl BudgetMeter) -> Result<()> {
-    let expected = Claim::AlgebraicIdentity {
-        lhs: lhs.clone(),
-        rhs: rhs.clone(),
-    };
-    let context = ImmutableAssumptionsSnapshot::empty();
-    let mut kernel = ProofKernel::new((*context).clone());
-    let root =
-        kernel.prove_definitional_reduction(lhs, rhs, "polynomial_ring_equivalence", meter)?;
-    let derivation = kernel.export_derivation(root)?;
-    let units = derivation_verification_units(&derivation)?;
-    meter.checkpoint()?;
-    meter.charge(Dimension::ComputeSteps, units)?;
-    if verify_derivation_independent(&derivation, &context)? != expected {
-        return Err(invalid(
-            "reference verifier established a different identity",
-        ));
+fn bounded_coefficient(value: &BigRational) -> Result<()> {
+    if value.numer().limb_count() > MAX_COEFFICIENT_LIMBS
+        || value.denom().limb_count() > MAX_COEFFICIENT_LIMBS
+    {
+        return Err(invalid("reference coefficient limb bound exceeded"));
     }
-    meter.checkpoint()?;
+    Ok(())
+}
+
+fn checked_arithmetic(
+    result: std::result::Result<BigRational, RationalArithmeticError>,
+) -> Result<BigRational> {
+    let value = result.map_err(|error| match error {
+        RationalArithmeticError::Meter(error) => GroebnerVerificationError::Budget(error),
+        error => invalid(error),
+    })?;
+    bounded_coefficient(&value)?;
+    Ok(value)
+}
+
+fn copy_coefficient(value: &BigRational, meter: &mut impl BudgetMeter) -> Result<BigRational> {
+    bounded_coefficient(value)?;
+    let limbs = value.numer().limb_count() + value.denom().limb_count();
+    work(meter, limbs as usize + 1)?;
+    reserve_reference(size_of::<BigRational>() + limbs as usize * 8, meter)?;
+    Ok(value.clone())
+}
+
+/// Add one signed term. Both operands are bounded before scalar arithmetic;
+/// hence cross products use at most twice the admitted limb count, plus one
+/// carry limb for a sum. The exact-arithmetic layer meters those temporary
+/// buffers and normalization before the result returns to the same height cap.
+fn accumulate_reference(
+    result: &mut IdentityTerms,
+    exponents: Vec<u32>,
+    coefficient: BigRational,
+    subtract: bool,
+    meter: &mut impl BudgetMeter,
+) -> Result<()> {
+    bounded_coefficient(&coefficient)?;
+    work(
+        meter,
+        (exponents.len() + 1) * (result.len().max(1).ilog2().min(12) as usize + 1),
+    )?;
+    let combined = if let Some(previous) = result.get(&exponents) {
+        bounded_coefficient(previous)?;
+        checked_arithmetic(if subtract {
+            previous.metered_sub(&coefficient, meter)
+        } else {
+            previous.metered_add(&coefficient, meter)
+        })?
+    } else if subtract {
+        checked_arithmetic(BigRational::zero().metered_sub(&coefficient, meter))?
+    } else {
+        coefficient
+    };
+    if combined.is_zero() {
+        result.remove(&exponents);
+    } else {
+        if !result.contains_key(&exponents) {
+            if result.len() == MAX_TERMS {
+                return Err(invalid("reference identity term bound exceeded"));
+            }
+            reserve_reference(256 + size_of::<BigRational>(), meter)?;
+        }
+        result.insert(exponents, combined);
+    }
+    Ok(())
+}
+
+fn add_exponents(left: &[u32], right: &[u32], meter: &mut impl BudgetMeter) -> Result<Vec<u32>> {
+    if left.len() != right.len() {
+        return Err(invalid("identity exponent widths differ"));
+    }
+    work(meter, left.len() + 1)?;
+    reserve_reference(left.len() * size_of::<u32>(), meter)?;
+    let mut result = Vec::with_capacity(left.len());
+    for (&a, &b) in left.iter().zip(right) {
+        result.push(
+            a.checked_add(b)
+                .ok_or_else(|| invalid("identity exponent overflow"))?,
+        );
+    }
+    Ok(result)
+}
+
+fn combination_terms(
+    inputs: &[SparseRationalPolynomial],
+    coefficients: &[SparseRationalPolynomial],
+    meter: &mut impl BudgetMeter,
+) -> Result<IdentityTerms> {
+    reserve_reference(size_of::<IdentityTerms>(), meter)?;
+    let mut result = IdentityTerms::new();
+    for (input, coefficient) in inputs.iter().zip(coefficients) {
+        work(meter, 1)?;
+        // Preserve the generic reference normalizer's product-column bound.
+        if input.terms.len().saturating_mul(coefficient.terms.len()) > MAX_TERMS {
+            return Err(invalid("reference product term bound exceeded"));
+        }
+        for a in &input.terms {
+            for b in &coefficient.terms {
+                let exponents = add_exponents(&a.exponents, &b.exponents, meter)?;
+                bounded_coefficient(&a.coefficient)?;
+                bounded_coefficient(&b.coefficient)?;
+                let value = checked_arithmetic(a.coefficient.metered_mul(&b.coefficient, meter))?;
+                accumulate_reference(&mut result, exponents, value, false, meter)?;
+            }
+        }
+    }
+    Ok(result)
+}
+
+fn same_coefficient(
+    left_exponents: &[u32],
+    left: &BigRational,
+    right_exponents: &[u32],
+    right: &BigRational,
+    meter: &mut impl BudgetMeter,
+) -> Result<()> {
+    work(
+        meter,
+        left_exponents.len()
+            + (left.numer().limb_count()
+                + left.denom().limb_count()
+                + right.numer().limb_count()
+                + right.denom().limb_count()) as usize
+            + 1,
+    )?;
+    if left_exponents != right_exponents || left != right {
+        return Err(invalid("reference coefficient identity failed"));
+    }
     Ok(())
 }
 
@@ -437,11 +503,21 @@ fn verify_combination(
         inputs.len() + 1,
         meter,
     )?;
-    verify_identity(
-        polynomial_expr(target, generators),
-        combination_expr(generators, inputs, coefficients),
-        meter,
-    )
+    let combined = combination_terms(inputs, coefficients, meter)?;
+    if target.terms.len() != combined.len() {
+        return Err(invalid("reference identity term coverage differs"));
+    }
+    for (expected, (exponents, coefficient)) in target.terms.iter().zip(&combined) {
+        same_coefficient(
+            &expected.exponents,
+            &expected.coefficient,
+            exponents,
+            coefficient,
+            meter,
+        )?;
+    }
+    meter.checkpoint()?;
+    Ok(())
 }
 
 fn verify_s_pair(
@@ -504,26 +580,27 @@ fn verify_s_pair(
         basis.len() + 8 + 6 * width,
         meter,
     )?;
-    meter.charge(
-        Dimension::MemoryBytes,
-        (2 * generators.iter().map(|s| s.name.len() as u64).sum::<u64>()).max(1),
-    )?;
-    let lhs = Expr::Add(vec![
-        Expr::Mul(vec![
-            monomial_expr(generators, &left_shift),
-            polynomial_expr(&basis[pair.left], generators),
-        ]),
-        Expr::Mul(vec![
-            Expr::from_i64(-1),
-            monomial_expr(generators, &right_shift),
-            polynomial_expr(&basis[pair.right], generators),
-        ]),
-    ]);
-    verify_identity(
-        lhs,
-        combination_expr(generators, basis, &pair.coefficients),
-        meter,
-    )
+    reserve_reference(size_of::<IdentityTerms>(), meter)?;
+    let mut lhs = IdentityTerms::new();
+    for (index, shift, subtract) in [
+        (pair.left, &left_shift, false),
+        (pair.right, &right_shift, true),
+    ] {
+        for term in &basis[index].terms {
+            let exponents = add_exponents(&term.exponents, shift, meter)?;
+            let coefficient = copy_coefficient(&term.coefficient, meter)?;
+            accumulate_reference(&mut lhs, exponents, coefficient, subtract, meter)?;
+        }
+    }
+    let rhs = combination_terms(basis, &pair.coefficients, meter)?;
+    if lhs.len() != rhs.len() {
+        return Err(invalid("reference S-pair term coverage differs"));
+    }
+    for ((a, ca), (b, cb)) in lhs.iter().zip(&rhs) {
+        same_coefficient(a, ca, b, cb, meter)?;
+    }
+    meter.checkpoint()?;
+    Ok(())
 }
 
 /// Checks both ideal inclusions, monicity, reducedness, and Buchberger's criterion
@@ -643,6 +720,169 @@ mod tests {
         let decoded: GroebnerBasisWitness = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(decoded, witness);
         verify_groebner_basis_witness(&generators, &input, &decoded, &mut Unbounded).unwrap();
+    }
+
+    #[test]
+    fn sparse_high_exponents_preserve_both_inclusions_and_strict_s_pairs() {
+        let (generators, mut input, mut witness) = hand_certificate();
+        // Substitute y^80 for y in the hand-derived Lex certificate. The
+        // S-pair identity reaches y^240, while all sparse rows stay tiny.
+        // Its proof must not expand an expression power or factor a source.
+        for polynomial in input
+            .iter_mut()
+            .chain(&mut witness.basis)
+            .chain(witness.basis_in_input.iter_mut().flatten())
+            .chain(witness.input_in_basis.iter_mut().flatten())
+            .chain(
+                witness
+                    .s_pairs
+                    .iter_mut()
+                    .flat_map(|pair| &mut pair.coefficients),
+            )
+        {
+            for term in &mut polynomial.terms {
+                term.exponents[1] *= 80;
+            }
+        }
+        let accepted =
+            verify_groebner_basis_witness(&generators, &input, &witness, &mut Unbounded).unwrap();
+        assert_eq!(accepted.s_pairs_verified(), 1);
+        for family in 0..3 {
+            let mut corrupted = witness.clone();
+            let coefficient = match family {
+                0 => &mut corrupted.basis_in_input[0][0],
+                1 => &mut corrupted.input_in_basis[0][0],
+                _ => &mut corrupted.s_pairs[0].coefficients[0],
+            };
+            coefficient.terms[0].coefficient += BigRational::new(1.into(), 1_000_003.into());
+            assert!(
+                verify_groebner_basis_witness(&generators, &input, &corrupted, &mut Unbounded)
+                    .is_err()
+            );
+        }
+        let mut changed_input = input.clone();
+        changed_input[0].terms[0].coefficient = BigRational::from_integer(2.into());
+        assert!(
+            verify_groebner_basis_witness(&generators, &changed_input, &witness, &mut Unbounded)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn compact_monomial_proofs_support_representable_exponents_in_every_order() {
+        let generators = vec![Symbol::new("x"), Symbol::new("y")];
+        let input = vec![poly(&[([u32::MAX, 0], 1)]), poly(&[([0, 100], 1)])];
+        let zero = poly(&[]);
+        let one = poly(&[([0, 0], 1)]);
+        let identity = vec![vec![one.clone(), zero.clone()], vec![zero.clone(), one]];
+        for order in [
+            GroebnerTermOrder::Lex,
+            GroebnerTermOrder::DegLex,
+            GroebnerTermOrder::DegRevLex,
+        ] {
+            let witness = GroebnerBasisWitness {
+                order,
+                basis: input.clone(),
+                basis_in_input: identity.clone(),
+                input_in_basis: identity.clone(),
+                s_pairs: vec![GroebnerSPairWitness {
+                    left: 0,
+                    right: 1,
+                    coefficients: vec![zero.clone(), zero.clone()],
+                }],
+            };
+            verify_groebner_basis_witness(&generators, &input, &witness, &mut Unbounded).unwrap();
+        }
+        let input = vec![input[0].clone()];
+        let overflow = GroebnerBasisWitness {
+            order: GroebnerTermOrder::Lex,
+            basis: input.clone(),
+            basis_in_input: vec![vec![poly(&[([1, 0], 1)])]],
+            input_in_basis: vec![vec![poly(&[([0, 0], 1)])]],
+            s_pairs: vec![],
+        };
+        let error = verify_groebner_basis_witness(&generators, &input, &overflow, &mut Unbounded)
+            .unwrap_err();
+        assert!(error.to_string().contains("exponent overflow"));
+    }
+
+    #[test]
+    fn reference_coefficient_height_is_bounded_without_rejecting_exact_cancellation() {
+        let generators = vec![Symbol::new("x"), Symbol::new("y")];
+        let large =
+            BigRational::from_integer(BigInt::one() << ((MAX_COEFFICIENT_LIMBS * 64 - 1) as u32));
+        let constant = |coefficient| SparseRationalPolynomial {
+            terms: vec![SparseRationalTerm {
+                exponents: vec![0, 0],
+                coefficient,
+            }],
+        };
+        let one = constant(BigRational::one());
+        verify_combination(
+            &generators,
+            &one,
+            &[constant(large.clone())],
+            &[constant(BigRational::one() / large.clone())],
+            &mut Unbounded,
+        )
+        .unwrap();
+        let error = verify_combination(
+            &generators,
+            &one,
+            &[constant(large.clone())],
+            &[constant(BigRational::from_integer(2.into()))],
+            &mut Unbounded,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("coefficient limb bound"));
+        let error = verify_combination(
+            &generators,
+            &one,
+            &[constant(large.clone()), constant(large)],
+            &[one.clone(), one.clone()],
+            &mut Unbounded,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("coefficient limb bound"));
+    }
+
+    #[test]
+    fn sparse_reference_retains_product_and_identity_size_refusals() {
+        let generators = vec![Symbol::new("x"), Symbol::new("y")];
+        let many = SparseRationalPolynomial {
+            terms: (0..65)
+                .map(|power| SparseRationalTerm {
+                    exponents: vec![power, 0],
+                    coefficient: BigRational::one(),
+                })
+                .collect(),
+        };
+        let error = verify_combination(
+            &generators,
+            &poly(&[]),
+            std::slice::from_ref(&many),
+            std::slice::from_ref(&many),
+            &mut Unbounded,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("product term bound"));
+        let oversized = SparseRationalPolynomial {
+            terms: (0..4096)
+                .map(|power| SparseRationalTerm {
+                    exponents: vec![power, 0],
+                    coefficient: BigRational::one(),
+                })
+                .collect(),
+        };
+        let error = verify_combination(
+            &generators,
+            &oversized,
+            std::slice::from_ref(&oversized),
+            &[poly(&[([0, 0], 1)])],
+            &mut Unbounded,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("identity expression bound"));
     }
 
     #[test]
