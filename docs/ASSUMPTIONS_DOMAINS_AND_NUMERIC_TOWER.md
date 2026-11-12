@@ -1715,6 +1715,30 @@ Recognized resource/domain failures propagate through native and Python
 summation dispatch; they cannot silently become an accepted partial result.
 The receipt is in-process, not a new portable proof-kernel claim.
 
+## Checked polynomial-weighted exponential generating sums
+
+For p in QQ[k], an exact integer m in 0..256, and finite complex z,
+the factorial series sum(p(k)*z**k/k!, k=m..oo) equals
+exp(z)*sum(c_j*z**j) minus its finite prefix. Generation computes Newton
+forward differences; a separate checker expands every falling-factorial
+product k*(k-1)*... and compares all original polynomial coefficients.
+This finite decomposition also supplies absolute convergence through the
+entire exponential series. It does not infer that an unknown symbol has an
+explicit finiteness fact: symbolic output denotes the entire-function identity.
+The Python boundary retains an unevaluated infinite Sum for an exponential
+parameter explicitly declared finite=False or infinite=True, preserving its
+typed identity and held source. Concrete finite ranges retain their prior lane.
+
+The weight degree is at most 32, original source nodes at most 4096 and depth
+at most 64. Input rationals have at most 4096 bits; work scalars are bounded
+before arithmetic. Original poles and nonfinite literals cannot disappear
+under zero products or zero powers. Factorial and polynomial-geometric
+candidates share one cumulative generator/verifier budget pair across
+unsupported-family fallback: each phase has 20 million compute units and
+128 MiB of logical allocation. The existing direct/table rules retain their
+previous scope. The original-source-bound receipt is in-process, not a new
+portable proof family or a full summation/convergence capability claim.
+
 ## Complete rational two-component ODE systems
 
 The native system lane independently checks a normalized fundamental matrix

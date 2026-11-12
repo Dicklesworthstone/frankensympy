@@ -6,6 +6,7 @@ pub mod box_optimization;
 pub mod compile;
 pub mod delayed_laplace;
 pub mod elementary_rational_definite;
+pub mod exponential_sum;
 pub mod fourier;
 pub mod geometric_sum;
 pub mod gruntz;

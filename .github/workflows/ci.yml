@@ -172,7 +172,7 @@ jobs:
           cargo test --locked -p fsym-proof-kernel --test sparse_determinant -j1
           cargo test --locked -p fsym-matrices --test sparse_determinant -j1
           cargo test --locked -p fsym-calculus --test rational_laplace --test delayed_laplace --test distributional_laplace --test delayed_distributional_laplace --test rational_mellin --test fourier_catalog -j1
-          cargo test --locked -p fsym-calculus --test geometric_summation --test rational_summation -j1
+          cargo test --locked -p fsym-calculus --test exponential_summation --test geometric_summation --test rational_summation -j1
           cargo test --locked -p fsym-solvers --test linear_ode_system --test polynomial_ode_system --test general_ode_system --test forced_ode_system --test exact_ode --test ode_radicals -j1
           cargo test --locked -p fsym-solvers --test linear_pde --test linear_pde_elementary -j1
           cargo test --locked -p fsym-calculus --test general_power_programs --test directional_series --test branch_cut_series --test generalized_series -j1
@@ -341,6 +341,7 @@ jobs:
               "python/tests/test_directional_series.py",
               "python/tests/test_residue_meromorphic.py",
               "python/tests/test_polynomial_geometric_summation.py",
+              "python/tests/test_exponential_summation.py",
               "python/tests/test_quadratic_rational_summation.py",
               "python/tests/test_algebraic_matrix_spectra.py",
               "python/tests/test_matrix_norms.py",

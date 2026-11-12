@@ -11,6 +11,8 @@
 //!   infinite sums);
 //! * independently checked polynomial weights `p(k)*q**(u*k+v)`, including
 //!   formal symbolic integer bounds and convergent infinite geometric moments;
+//! * independently checked polynomial-weighted exponential generating series
+//!   `p(k)*z**k/k!`, including exact finite heads and an entire symbolic parameter;
 //! * independently checked rational telescoping, including repeated poles
 //!   and fractional offsets, at exact integer bounds, e.g.
 //!   `sum_{k=1}^{10000} 1/(k*(k+1)) = 10000/10001`;
@@ -21,14 +23,24 @@
 
 #![forbid(unsafe_code)]
 
+use fsym_budget::{Budget, BudgetLimits, Dimension};
 use fsym_core::elementary::{eval_function, eval_pow, rational_expr};
 use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
 use fsym_polys::UnivariatePoly;
 use fsym_proof_kernel::rational_sum::RationalSumUpper;
 use num_traits::{One, Signed, Zero};
 use std::collections::HashMap;
+use thiserror::Error;
 
 const MAX_DIRECT_TERMS: i64 = 2000;
+
+#[derive(Debug, Error)]
+pub enum SummationError {
+    #[error(transparent)]
+    Geometric(#[from] crate::geometric_sum::GeometricSummationError),
+    #[error(transparent)]
+    Exponential(#[from] crate::exponential_sum::ExponentialSummationError),
+}
 
 fn func(name: &str, arg: Expr) -> Expr {
     eval_function(name, std::slice::from_ref(&arg))
@@ -341,19 +353,31 @@ pub fn summation(f: &Expr, k: &Symbol, a: &Expr, b: &Expr) -> Option<Expr> {
 }
 
 /// Preserve operational failures from the independently checked weighted
-/// geometric lane. Unsupported families retain the established exact rules;
+/// geometric and factorial lanes. Unsupported families retain the exact rules;
 /// exhausted or invalid work is never retried with a fresh budget.
 pub fn checked_summation(
     f: &Expr,
     k: &Symbol,
     a: &Expr,
     b: &Expr,
-) -> Result<Option<Expr>, crate::geometric_sum::GeometricSummationError> {
-    use crate::geometric_sum::{GeometricSummationError, polynomial_geometric_sum};
-    match polynomial_geometric_sum(f, k, a, b) {
+) -> Result<Option<Expr>, SummationError> {
+    use crate::exponential_sum::{ExponentialSummationError, metered_polynomial_exponential_sum};
+    use crate::geometric_sum::{GeometricSummationError, metered_polynomial_geometric_sum};
+    let mut limits = BudgetLimits::uniform(128 * 1024 * 1024, 0);
+    limits.dimensions[Dimension::ComputeSteps.index()] = 20_000_000;
+    let mut generator = Budget::new(limits.clone());
+    let mut verifier = Budget::new(limits);
+    // Both checked candidates retain this same accounting across Unsupported
+    // fallback. The legacy table/direct rules below retain their prior scope.
+    match metered_polynomial_exponential_sum(f, k, a, b, &mut generator, &mut verifier) {
+        Ok(Some(checked)) => return Ok(Some(checked.into_value())),
+        Ok(None) | Err(ExponentialSummationError::Unsupported(_)) => {}
+        Err(error) => return Err(error.into()),
+    }
+    match metered_polynomial_geometric_sum(f, k, a, b, &mut generator, &mut verifier) {
         Ok(Some(checked)) => Ok(Some(checked.into_value())),
         Ok(None) | Err(GeometricSummationError::Unsupported(_)) => Ok(summation_rules(f, k, a, b)),
-        Err(error) => Err(error),
+        Err(error) => Err(error.into()),
     }
 }
 

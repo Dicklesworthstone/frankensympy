@@ -1554,6 +1554,41 @@ def _limit_triples(limits):
     return out
 
 
+def _nonfinite_factorial_parameter(expression, index, native_source):
+    """Keep an entire-function summation identity off infinite arguments.
+
+    Native symbols retain typed identity, while these explicit surface facts
+    are not part of the summation bridge's algorithm context. Unknown facts
+    keep the formal entire-function parameter; only a declared contradiction
+    blocks this particular positive-infinite factorial family.
+    """
+    # Bound the complete borrowed source before even the recursive family
+    # probes or typed symbol metadata collection. Matching below uses native
+    # has(), never exported child trees.
+    _native.CompiledFunction._validate_source(native_source)
+    if not native_source.has_function("factorial"):
+        return False
+    native_index = _native_expr(index)
+    reciprocal_factorial = _native.Pow(
+        _native.py_function("factorial", native_index),
+        _native.py_integer(-1), evaluate=False,
+    ).as_expr()
+    if not native_source.has(reciprocal_factorial):
+        return False
+    for parameter in expression.free_symbols:
+        if type(parameter) not in (Symbol, Dummy) or parameter == index:
+            continue
+        facts = parameter._assumptions
+        if facts.get("finite") is not False and facts.get("infinite") is not True:
+            continue
+        geometric = _native.Pow(
+            _native_expr(parameter), native_index, evaluate=False,
+        ).as_expr()
+        if native_source.has(geometric):
+            return True
+    return False
+
+
 class _ConcreteOperator(Function):
     """Shared shape of Sum / Product: args (function, Tuple(k, a, b), ...)."""
 
@@ -1593,11 +1628,15 @@ class _ConcreteOperator(Function):
         if hints.get("deep", True) and hasattr(current, "doit"):
             current = current.doit(**hints)
         for index, (k, a, b) in enumerate(self.limits):
+            native_source = _native_expr(current)
+            native_index = _symbol_binding(k)
+            native_lower = _native_expr(a)
+            native_upper = _native_expr(b)
+            if (type(self) is Sum and b == oo
+                    and _nonfinite_factorial_parameter(current, k, native_source)):
+                return type(self)(current, *self.limits[index:])
             native = getattr(_native, self._native_fn)(
-                _native_expr(current),
-                _symbol_binding(k),
-                _native_expr(a),
-                _native_expr(b),
+                native_source, native_index, native_lower, native_upper,
             )
             if native is None:
                 remaining = self.limits[index:]
