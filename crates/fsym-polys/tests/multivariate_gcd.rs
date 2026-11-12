@@ -123,7 +123,7 @@ fn gcd_does_not_require_factoring_unrelated_high_degree_cofactors() {
 }
 
 #[test]
-fn product_verification_need_not_materialize_a_twice_degree_polynomial() {
+fn high_degree_monomials_need_no_product_or_auxiliary_ideal() {
     let generators = ring(&["x", "y"]);
     let left = p(&generators, &[(&[200, 0], -3, 7)]);
     let right = p(&generators, &[(&[100, 0], 5, 11)]);
@@ -197,8 +197,8 @@ fn zero_and_scalars_preserve_empty_and_full_declared_rings() {
 #[test]
 fn common_divisor_and_reconstructed_product_do_not_establish_greatestness() {
     let generators = ring(&["x", "y"]);
-    let left = expression("x**2*y", &generators);
-    let right = expression("x*y**2", &generators);
+    let left = expression("x**2*y+x*y", &generators);
+    let right = expression("x*y**2+x*y", &generators);
     let result = solve(&left, &right);
     let mut candidate = result.certificate().clone();
     candidate.gcd = scalar(&generators, 1, 1);
@@ -221,8 +221,8 @@ fn common_divisor_and_reconstructed_product_do_not_establish_greatestness() {
 #[test]
 fn intersection_evidence_binds_whole_original_inputs_and_operation() {
     let generators = ring(&["x", "y"]);
-    let left = expression("x**2*y", &generators);
-    let right = expression("x*y**2", &generators);
+    let left = expression("x**2*y+x*y", &generators);
+    let right = expression("x*y**2+x*y", &generators);
     let result = solve(&left, &right);
     let unrelated = [
         intersection(
@@ -291,7 +291,10 @@ fn zero_and_scalar_mutants_cannot_erase_or_renormalize_nonzero_inputs() {
     let mut candidate = result.certificate().clone();
     candidate.gcd = one;
     rejected(&result, &candidate);
-    let nontrivial = solve(&expression("x", &generators), &expression("y", &generators));
+    let nontrivial = solve(
+        &expression("x+1", &generators),
+        &expression("y+1", &generators),
+    );
     let mut candidate = result.certificate().clone();
     candidate.intersection = nontrivial.certificate().intersection.clone();
     rejected(&result, &candidate);
@@ -330,8 +333,14 @@ fn typed_generator_order_and_same_name_identities_remain_distinct() {
 #[test]
 fn auxiliary_variables_and_ambient_degree_bounds_remain_explicit() {
     let generators: Vec<_> = (0..8).map(|i| Symbol::new(format!("x{i}"))).collect();
-    let a = p(&generators, &[(&[1, 0, 0, 0, 0, 0, 0, 0], 1, 1)]);
-    let b = p(&generators, &[(&[0, 0, 0, 0, 0, 0, 0, 1], 1, 1)]);
+    let a = p(
+        &generators,
+        &[(&[1, 0, 0, 0, 0, 0, 0, 0], 1, 1), (&[0; 8], 1, 1)],
+    );
+    let b = p(
+        &generators,
+        &[(&[0, 0, 0, 0, 0, 0, 0, 1], 1, 1), (&[0; 8], 1, 1)],
+    );
     let error = checked(&a, &b, &mut Unbounded, &mut Unbounded).unwrap_err();
     assert!(error.to_string().contains("auxiliary"));
     let generators = &generators[..7];
@@ -373,8 +382,60 @@ fn malformed_and_oversized_inputs_are_refused_even_for_trivial_results() {
     let terms: BTreeMap<_, _> = (0..4097)
         .map(|i| (vec![i / 65, i % 65], BigRational::one()))
         .collect();
-    let large = Polynomial::new(generators, terms).unwrap();
-    assert!(checked(&zero, &large, &mut Unbounded, &mut Unbounded).is_err());
+    // The canonical constructor already rejects excessive term counts, so
+    // an oversized value cannot reach even the GCD's zero shortcut.
+    let error = Polynomial::new(generators, terms).unwrap_err();
+    assert!(error.to_string().contains("term limit of 4096"));
+}
+
+#[test]
+fn monomial_extrema_support_the_full_ring_and_degree_without_an_auxiliary() {
+    let generators: Vec<_> = (0..8).map(|i| Symbol::new(format!("m{i}"))).collect();
+    let a = [100, 20, 0, 2, 1, 3, 0, 4];
+    let b = [90, 10, 0, 5, 2, 1, 7, 6];
+    let left = p(&generators, &[(&a, -3, 7)]);
+    let right = p(&generators, &[(&b, 5, 11)]);
+    let accepted = solve(&left, &right);
+    assert_eq!(
+        accepted.gcd(),
+        &p(&generators, &[(&[90, 10, 0, 2, 1, 1, 0, 4], 1, 1)])
+    );
+    assert_eq!(
+        accepted.lcm(),
+        &p(&generators, &[(&[100, 20, 0, 5, 2, 3, 7, 6], 1, 1)])
+    );
+    assert!(accepted.certificate().intersection.is_none());
+    assert_eq!(
+        verify(&left, &right, accepted.certificate(), &mut Unbounded)
+            .unwrap()
+            .gcd(),
+        accepted.gcd()
+    );
+
+    // Every single-coordinate mutation must be rejected, including those
+    // whose forged pair still reconstructs the exact original product.
+    for index in 0..8 {
+        let mut smaller = vec![90, 10, 0, 2, 1, 1, 0, 4];
+        let mut larger = vec![100, 20, 0, 5, 2, 3, 7, 6];
+        if smaller[index] > 0 {
+            smaller[index] -= 1;
+            larger[index] += 1;
+        } else {
+            smaller[index] += 1;
+            if larger[index] > 0 {
+                larger[index] -= 1;
+            }
+        }
+        let mut forged = accepted.certificate().clone();
+        forged.gcd = p(&generators, &[(&smaller, 1, 1)]);
+        forged.lcm = p(&generators, &[(&larger, 1, 1)]);
+        rejected(&accepted, &forged);
+    }
+    let x256 = p(&generators, &[(&[256, 0, 0, 0, 0, 0, 0, 0], 1, 1)]);
+    let x255 = p(&generators, &[(&[255, 0, 0, 0, 0, 0, 0, 0], 1, 1)]);
+    assert_eq!(solve(&x256, &x255).lcm(), &x256);
+    let y = p(&generators, &[(&[0, 1, 0, 0, 0, 0, 0, 0], 1, 1)]);
+    assert!(checked(&x256, &y, &mut Unbounded, &mut Unbounded).is_err());
 }
 
 #[derive(Default)]

@@ -207,7 +207,22 @@ def test_both_native_entrypoints_and_ring_admission(operation):
         typed_operation(_native_expr(left), _native_expr(right), bindings, "RR")
     axes = sp.symbols("qq_auxiliary_0:8")
     with pytest.raises(ValueError, match="auxiliary"):
-        sp.Poly(axes[0], *axes).gcd(sp.Poly(axes[-1], *axes))
+        sp.Poly(axes[0] + 1, *axes).gcd(sp.Poly(axes[-1] + 1, *axes))
+
+
+@pytest.mark.parametrize("operation", ["gcd", "lcm"])
+@pytest.mark.parametrize("domain", ["ZZ", "QQ"])
+def test_high_degree_monomials_use_all_eight_typed_generators(operation, domain):
+    axes = sp.symbols("qq_monomial_0:8")
+    x, y = axes[0], axes[-1]
+    left = sp.Poly(-6*x**200*y**2, *axes, domain=domain)
+    right = sp.Poly(9*x**100*y**5, *axes, domain=domain)
+    result = getattr(left, operation)(right)
+    coefficient = (3 if operation == "gcd" else 18) if domain == "ZZ" else 1
+    expected = coefficient*(x**100*y**2 if operation == "gcd" else x**200*y**5)
+    assert result.as_expr() == expected
+    assert result.gens == axes and result.domain == domain
+    assert getattr(sp, operation)(left, right).as_expr() == expected
 
 
 @pytest.mark.parametrize("operation", ["gcd", "lcm"])

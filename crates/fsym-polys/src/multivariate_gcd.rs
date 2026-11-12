@@ -1,18 +1,21 @@
 //! Complete bounded GCD and LCM in an ordered polynomial ring over QQ.
 //!
-//! For nonconstant inputs, the complete principal-ideal intersection
+//! For general nonconstant inputs, the complete principal-ideal intersection
 //! `<f> intersect <g>` has one monic generator, the monic LCM. The composition
 //! checker binds that immutable independently accepted intersection to both
 //! exact original inputs, then checks `lc(f) lc(g) gcd lcm = f g` by separate
 //! coefficient convolution. Divisibility or a product identity alone cannot
 //! establish greatestness. No factorization of either input is required.
 //!
-//! Zero and scalar cases have direct reference checks. The generator and
-//! verifier retain separate cumulative 20M-compute/128MiB logical allocation
+//! Zero, scalar and monomial pairs have direct reference checks. Monomial
+//! GCD/LCM is determined independently by coordinate divisibility, without
+//! constructing an ideal or expanding a product of twice the source degree.
+//! The generator and verifier retain separate cumulative 20M-compute/128MiB logical allocation
 //! limits through nested operations and publication. Polynomial degree 256,
 //! 4096 terms, 4096-bit rational components and eight variables are admitted;
-//! nonconstant pairs need one auxiliary variable, leaving seven original
-//! variables and the ambient ideal's degree/term bounds. Reference product
+//! other nonconstant pairs need one auxiliary variable, leaving seven original
+//! variables and the ambient ideal's degree/term and reference-normalizer
+//! bounds. Reference product
 //! columns may have degree 512 and at most 16384 distinct monomials, with the
 //! same rational arithmetic bounds. Exhaustion never publishes a result.
 //! These are immutable in-process composition receipts, not portable proofs.
@@ -20,8 +23,8 @@
 #![forbid(unsafe_code)]
 
 use crate::division::{
-    MAX_DEGREE, MAX_VARIABLES, PolynomialWork, Terms, copy_poly, divide_with_work, refused,
-    ring_storage, same_ring, validate_poly,
+    MAX_DEGREE, MAX_VARIABLES, PolynomialWork, Terms, copy_poly, divide_with_work, monomial_poly,
+    refused, ring_storage, same_ring, validate_poly,
 };
 use crate::{
     IdealOperation, MultivariatePoly, PolyError, TermOrder, VerifiedIdealOperation,
@@ -35,7 +38,7 @@ use std::sync::Arc;
 const MAX_REFERENCE_COLUMNS: usize = 16_384;
 
 /// Untrusted monic values and complete-intersection evidence. The latter is
-/// required exactly when both original polynomials are nonconstant.
+/// required exactly for nonconstant pairs that are not both monomials.
 #[derive(Debug, Clone)]
 pub struct MultivariateGcdCertificate {
     pub gcd: MultivariatePoly,
@@ -128,10 +131,12 @@ fn admit(
 ) -> Result<bool, PolyError> {
     check_polynomial(left, left.generators(), work)?;
     check_polynomial(right, left.generators(), work)?;
-    let nontrivial = !is_scalar(left, work)? && !is_scalar(right, work)?;
+    let nontrivial = !is_scalar(left, work)?
+        && !is_scalar(right, work)?
+        && !(left.terms().len() == 1 && right.terms().len() == 1);
     if nontrivial && left.generators().len() == MAX_VARIABLES {
         return Err(refused(
-            "nonconstant multivariate GCD/LCM needs one auxiliary variable",
+            "general nonconstant multivariate GCD/LCM needs one auxiliary variable",
         ));
     }
     Ok(nontrivial)
@@ -167,6 +172,78 @@ fn monic(
         }
     }
     Ok(result)
+}
+
+/// Generation uses the coordinatewise lattice operations on monomials.
+fn monomial_gcd_lcm(
+    left: &MultivariatePoly,
+    right: &MultivariatePoly,
+    work: &mut PolynomialWork<'_, impl BudgetMeter>,
+) -> Result<(MultivariatePoly, MultivariatePoly), PolyError> {
+    let a = left
+        .terms()
+        .keys()
+        .next()
+        .ok_or_else(|| refused("missing left monomial"))?;
+    let b = right
+        .terms()
+        .keys()
+        .next()
+        .ok_or_else(|| refused("missing right monomial"))?;
+    work.tick(a.len() + 1)?;
+    work.allocate(2 * a.len() * std::mem::size_of::<u32>())?;
+    let minimum = a.iter().zip(b).map(|(&a, &b)| a.min(b)).collect();
+    let maximum = a.iter().zip(b).map(|(&a, &b)| a.max(b)).collect();
+    Ok((
+        monomial_poly(left.generators(), minimum, work)?,
+        monomial_poly(left.generators(), maximum, work)?,
+    ))
+}
+
+/// Reference acceptance checks the defining divisibility extrema directly;
+/// it does not call the generator, polynomial arithmetic or an ideal engine.
+fn verify_monomial_pair(
+    left: &MultivariatePoly,
+    right: &MultivariatePoly,
+    gcd: &MultivariatePoly,
+    lcm: &MultivariatePoly,
+    work: &mut PolynomialWork<'_, impl BudgetMeter>,
+) -> Result<(), PolyError> {
+    if gcd.terms().len() != 1 || lcm.terms().len() != 1 {
+        return Err(refused("monomial GCD/LCM must each have exactly one term"));
+    }
+    let (a, _) = left
+        .terms()
+        .first_key_value()
+        .ok_or_else(|| refused("missing left monomial"))?;
+    let (b, _) = right
+        .terms()
+        .first_key_value()
+        .ok_or_else(|| refused("missing right monomial"))?;
+    let (g, cg) = gcd
+        .terms()
+        .first_key_value()
+        .ok_or_else(|| refused("missing GCD monomial"))?;
+    let (l, cl) = lcm
+        .terms()
+        .first_key_value()
+        .ok_or_else(|| refused("missing LCM monomial"))?;
+    work.tick(a.len() + 1)?;
+    if !cg.is_one() || !cl.is_one() {
+        return Err(refused("monomial GCD/LCM must be monic"));
+    }
+    for index in 0..a.len() {
+        if g[index] > a[index]
+            || g[index] > b[index]
+            || (g[index] != a[index] && g[index] != b[index])
+            || l[index] < a[index]
+            || l[index] < b[index]
+            || (l[index] != a[index] && l[index] != b[index])
+        {
+            return Err(refused("monomial GCD/LCM divisibility extrema failed"));
+        }
+    }
+    Ok(())
 }
 
 /// Reference Lex head selection, separate from the generator's term-order API.
@@ -335,7 +412,7 @@ pub fn verify_multivariate_gcd(
         }
         let original = if left.is_zero() { right } else { left };
         verify_normalization(original, &certificate.gcd, &mut work)?;
-    } else if !nontrivial {
+    } else if is_scalar(left, &mut work)? || is_scalar(right, &mut work)? {
         let original = if is_scalar(left, &mut work)? {
             right
         } else {
@@ -346,6 +423,8 @@ pub fn verify_multivariate_gcd(
             return Err(refused("GCD with a nonzero scalar must be one"));
         }
         verify_normalization(original, &certificate.lcm, &mut work)?;
+    } else if !nontrivial {
+        verify_monomial_pair(left, right, &certificate.gcd, &certificate.lcm, &mut work)?;
     } else {
         let intersection = certificate
             .intersection
@@ -439,7 +518,7 @@ pub fn checked_multivariate_gcd(
             constant(generators, false, &mut generation)?,
             None,
         )
-    } else if !nontrivial {
+    } else if is_scalar(left, &mut generation)? || is_scalar(right, &mut generation)? {
         let original = if is_scalar(left, &mut generation)? {
             right
         } else {
@@ -450,6 +529,9 @@ pub fn checked_multivariate_gcd(
             monic(original, &mut generation)?,
             None,
         )
+    } else if !nontrivial {
+        let (gcd, lcm) = monomial_gcd_lcm(left, right, &mut generation)?;
+        (gcd, lcm, None)
     } else {
         let receipt = checked_ideal_intersection(
             std::slice::from_ref(left),
