@@ -189,8 +189,7 @@ fn both_original_removable_poles_and_antidifference_endpoint_poles_are_checked()
         root: q(0),
         multiplicity: 1,
     });
-    verify_rational_antidifference(&numerator, &denominator, &certificate, &mut Unbounded)
-        .unwrap();
+    verify_rational_antidifference(&numerator, &denominator, &certificate, &mut Unbounded).unwrap();
     assert!(finite(&numerator, &denominator, &certificate, 0, 10).is_err());
     assert!(finite(&numerator, &denominator, &certificate, 2, -1).is_err());
     assert_eq!(
@@ -206,8 +205,7 @@ fn both_original_removable_poles_and_antidifference_endpoint_poles_are_checked()
         root: q(0),
         multiplicity: 1,
     });
-    verify_rational_antidifference(&numerator, &denominator, &certificate, &mut Unbounded)
-        .unwrap();
+    verify_rational_antidifference(&numerator, &denominator, &certificate, &mut Unbounded).unwrap();
     assert!(finite(&numerator, &denominator, &certificate, 0, 2).is_err());
     assert!(finite(&numerator, &denominator, &certificate, -2, -1).is_err());
 }

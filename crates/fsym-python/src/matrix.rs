@@ -34,9 +34,7 @@ fn affine_coordinates(
     let Some(variables) = variables else {
         return Ok(None);
     };
-    if !variables.is_exact_instance_of::<PyList>()
-        && !variables.is_exact_instance_of::<PyTuple>()
-    {
+    if !variables.is_exact_instance_of::<PyList>() && !variables.is_exact_instance_of::<PyTuple>() {
         return Err(PyTypeError::new_err(
             "affine coordinates require an exact list or tuple of native symbols",
         ));
@@ -82,7 +80,6 @@ fn affine_coordinates(
     }
     Ok(Some(coordinates))
 }
-
 
 fn rational_expr(value: &BigRational) -> PyExpr {
     PyExpr::from_expr(if value.is_integer() {

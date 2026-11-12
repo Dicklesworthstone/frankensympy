@@ -74,8 +74,8 @@ fn repeated_quadratics_and_linear_numerators_telescope_on_the_integer_lattice() 
             verify_rational_antidifference(&n.coeffs, &d.coeffs, &certificate, &mut Unbounded)
                 .unwrap();
             for (lo, hi) in [(-5, 8), (0, 0), (100, 103), (8, 1), (0, -1)] {
-                let expected = a.eval(&q(hi + 1)) / b.eval(&q(hi + 1))
-                    - a.eval(&q(lo)) / b.eval(&q(lo));
+                let expected =
+                    a.eval(&q(hi + 1)) / b.eval(&q(hi + 1)) - a.eval(&q(lo)) / b.eval(&q(lo));
                 assert_eq!(
                     verify_rational_sum(
                         &n.coeffs,
@@ -157,11 +157,7 @@ fn missing_intermediate_shifts_are_filled_with_the_correct_polynomial_residue() 
     // P(k)/Q(k)^2 - P(k+3)/Q(k+3)^2 has a three-term rational primitive.
     let d0 = q0.pow(2).unwrap();
     let d3 = q3.pow(2).unwrap();
-    let n = p0
-        .mul(&d3)
-        .unwrap()
-        .sub(&p3.mul(&d0).unwrap())
-        .unwrap();
+    let n = p0.mul(&d3).unwrap().sub(&p3.mul(&d0).unwrap()).unwrap();
     let d = d0.mul(&d3).unwrap();
     let result = rational_sum(&n, &d, &0.into(), &RationalSumUpper::PositiveInfinity).unwrap();
     let expected = (0..3)
@@ -243,9 +239,7 @@ fn original_cancelled_linear_poles_survive_quadratic_telescoping() {
     ];
     for hole in holes {
         let held = Expr::Mul(vec![source.clone(), hole]);
-        assert!(
-            summation(&held, &k, &Expr::from_i64(0), &Expr::from_i64(10_000)).is_none()
-        );
+        assert!(summation(&held, &k, &Expr::from_i64(0), &Expr::from_i64(10_000)).is_none());
         assert!(
             summation(
                 &held,
@@ -359,12 +353,7 @@ fn new_generator_and_checker_share_no_budget_reset_and_refuse_cancelled_publicat
     let mut generation = Checkpoints::default();
     let mut verification = Checkpoints::default();
     metered_rational_antidifference(&n, &d, &mut generation, &mut verification).unwrap();
-    for cancel_at in [
-        1,
-        generation.seen / 2,
-        generation.seen - 1,
-        generation.seen,
-    ] {
+    for cancel_at in [1, generation.seen / 2, generation.seen - 1, generation.seen] {
         let mut stopped = Checkpoints {
             seen: 0,
             cancel_at: Some(cancel_at),

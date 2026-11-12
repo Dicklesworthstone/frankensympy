@@ -139,14 +139,8 @@ fn all_729_small_systems_match_independent_determinants_and_consistency_minors()
                                             Expr::from_i64(i64::from(index == column))
                                         );
                                     }
-                                    assert_eq!(
-                                        particular.get(row, 0).unwrap(),
-                                        Expr::from_i64(0)
-                                    );
-                                    assert_eq!(
-                                        particular.get(row, 1).unwrap(),
-                                        Expr::from_i64(0)
-                                    );
+                                    assert_eq!(particular.get(row, 0).unwrap(), Expr::from_i64(0));
+                                    assert_eq!(particular.get(row, 1).unwrap(), Expr::from_i64(0));
                                 }
                             }
                         }
@@ -300,8 +294,7 @@ fn large_wide_input_complete_kernel_and_parameterized_result_stay_sparse() {
         Err(MatrixError::EntryLimitExceeded(_))
     ));
     assert_eq!(free, (n..2 * n).collect::<Vec<_>>());
-    let (solution, parameters, rendered_free) =
-        matrix.gauss_jordan_solve(&rhs).unwrap().unwrap();
+    let (solution, parameters, rendered_free) = matrix.gauss_jordan_solve(&rhs).unwrap().unwrap();
     assert_eq!(
         (solution.rows(), solution.cols(), solution.nnz()),
         (2 * n, 2, 4 * n)
@@ -351,8 +344,7 @@ fn incorrect_incomplete_and_nearly_correct_families_never_get_an_accepted_wrappe
             1 => {
                 particular.entries.pop();
             }
-            2 => kernel.entries[0].value +=
-                BigRational::new(1.into(), BigInt::from(10).pow(80)),
+            2 => kernel.entries[0].value += BigRational::new(1.into(), BigInt::from(10).pow(80)),
             3 => {
                 kernel.entries.pop();
             }
@@ -373,8 +365,7 @@ fn incorrect_incomplete_and_nearly_correct_families_never_get_an_accepted_wrappe
 #[test]
 fn original_domain_and_shape_preflight_applies_before_degenerate_shortcuts() {
     let literal = integers(2, 2, &[1, 0, 0, 0]);
-    let symbolic =
-        SparseMatrix::new(2, 2, BTreeMap::from([((1, 1), Expr::symbol("x"))])).unwrap();
+    let symbolic = SparseMatrix::new(2, 2, BTreeMap::from([((1, 1), Expr::symbol("x"))])).unwrap();
     assert!(matches!(
         symbolic.solve_affine(&SparseMatrix::zeros(2, 0)),
         Err(MatrixError::UnsupportedCertificateDomain)
@@ -394,8 +385,7 @@ fn original_domain_and_shape_preflight_applies_before_degenerate_shortcuts() {
         Err(MatrixError::ShapeMismatch(..))
     ));
     assert!(matches!(
-        SparseMatrix::zeros(0, MAX_SPARSE_RREF_DIMENSION)
-            .solve_affine(&SparseMatrix::zeros(0, 1)),
+        SparseMatrix::zeros(0, MAX_SPARSE_RREF_DIMENSION).solve_affine(&SparseMatrix::zeros(0, 1)),
         Err(MatrixError::ResourceLimit(_))
     ));
     assert!(matches!(

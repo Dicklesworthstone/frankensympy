@@ -63,7 +63,10 @@ fn any_inconsistent_rhs_refuses_the_entire_result() {
     let matrix = integers(3, 2, &[1, 0, 0, 1, 1, 1]);
     // The first RHS is consistent; the second fails the last original row.
     let rhs = integers(3, 2, &[2, 7, 3, 8, 5, 16]);
-    assert_eq!(matrix.solve(&rhs), Err(MatrixError::InconsistentLinearSystem));
+    assert_eq!(
+        matrix.solve(&rhs),
+        Err(MatrixError::InconsistentLinearSystem)
+    );
     let deficient = integers(3, 2, &[1, 2, 2, 4, 0, 0]);
     assert_eq!(
         deficient.solve(&integers(3, 1, &[1, 2, 1])),

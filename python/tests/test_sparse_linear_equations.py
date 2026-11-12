@@ -23,6 +23,26 @@ def test_equations_and_expressions_share_exact_sparse_unique_solutions():
     assert s.solve([x+y-3, x-y+1], (x, y)) == {x: 1, y: 2}
 
 
+def test_equation_bridge_uses_the_exported_arbitrary_precision_rational_constructor():
+    x = s.Symbol("affine_large_rational")
+    large = 2**180 + 1
+    assert solution([3*x - s.Rational(large, 2**130)], x) == (
+        s.Rational(large, 3*2**130),
+    )
+
+
+def test_replaced_exported_rational_constructor_is_rejected_before_execution(monkeypatch):
+    x = s.Symbol("affine_rational_interface")
+    equations = [2*x - 1]
+
+    def replacement(*args):
+        pytest.fail("a replaced exact rational constructor was executed")
+
+    monkeypatch.setattr(_native, "py_rational", replacement)
+    with pytest.raises(NotImplementedError, match="original native interfaces"):
+        s.linsolve(equations, x)
+
+
 def test_sparse_equation_family_has_no_expansion_substitution_or_dense_path(monkeypatch):
     variables = s.symbols("affine_sparse_0:601")
     equations = [variables[index] - index for index in range(1, 600)]

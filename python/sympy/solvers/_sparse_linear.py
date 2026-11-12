@@ -397,7 +397,9 @@ _EQUATION_SPARSE_CONSTRUCTORS = {
     name: _REDUCTION_DICT.__get__(_NativeSparseMatrix)[name]
     for name in ("__new__", "__init__") if name in _REDUCTION_DICT.__get__(_NativeSparseMatrix)
 }
-_EQUATION_RATIONAL = _native.py_rational_from_python
+# The Rust implementation is named py_rational_from_python, but PyO3 exports
+# it as py_rational. Seal the actual Python entry point used by the shell.
+_EQUATION_RATIONAL = _native.py_rational
 _EQUATION_FINITE_CONSTANTS = tuple(_REDUCTION_VALUE_SLOT.__get__(value, Basic) for value in (pi, E, I))
 _EQUATION_NONFINITE_CONSTANTS = tuple(
     _REDUCTION_VALUE_SLOT.__get__(value, Basic) for value in (oo, zoo, nan)
@@ -432,7 +434,7 @@ def _equation_interfaces():
             is not _EQUATION_PREFLIGHT_DESCRIPTOR
             or any(_REDUCTION_DICT.__get__(_NativeSparseMatrix).get(name) is not descriptor
                    for name, descriptor in _EQUATION_SPARSE_CONSTRUCTORS.items())
-            or _native.py_rational_from_python is not _EQUATION_RATIONAL):
+            or _native.py_rational is not _EQUATION_RATIONAL):
         raise NotImplementedError("linear equations require original native interfaces")
 
 

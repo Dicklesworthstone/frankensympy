@@ -364,10 +364,10 @@ fn orbit_antidifference(
     for fraction in fractions {
         batch(meter, &[&fraction.factor, &fraction.numerator])?;
         let degree = fraction.factor.degree().expect("nonconstant factor");
-        let shift = check_value(
-            fraction.factor.coeffs[degree - 1]
-                .metered_div(&BigRational::from_integer(BigInt::from(degree as u64)), meter)?,
-        )?;
+        let shift = check_value(fraction.factor.coeffs[degree - 1].metered_div(
+            &BigRational::from_integer(BigInt::from(degree as u64)),
+            meter,
+        )?)?;
         let centered_factor = fraction.factor.shift(&(-shift.clone()))?;
         let centered_numerator = fraction.numerator.shift(&(-shift.clone()))?;
         validate(&centered_factor, MAX_OUTPUT_DEGREE, MAX_WORK_BITS)?;

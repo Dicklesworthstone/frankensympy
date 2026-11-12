@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-11-12",
+  "base_commit": "29f847c14428d6a60b537e2818b0d05bdd24ecc4",
+  "scope": [
+    "Restore Python shell import by capturing the actual PyO3-exported py_rational entry point in the sparse affine equation boundary.",
+    "Preserve native-interface mutation refusal and add arbitrary-precision affine reconstruction and replacement adversaries.",
+    "Apply the pinned formatter's exact corrections already reported by baseline CI, allowing required validation to proceed."
+  ],
+  "baseline_evidence": {
+    "run": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/43100820454",
+    "public_job": 130791583910,
+    "public_failure": "AttributeError: module 'fsym_python' has no attribute 'py_rational_from_python' during import sympy",
+    "format_job": 130791583798,
+    "formatting_source": "Exact Diff in blocks from this pinned cargo fmt --check job; every old block matched the frozen base source uniquely."
+  },
+  "validation": {
+    "planning_integrity": "python tools/validate_planning.py passed before executor loss",
+    "source_review": "PyO3 #[pyfunction(name = \"py_rational\")] is the existing arbitrary-precision constructor export.",
+    "local_execution": "The unchanged fsym-core rustc process was terminated by SIGKILL before tests. The execution environment then became unavailable.",
+    "new_regressions": "Authored and independently source-reviewed; no local execution pass asserted. GitHub Actions must execute them on this commit.",
+    "recovery": "Sources reconstructed from immutable GitHub base plus exact retained patches. No claim of byte identity to the unavailable post-format workspace."
+  },
+  "claims": {
+    "promotion": false,
+    "workstream_closure": false,
+    "compatibility_certification": false
+  }
+}

@@ -58,24 +58,11 @@ fn mixed_transport_has_a_hand_derived_particular_and_characteristic_family() {
     let (a, b, c) = (q(2, 1), q(3, 1), q(0, 1));
     let forcing = e("x*y");
     let accepted = linear_first_order_pde(&a, &b, &c, &forcing, &x, &y).unwrap();
-    same_polynomial(
-        accepted.particular(),
-        &e("x**2*y/4-x**3/8"),
-        &x,
-        &y,
-    );
+    same_polynomial(accepted.particular(), &e("x**2*y/4-x**3/8"), &x, &y);
     same_polynomial(accepted.time_coordinate(), &e("x/2"), &x, &y);
-    same_polynomial(
-        accepted.invariant_coordinate(),
-        &e("y-3*x/2"),
-        &x,
-        &y,
-    );
+    same_polynomial(accepted.invariant_coordinate(), &e("y-3*x/2"), &x, &y);
     assert_eq!(accepted.homogeneous_coefficient(), &Expr::from_i64(1));
-    assert_eq!(
-        accepted.coefficients(),
-        &[a.clone(), b.clone(), c.clone()],
-    );
+    assert_eq!(accepted.coefficients(), &[a.clone(), b.clone(), c.clone()],);
     assert_eq!(accepted.variables(), &[x.clone(), y.clone()]);
     assert_eq!(accepted.forcing(), &forcing);
     assert_eq!(
@@ -86,9 +73,8 @@ fn mixed_transport_has_a_hand_derived_particular_and_characteristic_family() {
     // An actual nonconstant choice F(t)=t^3+2t satisfies the original PDE
     // through the separate expression-differentiation path.
     let invariant = accepted.invariant_coordinate().clone();
-    let solution = accepted.particular().clone()
-        + power(invariant.clone(), 3)
-        + Expr::from_i64(2) * invariant;
+    let solution =
+        accepted.particular().clone() + power(invariant.clone(), 3) + Expr::from_i64(2) * invariant;
     same_polynomial(
         &original_residual(&solution, [&a, &b, &c], &forcing, &x, &y),
         &Expr::from_i64(0),
@@ -107,27 +93,14 @@ fn rational_reaction_and_transport_recover_a_known_polynomial() {
     let accepted = linear_first_order_pde(&a, &b, &c, &forcing, &x, &y).unwrap();
     same_polynomial(accepted.particular(), &expected, &x, &y);
     same_polynomial(accepted.time_coordinate(), &e("3*x/2"), &x, &y);
+    same_polynomial(accepted.invariant_coordinate(), &e("y+9*x/10"), &x, &y);
     same_polynomial(
-        accepted.invariant_coordinate(),
-        &e("y+9*x/10"),
-        &x,
-        &y,
-    );
-    same_polynomial(
-        &original_residual(
-            accepted.particular(),
-            [&a, &b, &c],
-            &forcing,
-            &x,
-            &y,
-        ),
+        &original_residual(accepted.particular(), [&a, &b, &c], &forcing, &x, &y),
         &Expr::from_i64(0),
         &x,
         &y,
     );
-    assert!(
-        matches!(accepted.homogeneous_coefficient(), Expr::Function(name, _) if name == "exp"),
-    );
+    assert!(matches!(accepted.homogeneous_coefficient(), Expr::Function(name, _) if name == "exp"),);
 }
 
 #[test]
@@ -137,15 +110,8 @@ fn both_single_axis_cases_and_homogeneous_reaction_preserve_freedom() {
         (2, 0, "x**2*y/4", "x/2", "y"),
         (0, -2, "-x*y**2/4", "-y/2", "x"),
     ] {
-        let accepted = linear_first_order_pde(
-            &q(a, 1),
-            &q(b, 1),
-            &q(0, 1),
-            &e("x*y"),
-            &x,
-            &y,
-        )
-        .unwrap();
+        let accepted =
+            linear_first_order_pde(&q(a, 1), &q(b, 1), &q(0, 1), &e("x*y"), &x, &y).unwrap();
         same_polynomial(accepted.particular(), &e(expected), &x, &y);
         same_polynomial(accepted.time_coordinate(), &e(time), &x, &y);
         same_polynomial(accepted.invariant_coordinate(), &e(invariant), &x, &y);
@@ -153,18 +119,11 @@ fn both_single_axis_cases_and_homogeneous_reaction_preserve_freedom() {
 
     for c in [-3, 0, 2] {
         let (a, b, reaction) = (q(2, 1), q(3, 1), q(c, 1));
-        let accepted =
-            linear_first_order_pde(&a, &b, &reaction, &e("0"), &x, &y).unwrap();
+        let accepted = linear_first_order_pde(&a, &b, &reaction, &e("0"), &x, &y).unwrap();
         same_polynomial(accepted.particular(), &e("0"), &x, &y);
         let solution = accepted.homogeneous_coefficient().clone()
             * power(accepted.invariant_coordinate().clone(), 2);
-        let residual = original_residual(
-            &solution,
-            [&a, &b, &reaction],
-            &e("0"),
-            &x,
-            &y,
-        );
+        let residual = original_residual(&solution, [&a, &b, &reaction], &e("0"), &x, &y);
         let residual = fsym_simplify::try_expand(&residual).unwrap();
         assert!(fsym_simplify::try_simplify(&residual).unwrap().is_zero());
     }
@@ -178,14 +137,9 @@ fn independent_checker_accepts_affine_reparameterization_and_invariant_constants
     supplied.time_coordinate = e("x/2+7");
     supplied.invariant_coordinate = e("2*y-3*x+4");
     supplied.particular = e("x**2*y/4-x**3/8+(y-3*x/2)**4+5");
-    let accepted = verify_linear_first_order_pde(
-        [&a, &b, &c],
-        &e("x*y"),
-        [&x, &y],
-        &supplied,
-        &mut Unbounded,
-    )
-    .unwrap();
+    let accepted =
+        verify_linear_first_order_pde([&a, &b, &c], &e("x*y"), [&x, &y], &supplied, &mut Unbounded)
+            .unwrap();
     same_polynomial(accepted.particular(), &supplied.particular, &x, &y);
 }
 
@@ -193,10 +147,7 @@ fn independent_checker_accepts_affine_reparameterization_and_invariant_constants
 fn characteristic_and_tiny_particular_mutations_are_rejected() {
     let (x, y) = (Symbol::new("x"), Symbol::new("y"));
     let (a, b, c) = (q(2, 1), q(3, 1), q(0, 1));
-    let epsilon = rational_expr(BigRational::new(
-        BigInt::one(),
-        BigInt::from(10).pow(90),
-    ));
+    let epsilon = rational_expr(BigRational::new(BigInt::one(), BigInt::from(10).pow(90)));
     for (field, mutation) in [
         (0, e("0")),
         (0, e("x")),
@@ -274,26 +225,16 @@ fn highest_supported_forcing_degree_works_for_transport_and_reaction() {
     let (x, y) = (Symbol::new("x"), Symbol::new("y"));
     let (a, b) = (q(1, 1), q(0, 1));
     let forcing = e("x**16");
-    let transport =
-        linear_first_order_pde(&a, &b, &q(0, 1), &forcing, &x, &y).unwrap();
+    let transport = linear_first_order_pde(&a, &b, &q(0, 1), &forcing, &x, &y).unwrap();
     same_polynomial(transport.particular(), &e("x**17/17"), &x, &y);
-    let reaction =
-        linear_first_order_pde(&a, &b, &q(1, 1), &forcing, &x, &y).unwrap();
+    let reaction = linear_first_order_pde(&a, &b, &q(1, 1), &forcing, &x, &y).unwrap();
     same_polynomial(
-        &original_residual(
-            reaction.particular(),
-            [&a, &b, &q(1, 1)],
-            &forcing,
-            &x,
-            &y,
-        ),
+        &original_residual(reaction.particular(), [&a, &b, &q(1, 1)], &forcing, &x, &y),
         &e("0"),
         &x,
         &y,
     );
-    assert!(
-        linear_first_order_pde(&a, &b, &q(0, 1), &e("x**17"), &x, &y).is_err(),
-    );
+    assert!(linear_first_order_pde(&a, &b, &q(0, 1), &e("x**17"), &x, &y).is_err(),);
 }
 
 #[test]
@@ -316,17 +257,7 @@ fn held_source_domains_and_foreign_nodes_cannot_disappear() {
         Expr::Mul(vec![zero.clone(), power(xexpr.clone(), -1)]),
         power(Expr::Function("opaque".into(), vec![xexpr]), 0),
     ] {
-        assert!(
-            linear_first_order_pde(
-                &q(2, 1),
-                &q(3, 1),
-                &q(0, 1),
-                &invalid,
-                &x,
-                &y,
-            )
-            .is_err(),
-        );
+        assert!(linear_first_order_pde(&q(2, 1), &q(3, 1), &q(0, 1), &invalid, &x, &y,).is_err(),);
         assert!(
             verify_linear_first_order_pde(
                 [&q(2, 1), &q(3, 1), &q(0, 1)],
@@ -343,38 +274,16 @@ fn held_source_domains_and_foreign_nodes_cannot_disappear() {
         power(Expr::from_i64(2), -1),
         power(Expr::from_i64(3), 0),
     ]);
-    let accepted = linear_first_order_pde(
-        &q(1, 1),
-        &q(0, 1),
-        &q(0, 1),
-        &forcing,
-        &x,
-        &y,
-    )
-    .unwrap();
+    let accepted = linear_first_order_pde(&q(1, 1), &q(0, 1), &q(0, 1), &forcing, &x, &y).unwrap();
     same_polynomial(accepted.particular(), &e("3*x/2"), &x, &y);
 }
 
 #[test]
 fn same_name_typed_coordinates_remain_distinct() {
-    let x = Symbol::with_identity(
-        "axis",
-        SymbolIdentity::from_assumptions_digest([1; 32]),
-    );
-    let y = Symbol::with_identity(
-        "axis",
-        SymbolIdentity::from_assumptions_digest([2; 32]),
-    );
+    let x = Symbol::with_identity("axis", SymbolIdentity::from_assumptions_digest([1; 32]));
+    let y = Symbol::with_identity("axis", SymbolIdentity::from_assumptions_digest([2; 32]));
     let forcing = Expr::Sym(x.clone()) + Expr::Sym(y.clone());
-    let accepted = linear_first_order_pde(
-        &q(1, 1),
-        &q(0, 1),
-        &q(0, 1),
-        &forcing,
-        &x,
-        &y,
-    )
-    .unwrap();
+    let accepted = linear_first_order_pde(&q(1, 1), &q(0, 1), &q(0, 1), &forcing, &x, &y).unwrap();
     assert_eq!(accepted.variables(), &[x.clone(), y.clone()]);
     same_polynomial(
         accepted.particular(),
@@ -383,31 +292,14 @@ fn same_name_typed_coordinates_remain_distinct() {
         &x,
         &y,
     );
-    assert!(
-        linear_first_order_pde(
-            &q(1, 1),
-            &q(0, 1),
-            &q(0, 1),
-            &e("0"),
-            &x,
-            &x,
-        )
-        .is_err(),
-    );
+    assert!(linear_first_order_pde(&q(1, 1), &q(0, 1), &q(0, 1), &e("0"), &x, &x,).is_err(),);
 }
 
 #[test]
 fn zero_transport_and_oversized_original_inputs_refuse() {
     let (x, y) = (Symbol::new("x"), Symbol::new("y"));
     assert!(matches!(
-        linear_first_order_pde(
-            &q(0, 1),
-            &q(0, 1),
-            &q(1, 1),
-            &e("0"),
-            &x,
-            &y,
-        ),
+        linear_first_order_pde(&q(0, 1), &q(0, 1), &q(1, 1), &e("0"), &x, &y,),
         Err(PdeError::InvalidSource(_)),
     ));
     let huge = BigRational::from_integer(BigInt::one() << 4097u32);
@@ -425,17 +317,7 @@ fn zero_transport_and_oversized_original_inputs_refuse() {
         power(power(e("2"), 64), 64),
         rational_expr(huge),
     ] {
-        assert!(
-            linear_first_order_pde(
-                &q(1, 1),
-                &q(0, 1),
-                &q(1, 1),
-                &forcing,
-                &x,
-                &y,
-            )
-            .is_err(),
-        );
+        assert!(linear_first_order_pde(&q(1, 1), &q(0, 1), &q(1, 1), &forcing, &x, &y,).is_err(),);
     }
 }
 
@@ -450,7 +332,10 @@ impl BudgetMeter for CountingMeter {
     fn charge(&mut self, dimension: Dimension, amount: u64) -> std::result::Result<(), MeterError> {
         self.charge_batch(&[(dimension, amount)])
     }
-    fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> std::result::Result<(), MeterError> {
+    fn charge_batch(
+        &mut self,
+        charges: &[(Dimension, u64)],
+    ) -> std::result::Result<(), MeterError> {
         for &(dimension, amount) in charges {
             if dimension == Dimension::ComputeSteps {
                 self.compute += amount;
@@ -478,8 +363,7 @@ fn generation_and_verification_share_cumulative_charges_and_cancellation() {
     let forcing = e("x*y");
     let mut meter = CountingMeter::default();
     let accepted =
-        metered_linear_first_order_pde(&a, &b, &c, &forcing, &x, &y, &mut meter)
-            .unwrap();
+        metered_linear_first_order_pde(&a, &b, &c, &forcing, &x, &y, &mut meter).unwrap();
     let first_charges = meter.compute;
     let first_checkpoints = meter.checkpoints;
     assert!(first_charges > 0);
@@ -498,15 +382,7 @@ fn generation_and_verification_share_cumulative_charges_and_cancellation() {
             ..Default::default()
         };
         assert!(matches!(
-            metered_linear_first_order_pde(
-                &a,
-                &b,
-                &c,
-                &forcing,
-                &x,
-                &y,
-                &mut meter,
-            ),
+            metered_linear_first_order_pde(&a, &b, &c, &forcing, &x, &y, &mut meter,),
             Err(PdeError::Meter(MeterError::Cancelled)),
         ));
     }
