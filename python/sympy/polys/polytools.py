@@ -566,7 +566,7 @@ class Poly(Basic):
             return _finitefield.operation(self, "gcd", other)
         if _finitefield.is_finite(other):
             return _finitefield.operation(other, "gcd", self)
-        return _multivariate_gcd_lcm(self, other, lcm=False, polys=True)
+        return _multivariate_gcd_lcm(self, other, lcm=False, polys=True, _poly_method=True)
 
     def lcm(self, other: Any) -> "Poly":
         """Checked least common multiple in the unified ZZ or QQ ring."""
@@ -574,7 +574,7 @@ class Poly(Basic):
             return _finitefield.operation(self, "lcm", other)
         if _finitefield.is_finite(other):
             return _finitefield.operation(other, "lcm", self)
-        return _multivariate_gcd_lcm(self, other, lcm=True, polys=True)
+        return _multivariate_gcd_lcm(self, other, lcm=True, polys=True, _poly_method=True)
 
     def gcdex(self, other: Any) -> Tuple["Poly", "Poly", "Poly"]:
         """Extended Euclidean algorithm: returns (s, t, h) such that s*self + t*other = h."""
@@ -1235,11 +1235,11 @@ def gcd(a: Any, b: Any, *gens: Any, **kwargs: Any) -> Any:
         return modular
     if type(a) is int and type(b) is int and not gens and not kwargs:
         return math.gcd(a, b)
-    return _multivariate_gcd_lcm(a, b, lcm=False, gens=gens, **kwargs)
+    return _multivariate_gcd_lcm(a, b, lcm=False, gens=gens, _poly_method=False, **kwargs)
 
 
 def _multivariate_gcd_lcm(a: Any, b: Any, lcm: bool, *, gens=(), domain=None,
-                          polys=None) -> Any:
+                          polys=None, _poly_method=False) -> Any:
     """Source-bound GCD/LCM without a complete-factorization prerequisite.
 
     The native QQ certificate establishes greatestness through a complete
@@ -1271,11 +1271,14 @@ def _multivariate_gcd_lcm(a: Any, b: Any, lcm: bool, *, gens=(), domain=None,
                 raise ValueError("polynomial GCD requires a bounded original generator tuple")
             poly_states.append((value, namespace, ring))
 
+    # Module calls with one Poly unwrap both expressions before inferring the
+    # ring and domain. Methods and two-Poly calls retain their declared ring.
+    carry_ring = _poly_method or len(poly_states) == 2
     original_basis = GroebnerBasis(list(originals), tuple(gens), "QQ", "lex")
     retained = _IdealQuotientSnapshot(original_basis)
     sources, _, _, _ = retained.inputs()[0]
     if not gens:
-        if poly_states:
+        if carry_ring:
             gens = tuple(dict.fromkeys(g for _, _, ring in poly_states for g in ring))
         else:
             # A name is a display field, not the tie breaker for distinct
@@ -1299,11 +1302,11 @@ def _multivariate_gcd_lcm(a: Any, b: Any, lcm: bool, *, gens=(), domain=None,
     snapshot = _IdealQuotientSnapshot(basis)
     sources, gens, equations, bindings = snapshot.inputs()[0]
     requested = domain
-    if requested is None and any(namespace.get("_domain_given") is True
-                                 and namespace.get("_domain") == "QQ"
-                                 for _, namespace, _ in poly_states):
+    if requested is None and carry_ring and any(namespace.get("_domain_given") is True
+                                                and namespace.get("_domain") == "QQ"
+                                                for _, namespace, _ in poly_states):
         requested = "QQ"
-    if not gens and not poly_states:
+    if not gens and not carry_ring:
         # Scalar gcd/lcm retains rational content even when a domain option
         # was supplied. A declared nonempty QQ polynomial ring instead uses
         # monic units. Both computations stay in the metered native lane.
@@ -1313,17 +1316,24 @@ def _multivariate_gcd_lcm(a: Any, b: Any, lcm: bool, *, gens=(), domain=None,
     raw = operation(equations[0], equations[1], bindings, requested or "auto")
     snapshot.unchanged()
     retained.unchanged()
+    # Check every retained source before publishing either result shape.
+    # Native admission must precede this coefficient inspection: terms()
+    # expands, so invoking it earlier would bypass the source degree bounds.
+    for polynomial, namespace, ring in poly_states:
+        declared_domain = namespace.get("_domain")
+        if namespace.get("_domain_given") is True and declared_domain in ("ZZ", "QQ"):
+            expression = _rational_ideal_source(polynomial)
+            source_domain = Poly(expression, *ring)._infer_domain()
+            if declared_domain == "ZZ" and source_domain != "ZZ":
+                raise ValueError("noninteger coefficients cannot be represented in ZZ")
+            if declared_domain == "QQ" and source_domain not in ("ZZ", "QQ"):
+                raise ValueError("nonrational coefficients cannot be represented in QQ")
     value = _lift_native_result(raw, *sources, *gens)
     result = value
     if gens and (polys is True or (polys is None and poly_states)):
         inferred = [Poly(source, *gens)._infer_domain() for source in sources]
-        for polynomial, namespace, _ in poly_states:
-            expression = _rational_ideal_source(polynomial)
-            if (namespace.get("_domain_given") is True and namespace.get("_domain") == "ZZ"
-                    and Poly(expression, *gens)._infer_domain() != "ZZ"):
-                raise ValueError("noninteger coefficients cannot be represented in ZZ")
         result_domain = requested or ("ZZ" if all(item == "ZZ" for item in inferred) else "QQ")
-        cls = type(poly_states[0][0]) if poly_states else Poly
+        cls = type(poly_states[0][0]) if carry_ring else Poly
         result = cls(value, *gens, domain=result_domain)
     snapshot.unchanged()
     retained.unchanged()
@@ -1337,7 +1347,7 @@ def lcm(a: Any, b: Any, *gens: Any, **kwargs: Any) -> Any:
         return modular
     if type(a) is int and type(b) is int and not gens and not kwargs:
         return abs(a * b) // math.gcd(a, b) if a and b else 0
-    return _multivariate_gcd_lcm(a, b, lcm=True, gens=gens, **kwargs)
+    return _multivariate_gcd_lcm(a, b, lcm=True, gens=gens, _poly_method=False, **kwargs)
 
 
 def gcdex(f: Any, g: Any, x: Any = None, **kwargs: Any) -> Tuple[Any, Any, Any]:

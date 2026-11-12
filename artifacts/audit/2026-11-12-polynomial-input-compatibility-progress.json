@@ -1,0 +1,38 @@
+{
+  "date": "2026-11-12",
+  "base_commit": "5b38eed70335f6099e884dbf7ceefb544e69d436",
+  "changes": [
+    "Distinguish mixed module Poly/expression calls from Poly methods and two-Poly calls when choosing generators, coefficient domain and result class.",
+    "Infer mixed source generators and scalar content from both expressions, retaining typed identity and honoring explicit domain requests.",
+    "Validate each explicitly declared ZZ/QQ source in its original captured ring, after bounded native admission and before either expression or Poly publication."
+  ],
+  "new_regression_file": {
+    "path": "python/tests/test_rational_multivariate_gcd.py",
+    "test_definitions": 16,
+    "planned_parameterized_cases": 64,
+    "execution": "pending"
+  },
+  "actual_validation": {
+    "commit": "19ba7f32689945d9b1f23b29ec9541490b0ec274",
+    "ci_run": 43193394430,
+    "passed": [
+      "G0 planning integrity",
+      "pinned cargo fmt --check",
+      "cargo check --workspace --all-targets",
+      "cargo clippy --workspace --all-targets -- -D warnings",
+      "selected native feature regressions",
+      "full Python extension build",
+      "911 focused public tests",
+      "3466 tests in the broader public suite"
+    ],
+    "failed_tests": [
+      "python/tests/test_solveset_piecewise_real.py::test_plain_symbol_native_handle_refresh_preserves_the_captured_source",
+      "python/tests/test_sparse_linear_systems.py::test_changed_accessors_never_enter_the_native_lane[matrix_accessor]",
+      "python/tests/test_sparse_linear_systems.py::test_changed_accessors_never_enter_the_native_lane[symbol_accessor]",
+      "python/tests/test_recurrence_integrity.py::RecurrenceIntegrityTests::test_admitted_affine_forcing_keeps_exact_closed_forms"
+    ],
+    "interpretation": "These four failures were exposed after fixing the baseline import blocker, before the new GCD/series feature commits. They are being handled separately. No full-suite pass is claimed.",
+    "new_feature_gates": "Queued in GitHub Actions. Local execution service remains unavailable; final formatting and executable feature validation are not yet observed."
+  },
+  "planning": "Only progress notes and updated_at changed in fra-o4g, fra-546 and fra-a5x. Status, priority, dependencies and acceptance gates are retained."
+}

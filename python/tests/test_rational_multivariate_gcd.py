@@ -208,3 +208,96 @@ def test_both_native_entrypoints_and_ring_admission(operation):
     axes = sp.symbols("qq_auxiliary_0:8")
     with pytest.raises(ValueError, match="auxiliary"):
         sp.Poly(axes[0], *axes).gcd(sp.Poly(axes[-1], *axes))
+
+
+@pytest.mark.parametrize("operation", ["gcd", "lcm"])
+@pytest.mark.parametrize("polys", [None, False, True])
+@pytest.mark.parametrize(
+    "domain,source_kind,message",
+    [("ZZ", "fractional", "noninteger"),
+     ("ZZ", "foreign_generator", "noninteger"),
+     ("QQ", "foreign_generator", "nonrational")],
+)
+def test_invalid_declared_coefficient_sources_are_rejected_before_lifting(
+    operation, polys, domain, source_kind, message, monkeypatch
+):
+    x, y = sp.symbols("qq_invalid_coefficient_x qq_invalid_coefficient_y")
+    source = sp.Poly(x, x, domain=domain)
+    source._expr = x/2 if source_kind == "fractional" else x*y
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("an invalid retained coefficient domain reached result lifting")
+
+    monkeypatch.setattr(polytools, "_lift_native_result", forbidden)
+    # The unified ring contains y, but that must not repair the retained
+    # declaration that the source had ZZ or QQ coefficients in its x ring.
+    for other in (y, sp.Poly(y, y)):
+        with pytest.raises(ValueError, match=message):
+            getattr(sp, operation)(source, other, polys=polys)
+
+
+@pytest.mark.parametrize("operation", ["gcd", "lcm"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_mixed_module_inputs_infer_generators_from_both_sources(operation, reverse):
+    x, y = sp.symbols("qq_mixed_ring_x qq_mixed_ring_y")
+    operands = (sp.Poly(x, x), y)
+    if reverse:
+        operands = operands[::-1]
+    result = getattr(sp, operation)(*operands)
+    assert type(result) is sp.Poly
+    assert result.gens == (x, y)
+    assert result.domain == "ZZ"
+    assert result.as_expr() == (1 if operation == "gcd" else x*y)
+
+    # Inference must retain both native identities even with identical names.
+    a = sp.Symbol("qq_mixed_same_name", positive=True)
+    b = sp.Symbol("qq_mixed_same_name", negative=True)
+    operands = (sp.Poly(a, a), b)
+    if reverse:
+        operands = operands[::-1]
+    result = getattr(sp, operation)(*operands)
+    assert len(result.gens) == 2
+    assert any(symbol is a for symbol in result.gens)
+    assert any(symbol is b for symbol in result.gens)
+    assert result.as_expr() == (1 if operation == "gcd" else a*b)
+
+
+@pytest.mark.parametrize("operation", ["gcd", "lcm"])
+@pytest.mark.parametrize("cls", [sp.Poly, sp.PurePoly])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_mixed_module_inputs_infer_integer_content_and_base_poly(operation, cls, reverse):
+    x = sp.Symbol("qq_mixed_content")
+    operands = (cls(2*x, x, domain="QQ"), 4*x)
+    if reverse:
+        operands = operands[::-1]
+    expected = (2 if operation == "gcd" else 4)*x
+    result = getattr(sp, operation)(*operands)
+    assert type(result) is sp.Poly
+    assert result.gens == (x,) and result.domain == "ZZ"
+    assert result.as_expr() == expected
+    assert getattr(sp, operation)(*operands, polys=False) == expected
+    explicit = getattr(sp, operation)(*operands, domain="QQ")
+    assert type(explicit) is sp.Poly
+    assert explicit.domain == "QQ" and explicit.as_expr() == x
+
+    # The mixed module path also drops an unused carried generator before
+    # choosing the scalar contract, including when QQ is explicitly requested.
+    constants = (cls(2, x, domain="QQ"), 4)
+    if reverse:
+        constants = constants[::-1]
+    assert getattr(sp, operation)(*constants, domain="QQ") == (
+        2 if operation == "gcd" else 4
+    )
+
+
+@pytest.mark.parametrize("operation", ["gcd", "lcm"])
+@pytest.mark.parametrize("cls", [sp.Poly, sp.PurePoly])
+def test_poly_methods_preserve_their_declared_ring_domain_and_class(operation, cls):
+    x, y = sp.symbols("qq_method_x qq_method_y")
+    source = cls(2*x, x, domain="QQ")
+    result = getattr(source, operation)(4*x)
+    assert type(result) is cls
+    assert result.gens == (x,) and result.domain == "QQ"
+    assert result.as_expr() == x
+    with pytest.raises(ValueError):
+        getattr(source, operation)(y)
