@@ -6,8 +6,10 @@
 
 #![forbid(unsafe_code)]
 
+mod rational_cancel;
 pub mod rewrite;
 
+pub use rational_cancel::cancel_with;
 pub use rewrite::*;
 
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
@@ -1028,133 +1030,21 @@ fn apply_rules_bottom_up(
     }
 }
 
-/// Cancels common polynomial GCD factors between numerator and denominator of a
-/// rational expression over $\mathbb{Q}[x]$.
+/// Cancel exact rational components using the complete checked QQ GCD lane.
+///
+/// Admission of the original source precedes simplification and expansion.
+/// Errors remain terminal; use [`cancel_with`] to supply phase meters, or the
+/// polynomial crate's checked receipt when original denominator guards matter.
 pub fn try_cancel(expr: &Expr) -> Result<Expr, SimplifyError> {
-    cancel_at(expr, 0)
+    cancel_with(expr, &mut Unbounded, &mut Unbounded)
 }
 
-/// Cancels common polynomial GCD factors between numerator and denominator,
-/// falling back to the simplified input when non-polynomial or out of bounds.
+/// Cancel common polynomial factors as an ordinary rational-function value.
+///
+/// This legacy convenience returns the original input on a typed refusal.
+/// Trust-boundary callers should use [`try_cancel`] or [`cancel_with`].
 pub fn cancel(expr: &Expr) -> Expr {
     unwrap_legacy(try_cancel(expr), expr)
-}
-
-fn cancel_at(expr: &Expr, depth: usize) -> Result<Expr, SimplifyError> {
-    if depth > MAX_RECURSION_DEPTH {
-        return Err(SimplifyError::DepthLimitExceeded(depth));
-    }
-    match expr {
-        Expr::Add(terms) => {
-            check_fanout(terms.len())?;
-            let mut cancelled = Vec::with_capacity(terms.len());
-            for t in terms {
-                cancelled.push(cancel_at(t, depth + 1)?);
-            }
-            Ok(try_simplify(&Expr::Add(cancelled))?)
-        }
-        Expr::Mul(factors) => {
-            check_fanout(factors.len())?;
-            let mut num_factors: Vec<Expr> = Vec::new();
-            let mut den_factors: Vec<Expr> = Vec::new();
-            for f in factors {
-                let cf = cancel_at(f, depth + 1)?;
-                if let Expr::Pow(base, exp) = &cf
-                    && let Expr::Integer(n) = exp.as_ref()
-                    && n.is_negative()
-                {
-                    let pos_exp = -n.clone();
-                    if pos_exp == fsym_core::BigInt::from(1) {
-                        den_factors.push((**base).clone());
-                    } else {
-                        den_factors.push(Expr::Pow(base.clone(), Arc::new(Expr::Integer(pos_exp))));
-                    }
-                } else {
-                    num_factors.push(cf);
-                }
-            }
-            if den_factors.is_empty() {
-                return try_simplify(&Expr::Mul(num_factors));
-            }
-            let num_expr = if num_factors.is_empty() {
-                Expr::from_i64(1)
-            } else if num_factors.len() == 1 {
-                num_factors[0].clone()
-            } else {
-                Expr::Mul(num_factors)
-            };
-            let den_expr = if den_factors.len() == 1 {
-                den_factors[0].clone()
-            } else {
-                Expr::Mul(den_factors)
-            };
-            let mut syms = num_expr.free_symbols();
-            syms.extend(den_expr.free_symbols());
-            syms.sort();
-            syms.dedup();
-            if syms.len() == 1 {
-                let var = syms.into_iter().next().expect("single symbol");
-                let num_expanded = try_expand(&num_expr)?;
-                let den_expanded = try_expand(&den_expr)?;
-                if let (Ok(num_poly), Ok(den_poly)) = (
-                    fsym_polys::UnivariatePoly::from_expr(&num_expanded, &var),
-                    fsym_polys::UnivariatePoly::from_expr(&den_expanded, &var),
-                ) && !den_poly.is_zero()
-                    && let Ok(g) = num_poly.gcd(&den_poly)
-                    && g.degree().unwrap_or(0) >= 1
-                    && let (Ok((q_num, r_num)), Ok((q_den, r_den))) =
-                        (num_poly.div_rem(&g), den_poly.div_rem(&g))
-                    && r_num.is_zero()
-                    && r_den.is_zero()
-                {
-                    // Normalize leading coefficient of denominator so constant
-                    // scaling sits cleanly on the numerator when denominator is linear/monic.
-                    let lead = q_den
-                        .coeffs
-                        .last()
-                        .cloned()
-                        .unwrap_or_else(BigRational::one);
-                    let (final_num, final_den) = if !lead.is_zero() && !lead.is_one() {
-                        let inv = BigRational::one() / lead;
-                        let scale = fsym_polys::UnivariatePoly::new(var.clone(), vec![inv]);
-                        (
-                            q_num.mul(&scale).unwrap_or(q_num),
-                            q_den.mul(&scale).unwrap_or(q_den),
-                        )
-                    } else {
-                        (q_num, q_den)
-                    };
-                    let num_out = try_simplify(&final_num.to_expr())?;
-                    let den_out = try_simplify(&final_den.to_expr())?;
-                    if den_out.is_one() {
-                        return Ok(num_out);
-                    }
-                    return try_simplify(&Expr::Mul(vec![
-                        num_out,
-                        Expr::Pow(Arc::new(den_out), Arc::new(Expr::from_i64(-1))),
-                    ]));
-                }
-            }
-            try_simplify(&Expr::Mul(vec![
-                num_expr,
-                Expr::Pow(Arc::new(den_expr), Arc::new(Expr::from_i64(-1))),
-            ]))
-        }
-        Expr::Pow(base, exp) => {
-            let cb = cancel_at(base, depth + 1)?;
-            let ce = cancel_at(exp, depth + 1)?;
-            try_simplify(&Expr::Pow(Arc::new(cb), Arc::new(ce)))
-        }
-        Expr::Function(name, args) => {
-            check_fanout(args.len())?;
-            let mut cargs = Vec::with_capacity(args.len());
-            for a in args {
-                cargs.push(cancel_at(a, depth + 1)?);
-            }
-            try_simplify(&Expr::Function(name.clone(), cargs))
-        }
-        _ => Ok(expr.clone()),
-    }
 }
 
 #[cfg(test)]

@@ -154,10 +154,11 @@ fn invalid(message: &'static str) -> PolyError {
 fn check_ring(
     variables: &[Symbol],
     maximum: usize,
+    allow_empty: bool,
     work: &mut PolynomialWork<'_, impl BudgetMeter>,
 ) -> Result<(), PolyError> {
     work.tick(1)?;
-    if variables.is_empty() || variables.len() > maximum {
+    if (!allow_empty && variables.is_empty()) || variables.len() > maximum {
         return Err(refused(
             "rational-system variable count exceeds its envelope",
         ));
@@ -231,9 +232,10 @@ fn preflight_sources(
     sources: &[Expr],
     variables: &[Symbol],
     maximum_variables: usize,
+    allow_empty: bool,
     work: &mut PolynomialWork<'_, impl BudgetMeter>,
 ) -> Result<usize, PolyError> {
-    check_ring(variables, maximum_variables, work)?;
+    check_ring(variables, maximum_variables, allow_empty, work)?;
     if sources.len() > MAX_ORIGINAL_EQUATIONS {
         return Err(refused(
             "localization supports at most 63 original equations",
@@ -640,7 +642,7 @@ fn augmented_ring(
     work.allocate(ring_storage(original) + auxiliary.name.len() + 256)?;
     let mut augmented = original.to_vec();
     augmented.push(auxiliary.clone());
-    check_ring(&augmented, MAX_VARIABLES, work)?;
+    check_ring(&augmented, MAX_VARIABLES, false, work)?;
     Ok(augmented)
 }
 
@@ -837,7 +839,8 @@ pub fn verify_rational_localization(
 ) -> Result<VerifiedRationalLocalization, PolyError> {
     let mut work = PolynomialWork::new(verifier_meter);
     work.tick(1)?;
-    let source_bytes = preflight_sources(sources, variables, MAX_ORIGINAL_VARIABLES, &mut work)?;
+    let source_bytes =
+        preflight_sources(sources, variables, MAX_ORIGINAL_VARIABLES, false, &mut work)?;
     if certificate.fractions.len() != sources.len()
         || certificate.guards.len() > MAX_GUARDS
         || certificate.equations.len() != sources.len() + 1
@@ -906,12 +909,18 @@ pub fn metered_localize_rational_system(
     verifier_meter: &mut impl BudgetMeter,
 ) -> Result<RationalSystemAdmission, PolyError> {
     let mut generator = PolynomialWork::new(generator_meter);
-    check_ring(variables, MAX_VARIABLES, &mut generator)?;
+    check_ring(variables, MAX_VARIABLES, false, &mut generator)?;
     if !needs_localization(sources, &mut generator)? {
         generator.tick(1)?;
         return Ok(RationalSystemAdmission::Polynomial);
     }
-    preflight_sources(sources, variables, MAX_ORIGINAL_VARIABLES, &mut generator)?;
+    preflight_sources(
+        sources,
+        variables,
+        MAX_ORIGINAL_VARIABLES,
+        false,
+        &mut generator,
+    )?;
     generator.allocate(sources.len() * size_of::<RationalSourceFraction>())?;
     let mut guards = Vec::new();
     let fractions = sources
@@ -958,6 +967,7 @@ pub fn verify_rational_source(
         std::slice::from_ref(source),
         variables,
         MAX_VARIABLES,
+        true,
         &mut work,
     )?;
     if certificate.guards.len() > MAX_GUARDS {
@@ -996,8 +1006,9 @@ pub fn verify_rational_source(
 }
 
 /// Construct and check an exact rational source over at most eight typed
-/// variables. Unlike localization this also admits polynomial and constant
-/// sources, and never adds an auxiliary variable. Both phases retain their
+/// variables, including the empty rational coefficient ring. Unlike localization
+/// this also admits polynomial and constant sources, and never adds an auxiliary
+/// variable. Both phases retain their
 /// cumulative 20M-compute/128MiB caps and the caller's cancellation ledger.
 pub fn metered_rational_source(
     source: &Expr,
@@ -1010,6 +1021,7 @@ pub fn metered_rational_source(
         std::slice::from_ref(source),
         variables,
         MAX_VARIABLES,
+        true,
         &mut generator,
     )?;
     let mut guards = Vec::new();

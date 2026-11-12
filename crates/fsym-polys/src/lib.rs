@@ -41,6 +41,7 @@ pub mod quotient_algebra;
 pub mod quotient_minpoly;
 pub mod radical;
 pub mod rational;
+pub mod rational_cancel;
 pub mod syzygy;
 pub mod univariate;
 
@@ -94,6 +95,7 @@ pub use quotient_algebra::*;
 pub use quotient_minpoly::*;
 pub use radical::*;
 pub use rational::*;
+pub use rational_cancel::*;
 pub use syzygy::*;
 pub use univariate::*;
 
