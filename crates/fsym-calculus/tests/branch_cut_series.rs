@@ -25,9 +25,14 @@ fn lower_cut_series_reproduce_the_principal_log_and_square_root() {
         ("log(-1-I*x)", ["-I*pi", "I", "1/2"]),
         ("sqrt(-1-I*x)", ["-I", "1/2", "-I/8"]),
     ] {
-        let (terms, order) =
-            series_expansion_dir(&expression(source), &x, &expression("0"), 3, Direction::Plus)
-                .unwrap();
+        let (terms, order) = series_expansion_dir(
+            &expression(source),
+            &x,
+            &expression("0"),
+            3,
+            Direction::Plus,
+        )
+        .unwrap();
         assert_eq!(order, Some(BigRational::from_integer(3.into())));
         assert_eq!(terms.len(), expected.len());
         for (index, ((coefficient, exponent), expected)) in terms.iter().zip(expected).enumerate() {
@@ -41,8 +46,7 @@ fn lower_cut_series_reproduce_the_principal_log_and_square_root() {
 fn lower_cut_limits_do_not_substitute_the_value_on_the_cut() {
     let x = Symbol::new("x");
     for (source, expected) in [("log(-1-I*x)", "-I*pi"), ("sqrt(-1-I*x)", "-I")] {
-        let limit =
-            limit_dir(&expression(source), &x, &expression("0"), Direction::Plus).unwrap();
+        let limit = limit_dir(&expression(source), &x, &expression("0"), Direction::Plus).unwrap();
         equal(&limit, expected);
     }
 }
@@ -84,9 +88,14 @@ fn cut_side_uses_the_original_path_beyond_the_requested_series_order() {
         ("log(-1-I*x+I*x**2)", "-I*pi"),
         ("sqrt(-1-I*x+I*x**2)", "-I"),
     ] {
-        let (terms, _) =
-            series_expansion_dir(&expression(source), &x, &expression("0"), 3, Direction::Plus)
-                .unwrap();
+        let (terms, _) = series_expansion_dir(
+            &expression(source),
+            &x,
+            &expression("0"),
+            3,
+            Direction::Plus,
+        )
+        .unwrap();
         equal(&terms[0].0, expected);
     }
 }
@@ -151,7 +160,8 @@ fn parameter_signs_decide_the_cut_without_leaking_into_other_calls() {
             HashMap::from([(a.clone(), Facts::from_names(&[fact]))]),
             || {
                 let (terms, _) =
-                    series_expansion_dir(&source, &x, &expression("0"), 3, Direction::Plus).unwrap();
+                    series_expansion_dir(&source, &x, &expression("0"), 3, Direction::Plus)
+                        .unwrap();
                 equal(&terms[0].0, expected);
                 equal(
                     &limit_dir(&source, &x, &expression("0"), Direction::Plus).unwrap(),

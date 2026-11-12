@@ -354,7 +354,7 @@ fn malformed_and_oversized_inputs_are_refused_even_for_trivial_results() {
         generators.clone(),
         [(
             vec![1, 0],
-            BigRational::from_integer(BigInt::one() << 4096usize),
+            BigRational::from_integer(BigInt::one() << 4096u32),
         )]
         .into_iter()
         .collect(),

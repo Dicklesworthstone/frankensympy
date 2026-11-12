@@ -904,7 +904,9 @@ fn polynomial_integer_lcm(a: &BigInt, b: &BigInt, meter: &mut Budget) -> PyResul
         .ok_or_else(|| PyValueError::new_err("polynomial content division was not exact"))?;
     let result = fsym_core::arith::metered_mul(&quotient, b, meter).map_err(to_value_error)?;
     if result.bits() > 4096 {
-        return Err(PyValueError::new_err("polynomial content exceeds 4096 bits"));
+        return Err(PyValueError::new_err(
+            "polynomial content exceeds 4096 bits",
+        ));
     }
     Ok(result)
 }
@@ -946,9 +948,7 @@ fn multivariate_gcd_lcm_core(
     let (gcd, multiple) = accepted.into_parts();
     let mut result = if lcm { multiple } else { gcd };
     let scalar_content = domain == "auto" && variables.is_empty();
-    if (domain == "ZZ" || (domain == "auto" && integral) || scalar_content)
-        && !result.is_zero()
-    {
+    if (domain == "ZZ" || (domain == "auto" && integral) || scalar_content) && !result.is_zero() {
         let left_content = polynomial_content(&left, generator)?;
         let right_content = polynomial_content(&right, generator)?;
         let numerator = if lcm {
@@ -972,7 +972,9 @@ fn multivariate_gcd_lcm_core(
             .metered_div(&result_content, generator)
             .map_err(to_value_error)?;
         if scale.numer().bits() > 4096 || scale.denom().bits() > 4096 {
-            return Err(PyValueError::new_err("polynomial content exceeds 4096 bits"));
+            return Err(PyValueError::new_err(
+                "polynomial content exceeds 4096 bits",
+            ));
         }
         for coefficient in result.terms.values_mut() {
             let scaled = coefficient
@@ -986,12 +988,8 @@ fn multivariate_gcd_lcm_core(
             *coefficient = scaled;
         }
     }
-    let ring_bytes = variables
-        .iter()
-        .map(|symbol| symbol.name.len() + 128)
-        .sum();
-    let mut lifted =
-        ideal_operations::lift_basis(vec![result], ring_bytes, generator, verifier)?;
+    let ring_bytes = variables.iter().map(|symbol| symbol.name.len() + 128).sum();
+    let mut lifted = ideal_operations::lift_basis(vec![result], ring_bytes, generator, verifier)?;
     lifted
         .pop()
         .ok_or_else(|| PyValueError::new_err("missing checked polynomial result"))

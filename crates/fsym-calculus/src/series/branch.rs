@@ -31,9 +31,7 @@ fn preflight(e: &Expr) -> Result<(), SeriesError> {
         visited += 1;
         match node {
             Expr::Add(children) | Expr::Mul(children) | Expr::Function(_, children) => {
-                if children.len()
-                    > MAX_CONJUGATE_NODES.saturating_sub(visited + pending.len())
-                {
+                if children.len() > MAX_CONJUGATE_NODES.saturating_sub(visited + pending.len()) {
                     return Err(undecided());
                 }
                 pending.extend(children.iter().map(|child| (child, depth + 1)));
@@ -117,8 +115,7 @@ fn imaginary_part(e: &Expr) -> Result<Expr, SeriesError> {
         difference,
     ]);
     let mut meter = Budget::new(BudgetLimits::uniform(65_536, 0));
-    let expanded =
-        fsym_simplify::expand_with(&imaginary, &mut meter).map_err(|_| undecided())?;
+    let expanded = fsym_simplify::expand_with(&imaginary, &mut meter).map_err(|_| undecided())?;
     fsym_simplify::simplify_with(&expanded, &mut meter).map_err(|_| undecided())
 }
 
@@ -182,9 +179,7 @@ pub(super) fn logarithm_correction(
                 }
             };
             match sign {
-                -1 => Ok(Expr::from_i64(-2)
-                    * Expr::Const(Constant::I)
-                    * Expr::Const(Constant::Pi)),
+                -1 => Ok(Expr::from_i64(-2) * Expr::Const(Constant::I) * Expr::Const(Constant::Pi)),
                 0 | 1 => Ok(Expr::from_i64(0)),
                 _ => Err(undecided()),
             }

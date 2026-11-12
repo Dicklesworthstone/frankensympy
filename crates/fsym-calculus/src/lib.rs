@@ -1316,9 +1316,7 @@ fn continuous_shape(expr: &Expr, var: &Symbol, to: &Expr) -> bool {
     }
     let branch_is_continuous = |base: &Expr| {
         is_free_of(base, var)
-            || series::avoids_principal_cut(
-                &base.subs(&HashMap::from([(var.clone(), to.clone())])),
-            )
+            || series::avoids_principal_cut(&base.subs(&HashMap::from([(var.clone(), to.clone())])))
     };
     match expr {
         Expr::Function(name, args) => {

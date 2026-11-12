@@ -543,13 +543,12 @@ fn expand_pow(base: &Expr, exp: &Expr, target: &BigRational, ctx: &mut Ctx) -> S
         let _ = (v, c0, u, rel_target);
         return Ok(acc);
     }
-    let correction = if fsym_core::assume::is_integer(exp)
-        || (u.terms.is_empty() && u.order.is_none())
-    {
-        Expr::from_i64(0)
-    } else {
-        branch::logarithm_correction(base, &c0, ctx.t)?
-    };
+    let correction =
+        if fsym_core::assume::is_integer(exp) || (u.terms.is_empty() && u.order.is_none()) {
+            Expr::from_i64(0)
+        } else {
+            branch::logarithm_correction(base, &c0, ctx.t)?
+        };
     let lead = if correction.is_zero() {
         func_pow(&c0, exp)
     } else {
