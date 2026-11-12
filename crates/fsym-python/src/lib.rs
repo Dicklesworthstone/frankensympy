@@ -2083,6 +2083,7 @@ mod rational_laplace;
 mod rational_mellin;
 mod real_inequality;
 pub mod sets;
+mod square_free;
 pub mod tensor;
 pub use assumptions::*;
 pub use callbacks::*;
@@ -2349,6 +2350,10 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(poly_compose_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_shift_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_sqf_list_native, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        square_free::poly_multivariate_sqf_native,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(poly_factor_list_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_factor_multivariate_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_roots_native, m)?)?;

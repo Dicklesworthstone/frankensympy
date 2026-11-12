@@ -620,29 +620,19 @@ class Poly(Basic):
         )
         return Poly(_lift_native_result(raw, self._expr, a, *self._gens), *self._gens)
 
-    def sqf_list(self) -> Tuple[Any, List[Tuple["Poly", int]]]:
-        """Square-free factorization returning (scale, [(factor, multiplicity), ...])."""
+    def sqf_list(self, all: bool = False) -> Tuple[Any, List[Tuple["Poly", int]]]:
+        """Checked square-free factors, grouped by complete multiplicity."""
         if _finitefield.is_finite(self):
+            if all:
+                return _finitefield.unsupported(self, "square-free unit multiplicity groups")
             return _finitefield.factors(self, "sqf")
-        scale_raw, factors_raw = _native.poly_sqf_list_native(
-            _native_expr(self._expr), _symbol_binding(self.gen)
-        )
-        scale = _lift_native_result(scale_raw, self._expr, *self._gens)
-        factors = [
-            (Poly(_lift_native_result(f, self._expr, *self._gens), *self._gens), mult)
-            for f, mult in factors_raw
-        ]
-        return (scale, factors)
+        return _multivariate_square_free(self, "list", polys=True, _include_all=all)
 
     def sqf_part(self) -> "Poly":
         """Square-free part of the polynomial."""
         if _finitefield.is_finite(self):
             return _finitefield.factors(self, "sqf_part")
-        scale, factors = self.sqf_list()
-        res = scale
-        for f, _ in factors:
-            res = res * f.as_expr()
-        return Poly(res, *self._gens)
+        return _multivariate_square_free(self, "part", polys=True)
 
     def factor_list(self) -> Tuple[Any, List[Tuple["Poly", int]]]:
         """Factorization over Q returning (scale, [(factor, multiplicity), ...])."""
@@ -1530,54 +1520,186 @@ def discriminant(p: Any, x: Any = None, **kwargs: Any) -> Any:
     return poly_p.discriminant()
 
 
-def sqf_list(p: Any, x: Any = None) -> Tuple[Any, List[Tuple[Any, int]]]:
-    """Compute square-free factorization returning (scale, [(factor, multiplicity), ...])."""
+def sqf_list(p: Any, x: Any = None, *gens: Any, **kwargs: Any) -> Tuple[Any, List[Tuple[Any, int]]]:
+    """Compute complete square-free multiplicity groups over ZZ or QQ."""
+    generators = (x, *gens) if x is not None else gens
     if _finitefield.is_finite(p):
-        if x is not None:
-            _finitefield.degree(p, x)
+        if kwargs or len(generators) > 1:
+            raise NotImplementedError("explicit square-free options currently require ZZ or QQ")
+        if generators:
+            _finitefield.degree(p, generators[0])
         return p.sqf_list()
-    if not isinstance(p, Poly):
-        mgens = _multivariate_gens(p, (x,) if x is not None else ())
-        if mgens is not None:
-            res = _native_factor_multivariate(p, mgens)
-            if res is not None:
-                # The square-free parts are the products of the irreducible
-                # factors sharing a multiplicity (upstream returns them
-                # expanded, by increasing multiplicity).
-                from ..core import expand as _expand
-
-                scale, factors = res
-                groups: dict = {}
-                for f, m in factors:
-                    groups[m] = groups.get(m, Integer(1)) * f
-                return scale, [(_expand(groups[m]), m) for m in sorted(groups)]
-    poly_p = Poly(p, x) if x is not None else (p if isinstance(p, Poly) else Poly(p))
-    scale, factors = poly_p.sqf_list()
-    return (scale, [(f.as_expr(), mult) for f, mult in factors])
+    return _multivariate_square_free(p, "list", gens=generators, _include_all=False, **kwargs)
 
 
-def sqf_part(p: Any, x: Any = None) -> Any:
-    """Compute the square-free part of a polynomial."""
+def sqf_part(p: Any, x: Any = None, *gens: Any, **kwargs: Any) -> Any:
+    """Compute the primitive ZZ or monic QQ square-free part."""
+    generators = (x, *gens) if x is not None else gens
     if _finitefield.is_finite(p):
-        if x is not None:
-            _finitefield.degree(p, x)
+        if kwargs or len(generators) > 1:
+            raise NotImplementedError("explicit square-free options currently require ZZ or QQ")
+        if generators:
+            _finitefield.degree(p, generators[0])
         return p.sqf_part()
-    poly_p = Poly(p, x) if x is not None else (p if isinstance(p, Poly) else Poly(p))
-    return poly_p.sqf_part().as_expr()
+    return _multivariate_square_free(p, "part", gens=generators, _include_all=False, **kwargs)
 
 
-def sqf(p: Any, x: Any = None) -> Any:
-    """Square-free factorization of a polynomial into expression form."""
-    scale, factors = sqf_list(p, x)
-    if not factors:
-        return scale
-    terms = [f ** mult if mult != 1 else f for f, mult in factors]
-    prod = terms[0]
-    for t in terms[1:]:
-        prod = prod * t
-    if scale != 1:
-        prod = scale * prod
-    return prod
+def sqf(p: Any, x: Any = None, *gens: Any, **kwargs: Any) -> Any:
+    """Square-free factorization without complete irreducible factorization."""
+    if "polys" in kwargs:
+        raise TypeError("sqf does not accept the polys option")
+    generators = (x, *gens) if x is not None else gens
+    if _finitefield.is_finite(p):
+        if kwargs or len(generators) > 1:
+            raise NotImplementedError("explicit square-free options currently require ZZ or QQ")
+        if generators:
+            _finitefield.degree(p, generators[0])
+        scale, factors = p.sqf_list()
+        if not factors:
+            return scale
+        terms = [factor if multiplicity == 1 else factor**multiplicity
+                 for factor, multiplicity in factors]
+        result = terms[0]
+        for term in terms[1:]:
+            result *= term
+        return scale*result if scale != 1 else result
+    return _multivariate_square_free(p, "expr", gens=generators, _include_all=False, **kwargs)
+
+
+def _multivariate_square_free(p: Any, mode: str, *, gens=(), domain=None,
+                              polys=None, _include_all=False) -> Any:
+    """Retain the original source through one checked square-free request."""
+    from ..core import Dummy, _keep_coeff
+    from .polyerrors import CoercionFailed, GeneratorsNeeded
+
+    if domain is not None and (type(domain) is not str or domain not in ("ZZ", "QQ")):
+        raise NotImplementedError("checked square-free decomposition supports only ZZ and QQ")
+    if polys is not None and type(polys) is not bool:
+        raise TypeError("polys must be a bool")
+    if type(_include_all) is not bool:
+        raise TypeError("all must be a bool")
+    container = None
+    if len(gens) == 1 and type(gens[0]) in (tuple, list):
+        container = gens[0]
+        if len(container) > 8:
+            raise ValueError("square-free decomposition requires at most eight generators")
+        gens = tuple(container)
+    captured_gens = tuple(gens)
+    if len(gens) > 8:
+        raise ValueError("square-free decomposition requires at most eight generators")
+
+    is_poly = issubclass(type(p), Poly)
+    namespace = None
+    original_ring = ()
+    if is_poly:
+        _rational_ideal_source(p)
+        namespace = object.__getattribute__(p, "__dict__")
+        original_ring = namespace.get("_gens")
+        if type(original_ring) is not tuple or len(original_ring) > 8:
+            raise ValueError("square-free decomposition requires a bounded original generator tuple")
+
+    original_basis = GroebnerBasis([p], tuple(gens), "QQ", "lex")
+    retained_bases = [original_basis]
+    if is_poly:
+        # An explicit operation ring may omit unused original generators.
+        # Their typed identity and assumptions still bind the retained Poly.
+        retained_bases.append(GroebnerBasis([], original_ring, "QQ", "lex"))
+    retained = _IdealQuotientSnapshot(*retained_bases)
+    sources, _, _, _ = retained.inputs()[0]
+    if not gens:
+        if is_poly:
+            gens = original_ring
+        else:
+            symbols = sorted(sources[0].free_symbols, key=lambda symbol:
+                             (symbol.name, _symbol_binding(symbol).identity_hex))
+            gens = tuple(_sort_gens(symbols))
+    if len(gens) > 8:
+        raise ValueError("square-free decomposition requires at most eight generators")
+    for variable in set(gens) | set(original_ring) | sources[0].free_symbols:
+        if type(variable) not in (Symbol, Dummy):
+            raise TypeError("square-free decomposition requires exact built-in generators")
+        assumptions = object.__getattribute__(variable, "_assumptions")
+        if assumptions.get("commutative", True) is not True:
+            raise PolynomialError("noncommutative polynomial generators are not supported")
+    retained.unchanged()
+
+    basis = GroebnerBasis([p], tuple(gens), "QQ", "lex")
+    snapshot = _IdealQuotientSnapshot(basis)
+    sources, gens, equations, bindings = snapshot.inputs()[0]
+
+    def unchanged():
+        snapshot.unchanged()
+        retained.unchanged()
+        if container is not None and (len(container) != len(captured_gens)
+                or any(current is not original for current, original in zip(container, captured_gens))):
+            raise RuntimeError("square-free generator container mutated during exact evaluation")
+
+    normalization = domain
+    if normalization is None and is_poly and namespace.get("_domain_given") is True:
+        normalization = namespace.get("_domain")
+    if normalization is None:
+        # Expression factor lists use primitive integer factors even when
+        # their exterior scalar is rational. A square-free part instead
+        # follows the coefficient domain inferred from the whole source.
+        normalization = "ZZ" if mode != "part" and not is_poly else "auto"
+    raw_scale, raw_factors, raw_part, raw_source, integral = _native.poly_multivariate_sqf_native(
+        equations[0], bindings, normalization
+    )
+    unchanged()
+    if type(integral) is not bool:
+        raise RuntimeError("square-free source domain metadata is invalid")
+    source_domain = "ZZ" if integral else "QQ"
+    if is_poly and namespace.get("_domain_given") is True:
+        declared_domain = namespace.get("_domain")
+        # Only inspect a different original ring after bounded admission.
+        # Generator union must not repair a false retained coefficient domain.
+        original_domain = (source_domain if original_ring == gens else
+                           Poly(sources[0], *original_ring)._infer_domain())
+        if declared_domain == "ZZ" and original_domain != "ZZ":
+            raise CoercionFailed("noninteger coefficients cannot be represented in ZZ")
+        if declared_domain == "QQ" and original_domain not in ("ZZ", "QQ"):
+            raise CoercionFailed("nonrational coefficients cannot be represented in QQ")
+    if domain == "ZZ" and not integral and (mode == "part" or (is_poly and mode == "list")):
+        raise CoercionFailed("noninteger coefficients cannot be represented in ZZ")
+    result_domain = source_domain if normalization == "auto" else normalization
+    want_polys = is_poly if polys is None else polys
+    cls = type(p) if is_poly else Poly
+    context = (*sources, *gens)
+
+    if mode == "part":
+        if not gens:
+            raise GeneratorsNeeded("square-free part of a constant requires explicit generators")
+        value = _lift_native_result(raw_part, *context)
+        result = cls(value, *gens, domain=result_domain) if want_polys else value
+    elif mode == "expr" and is_poly:
+        # Upstream sqf(Poly) retains its class and original axes, then infers
+        # the coefficient domain of the expanded expression afresh.
+        value = _lift_native_result(raw_source, *context)
+        result = cls(value, *original_ring, domain=source_domain)
+    else:
+        scale = _lift_native_result(raw_scale, *context)
+        factors = []
+        previous = 0
+        if type(raw_factors) is not list or len(raw_factors) > 256:
+            raise RuntimeError("square-free factor list exceeds its bounded envelope")
+        for raw_factor, multiplicity in raw_factors:
+            if type(multiplicity) is not int or not previous < multiplicity <= 256:
+                raise RuntimeError("square-free multiplicities are not strictly increasing")
+            if _include_all:
+                factors.extend((Integer(1), missing) for missing in range(previous + 1, multiplicity))
+            factors.append((_lift_native_result(raw_factor, *context), multiplicity))
+            previous = multiplicity
+        if mode == "expr":
+            terms = [factor if multiplicity == 1 else Pow(factor, Integer(multiplicity), evaluate=False)
+                     for factor, multiplicity in factors]
+            result = _keep_coeff(scale, Mul(*terms))
+        else:
+            if want_polys:
+                factors = [(cls(factor, *gens, domain=result_domain), multiplicity)
+                           for factor, multiplicity in factors]
+            result = scale, factors
+    unchanged()
+    return result
 
 
 def _rational_ideal_source(value: Any) -> Any:

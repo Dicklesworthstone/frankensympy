@@ -312,6 +312,7 @@ jobs:
               "python/tests/test_finite_field_syzygies.py",
               "python/tests/test_finite_field_multivariate_gcd.py",
               "python/tests/test_rational_multivariate_gcd.py",
+              "python/tests/test_rational_multivariate_square_free.py",
               "python/tests/test_finite_field_ideal_operations.py",
               "python/tests/test_finite_field_ideal_quotient.py",
               "python/tests/test_polynomial_system_extensions.py",

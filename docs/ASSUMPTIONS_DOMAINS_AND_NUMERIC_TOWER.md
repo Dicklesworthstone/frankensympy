@@ -1657,6 +1657,41 @@ Source bindings, terminal logs, earlier failed attempts and scope limits are
 in artifacts/audit/2026-11-04-global-optimization-progress.json. No campaign,
 workstream, profile or performance status is promoted.
 
+## Complete bounded rational square-free decompositions
+
+For f in QQ[x_1,...,x_n], the native lane checks f = c*product(F_m**m),
+with complete increasing multiplicities and square-free, pairwise coprime
+components F_m. A complete checked GCD chain covers every original partial
+derivative; separate coefficient checks bind differentiation to the source.
+Independent reference products check both reconstruction and the radical
+identity. Components group all factors of equal multiplicity; irreducible
+factorization and irreducibility certificates are outside this claim.
+
+Public sqf_list, sqf_part and sqf use primitive integer components over ZZ
+and monic components in the declared Lex order over QQ. Expression sqf_list
+and sqf default to primitive factors, allowing rational exterior content.
+sqf_part instead follows the whole-source coefficient domain and always
+discards scalar content: in an explicit ring, zero has part 0 and a nonzero
+constant has part 1. Scalar-only sqf_part requires explicit generators.
+An explicit ZZ square-free part or retained Poly factor list rejects a
+nonintegral source; extracting exterior content does not repair its domain.
+
+Source admission binds ordered typed Symbol/Dummy identities before any
+normalization, including distinct same-spelling symbols and unused axes.
+Explicitly declared Poly domains are checked in their original ring even when
+operation generators omit unused axes. sqf(Poly) preserves the Poly/PurePoly
+class and original axes, then infers the admitted source's coefficient domain.
+
+The envelope is eight variables, total degree 256, 4096 terms per polynomial,
+4096-bit rational components, and source size 4096/depth 64. General nonmonomial
+GCDs also require an auxiliary variable within the existing eight-variable
+ambient bound; monomial and direct cases can use all eight original axes.
+Each phase has a cumulative budget of 20 million compute units and 128 MiB
+of logical allocation through nested GCDs and publication. Unsupported
+domains, original poles and exhaustion publish no partial checked result.
+The composition receipt is immutable and in-process, not a new portable
+proof family or a claim of complete general multivariate factorization.
+
 ## Complete bounded prime-field factorizations
 
 The native polynomial lane factors univariate polynomials over F_p through
