@@ -475,11 +475,41 @@ fn digest_consistent_false_proof_is_refused_by_mathematical_reverification() {
         poisoned_record.payload_digest, record.payload_digest,
         "payload digest must track the poisoned bytes"
     );
+    let poisoned_wire = poisoned_record.to_wire().expect("poisoned wire");
+    // The content address binds the digest and payload length too. Replacing
+    // only the bytes at the original name would test storage refusal instead
+    // of the runtime's independent mathematical verification.
+    let poisoned_name = format!(
+        "{}-{}.record",
+        fsym_durable::hex_lower(&poisoned_record.record_digest),
+        poisoned_record.payload.len()
+    );
+    let poisoned_path = record_path.with_file_name(&poisoned_name);
+    fs::write(record_path, &poisoned_wire).expect("install poisoned record");
+    fs::rename(record_path, &poisoned_path).expect("update poisoned content address");
+
+    let marker_path = marker_stage(&marker_base, "committed");
+    let mut marker: Value =
+        serde_json::from_slice(&fs::read(&marker_path).expect("committed marker"))
+            .expect("committed marker json");
+    marker["handle"] = Value::String(poisoned_name);
     fs::write(
-        record_path,
-        poisoned_record.to_wire().expect("poisoned wire"),
+        &marker_path,
+        serde_json::to_vec(&marker).expect("poisoned marker json"),
     )
-    .expect("install poisoned record");
+    .expect("update poisoned marker");
+
+    // Prove this fixture passes the complete storage boundary before the
+    // fresh process attempts to reverify its false derivations.
+    let store = FileStore::open(&store_root).expect("poisoned store");
+    let loaded = store
+        .load_committed(record.universe_id, &record.payload_schema)
+        .expect("digest-consistent poison must pass storage readback")
+        .expect("poisoned committed record");
+    assert_eq!(loaded, poisoned_record, "poisoned readback must be exact");
+    loaded
+        .validate(record.universe_id, &record.dependencies)
+        .expect("poisoned record must preserve universe and dependency bindings");
 
     let output = run_resume("file", &store_root, &marker_base, "committed");
     assert!(
@@ -492,9 +522,8 @@ fn digest_consistent_false_proof_is_refused_by_mathematical_reverification() {
         stderr.contains("resumed race refused"),
         "refusal must come from mathematical reverification, got: {stderr}"
     );
-    let poisoned_wire = poisoned_record.to_wire().expect("poisoned wire");
     assert!(
-        fs::read(record_path).expect("record unchanged") == poisoned_wire,
+        fs::read(&poisoned_path).expect("record unchanged") == poisoned_wire,
         "the poisoned record is evidence and must be preserved, not cleaned"
     );
     fs::remove_dir_all(&store_root).expect("cleanup poison store");

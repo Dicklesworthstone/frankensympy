@@ -50,6 +50,9 @@ def simplify(expr: Any, **kwargs: Any) -> Any:
 
     original = expr
     expr = _core_simplify(expr)
+    rebased = _positive_rational_symbol_powers(expr)
+    if rebased != expr:
+        expr = _core_simplify(rebased)
     if isinstance(expr, Mul):
         for f in expr.args:
             if (
@@ -60,6 +63,82 @@ def simplify(expr: Any, **kwargs: Any) -> Any:
             ):
                 return _maybe_fuse_rational_add(cancel(expr))
     return _shortest(original, _maybe_fuse_rational_add(expr))
+
+
+def _positive_rational_symbol_powers(expr: Any) -> Any:
+    """Normalize a**(k*z) to (a**k)**z for positive rational a and integer k.
+
+    A positive real base has a real principal logarithm, so the identity
+    holds even for a complex symbol z. Negative, zero, symbolic and floating
+    bases stay unchanged. This optional public simplification runs after
+    existing native source admission; it does not add a proof-kernel rule.
+    """
+    from ..core import Dummy, Half, NegativeOne, One, Zero, _native, _native_expr
+
+    arithmetic = (Add, Mul, Pow)
+    if type(expr) not in arithmetic:
+        return expr
+    # Borrow the complete native source before exporting any Python .args:
+    # the existing rational-arithmetic preflight bounds nodes, depth, scalar
+    # bits and symbol names without cloning children. Its shape/size refusal
+    # only declines this optional fold; original native admission ran first.
+    native_source = _native_expr(expr)
+    try:
+        _native.ideal_source_preflight_native(native_source)
+    except ValueError as exc:
+        if str(exc) not in (
+            "ideal source exceeds its bounded expression envelope",
+            "ideal coefficient exceeds 4096 bits",
+            "ideal generator names exceed 65536 bytes",
+            "ideal operations require exact rational polynomial expressions",
+        ):
+            raise
+        return expr
+
+    integers = (Integer, Zero, One, NegativeOne)
+    rationals = integers + (Rational, Half)
+
+    def visit(node):
+        if type(node) not in arithmetic:
+            return node
+        children = tuple(visit(child) for child in node.args)
+        if children != node.args:
+            node = type(node)(*children)
+        if type(node) is not Pow:
+            return node
+        base, exponent = node.args
+        if type(base) not in rationals or type(exponent) is not Mul:
+            return node
+        factors = exponent.args
+        if len(factors) != 2:
+            return node
+        if type(factors[0]) in integers and type(factors[1]) in (Symbol, Dummy):
+            coefficient, symbol = factors
+        elif type(factors[1]) in integers and type(factors[0]) in (Symbol, Dummy):
+            symbol, coefficient = factors
+        else:
+            return node
+        numerator = base.p
+        denominator = base.q
+        power = coefficient.p
+        magnitude = abs(power)
+        if numerator <= 0 or denominator <= 0 or power in (0, 1):
+            return node
+        # Bound scalar work before any exact power is materialized. These
+        # conservative bit bounds apply to both numerator and denominator.
+        if (
+            magnitude > 1024
+            or max(numerator.bit_length(), denominator.bit_length()) * magnitude > 4096
+        ):
+            return node
+        numerator_power = numerator ** magnitude
+        denominator_power = denominator ** magnitude
+        if power < 0:
+            numerator_power, denominator_power = denominator_power, numerator_power
+        new_base = Rational(numerator_power, denominator_power)
+        return Pow(new_base, symbol)
+
+    return visit(expr)
 
 
 def _count_ops(e: Any) -> int:

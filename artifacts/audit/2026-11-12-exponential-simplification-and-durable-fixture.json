@@ -1,0 +1,39 @@
+{
+  "date": "2026-11-12",
+  "base_commit": "c4b88a21bb29b14cbfd4bbd43dcc5bd9d72b1016",
+  "exponential_simplification": {
+    "scope": "Optional public simplify fold a**(k*z) -> (a**k)**z for positive exact rational a, exact integer k and exact typed Symbol/Dummy z.",
+    "reason": "Baseline recurrence residual -8*2**(2*n)+8*4**n was not recognized as zero despite the correct closed-form solution.",
+    "bounds": "Existing borrowed source preflight caps nodes4096, depth64, scalar components4096 bits and symbol-name bytes65536 before child export; |k|<=1024 and conservative numerator/denominator power sizes<=4096 bits before exact power work.",
+    "failures": "Only four exact documented native structural/size refusals decline this optional fold. Other ValueError, MemoryError, RuntimeError and bridge failures propagate; original native source admission runs first.",
+    "proof_scope": "No native simplifier proof rule or certificate claim is added.",
+    "new_tests": 8,
+    "existing_recurrence_expectations": "unchanged",
+    "independent_review": "mathematical rule, typed identity, bounds, source admission and failure propagation reviewed",
+    "execution": "pending"
+  },
+  "durable_fixture": {
+    "observed_job": 131100413939,
+    "test": "digest_consistent_false_proof_is_refused_by_mathematical_reverification",
+    "diagnosis": "Fixture re-digested poisoned bytes but retained the old digest/length filename; storage correctly refused the stale content address before mathematical verification.",
+    "correction": "Use the poisoned record's canonical filename and marker; explicitly assert exact storage readback and original universe/dependency validation before the existing fresh-process mathematical-refusal and preserved-evidence assertions.",
+    "production_integrity_checks": "unchanged",
+    "execution": "pending"
+  },
+  "observed_validation": {
+    "baseline_commit": "19ba7f32689945d9b1f23b29ec9541490b0ec274",
+    "passed": [
+      "planning integrity",
+      "pinned formatting",
+      "workspace all-target check and strict Clippy",
+      "selected native regressions",
+      "full native Python extension build",
+      "911 focused Python tests",
+      "3466 tests in the broader Python suite"
+    ],
+    "baseline_failures": "Four broad public failures and one durable workspace fixture failure were observed. Corrections are recorded in0e75c01, c4b88a2 and this commit; reruns are required.",
+    "new_feature_validation": "GCD fmt diagnostics and its owned/borrowed compile error were fixed from exact CI logs. Final GCD/series/public execution and remaining pinned formatting/check/Clippy gates are pending queued GitHub Actions runs.",
+    "local_environment": "Execution service is unavailable; no local rerun success is claimed."
+  },
+  "planning": "Only fra-7kf notes and updated_at changed; no status, priority, dependency or profile/claim-tier promotion."
+}

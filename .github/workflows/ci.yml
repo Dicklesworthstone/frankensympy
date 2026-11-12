@@ -366,6 +366,7 @@ jobs:
               "python/tests/test_inverse_hyperbolic_numeric.py",
               "python/tests/test_error_function_numeric.py",
               "python/tests/test_exact_dsolve.py",
+              "python/tests/test_positive_rational_power_simplification.py",
               "python/tests/test_recurrence_integrity.py",
               "python/tests/test_recurrence_forcing.py",
               "python/tests/test_surface.py::SurfaceTests::test_rsolve_and_complex_evalf",
