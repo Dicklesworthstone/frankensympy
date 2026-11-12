@@ -1562,7 +1562,7 @@ def sqf(p: Any, x: Any = None, *gens: Any, **kwargs: Any) -> Any:
         result = terms[0]
         for term in terms[1:]:
             result *= term
-        return scale*result if scale != 1 else result
+        return result*scale if scale != 1 else result
     return _multivariate_square_free(p, "expr", gens=generators, _include_all=False, **kwargs)
 
 

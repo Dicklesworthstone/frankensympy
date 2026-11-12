@@ -320,10 +320,12 @@ def test_eight_axis_monomial_decomposition_retains_unused_generators():
     assert part.gens == axes and part.as_expr() == axes[0]*axes[-1]
 
 
-def test_prime_field_square_free_expression_entry_retains_its_polynomial_result():
+@pytest.mark.parametrize("modulus", [5, 7])
+@pytest.mark.parametrize("scale", [1, 2, -1, -2])
+def test_prime_field_square_free_expression_entry_retains_its_polynomial_result(modulus, scale):
     x = sp.Symbol("sqf_modular_adjacent")
-    source = sp.Poly(2*(x + 1)**3, x, modulus=5)
+    source = sp.Poly(scale*(x + 1)**3, x, modulus=modulus)
     result = sp.sqf(source)
     assert type(result) is sp.Poly
-    assert result.gens == (x,) and result.get_modulus() == 5
+    assert result.gens == (x,) and result.get_modulus() == modulus
     assert result == source
