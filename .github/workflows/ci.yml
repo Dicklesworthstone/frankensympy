@@ -176,7 +176,7 @@ jobs:
           cargo test --locked -p fsym-calculus --test exponential_summation --test geometric_summation --test rational_summation -j1
           cargo test --locked -p fsym-solvers --test linear_ode_system --test polynomial_ode_system --test general_ode_system --test forced_ode_system --test exact_ode --test ode_radicals -j1
           cargo test --locked -p fsym-solvers --test linear_pde --test linear_pde_elementary -j1
-          cargo test --locked -p fsym-calculus --test general_power_programs --test directional_series --test branch_cut_series --test generalized_series --test complex_modulus_series --test series_coefficient_obligations -j1
+          cargo test --locked -p fsym-calculus --test general_power_programs --test directional_series --test branch_cut_series --test generalized_series --test complex_modulus_series --test series_coefficient_obligations --test inverse_branch_series -j1
           cargo test --locked -p fsym-calculus --lib series::branch::tests -j1
           cargo test --locked -p fsym-calculus --test piecewise_programs -j1
           cargo test --locked -p fsym-calculus --test error_function_programs -j1
@@ -351,6 +351,7 @@ jobs:
               "python/tests/test_generalized_series.py",
               "python/tests/test_directional_series.py",
               "python/tests/test_complex_modulus_series.py",
+              "python/tests/test_inverse_branch_series.py",
               "python/tests/test_residue_meromorphic.py",
               "python/tests/test_polynomial_geometric_summation.py",
               "python/tests/test_exponential_summation.py",

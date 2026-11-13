@@ -1289,10 +1289,15 @@ pub fn limit_dir(
     }
     series::validate_modulus_inputs(expr, var, to, dir)
         .map_err(|error| CalculusError::Undetermined(error.to_string()))?;
+    series::validate_inverse_inputs(expr, var, to, dir)
+        .map_err(|error| CalculusError::Undetermined(error.to_string()))?;
     if carries_diff_sentinel(expr) {
         return Err(CalculusError::Undetermined(expr.to_string()));
     }
     if let Some(result) = rational_limits::try_limit(expr, var, to, dir) {
+        return result.map_err(|error| CalculusError::Undetermined(error.to_string()));
+    }
+    if let Some(result) = series::finite_inverse_limit(expr, var, to, dir) {
         return result.map_err(|error| CalculusError::Undetermined(error.to_string()));
     }
     if is_free_of(expr, var) {
@@ -1328,6 +1333,14 @@ fn continuous_shape(expr: &Expr, var: &Symbol, to: &Expr) -> bool {
                 "floor" | "ceiling" | "sign" | "frac" | "Heaviside" | "Piecewise" | "Mod"
             ) && (!matches!(name.as_str(), "log" | "ln" | "sqrt")
                 || (args.len() == 1 && branch_is_continuous(&args[0])))
+                && (!matches!(
+                    name.as_str(),
+                    "asin" | "acos" | "atan" | "acot" | "asinh" | "acosh" | "atanh" | "acoth"
+                ) || (args.len() == 1
+                    && series::inverse_is_continuous(
+                        name,
+                        &args[0].subs(&HashMap::from([(var.clone(), to.clone())])),
+                    )))
                 && args.iter().all(|arg| continuous_shape(arg, var, to))
         }
         Expr::Add(xs) | Expr::Mul(xs) => xs.iter().all(|arg| continuous_shape(arg, var, to)),
@@ -1418,6 +1431,8 @@ pub fn series_expansion_dir(
         ));
     }
     series::validate_modulus_inputs(expr, var, x0, direction)
+        .map_err(|error| CalculusError::NonDifferentiable(error.to_string()))?;
+    series::validate_inverse_inputs(expr, var, x0, direction)
         .map_err(|error| CalculusError::NonDifferentiable(error.to_string()))?;
     if let Some(result) = rational_limits::try_series(expr, var, x0, n, from_left) {
         return result.map_err(|error| CalculusError::NonDifferentiable(error.to_string()));

@@ -88,12 +88,27 @@ fn denominator_is_nonzero(
     }
     *checks += 1;
     branch::preflight(denominator).map_err(|_| unsupported())?;
-    // A nested modulus would re-enter this validator through leading_term.
-    // Such obligations need a separate bounded proof, not recursive retries.
+    // A nested modulus or inverse function can re-enter this validator through
+    // leading_term. Such obligations need a separate bounded proof rather
+    // than recursive retries that reset the denominator-work counter.
     let mut pending = vec![denominator];
     while let Some(node) = pending.pop() {
         match node {
-            Expr::Function(name, _) if matches!(name.as_str(), "Abs" | "abs") => {
+            Expr::Function(name, _)
+                if matches!(
+                    name.as_str(),
+                    "Abs"
+                        | "abs"
+                        | "asin"
+                        | "acos"
+                        | "atan"
+                        | "acot"
+                        | "asinh"
+                        | "acosh"
+                        | "atanh"
+                        | "acoth"
+                ) =>
+            {
                 return Err(unsupported());
             }
             Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => {
@@ -172,6 +187,9 @@ pub(super) fn validate_source(
                     "cot" | "csc" => Some("sin"),
                     "tanh" | "sech" => Some("cosh"),
                     "coth" | "csch" => Some("sinh"),
+                    "atan" | "acot" if fsym_core::assume::is_real(arg) => None,
+                    "atan" | "acot" => Some("inverse_circular"),
+                    "atanh" | "acoth" => Some("inverse_hyperbolic"),
                     _ => None,
                 };
                 if let Some(denominator) = denominator {
@@ -180,7 +198,9 @@ pub(super) fn validate_source(
                     match name.as_str() {
                         "log" | "ln" => denominators.push((arg, None)),
                         "exp" | "sin" | "cos" | "sinh" | "cosh" | "erf" | "erfc" | "sinc"
-                        | "Abs" | "abs" | "sqrt" | "re" | "im" | "conjugate" => {}
+                        | "Abs" | "abs" | "sqrt" | "re" | "im" | "conjugate" | "asin" | "acos"
+                        | "asinh" | "acosh" => {}
+                        "atan" | "acot" if fsym_core::assume::is_real(arg) => {}
                         _ if fsym_core::assume::is_real(node) => {}
                         _ => return Err(unsupported()),
                     }
@@ -191,7 +211,18 @@ pub(super) fn validate_source(
     }
     for (argument, function) in denominators.into_iter().rev() {
         if let Some(name) = function {
-            let denominator = Expr::Function(name.into(), vec![argument.clone()]);
+            let denominator = match name {
+                "inverse_circular" | "inverse_hyperbolic" => {
+                    let square = Expr::Pow(Arc::new(argument.clone()), Arc::new(Expr::from_i64(2)));
+                    let signed = if name == "inverse_hyperbolic" {
+                        Expr::Mul(vec![Expr::from_i64(-1), square])
+                    } else {
+                        square
+                    };
+                    Expr::Add(vec![Expr::from_i64(1), signed])
+                }
+                _ => Expr::Function(name.into(), vec![argument.clone()]),
+            };
             denominator_is_nonzero(&denominator, variable, checks)?;
         } else {
             denominator_is_nonzero(argument, variable, checks)?;
@@ -209,6 +240,18 @@ pub(crate) fn validate_inputs(
     point: &Expr,
     direction: Direction,
 ) -> Result<(), SeriesError> {
+    validate_function_inputs(source, variable, point, direction, &["Abs", "abs"])
+}
+
+/// Retain complete function arguments and the original point before public
+/// substitution can cancel held children or expand a small tree excessively.
+pub(super) fn validate_function_inputs(
+    source: &Expr,
+    variable: &Symbol,
+    point: &Expr,
+    direction: Direction,
+    names: &[&str],
+) -> Result<(), SeriesError> {
     if crate::unsafe_direct_substitution(source) || crate::unsafe_direct_substitution(point) {
         return Err(unsupported());
     }
@@ -216,14 +259,14 @@ pub(crate) fn validate_inputs(
     let mut arguments = Vec::new();
     while let Some(node) = pending.pop() {
         match node {
-            Expr::Function(name, args) if matches!(name.as_str(), "Abs" | "abs") => {
-                let [arg] = args.as_slice() else {
+            Expr::Function(name, args) if names.contains(&name.as_str()) => {
+                let [_arg] = args.as_slice() else {
                     return Err(unsupported());
                 };
                 if arguments.len() == MAX_DENOMINATOR_CHECKS {
                     return Err(unsupported());
                 }
-                arguments.push(arg);
+                arguments.push(node);
             }
             Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => pending.extend(args),
             Expr::Pow(base, exponent) => {

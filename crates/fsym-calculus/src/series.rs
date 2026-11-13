@@ -28,8 +28,13 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use thiserror::Error;
 
 mod branch;
+mod inverse;
 mod modulus;
 pub(crate) use branch::avoids_principal_cut;
+pub(crate) use inverse::{
+    continuous_at as inverse_is_continuous, finite_limit as finite_inverse_limit,
+    validate_inputs as validate_inverse_inputs,
+};
 pub(crate) use modulus::validate_inputs as validate_modulus_inputs;
 
 /// Preferred name of the fresh placeholder for `log(t)` in coefficients.
@@ -581,7 +586,10 @@ fn expand_pow(base: &Expr, exp: &Expr, target: &BigRational, ctx: &mut Ctx) -> S
 fn retry_until_term(e: &Expr, target: &BigRational, ctx: &mut Ctx) -> SResult<Series> {
     let mut t = target.clone();
     for _ in 0..6 {
-        t += q(4);
+        // Raw nested powers can have a high valuation, e.g. the x**50
+        // inside 1/(x**50). Increase precision geometrically while keeping
+        // the same bounded number of attempts and the series term cap.
+        t = (t.clone() + q(4)).max(t * q(2) + q(1));
         let s = expand_at(e, &t, ctx)?;
         if !s.terms.is_empty() {
             return Ok(s);
@@ -764,7 +772,7 @@ fn expand_function(name: &str, arg: &Expr, target: &BigRational, ctx: &mut Ctx) 
                 }
                 .truncate(target));
             }
-            analytic(name, arg, a, target, &ctx.log_symbol)
+            analytic(name, arg, a, target, ctx.t, &ctx.log_symbol)
         }
         "sin" | "cos" | "tan" | "cot" | "sec" | "csc" | "sinh" | "cosh" | "tanh" | "coth"
         | "sech" | "csch" | "asin" | "acos" | "asinh" | "acosh" | "atanh" | "acoth" | "erf"
@@ -773,7 +781,7 @@ fn expand_function(name: &str, arg: &Expr, target: &BigRational, ctx: &mut Ctx) 
             if a.valuation().is_some_and(|v| v.is_negative()) {
                 return Err(SeriesError::Essential(format!("{name}({arg})")));
             }
-            analytic(name, arg, a, target, &ctx.log_symbol)
+            analytic(name, arg, a, target, ctx.t, &ctx.log_symbol)
         }
         _ => Err(SeriesError::Unsupported(format!("{name}({arg})"))),
     }
@@ -784,6 +792,7 @@ fn analytic(
     arg: &Expr,
     a: Series,
     target: &BigRational,
+    variable: &Symbol,
     log_symbol: &Symbol,
 ) -> SResult<Series> {
     let a0 = a
@@ -796,6 +805,7 @@ fn analytic(
             "{name} of log term in {arg}"
         )));
     }
+    let (multiplier, offset) = inverse::continuation(name, arg, &a0, variable)?;
     let mut u = a;
     u.terms.remove(&BigRational::zero());
     let n = match u.valuation() {
@@ -808,13 +818,23 @@ fn analytic(
         }
         _ => 0,
     };
-    let coeffs = taylor_coefficients(name, &a0, n)?;
-    Series::compose(
+    let mut coeffs = taylor_coefficients(name, &a0, n)?;
+    if name == "acoth" && a0.is_zero() {
+        coeffs[0] =
+            rational_expr(q(1) / q(2)) * Expr::Const(Constant::I) * Expr::Const(Constant::Pi);
+    }
+    let mut result = Series::compose(
         &u,
         |k| coeffs.get(k).cloned().unwrap_or(Expr::from_i64(0)),
         target,
-    )
-    .map(|s| s.truncate(target))
+    )?;
+    if multiplier != 1 {
+        result = result.scale(&Expr::from_i64(i64::from(multiplier)));
+    }
+    if !offset.is_zero() {
+        result = result.add(&Series::constant(offset));
+    }
+    Ok(result.truncate(target))
 }
 
 /// Expand `e` in `t -> 0+` to absolute order `target`; `log(t)` in the
