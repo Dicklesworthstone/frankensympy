@@ -320,42 +320,63 @@ def _nfloat_tree(obj):
     return v
 
 
-def _filter_solve_assumptions(roots, symbol, snapshot):
-    """Remove only roots that contradict a captured scalar declaration.
+def _solve_assumption_snapshots(variables):
+    """Capture each requested coordinate before any system solver runs."""
+    from .assumptions._query import typed_symbol
+
+    return tuple(typed_symbol(variable) for variable in variables)
+
+
+def _filter_solve_system_assumptions(solutions, variables, snapshots):
+    """Remove whole solutions that contradict a captured declaration.
 
     These are compatibility assumption checks, not root-completeness proofs.
     The signed query boundary preserves unknown facts and the real-domain
-    meaning of nonzero; approximate evaluation never decides admission.
+    meaning of nonzero; approximate evaluation never decides admission. One
+    cumulative query budget covers every coordinate of every candidate tuple.
     """
     from .assumptions._query import QueryProblem, UnsupportedAssumptions, typed_symbol
     from .core import _surface_binding_key
 
-    binding, declarations = snapshot
-    current_binding, current_declarations = typed_symbol(symbol)
-    if (_surface_binding_key(current_binding) != _surface_binding_key(binding)
-            or current_declarations != declarations):
-        raise ValueError("solve variable assumptions changed during root generation")
-    if not declarations:
-        return roots
+    def unchanged(stage):
+        for symbol, (binding, declarations) in zip(variables, snapshots):
+            current_binding, current_declarations = typed_symbol(symbol)
+            if (_surface_binding_key(current_binding) != _surface_binding_key(binding)
+                    or current_declarations != declarations):
+                raise ValueError(f"solve variable assumptions changed during {stage}")
+
+    unchanged("root generation")
     problem = QueryProblem()
     admitted = []
-    for root in roots:
+    for solution in solutions:
+        if len(solution) != len(variables):
+            raise ValueError("solve result does not match its requested coordinates")
         compatible = True
-        for name, expected in declarations.items():
-            try:
-                observed = problem.answer(root, name, [{}])
-            except UnsupportedAssumptions:
-                observed = None
-            if type(observed) is bool and observed is not expected:
-                compatible = False
+        for root, (_, declarations) in zip(solution, snapshots):
+            for name, expected in declarations.items():
+                try:
+                    observed = problem.answer(root, name, [{}])
+                except UnsupportedAssumptions:
+                    observed = None
+                if type(observed) is bool and observed is not expected:
+                    compatible = False
+                    break
+            if not compatible:
                 break
         if compatible:
-            admitted.append(root)
-    current_binding, current_declarations = typed_symbol(symbol)
-    if (_surface_binding_key(current_binding) != _surface_binding_key(binding)
-            or current_declarations != declarations):
-        raise ValueError("solve variable assumptions changed during root admission")
+            admitted.append(solution)
+    # Recheck even coordinates in rejected rows and empty result sets. A
+    # generator or an assumption query may not silently rebind the request.
+    unchanged("root admission")
     return admitted
+
+
+def _filter_solve_assumptions(roots, symbol, snapshot):
+    """Apply the same tuple admission to the one-coordinate public shape."""
+    rows = _filter_solve_system_assumptions(
+        [(root,) for root in roots], (symbol,), (snapshot,),
+    )
+    return [row[0] for row in rows]
 
 
 def solve(expression, *symbols, **flags):
@@ -422,11 +443,25 @@ def solve(expression, *symbols, **flags):
         if not var_list:
             raise TypeError("at least one solve variable is required")
 
+        assumption_snapshots = (_solve_assumption_snapshots(var_list)
+                                if flags.get("check", True) else None)
+
         # Try linear solver first
         try:
             lin_sol = _linsolve(expression, *var_list)
+        except (ValueError, TypeError):
+            pass
+        else:
+            # Admission is outside the solver-dispatch exception handler:
+            # an exhausted query or changed declaration is terminal.
             if lin_sol:
                 sol_tuple = tuple(next(iter(lin_sol)))
+                if assumption_snapshots is not None:
+                    admitted = _filter_solve_system_assumptions(
+                        [sol_tuple], var_list, assumption_snapshots,
+                    )
+                    if not admitted:
+                        return (var_list, set()) if set_flag else []
                 # A free parameter is not an assignment in solve's mapping.
                 sol_dict = {s: v for s, v in zip(var_list, sol_tuple) if s != v}
                 if not sol_dict:
@@ -437,16 +472,20 @@ def solve(expression, *symbols, **flags):
                     return (var_list, {sol_tuple})
                 return sol_dict
             else:
+                if assumption_snapshots is not None:
+                    _filter_solve_system_assumptions([], var_list, assumption_snapshots)
                 return (var_list, set()) if set_flag else []
-        except (ValueError, TypeError):
-            pass
 
         # Fall back to polynomial system solver
         # Only an established no-solution result is empty. Unsupported
         # systems and faults must remain visible to the caller.
         sols = _sps(expression, *var_list)
+        if assumption_snapshots is not None:
+            sols = _filter_solve_system_assumptions(
+                sols or [], var_list, assumption_snapshots,
+            )
 
-        if sols is None:
+        if not sols:
             return (var_list, set()) if set_flag else []
 
         if dict_flag:
@@ -455,6 +494,7 @@ def solve(expression, *symbols, **flags):
             return (var_list, set(sols))
         return sols
 
+    original_expression = expression
     if type(expression) is Eq:
         expression = expression.lhs - expression.rhs
     expr = _wrap(_native_expr(expression))
@@ -473,10 +513,24 @@ def solve(expression, *symbols, **flags):
         from .solvers.polysys import solve_poly_system as _sps
         from .solvers.solvers import linsolve as _linsolve
 
+        assumption_snapshots = (_solve_assumption_snapshots(var_list)
+                                if flags.get("check", True) else None)
+        # Preserve held operands and retained Equality sides at the existing
+        # source-admission boundaries. Native wrapping alone loses owners.
+        system_source = original_expression if isinstance(original_expression, Basic) else expr
         try:
-            lin_sol = _linsolve([expr], *var_list)
+            lin_sol = _linsolve([system_source], *var_list)
+        except (ValueError, TypeError):
+            pass
+        else:
             if lin_sol:
                 sol_tuple = tuple(next(iter(lin_sol)))
+                if assumption_snapshots is not None:
+                    admitted = _filter_solve_system_assumptions(
+                        [sol_tuple], var_list, assumption_snapshots,
+                    )
+                    if not admitted:
+                        return (var_list, set()) if set_flag else []
                 sol_dict = {s: v for s, v in zip(var_list, sol_tuple) if s != v}
                 if not sol_dict:
                     return (var_list, set()) if set_flag else []
@@ -485,24 +539,42 @@ def solve(expression, *symbols, **flags):
                 if set_flag:
                     return (var_list, {sol_tuple})
                 return [sol_tuple]
-        except (ValueError, TypeError):
-            pass
+            if assumption_snapshots is not None:
+                _filter_solve_system_assumptions([], var_list, assumption_snapshots)
+            return (var_list, set()) if set_flag else []
 
         try:
-            sols = _sps([expr], *var_list)
+            sols = _sps([system_source], *var_list)
         except NotImplementedError:
             # Upstream: one equation in several symbols is solved for the
             # first symbol it contains; the others stay free.
             target = next((v for v in var_list if v in expr.free_symbols), None)
             if target is None:
+                if assumption_snapshots is not None:
+                    _filter_solve_system_assumptions([], var_list, assumption_snapshots)
                 return []
-            roots = solve(expr, target)
-            if dict_flag:
-                return [{target: r} for r in roots]
+            # This outer request owns admission across all coordinates. Keep
+            # scalar candidate generation unfiltered, including check=False,
+            # and do not turn dict/set output flags into a different shape.
+            scalar_flags = {name: value for name, value in flags.items()
+                            if name not in ("dict", "set")}
+            scalar_flags["check"] = False
+            roots = solve(system_source, target, **scalar_flags)
             tuples = [tuple(r if v == target else v for v in var_list) for r in roots]
+            if assumption_snapshots is not None:
+                tuples = _filter_solve_system_assumptions(
+                    tuples, var_list, assumption_snapshots,
+                )
+            if dict_flag:
+                target_index = var_list.index(target)
+                return [{target: row[target_index]} for row in tuples]
             if set_flag:
                 return (var_list, set(tuples))
             return tuples
+        if assumption_snapshots is not None:
+            sols = _filter_solve_system_assumptions(
+                sols or [], var_list, assumption_snapshots,
+            )
         if sols is not None:
             if dict_flag:
                 return [{sym: val for sym, val in zip(var_list, sol)} for sol in sols]

@@ -228,6 +228,7 @@ jobs:
               "python/tests/test_assumptions_soundness.py",
               "python/tests/test_assumptions_context_adversaries.py",
               "python/tests/test_solve_assumptions.py",
+              "python/tests/test_solve_system_assumptions.py",
               "python/tests/test_groebner_operations.py",
               "python/tests/test_exact_monotonicity.py",
               "python/tests/test_exact_function_range.py",
