@@ -1,11 +1,12 @@
 //! Scoped symbol assumption facts for algorithm lanes.
 //!
-//! String-keyed algorithm lanes (integration, limits, series) receive the
-//! caller's declared symbol facts (`positive`, `nonzero`, ...) as an explicit
-//! scope: [`with_facts`] installs them for the duration of one call on the
-//! current thread and removes them on exit (including unwinding). Queries
-//! derive only exact structural consequences of the declared facts; an
-//! unknown fact is never promoted to true or false.
+//! Algorithm lanes (integration, limits, series) receive the caller's declared
+//! symbol facts (`positive`, `nonzero`, ...) as an explicit scope:
+//! [`with_symbol_facts`] binds them to exact symbol identities for one call on
+//! the current thread and removes them on exit (including unwinding). The
+//! legacy [`with_facts`] entry point binds only plain, untagged symbols.
+//! Queries derive only exact structural consequences of consistent declared
+//! facts; unknown or contradictory facts cannot discharge a side condition.
 
 #![forbid(unsafe_code)]
 
@@ -15,7 +16,7 @@ use std::collections::HashMap;
 use crate::{Constant, Expr};
 use num_traits::{Signed, Zero};
 
-/// Declared facts about one symbol.
+/// Declared positive facts about one symbol; a false field means no declaration.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Facts {
     pub positive: bool,
@@ -28,6 +29,24 @@ pub struct Facts {
 }
 
 impl Facts {
+    /// Whether these declarations have incompatible exact sign constraints.
+    ///
+    /// Both nonnegative and nonpositive consistently describe zero, unless
+    /// nonzero is also declared. A positive/negative declaration conflicts
+    /// with the opposite closed half-line even if this record was built
+    /// directly instead of through [`Self::from_names`].
+    ///
+    /// Scoped records retain contradictions for diagnostics. The legacy
+    /// Boolean/Option predicate helpers cannot express a contradictory
+    /// outcome, so they refuse to discharge facts from such a record. Call
+    /// this method on [`facts_of_symbol`]'s result to distinguish that refusal
+    /// from an absent or merely unknown declaration.
+    pub fn is_contradictory(self) -> bool {
+        (self.positive && (self.negative || self.nonpositive))
+            || (self.negative && self.nonnegative)
+            || (self.nonzero && self.nonnegative && self.nonpositive)
+    }
+
     /// Facts from upstream assumption names; unknown names are ignored.
     pub fn from_names<S: AsRef<str>>(names: &[S]) -> Self {
         let mut f = Facts::default();
@@ -82,7 +101,10 @@ pub fn with_symbol_facts<R>(facts: HashMap<crate::Symbol, Facts>, f: impl FnOnce
     f()
 }
 
-/// Runs `f` with `facts` in scope on this thread.
+/// Runs `f` with `facts` for plain, untagged symbols in scope on this thread.
+///
+/// A name does not authorize facts about a distinct identity-bearing atom
+/// with the same printed name; use [`with_symbol_facts`] to name that atom.
 pub fn with_facts<R>(facts: HashMap<String, Facts>, f: impl FnOnce() -> R) -> R {
     let sym_facts = facts
         .into_iter()
@@ -91,15 +113,17 @@ pub fn with_facts<R>(facts: HashMap<String, Facts>, f: impl FnOnce() -> R) -> R 
     with_symbol_facts(sym_facts, f)
 }
 
-/// Facts declared for `symbol` in the innermost scope that mentions it (or its plain name fallback).
+/// Facts declared for this exact `symbol` in the innermost scope that mentions it.
+///
+/// The raw record is retained even when [`Facts::is_contradictory`] is true.
+/// Neither a plain name nor another identity-bearing atom with the same name
+/// can shadow or supply this symbol's facts.
 pub fn facts_of_symbol(symbol: &crate::Symbol) -> Option<Facts> {
-    let plain = crate::Symbol::new(&symbol.name);
-    CONTEXT.with(|c| {
-        c.borrow()
-            .iter()
-            .rev()
-            .find_map(|m| m.get(symbol).copied().or_else(|| m.get(&plain).copied()))
-    })
+    CONTEXT.with(|c| c.borrow().iter().rev().find_map(|m| m.get(symbol).copied()))
+}
+
+fn consistent_facts_of_symbol(symbol: &crate::Symbol) -> Option<Facts> {
+    facts_of_symbol(symbol).filter(|facts| !facts.is_contradictory())
 }
 
 /// Facts declared for `name` in the innermost scope that mentions it.
@@ -130,7 +154,7 @@ pub fn sign(e: &Expr) -> Option<i8> {
         Expr::Const(Constant::NegativeInfinity) => Some(-1),
         Expr::Const(_) => None,
         Expr::Sym(s) => {
-            let f = facts_of_symbol(s)?;
+            let f = consistent_facts_of_symbol(s)?;
             if f.positive {
                 Some(1)
             } else if f.negative {
@@ -182,7 +206,7 @@ pub fn is_real(e: &Expr) -> bool {
     match e {
         Expr::Integer(_) | Expr::Rational(_) => true,
         Expr::Const(c) => matches!(c, Constant::Pi | Constant::E),
-        Expr::Sym(s) => facts_of_symbol(s).is_some_and(|f| f.real),
+        Expr::Sym(s) => consistent_facts_of_symbol(s).is_some_and(|f| f.real),
         Expr::Add(xs) | Expr::Mul(xs) => xs.iter().all(is_real),
         Expr::Pow(b, x) => {
             is_real(b)
@@ -206,7 +230,7 @@ pub fn is_real(e: &Expr) -> bool {
 pub fn is_integer(e: &Expr) -> bool {
     match e {
         Expr::Integer(_) => true,
-        Expr::Sym(s) => facts_of_symbol(s).is_some_and(|f| f.integer),
+        Expr::Sym(s) => consistent_facts_of_symbol(s).is_some_and(|f| f.integer),
         Expr::Add(xs) | Expr::Mul(xs) => xs.iter().all(is_integer),
         Expr::Pow(b, x) => {
             is_integer(b) && matches!(x.as_ref(), Expr::Integer(k) if !k.is_negative())
@@ -221,7 +245,7 @@ pub fn is_nonzero(e: &Expr) -> bool {
         return s != 0;
     }
     match e {
-        Expr::Sym(s) => facts_of_symbol(s).is_some_and(|f| f.nonzero),
+        Expr::Sym(s) => consistent_facts_of_symbol(s).is_some_and(|f| f.nonzero),
         Expr::Mul(xs) => xs.iter().all(is_nonzero),
         Expr::Pow(b, x) => {
             is_nonzero(b) && matches!(x.as_ref(), Expr::Integer(_) | Expr::Rational(_))
