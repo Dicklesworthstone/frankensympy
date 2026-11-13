@@ -156,6 +156,50 @@ same `ParametricFamilyReceipt` accepted type. Export consumes ordinary work;
 receiving Session validation and independent replay consume protected verifier
 compute on the same cumulative ledger.
 
+## Reuse checked residual programs and matrix-free derivatives
+
+`CompileResidualSystem` retains the original registered residuals, their ordered
+coordinates, independently checked symbolic derivatives and admitted binary64
+programs. `EvaluateResidualJacobian` reuses that program for residual and sparse
+Jacobian values. `EvaluateJacobianVectorProduct` and
+`EvaluateJacobianTransposeVectorProduct` return only the requested sparse
+linear-map product; they do not construct a dense Jacobian or transpose.
+
+Send the following to one process:
+
+```json
+{"id":"register","type":"RegisterResidualSystem","payload":{"schema_version":1,"system":"system:products","residuals":["x^2+y","sin(y)","7"],"variables":["y","x"]}}
+{"id":"compile","type":"CompileResidualSystem","payload":{"schema_version":1,"system":"system:products","program":"program:products"}}
+{"id":"forward","type":"EvaluateJacobianVectorProduct","payload":{"schema_version":1,"program":"program:products","point":["0","2"],"direction":["3","-2"]}}
+{"id":"transpose","type":"EvaluateJacobianTransposeVectorProduct","payload":{"schema_version":1,"program":"program:products","point":["0","2"],"weights":["2","-3","11"]}}
+{"id":"release","type":"ReleaseCompiledResidualSystem","payload":{"schema_version":1,"program":"program:products"}}
+```
+
+At this point the Jacobian in the declared coordinate order is
+`[[1,4],[1,0],[0,0]]`. The expected forward product is `[-5,3,0]`; the
+expected transpose product is `[-1,8]`. Directions follow variable order,
+whereas transpose weights follow the complete original residual order,
+including constant residuals.
+
+Compilation reports the formal symbolic derivative and bytecode provenance
+claim. All three numerical evaluation operations report `outcome: "approximate"`
+and `numeric_model: "binary64"`, with no numeric-certificate evidence field.
+Finite decimal strings are rounded to binary64; fractions such as `"1/2"`,
+nonfinite values, dimension mismatches and strings longer than 512 bytes refuse.
+Original residual and derivative domains are rechecked on every execution,
+including zero directions or zero weights. Overflow refuses the whole result.
+
+Programs are session-local and immutable even after workspace rebinding. At
+most 32 residual programs may be resident. Compilation uses ordinary resources
+for generation and protected resources for independent acceptance. Repeated
+evaluation and response admission consume the same cumulative session budget.
+`ReleaseCompiledResidualSystem` frees capacity without refunding spent work;
+all later requests against that released handle return `unknown_object`.
+
+Rust callers use the corresponding `CertificationRequest` variants through
+`Session::certification_request`, or borrow the checked program through
+`Session::compiled_residual_system` for native metered execution.
+
 ## Enclose an objective and certify a stationary point
 
 Register a scalar objective with its explicit coordinate order. Enclosure and

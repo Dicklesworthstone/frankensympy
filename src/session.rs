@@ -1116,6 +1116,8 @@ impl Session {
                 "RegisterResidualSystem"
                     | "CompileResidualSystem"
                     | "EvaluateResidualJacobian"
+                    | "EvaluateJacobianVectorProduct"
+                    | "EvaluateJacobianTransposeVectorProduct"
                     | "ReleaseCompiledResidualSystem"
                     | "EncloseResidualJacobian"
                     | "CertifyRootBox"

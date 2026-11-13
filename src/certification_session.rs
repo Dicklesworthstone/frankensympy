@@ -409,6 +409,21 @@ pub enum CertificationRequest {
         program: CompiledResidualSystemId,
         point: Vec<String>,
     },
+    /// Approximate J(point) times an ordered variable direction, with no dense
+    /// Jacobian allocation and with all original source guards retained.
+    EvaluateJacobianVectorProduct {
+        schema_version: u32,
+        program: CompiledResidualSystemId,
+        point: Vec<String>,
+        direction: Vec<String>,
+    },
+    /// Approximate J(point)^T times weights in the original residual order.
+    EvaluateJacobianTransposeVectorProduct {
+        schema_version: u32,
+        program: CompiledResidualSystemId,
+        point: Vec<String>,
+        weights: Vec<String>,
+    },
     ReleaseCompiledResidualSystem {
         schema_version: u32,
         program: CompiledResidualSystemId,
@@ -753,6 +768,8 @@ impl CertificationRequest {
         match self {
             Self::CompileResidualSystem { schema_version, .. }
             | Self::EvaluateResidualJacobian { schema_version, .. }
+            | Self::EvaluateJacobianVectorProduct { schema_version, .. }
+            | Self::EvaluateJacobianTransposeVectorProduct { schema_version, .. }
             | Self::ReleaseCompiledResidualSystem { schema_version, .. }
             | Self::RegisterParametricProblem { schema_version, .. }
             | Self::CertifyParametricRoot { schema_version, .. }
@@ -877,6 +894,28 @@ pub enum CertificationResponse {
         residuals: Vec<f64>,
         jacobian_pattern: Vec<(usize, usize)>,
         jacobian: Vec<f64>,
+        context_digest: [u8; 32],
+    },
+    JacobianVectorProductEvaluated {
+        schema_version: u32,
+        system: ResidualSystemId,
+        program: CompiledResidualSystemId,
+        outcome: &'static str,
+        numeric_model: &'static str,
+        point: Vec<f64>,
+        direction: Vec<f64>,
+        product: Vec<f64>,
+        context_digest: [u8; 32],
+    },
+    JacobianTransposeVectorProductEvaluated {
+        schema_version: u32,
+        system: ResidualSystemId,
+        program: CompiledResidualSystemId,
+        outcome: &'static str,
+        numeric_model: &'static str,
+        point: Vec<f64>,
+        weights: Vec<f64>,
+        product: Vec<f64>,
         context_digest: [u8; 32],
     },
     CompiledResidualSystemReleased {
@@ -2360,6 +2399,22 @@ impl CertificationState {
             CertificationRequest::EvaluateResidualJacobian { program, point, .. } => {
                 self.compiled.evaluate(program, &point, budget)
             }
+            CertificationRequest::EvaluateJacobianVectorProduct {
+                program,
+                point,
+                direction,
+                ..
+            } => self
+                .compiled
+                .jacobian_product(program, &point, &direction, false, budget),
+            CertificationRequest::EvaluateJacobianTransposeVectorProduct {
+                program,
+                point,
+                weights,
+                ..
+            } => self
+                .compiled
+                .jacobian_product(program, &point, &weights, true, budget),
             CertificationRequest::ReleaseCompiledResidualSystem { program, .. } => {
                 self.compiled.release(program, budget)
             }

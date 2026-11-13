@@ -138,7 +138,7 @@ impl CompiledState {
             .programs
             .get(&id)
             .ok_or(CertificationSessionError::UnknownCompiledSystem)?;
-        let point = point_values(point, resident.program.num_vars(), budget)?;
+        let point = numeric_values(point, resident.program.num_vars(), "point", budget)?;
         let evaluated = resident
             .program
             .evaluate_sparse_with_meter(&point, budget)?;
@@ -158,6 +158,68 @@ impl CompiledState {
             jacobian_pattern: resident.program.jacobian_pattern().to_vec(),
             jacobian: evaluated.jacobian,
             context_digest: resident.context_digest,
+        };
+        admit_response(&response, budget)?;
+        Ok(response)
+    }
+
+    /// Use the checked sparse programs directly, without materializing or
+    /// returning a Jacobian. Even zero vectors retain all original source and
+    /// derivative domain checks in the native product evaluator.
+    pub(super) fn jacobian_product(
+        &self,
+        id: CompiledResidualSystemId,
+        point: &[String],
+        vector: &[String],
+        transpose: bool,
+        budget: &mut Budget,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        budget.checkpoint()?;
+        let resident = self
+            .programs
+            .get(&id)
+            .ok_or(CertificationSessionError::UnknownCompiledSystem)?;
+        let point = numeric_values(point, resident.program.num_vars(), "point", budget)?;
+        let (expected, lane) = if transpose {
+            (resident.program.num_residuals(), "weights")
+        } else {
+            (resident.program.num_vars(), "direction")
+        };
+        let vector = numeric_values(vector, expected, lane, budget)?;
+        let product = if transpose {
+            resident
+                .program
+                .jacobian_transpose_vector_product_with_meter(&point, &vector, budget)?
+        } else {
+            resident
+                .program
+                .jacobian_vector_product_with_meter(&point, &vector, budget)?
+        };
+        charge(budget, 1, resident.source.as_str().len())?;
+        let response = if transpose {
+            CertificationResponse::JacobianTransposeVectorProductEvaluated {
+                schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                system: resident.source.clone(),
+                program: id,
+                outcome: "approximate",
+                numeric_model: "binary64",
+                point,
+                weights: vector,
+                product,
+                context_digest: resident.context_digest,
+            }
+        } else {
+            CertificationResponse::JacobianVectorProductEvaluated {
+                schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                system: resident.source.clone(),
+                program: id,
+                outcome: "approximate",
+                numeric_model: "binary64",
+                point,
+                direction: vector,
+                product,
+                context_digest: resident.context_digest,
+            }
         };
         admit_response(&response, budget)?;
         Ok(response)
@@ -183,15 +245,16 @@ impl CompiledState {
     }
 }
 
-fn point_values(
+fn numeric_values(
     values: &[String],
     expected: usize,
+    lane: &'static str,
     budget: &mut Budget,
 ) -> Result<Vec<f64>, CertificationSessionError> {
     charge(budget, 1, 0)?;
     if values.len() != expected {
         return Err(ResidualEvaluationError::Dimension {
-            lane: "point",
+            lane,
             expected,
             actual: values.len(),
         }
@@ -219,7 +282,7 @@ fn point_values(
     Ok(result)
 }
 
-fn compile_error_code(error: &CompileError) -> &'static str {
+pub(super) fn compile_error_code(error: &CompileError) -> &'static str {
     match error {
         CompileError::Meter(MeterError::Cancelled) => "cancelled",
         CompileError::Meter(MeterError::Budget(_)) => "budget_exhausted",
@@ -260,7 +323,7 @@ pub(super) fn compilation_error_code(error: &VerifiedCompilationError) -> &'stat
     }
 }
 
-fn eval_error_code(error: &EvalError, refused: &'static str) -> &'static str {
+pub(super) fn eval_error_code(error: &EvalError, refused: &'static str) -> &'static str {
     match error {
         EvalError::Meter(MeterError::Cancelled) => "cancelled",
         EvalError::Meter(MeterError::Budget(_)) => "budget_exhausted",
