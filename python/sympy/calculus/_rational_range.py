@@ -14,7 +14,9 @@ from ..core import (
     Add, Dummy, Half, Integer, Mul, NegativeOne, One, Pow, Rational, Symbol,
     Zero, _native, _native_expr, _require_closed_function_class, oo,
 )
-from ..sets.sets import _wrap_set
+from ..sets.sets import (
+    EmptySet, Interval, Reals, Set, _EMPTY_SET, _REALS, _wrap_set,
+)
 from ..core._function_capabilities import _implementation, _owner_matches, _owner_record
 from .singularities import (
     _get_symbol_and_interval, _monotonicity_chart, _monotonicity_interval,
@@ -26,6 +28,8 @@ _MISSING = object()
 _EXACT_VALUE_NAMES = (
     "p", "q", "__int__", "__neg__", "__truediv__", "__rtruediv__",
     "__add__", "__radd__", "__mul__", "__rmul__", "__pow__", "__str__",
+    "_assumptions", "_dummy_name", "_dummy_number", "name", "dummy_index",
+    "_native_set", "start", "end", "left_open", "right_open",
 )
 
 
@@ -57,13 +61,24 @@ def _surface_matches(owner, surface, exact):
 _SURFACE_OWNERS = tuple(
     (owner, _owner_record(owner), _exact_value_record(owner))
     for owner in dict.fromkeys(
-        owner for cls in (Add, Mul, Pow, Symbol, Dummy, *_ATOMS)
-        for owner in type.__dict__["__mro__"].__get__(cls)
+        owner for cls in (Add, Mul, Pow, Symbol, Dummy, *_ATOMS, Interval, Reals, EmptySet)
+        for owner in (*type.__dict__["__mro__"].__get__(cls),
+                      *type.__dict__["__mro__"].__get__(type(cls)))
     )
 )
 
 _NEGATIVE_INFINITY = (-1, None)
 _POSITIVE_INFINITY = (1, None)
+STATIONARY_UNSUPPORTED = object()
+_STATIONARY_DOMAIN_SLOT = Set.__dict__["_native_set"]
+
+
+def _require_original_surface():
+    if any(not _surface_matches(owner, surface, exact)
+           for owner, surface, exact in _SURFACE_OWNERS):
+        raise NotImplementedError(
+            "exact rational range requires the original built-in arithmetic implementations"
+        )
 
 
 def _finite(value):
@@ -337,23 +352,21 @@ def _intersection(left, right, work):
     return lower, upper, left_open, right_open
 
 
-def _admit(expression, symbol, domain, work):
+def _admit(expression, symbol, domain, work, guard=None):
     # Admission precedes both source args access and interval lifting. Even an
     # already-constructed Interval must not invoke a changed CRootOf.is_real,
     # poly or index implementation while recovering its native endpoints.
     from ..polys.rootoftools import CRootOf
 
     _require_closed_function_class(CRootOf)
-    if any(not _surface_matches(owner, surface, exact)
-           for owner, surface, exact in _SURFACE_OWNERS):
-        raise NotImplementedError(
-            "exact rational range requires the original built-in arithmetic implementations"
-        )
+    _require_original_surface()
     expression, domain, symbol = _get_symbol_and_interval(expression, domain, symbol)
     interval = _monotonicity_interval(domain)
     if interval is None:
         return expression, symbol, []
     chart = _monotonicity_chart(Mul(0, expression, evaluate=False), symbol, ">=")
+    if guard is not None:
+        guard()
     pieces = []
     for piece in _chart_pieces(chart):
         clipped = _intersection(piece, interval, work)
@@ -446,6 +459,142 @@ def _range_pieces(expression, symbol, domain, work):
             pieces.append((lo, hi, bool(lo[0]) or not lo_attained,
                            bool(hi[0]) or not hi_attained))
     return _merge(pieces, work)
+
+
+def rational_stationary_points(expression, symbol, domain):
+    """Complete stationary points of an admitted original rational source.
+
+    Nonrational syntax and non-interval domains retain the existing public
+    solver route, selected before any native mathematical check. Once this
+    lane admits a source, failed checks and exhausted bounds are terminal.
+    The derivative's two complete sign charts establish its exact zero set;
+    the original domain is intersected independently before publication.
+    """
+    from ..core import Expr, _wrap, diff_with_receipt
+    from ..polys.rootoftools import CRootOf
+
+    if (domain is not None and domain is not Reals and domain is not EmptySet
+            and type(domain) not in (Interval, Reals, EmptySet)):
+        return STATIONARY_UNSUPPORTED
+    if type(expression) in (int, str, Expr, _native.Expr):
+        _require_original_surface()
+        expression = _wrap(_native_expr(expression))
+    kinds = (Add, Mul, Pow, Symbol, Dummy, *_ATOMS)
+    if type(expression) not in kinds:
+        return STATIONARY_UNSUPPORTED
+    _require_original_surface()
+    _require_closed_function_class(CRootOf)
+    domain = _REALS if domain is None or domain is Reals else _EMPTY_SET if domain is EmptySet else domain
+    domain_native = _STATIONARY_DOMAIN_SLOT.__get__(domain, Set)
+    if type(domain_native) is not _native.SymSet:
+        raise NotImplementedError("stationary points require valid original interval storage")
+    pending = [(expression, 0)]
+    records = []
+    symbols = set()
+
+    def snapshot(node):
+        # Canonical nodes may lift fresh child wrappers on every args read.
+        # Retain their actual slots, including absent held/structural slots,
+        # rather than requiring those temporary wrappers to have one identity.
+        storage = []
+        for name in ("_args", "_surface_args", "_struct_args", "_assumptions",
+                     "_dummy_name", "_dummy_number"):
+            try:
+                value = object.__getattribute__(node, name)
+            except AttributeError:
+                value = _MISSING
+            storage.append((name, value))
+        facts = None
+        if type(node) in (Symbol, Dummy):
+            assumptions = object.__getattribute__(node, "_assumptions")
+            if (type(assumptions) is not dict or len(assumptions) > 64
+                    or any(type(key) is not str or type(value) is not bool
+                           for key, value in assumptions.items())):
+                raise NotImplementedError("stationary points require literal symbol assumptions")
+            facts = tuple(sorted(assumptions.items()))
+        return node, _native_expr(node), storage, facts
+
+    while pending:
+        node, depth = pending.pop()
+        if len(records) >= 2048 or depth > 64:
+            raise NotImplementedError("exact stationary-point source limit exceeded")
+        kind = type(node)
+        if kind not in kinds:
+            return STATIONARY_UNSUPPORTED
+        children = node.args
+        if (type(children) is not tuple or (kind is Pow and len(children) != 2)
+                or (kind in (Symbol, Dummy, *_ATOMS) and children)):
+            raise NotImplementedError("stationary points require valid original source arguments")
+        if kind is Pow and type(children[1]) not in (Integer, Zero, One, NegativeOne):
+            return STATIONARY_UNSUPPORTED
+        if len(children) > 256 or len(children) > 2048 - len(records) - len(pending) - 1:
+            raise NotImplementedError("exact stationary-point source limit exceeded")
+        if kind in (Symbol, Dummy):
+            symbols.add(node)
+        records.append(snapshot(node))
+        pending.extend((child, depth + 1) for child in children)
+    if ((symbol is None and len(symbols) > 1)
+            or (symbol is not None and type(symbol) not in (Symbol, Dummy))
+            or (symbol is not None and symbols - {symbol})):
+        return STATIONARY_UNSUPPORTED
+    if symbol is not None:
+        records.append(snapshot(symbol))
+
+    def unchanged():
+        _require_original_surface()
+        _require_closed_function_class(CRootOf)
+        if _STATIONARY_DOMAIN_SLOT.__get__(domain, Set) is not domain_native:
+            raise NotImplementedError("exact stationary-point domain changed during checking")
+        for node, native, storage, facts in records:
+            if _native_expr(node) is not native:
+                raise NotImplementedError("exact stationary-point source changed during checking")
+            for name, original in storage:
+                try:
+                    current = object.__getattribute__(node, name)
+                except AttributeError:
+                    current = _MISSING
+                if current is not original:
+                    raise NotImplementedError("exact stationary-point source changed during checking")
+            if facts is not None:
+                assumptions = object.__getattribute__(node, "_assumptions")
+                if (len(assumptions) != len(facts)
+                        or any(dict.get(assumptions, key, _MISSING) is not value
+                               for key, value in facts)):
+                    raise NotImplementedError("stationary-point symbol assumptions changed during checking")
+
+    work = _Work()
+    try:
+        expression, symbol, components = _admit(expression, symbol, domain, work, unchanged)
+        unchanged()
+        if not components:
+            result = _as_set([], work)
+            unchanged()
+            return result
+        derivative, _receipt = diff_with_receipt(expression, symbol)
+        unchanged()
+        roots, nonnegative = _monotonicity_chart(derivative, symbol, ">=")
+        unchanged()
+        other_roots, nonpositive = _monotonicity_chart(derivative, symbol, "<=")
+        unchanged()
+        if (len(roots) != len(other_roots) or len(nonnegative) != len(nonpositive)
+                or any(work.compare(left, right) for left, right in zip(roots, other_roots))):
+            raise ValueError("inconsistent stationary-point critical-root charts")
+        zeros = _chart_pieces((roots, [left and right for left, right in
+                                      zip(nonnegative, nonpositive)]))
+        pieces = []
+        for component in components:
+            for zero in zeros:
+                work.step()
+                clipped = _intersection(component, zero, work)
+                if clipped is not None:
+                    pieces.append(clipped)
+        result = _as_set(_merge(pieces, work), work)
+        unchanged()
+        return result
+    except (OverflowError, ValueError) as exc:
+        raise NotImplementedError(
+            "exact rational stationary points could not be determined: %s" % exc
+        ) from None
 
 
 def rational_analysis(expression, symbol, domain, operation):

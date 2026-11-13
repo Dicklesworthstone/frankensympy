@@ -234,6 +234,7 @@ jobs:
               "python/tests/test_groebner_operations.py",
               "python/tests/test_exact_monotonicity.py",
               "python/tests/test_exact_function_range.py",
+              "python/tests/test_exact_stationary_points.py",
               "python/tests/test_certified_quadrature.py",
               "python/tests/test_certified_objective.py",
               "python/tests/test_stationary_search.py",

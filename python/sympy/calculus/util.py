@@ -6,7 +6,11 @@ from typing import Any
 from ..core import Basic, Expr, Integer, Symbol, _native_expr, _require_symbol, _wrap
 from ..sets import Complement, EmptySet, FiniteSet, Interval, Reals, Set
 from .singularities import singularities
-from ._rational_range import rational_analysis as _rational_analysis
+from ._rational_range import (
+    STATIONARY_UNSUPPORTED as _STATIONARY_UNSUPPORTED,
+    rational_analysis as _rational_analysis,
+    rational_stationary_points as _rational_stationary_points,
+)
 
 pi = Expr("pi")
 
@@ -100,10 +104,19 @@ def continuous_domain(expression: Any, symbol: Any = None, domain: Any = None) -
 
 
 def stationary_points(expression: Any, symbol: Any = None, domain: Any = None) -> Set:
-    """Return the stationary points of expression where its derivative is zero."""
+    """Return the points in the function's domain where its derivative is zero.
+
+    Exact rational functions on connected real intervals use complete checked
+    sign charts and retain original held denominator exclusions. An omitted
+    domain means the real line in this lane; other syntax keeps the existing
+    symbolic solver route.
+    """
     from ..core import diff
     from ..solvers import solveset
 
+    checked = _rational_stationary_points(expression, symbol, domain)
+    if checked is not _STATIONARY_UNSUPPORTED:
+        return checked
     expr = _wrap(_native_expr(expression))
     if symbol is None:
         syms = expr.free_symbols
