@@ -243,6 +243,17 @@ This is a bounded development interface; complete campaign and profile gates
 remain open. The opt-in local file store does not yet provide a whole-session
 snapshot, background repair service, or asynchronous cancellation endpoint.
 
+### Reusable compiled derivative programs
+
+Native sessions can retain independently checked residual or objective programs
+for repeated approximate binary64 execution. Residual programs expose both
+Jacobian-vector and transpose-Jacobian products. Objective programs expose value,
+gradient, sparse Hessian and Hessian-vector evaluation. Compilation and execution
+use cumulative budgets; independent admission uses protected verifier resources,
+and every evaluation retains original source-domain checks. The
+[session guide](docs/NATIVE_CERTIFICATION_SESSION.md) includes complete NDJSON
+examples and the distinct numerical, symbolic and interval-proof contracts.
+
 ### Objective derivatives and local stationary points
 
 The native session also accepts `RegisterObjective`, `EncloseObjective`, and

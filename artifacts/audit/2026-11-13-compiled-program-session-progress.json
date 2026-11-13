@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-11-13 03:34:59 UTC",
+  "scope": "Resident verified derivative programs for native Session/NDJSON consumers; implemented source, executable validation pending.",
+  "base_commit": "14b0c6a798225814c0643935c6d84608d4e64fd5",
+  "work_item": "fra-campaign-jacobian-bundle-ukp",
+  "workstreams": [
+    "WS12",
+    "WS13",
+    "WS14"
+  ],
+  "prior_coherent_main_commits": [
+    {
+      "sha": "c7afab310e2699fd01257745dba8bff13827c929",
+      "title": "Expose metered sparse Jacobian products through native sessions",
+      "paths": [
+        "src/certification_session/compiled.rs",
+        "src/certification_session.rs",
+        "src/session.rs",
+        "tests/compiled_residual_products.rs",
+        ".github/workflows/ci.yml",
+        "docs/NATIVE_CERTIFICATION_SESSION.md"
+      ]
+    },
+    {
+      "sha": "f87d7c3c60132c2b53f0e8b44302cb557d8c560f",
+      "title": "Meter objective generation and independent Hessian admission",
+      "paths": [
+        ".github/workflows/ci.yml",
+        "crates/fsym-calculus/src/sparse_hessian.rs",
+        "crates/fsym-calculus/src/sparse_jacobian.rs",
+        "crates/fsym-calculus/tests/metered_objective_compilation.rs"
+      ]
+    }
+  ],
+  "containing_commit_changes": [
+    "Typed compiled objective lifecycle with independently admitted gradient and sparse Hessian programs.",
+    "Repeated approximate objective, gradient, sparse Hessian and matrix-free Hessian-vector evaluation.",
+    "Complete source/context binding, finite input admission, cumulative budgets and response admission before handle publication or release."
+  ],
+  "validation": {
+    "execution_environment": "exec_command twice returned 'No usable execution environment is available.' No shell command executed.",
+    "executed_new_tests": 0,
+    "rustfmt_executed": false,
+    "cargo_check_executed": false,
+    "clippy_executed": false,
+    "independent_source_reviews": [
+      "Residual product implementation, typed request/response dispatch, all seven tests, additional CertificationRequest matches, independent numerical expectations.",
+      "Native objective compilation/admission accounting, all nine tests, underlying budget/error/symbol APIs, unchanged evaluation implementation.",
+      "Resident objective state, protocol integration, error conversion, source/context binding and protected verifier publication boundaries.",
+      "All eleven objective Session/NDJSON tests, including actual CLI flag parsing, independent numerical fixtures, final output-resource exhaustion and strict wire decoding."
+    ],
+    "authored_regression_functions": [
+      {
+        "target": "tests/compiled_residual_products.rs",
+        "count": 7
+      },
+      {
+        "target": "crates/fsym-calculus/tests/metered_objective_compilation.rs",
+        "count": 9
+      },
+      {
+        "target": "tests/compiled_objective_session.rs",
+        "count": 11
+      }
+    ],
+    "required_commands": [
+      "cargo fmt --check",
+      "cargo check --workspace --all-targets",
+      "cargo clippy --workspace --all-targets -- -D warnings",
+      "cargo test --workspace",
+      "cargo test --locked -p fsym-calculus --test metered_objective_compilation --test sparse_hessian --test metered_sparse_derivatives -j1",
+      "cargo test --locked -p frankensympy --test compiled_residual_session --test compiled_residual_products --test compiled_objective_session -j1"
+    ],
+    "ci_at_observation": [
+      {
+        "commit": "c7afab310e2699fd01257745dba8bff13827c929",
+        "run_id": 43359230590,
+        "status": "queued",
+        "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/43359230590"
+      },
+      {
+        "commit": "f87d7c3c60132c2b53f0e8b44302cb557d8c560f",
+        "run_id": 43359375654,
+        "status": "queued",
+        "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/43359375654"
+      }
+    ],
+    "reviewed_source_blobs": {
+      "native_objective": "cd22a6675bf79a22d5c63ab3890f69e4b816485d",
+      "native_objective_tests": "c3fa6cb2d42401bac6e0527a81c812933d1b4e9f",
+      "resident_objective": "bce1dbc87998e9e6a671776f95a490c7246691e5",
+      "objective_session_tests": "66c1b27a0d38c4babf107855648b6df40ed77153"
+    }
+  },
+  "bounds_and_claims": {
+    "resident_residual_programs": 32,
+    "resident_objective_programs": 32,
+    "session_objective_axes": "1..=16, unchanged",
+    "native_objective_axes": "0..=64, unchanged",
+    "numerical_model": "approximate binary64; no floating-point error certificate, convexity, stationary-point or optimum claim",
+    "mathematical_acceptance": "Independent formal derivative and compiled-provenance admission; original source and derivative guards remain active per evaluation.",
+    "metering": "Logical cumulative compute, storage and allocation charges; existing bounded synchronous-kernel safe points, no new cancellation-latency or RSS guarantee.",
+    "claim_tiers_promoted": [],
+    "workstream_or_profile_gates_closed": [],
+    "bead_status": "in_progress, unchanged",
+    "known_remaining_gates": [
+      "Formatting and executable validation of these source changes.",
+      "Complete Certified Jacobian campaign, compatibility profiles and release gates."
+    ]
+  }
+}

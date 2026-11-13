@@ -200,6 +200,62 @@ Rust callers use the corresponding `CertificationRequest` variants through
 `Session::certification_request`, or borrow the checked program through
 `Session::compiled_residual_system` for native metered execution.
 
+## Compile and reuse an objective, gradient and sparse Hessian
+
+The session can retain an independently admitted `VerifiedObjective` and reuse
+its source, gradient and Hessian programs across numerical requests. Candidate
+generation and independent admission now both consume caller-provided budgets;
+the session runs admission in its protected verifier pool.
+
+```json
+{"id":"register","type":"RegisterObjective","payload":{"schema_version":1,"objective":"objective:quadratic","source":"x^2+x*y+3*y^2","variables":["x","y"]}}
+{"id":"compile","type":"CompileObjective","payload":{"schema_version":1,"objective":"objective:quadratic","program":"objective_program:quadratic"}}
+{"id":"evaluate","type":"EvaluateObjective","payload":{"schema_version":1,"program":"objective_program:quadratic","point":["2","-1"]}}
+{"id":"product","type":"EvaluateHessianVectorProduct","payload":{"schema_version":1,"program":"objective_program:quadratic","point":["2","-1"],"direction":["3","-2"]}}
+{"id":"reuse","type":"EvaluateObjective","payload":{"schema_version":1,"program":"objective_program:quadratic","point":["-1","2"]}}
+{"id":"release","type":"ReleaseCompiledObjective","payload":{"schema_version":1,"program":"objective_program:quadratic"}}
+```
+
+For the first point, the expected value is `5`, the gradient is `[3,-4]`, and
+the Hessian has ordered sparse coordinates `[[0,0],[0,1],[1,0],[1,1]]` with
+values `[2,1,1,6]`. Multiplying by `[3,-2]` gives `[4,-9]`. The second point
+has value `11` and gradient `[0,11]`; numerical memoization is local to each
+evaluation and never reuses the first point's values.
+
+`ObjectiveCompiled` binds the original objective, ordered typed coordinates,
+context, sparse pattern and numbers of independently checked derivative proofs
+and omitted zero entries. Its claim is
+`formal_symbolic_gradient_hessian_and_binary64_lowering`. This proves neither
+convexity nor smoothness over an arbitrary box. Numerical responses are labeled
+`approximate` / `binary64`; use `EncloseObjective`, `CertifyStationaryPoint`
+or the existing global box operations for their separate exact-interval claims.
+
+`EvaluateHessianVectorProduct` traverses the sparse entries without constructing
+a dense Hessian or returning all Hessian values. The original objective,
+gradient and second-derivative domains are checked even for a zero direction.
+Nonfinite inputs, arithmetic overflow and derivative singularities refuse the
+complete response. Evaluations consume ordinary cumulative resources and do
+not spend verifier fuel after the program has been admitted.
+
+At most 32 compiled objectives may be resident, independently of the 32 residual
+program slots. Objective registration retains its existing 1–16 ordered-variable
+limit. Compilation also retains the native source limits of 256 nodes, depth 16,
+4096-bit exact scalar payloads and 256-byte names, plus the existing derivative
+growth and total-node bounds. Unknown IDs, wrong-kind labels, duplicate handles,
+invalid schemas and unsupported original sources fail closed. Releasing a
+program frees capacity without refunding budgets; failed response admission
+cannot publish a new handle or remove an existing one.
+
+Rust callers use `CompiledObjectiveId` and the matching `CertificationRequest`
+variants. `Session::compiled_objective` borrows the immutable admitted program.
+For native callers with their own resource policy,
+`ObjectiveCandidate::try_build_with_meter` and
+`VerifiedObjective::try_from_candidate_with_meter` accept separate generation
+and verifier meters. `VerifiedObjective::try_compile_with_meter` is a convenience
+entry point using one cumulative meter for both phases. Charges represent
+logical work and storage; bounded synchronous derivative and proof kernels
+retain their declared cancellation boundaries.
+
 ## Enclose an objective and certify a stationary point
 
 Register a scalar objective with its explicit coordinate order. Enclosure and

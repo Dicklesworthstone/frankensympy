@@ -12,9 +12,10 @@
 
 use crate::certification_session::{
     BoxOptimizationId, BoxOptimizationSearchId, CertificationRequest, CertificationResponse,
-    CertificationSessionError, CertificationState, CompiledResidualSystemId, ObjectiveId,
-    ParametricFamilyId, ParametricFamilyReceipt, ParametricProblemId, ParametricSensitivityId,
-    ResidualSystemId, RootCertificateId, RootIsolationId, RootIsolationSearchId, StationaryPointId,
+    CertificationSessionError, CertificationState, CompiledObjectiveId, CompiledResidualSystemId,
+    ObjectiveId, ParametricFamilyId, ParametricFamilyReceipt, ParametricProblemId,
+    ParametricSensitivityId, ResidualSystemId, RootCertificateId, RootIsolationId,
+    RootIsolationSearchId, StationaryPointId,
 };
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_budget::{Budget, BudgetLimits, Dimension, VerifierLease};
@@ -552,6 +553,16 @@ impl Session {
     /// The immutable original objective and its ordered typed coordinates.
     pub fn objective_problem(&self, id: &ObjectiveId) -> Option<&crate::ObjectiveProblem> {
         self.certification.objective(id)
+    }
+
+    /// The independently admitted original objective and its sparse derivatives.
+    /// Numerical evaluation remains approximate binary64; this grants no
+    /// stationary-point, interval-accuracy or global-optimality claim.
+    pub fn compiled_objective(
+        &self,
+        id: &CompiledObjectiveId,
+    ) -> Option<&fsym_calculus::sparse_hessian::VerifiedObjective> {
+        self.certification.compiled_objective(id)
     }
 
     /// Original residuals with disjoint, explicitly ordered unknown and parameter roles.
@@ -1150,6 +1161,10 @@ impl Session {
                     | "ReplayIntegralCertificate"
                     | "ReplayIntegralCertificateFromArtifact"
                     | "RegisterObjective"
+                    | "CompileObjective"
+                    | "EvaluateObjective"
+                    | "EvaluateHessianVectorProduct"
+                    | "ReleaseCompiledObjective"
                     | "RegisterParametricProblem"
                     | "CertifyParametricRoot"
                     | "CertifyParametricCover"

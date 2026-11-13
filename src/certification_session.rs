@@ -49,8 +49,10 @@ use std::io::{self, Write};
 use thiserror::Error;
 
 mod compiled;
+mod compiled_objective;
 mod parametric;
 pub use compiled::{CompiledResidualSystemId, MAX_SESSION_COMPILED_SYSTEMS};
+pub use compiled_objective::{CompiledObjectiveId, MAX_SESSION_COMPILED_OBJECTIVES};
 pub use parametric::{
     ExactParametricRootWitness, ParametricFamilyId, ParametricFamilyReceipt, ParametricProblemId,
     ParametricSensitivityId,
@@ -395,6 +397,30 @@ pub enum ArtifactSource {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", deny_unknown_fields)]
 pub enum CertificationRequest {
+    /// Independently admit a frozen objective, its gradient and sparse Hessian.
+    /// The receipt does not establish interval accuracy or optimality.
+    CompileObjective {
+        schema_version: u32,
+        objective: ObjectiveId,
+        program: CompiledObjectiveId,
+    },
+    /// Reuse an admitted objective for approximate binary64 evaluation.
+    EvaluateObjective {
+        schema_version: u32,
+        program: CompiledObjectiveId,
+        point: Vec<String>,
+    },
+    /// Apply the admitted sparse Hessian without allocating a dense matrix.
+    EvaluateHessianVectorProduct {
+        schema_version: u32,
+        program: CompiledObjectiveId,
+        point: Vec<String>,
+        direction: Vec<String>,
+    },
+    ReleaseCompiledObjective {
+        schema_version: u32,
+        program: CompiledObjectiveId,
+    },
     /// Compile the frozen original source and independently check its symbolic
     /// sparse Jacobian. This does not certify floating-point evaluation error.
     CompileResidualSystem {
@@ -766,7 +792,11 @@ pub enum CertificationRequest {
 impl CertificationRequest {
     fn schema_version(&self) -> u32 {
         match self {
-            Self::CompileResidualSystem { schema_version, .. }
+            Self::CompileObjective { schema_version, .. }
+            | Self::EvaluateObjective { schema_version, .. }
+            | Self::EvaluateHessianVectorProduct { schema_version, .. }
+            | Self::ReleaseCompiledObjective { schema_version, .. }
+            | Self::CompileResidualSystem { schema_version, .. }
             | Self::EvaluateResidualJacobian { schema_version, .. }
             | Self::EvaluateJacobianVectorProduct { schema_version, .. }
             | Self::EvaluateJacobianTransposeVectorProduct { schema_version, .. }
@@ -871,6 +901,47 @@ pub(crate) fn decode_request(
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CertificationResponse {
+    ObjectiveCompiled {
+        schema_version: u32,
+        objective: ObjectiveId,
+        program: CompiledObjectiveId,
+        evidence: &'static str,
+        claim: &'static str,
+        variables: Vec<Symbol>,
+        hessian_pattern: Vec<(usize, usize)>,
+        gradient_proofs_verified: usize,
+        hessian_proofs_verified: usize,
+        zero_entries_checked: usize,
+        context_digest: [u8; 32],
+    },
+    ObjectiveEvaluated {
+        schema_version: u32,
+        objective: ObjectiveId,
+        program: CompiledObjectiveId,
+        outcome: &'static str,
+        numeric_model: &'static str,
+        point: Vec<f64>,
+        value: f64,
+        gradient: Vec<f64>,
+        hessian_pattern: Vec<(usize, usize)>,
+        hessian: Vec<f64>,
+        context_digest: [u8; 32],
+    },
+    ObjectiveHessianVectorProduct {
+        schema_version: u32,
+        objective: ObjectiveId,
+        program: CompiledObjectiveId,
+        outcome: &'static str,
+        numeric_model: &'static str,
+        point: Vec<f64>,
+        direction: Vec<f64>,
+        product: Vec<f64>,
+        context_digest: [u8; 32],
+    },
+    CompiledObjectiveReleased {
+        schema_version: u32,
+        program: CompiledObjectiveId,
+    },
     ResidualSystemCompiled {
         schema_version: u32,
         system: ResidualSystemId,
@@ -1229,6 +1300,8 @@ pub enum CertificationSessionError {
     UnknownIntegral,
     #[error("unknown scalar objective")]
     UnknownObjective,
+    #[error("unknown compiled scalar objective")]
+    UnknownCompiledObjective,
     #[error("unknown accepted stationary-point certificate")]
     UnknownStationaryPoint,
     #[error("unknown accepted global box optimization")]
@@ -1273,6 +1346,10 @@ pub enum CertificationSessionError {
     Compilation(#[from] fsym_calculus::verified::VerifiedCompilationError),
     #[error("residual evaluation refused: {0}")]
     Evaluation(#[from] fsym_calculus::verified::ResidualEvaluationError),
+    #[error("objective compilation refused: {0}")]
+    ObjectiveCompilation(#[from] fsym_calculus::sparse_hessian::ObjectiveCompilationError),
+    #[error("objective evaluation refused: {0}")]
+    ObjectiveEvaluation(#[from] fsym_calculus::sparse_hessian::ObjectiveEvaluationError),
     #[error("integral certification refused: {0}")]
     Integration(#[from] IntegrationError),
     #[error("global box optimization refused: {0}")]
@@ -1306,6 +1383,7 @@ impl CertificationSessionError {
             | Self::UnknownSearch
             | Self::UnknownIntegral
             | Self::UnknownObjective
+            | Self::UnknownCompiledObjective
             | Self::UnknownStationaryPoint
             | Self::UnknownBoxOptimization
             | Self::UnknownBoxOptimizationSearch
@@ -1322,6 +1400,8 @@ impl CertificationSessionError {
             Self::Certification(error) => certification_error_code(error),
             Self::Compilation(error) => compiled::compilation_error_code(error),
             Self::Evaluation(error) => compiled::evaluation_error_code(error),
+            Self::ObjectiveCompilation(error) => compiled_objective::compilation_error_code(error),
+            Self::ObjectiveEvaluation(error) => compiled_objective::evaluation_error_code(error),
             Self::Integration(error) => integration_error_code(error),
             Self::Optimization(error) => optimization_error_code(error),
             Self::Parametric(error) => parametric::error_code(error),
@@ -1902,6 +1982,7 @@ impl ResidentRootSearch {
 #[derive(Default)]
 pub(crate) struct CertificationState {
     compiled: compiled::CompiledState,
+    compiled_objectives: compiled_objective::CompiledObjectiveState,
     parametric: parametric::ParametricState,
     objectives: BTreeMap<ObjectiveId, ObjectiveProblem>,
     stationary_points: BTreeMap<StationaryPointId, ResidentStationaryPoint>,
@@ -1930,6 +2011,13 @@ impl CertificationState {
         id: &CompiledResidualSystemId,
     ) -> Option<&fsym_calculus::VerifiedResidualSystem> {
         self.compiled.system(id)
+    }
+
+    pub(crate) fn compiled_objective(
+        &self,
+        id: &CompiledObjectiveId,
+    ) -> Option<&fsym_calculus::sparse_hessian::VerifiedObjective> {
+        self.compiled_objectives.objective(id)
     }
 
     pub(crate) fn parametric_problem(
@@ -2386,6 +2474,30 @@ impl CertificationState {
             ));
         }
         match request {
+            CertificationRequest::CompileObjective {
+                objective, program, ..
+            } => {
+                let problem = self
+                    .objectives
+                    .get(&objective)
+                    .ok_or(CertificationSessionError::UnknownObjective)?;
+                self.compiled_objectives
+                    .compile(objective, program, problem, context_digest, budget, lease)
+            }
+            CertificationRequest::EvaluateObjective { program, point, .. } => {
+                self.compiled_objectives.evaluate(program, &point, budget)
+            }
+            CertificationRequest::EvaluateHessianVectorProduct {
+                program,
+                point,
+                direction,
+                ..
+            } => self
+                .compiled_objectives
+                .hessian_vector_product(program, &point, &direction, budget),
+            CertificationRequest::ReleaseCompiledObjective { program, .. } => {
+                self.compiled_objectives.release(program, budget)
+            }
             CertificationRequest::CompileResidualSystem {
                 system, program, ..
             } => {
