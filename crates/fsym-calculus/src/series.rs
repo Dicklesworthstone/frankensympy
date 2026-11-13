@@ -486,6 +486,11 @@ fn split_lead(s: &Series) -> SResult<(BigRational, Expr, Series)> {
     let Some((v, c0)) = s.lead() else {
         return Err(SeriesError::Precision);
     };
+    if crate::gruntz::is_zero_coefficient(&c0) != Some(false) {
+        return Err(SeriesError::Unsupported(
+            "leading series coefficient is not proved nonzero".into(),
+        ));
+    }
     let inv = func_pow(&c0, &Expr::from_i64(-1));
     let mut u = Series {
         terms: BTreeMap::new(),
@@ -505,12 +510,38 @@ fn func_pow(b: &Expr, e: &Expr) -> Expr {
 }
 
 fn expand_pow(base: &Expr, exp: &Expr, target: &BigRational, ctx: &mut Ctx) -> SResult<Series> {
+    let a_num = number(exp);
     let mut b = expand_at(base, target, ctx)?;
+    // Positive integer powers require multiplication, not division by a
+    // leading coefficient. Their coefficients may vanish at valid parameter
+    // values, so retain that polynomial behavior without a nonzero premise.
+    if let Some(a) = &a_num
+        && a.is_integer()
+        && a.is_positive()
+        && a.to_integer() <= BigInt::from(32)
+    {
+        let Some(v) = b.val_or_order() else {
+            return Ok(Series::zero_exact());
+        };
+        let k = a.to_integer().to_i64().ok_or(SeriesError::Precision)?;
+        // v is only a lower bound when a coefficient may vanish or all
+        // known terms were truncated. It still conservatively bounds the
+        // precision needed before all remaining factors are multiplied.
+        let need = target.clone() - q(k - 1) * v.clone();
+        if b.order.as_ref().is_some_and(|order| order < &need) {
+            b = expand_at(base, &need, ctx)?;
+        }
+        let mut acc = Series::constant(Expr::from_i64(1));
+        for step in 1..=k {
+            let stage_target = target.clone() - q(k - step) * v.clone();
+            acc = acc.mul(&b).truncate(&stage_target);
+        }
+        return Ok(acc);
+    }
     if b.terms.is_empty() {
         b = retry_until_term(base, target, ctx)?;
     }
-    let (v, _, _) = split_lead(&b)?;
-    let a_num = number(exp);
+    let v = b.valuation().ok_or(SeriesError::Precision)?;
     let scaled_v = match &a_num {
         Some(a) => v.clone() * a.clone(),
         None if v.is_zero() => BigRational::zero(),
@@ -527,24 +558,6 @@ fn expand_pow(base: &Expr, exp: &Expr, target: &BigRational, ctx: &mut Ctx) -> S
     }
     let (v, c0, u) = split_lead(&b)?;
     let rel_target = target.clone() - scaled_v.clone();
-    // Small positive integer powers: repeated products keep exactness.
-    if let Some(a) = &a_num
-        && a.is_integer()
-        && a.is_positive()
-        && a.to_integer() <= BigInt::from(32)
-    {
-        let k = a.to_integer().to_i64().unwrap_or(1);
-        let mut acc = Series::constant(Expr::from_i64(1));
-        for step in 1..=k {
-            // A later factor with negative valuation can bring a discarded
-            // term back below the final target. Retain the precision needed
-            // after multiplying all remaining factors, not just this one.
-            let stage_target = target.clone() - q(k - step) * v.clone();
-            acc = acc.mul(&b).truncate(&stage_target);
-        }
-        let _ = (v, c0, u, rel_target);
-        return Ok(acc);
-    }
     let correction =
         if fsym_core::assume::is_integer(exp) || (u.terms.is_empty() && u.order.is_none()) {
             Expr::from_i64(0)
@@ -664,7 +677,7 @@ fn expand_function(name: &str, arg: &Expr, target: &BigRational, ctx: &mut Ctx) 
             if b.terms.is_empty() {
                 b = retry_until_term(arg, target, ctx)?;
             }
-            let (v, _, _) = split_lead(&b)?;
+            let v = b.valuation().ok_or(SeriesError::Precision)?;
             let need = target.clone() + v.clone();
             if b.order.as_ref().is_some_and(|o| o < &need) {
                 b = expand_at(arg, &need, ctx)?;
