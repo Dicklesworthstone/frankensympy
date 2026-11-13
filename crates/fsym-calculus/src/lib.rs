@@ -1287,6 +1287,8 @@ pub fn limit_dir(
             UNSAFE_DIRECT_SUBSTITUTION.to_string(),
         ));
     }
+    series::validate_modulus_inputs(expr, var, to, dir)
+        .map_err(|error| CalculusError::Undetermined(error.to_string()))?;
     if carries_diff_sentinel(expr) {
         return Err(CalculusError::Undetermined(expr.to_string()));
     }
@@ -1415,6 +1417,8 @@ pub fn series_expansion_dir(
             UNSAFE_DIRECT_SUBSTITUTION.to_string(),
         ));
     }
+    series::validate_modulus_inputs(expr, var, x0, direction)
+        .map_err(|error| CalculusError::NonDifferentiable(error.to_string()))?;
     if let Some(result) = rational_limits::try_series(expr, var, x0, n, from_left) {
         return result.map_err(|error| CalculusError::NonDifferentiable(error.to_string()));
     }
@@ -1442,7 +1446,7 @@ pub fn series_expansion_dir(
             Expr::Function("log".into(), vec![xe.clone() - x0.clone()]),
         ),
     };
-    let local = expr.subs(&HashMap::from([(var.clone(), replacement)]));
+    let local = gruntz::substitute_limit_source(expr, var, &replacement);
     let target = BigRational::from_integer(BigInt::from(n));
     let s = series::series_in(&local, &t, &target, &log_t)
         .map_err(|e| CalculusError::NonDifferentiable(e.to_string()))?;

@@ -28,7 +28,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use thiserror::Error;
 
 mod branch;
+mod modulus;
 pub(crate) use branch::avoids_principal_cut;
+pub(crate) use modulus::validate_inputs as validate_modulus_inputs;
 
 /// Preferred name of the fresh placeholder for `log(t)` in coefficients.
 pub const LOG_T: &str = "_fsym_log_t";
@@ -691,13 +693,43 @@ fn expand_function(name: &str, arg: &Expr, target: &BigRational, ctx: &mut Ctx) 
                 .truncate(target))
         }
         "Abs" => {
-            let b = expand_at(arg, target, ctx)?;
+            if let Some(squared) = branch::modulus_squared_if_complex(arg, ctx.t)? {
+                if squared.is_zero() {
+                    return Ok(Series::zero_exact());
+                }
+                let mut norm = expand_at(&squared, target, ctx)?;
+                if norm.terms.is_empty() {
+                    norm = retry_until_term(&squared, target, ctx)?;
+                }
+                let Some((_, leading)) = norm.lead() else {
+                    return Err(SeriesError::Precision);
+                };
+                // A symbolic leading norm can vanish for allowed parameter
+                // values. Do not divide by it or select a square-root branch
+                // until its strict positivity has been established.
+                if crate::gruntz::constant_sign(&leading) != Some(1) {
+                    return Err(SeriesError::Unsupported(
+                        "cannot establish a positive leading squared modulus".into(),
+                    ));
+                }
+                return expand_pow(&squared, &rational_expr(q(1) / q(2)), target, ctx);
+            }
+            // Sign of the leading coefficient controls Abs only after exact
+            // conjugation establishes reality of the complete source, not
+            // merely of the terms retained at the requested order.
+            let mut b = expand_at(arg, target, ctx)?;
+            if b.terms.is_empty() {
+                if b.order.is_none() {
+                    return Ok(Series::zero_exact());
+                }
+                b = retry_until_term(arg, target, ctx)?;
+            }
             let Some((_, c0)) = b.lead() else {
                 return Err(SeriesError::Precision);
             };
             match crate::gruntz::constant_sign(&c0) {
-                Some(1) => Ok(b),
-                Some(-1) => Ok(b.scale(&Expr::from_i64(-1))),
+                Some(1) => Ok(b.truncate(target)),
+                Some(-1) => Ok(b.scale(&Expr::from_i64(-1)).truncate(target)),
                 _ => Err(SeriesError::Unsupported(format!("sign of {c0}"))),
             }
         }
@@ -780,6 +812,7 @@ pub fn series_in(
     target: &BigRational,
     log_t: &Expr,
 ) -> Result<Series, SeriesError> {
+    modulus::validate_inputs(e, t, &Expr::from_i64(0), crate::gruntz::Direction::Plus)?;
     let log_symbol = fresh_symbol(LOG_T, &[e, log_t], &[t])?;
     let mut ctx = Ctx {
         t,
@@ -813,6 +846,7 @@ pub fn leading_term(
     t: &Symbol,
     log_t: &Expr,
 ) -> Result<(Expr, BigRational), SeriesError> {
+    modulus::validate_inputs(e, t, &Expr::from_i64(0), crate::gruntz::Direction::Plus)?;
     let lt = fresh_symbol(LOG_T, &[e, log_t], &[t])?;
     let mut target = q(1);
     for _ in 0..8 {

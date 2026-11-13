@@ -12,8 +12,8 @@ use fsym_core::{BigRational, Constant, Expr, Symbol};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-const MAX_CONJUGATE_NODES: usize = 2_048;
-const MAX_CONJUGATE_DEPTH: usize = 32;
+pub(super) const MAX_CONJUGATE_NODES: usize = 2_048;
+pub(super) const MAX_CONJUGATE_DEPTH: usize = 32;
 
 fn undecided() -> SeriesError {
     SeriesError::Unsupported("cannot establish the side of the principal branch cut".into())
@@ -21,7 +21,7 @@ fn undecided() -> SeriesError {
 
 /// Check the entire borrowed tree before recursive assumptions, expansion or
 /// cloning. A real-valued subtree still consumes the same node/depth limits.
-fn preflight(e: &Expr) -> Result<(), SeriesError> {
+pub(super) fn preflight(e: &Expr) -> Result<(), SeriesError> {
     let mut pending = vec![(e, 0usize)];
     let mut visited = 0usize;
     while let Some((node, depth)) = pending.pop() {
@@ -92,7 +92,22 @@ fn conjugate(e: &Expr, remaining: &mut usize, depth: usize) -> Result<Expr, Seri
             if args.len() == 1
                 && matches!(
                     name.as_str(),
-                    "exp" | "sin" | "cos" | "sinh" | "cosh" | "erf" | "erfc"
+                    "exp"
+                        | "sin"
+                        | "cos"
+                        | "tan"
+                        | "cot"
+                        | "sec"
+                        | "csc"
+                        | "sinh"
+                        | "cosh"
+                        | "tanh"
+                        | "coth"
+                        | "sech"
+                        | "csch"
+                        | "erf"
+                        | "erfc"
+                        | "sinc"
                 ) =>
         {
             Ok(Expr::Function(
@@ -104,7 +119,50 @@ fn conjugate(e: &Expr, remaining: &mut usize, depth: usize) -> Result<Expr, Seri
     }
 }
 
-fn imaginary_part(e: &Expr) -> Result<Expr, SeriesError> {
+/// The real sign shortcut is valid only when the complete source equals its
+/// exact conjugate on the positive local coordinate. Otherwise return the
+/// bounded squared modulus, leaving a positive-leading-value obligation to
+/// the caller. Unknown complex parameters and functions remain unsupported.
+pub(super) fn modulus_squared_if_complex(
+    source: &Expr,
+    variable: &Symbol,
+) -> Result<Option<Expr>, SeriesError> {
+    let unsupported = || {
+        SeriesError::Unsupported(
+            "cannot establish conjugation for the complete modulus source".into(),
+        )
+    };
+    preflight(source).map_err(|_| unsupported())?;
+    if crate::unsafe_direct_substitution(source) {
+        return Err(SeriesError::Unsupported(
+            "undefined original modulus source".into(),
+        ));
+    }
+    with_symbol_facts(
+        HashMap::from([(variable.clone(), Facts::from_names(&["positive"]))]),
+        || {
+            let mut checks = 0;
+            super::modulus::validate_source(source, variable, &mut checks)?;
+            let mut remaining = MAX_CONJUGATE_NODES;
+            let conjugated = conjugate(source, &mut remaining, 0).map_err(|_| unsupported())?;
+            if conjugated == *source {
+                return Ok(None);
+            }
+            // Keep both original operands until bounded normalization. The
+            // source checks above precede every clone and cancellation.
+            let product = Expr::Mul(vec![source.clone(), conjugated]);
+            let mut meter = Budget::new(BudgetLimits::uniform(65_536, 0));
+            let expanded =
+                fsym_simplify::expand_with(&product, &mut meter).map_err(|_| unsupported())?;
+            let squared =
+                fsym_simplify::simplify_with(&expanded, &mut meter).map_err(|_| unsupported())?;
+            preflight(&squared).map_err(|_| unsupported())?;
+            Ok(Some(squared))
+        },
+    )
+}
+
+pub(super) fn imaginary_part(e: &Expr) -> Result<Expr, SeriesError> {
     preflight(e)?;
     let mut remaining = MAX_CONJUGATE_NODES;
     let conjugated = conjugate(e, &mut remaining, 0)?;

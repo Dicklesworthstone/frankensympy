@@ -952,7 +952,7 @@ fn exp_argument(f: &Expr) -> LResult<Expr> {
 
 /// Scalar limit substitutions must retain held source nodes until domain
 /// checks run. Ordinary `Expr::subs` deliberately evaluates powers/functions.
-fn substitute_limit_source(e: &Expr, x: &Symbol, value: &Expr) -> Expr {
+pub(crate) fn substitute_limit_source(e: &Expr, x: &Symbol, value: &Expr) -> Expr {
     match e {
         Expr::Sym(symbol) if symbol == x => value.clone(),
         Expr::Add(args) => Expr::Add(
