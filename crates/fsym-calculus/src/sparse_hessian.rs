@@ -4,20 +4,24 @@
 //! including all omitted zeros and compiled instruction provenance. These are
 //! formal derivatives on their common smooth domain, with approximate binary64
 //! evaluation. They do not prove convexity, interval accuracy or global C2
-//! regularity. Compilation and symbolic acceptance retain admission caps;
-//! numerical evaluation can consume a caller's cumulative budget and observe
-//! cancellation at operand, derivative, reduction and publication safe points.
-//! Evaluation metering does not claim metered compilation or proof replay.
+//! regularity. Compilation, independent admission and numerical evaluation can
+//! consume caller-owned cumulative meters. Generation and admission accept
+//! separate meters so a caller can protect verifier resources. Logical work
+//! and storage charges are not allocator RSS or cancellation-latency bounds;
+//! bounded synchronous derivative/proof kernels retain their documented
+//! safe-point boundaries.
 
 #![forbid(unsafe_code)]
 
 use crate::compile::{
     CompileError, CompiledExpr, CompiledOp, EvalError, EvaluationMemo, MAX_COMPILE_OPS,
-    SharedEvaluationPlan, charge_evaluation_allocation, charge_evaluation_steps,
+    SharedEvaluationPlan, charge_compilation_work, charge_evaluation_allocation,
+    charge_evaluation_steps,
 };
 use crate::sparse_jacobian::{
-    JacobianVerificationError, SparseJacobian, compiled_expression_matches,
-    verify_sparse_jacobian_certificate,
+    JacobianVerificationError, SparseJacobian, SparseJacobianEntry, charge_derivative_kernel,
+    charge_expression_copy, compiled_expression_matches_with_meter,
+    verify_sparse_jacobian_certificate_with_meter,
 };
 use fsym_budget::{BudgetMeter, Unbounded};
 use fsym_core::{Expr, Symbol};
@@ -104,16 +108,44 @@ fn resource(resource: &'static str, limit: usize) -> ObjectiveCompilationError {
     ObjectiveCompilationError::ResourceLimit { resource, limit }
 }
 
+fn charge_buffer<T, M: BudgetMeter + ?Sized>(
+    count: usize,
+    meter: &mut M,
+) -> Result<(), ObjectiveCompilationError> {
+    let bytes = count
+        .checked_mul(std::mem::size_of::<T>())
+        .ok_or(CompileError::DimensionOverflow)?;
+    charge_compilation_work(meter, count, bytes, usize::from(count != 0))?;
+    Ok(())
+}
+
+/// Poll on both success and refusal, including a checker or synchronous kernel
+/// that observed cancellation only after its bounded work completed.
+fn finish_compilation<T, M: BudgetMeter + ?Sized>(
+    result: Result<T, ObjectiveCompilationError>,
+    meter: &mut M,
+) -> Result<T, ObjectiveCompilationError> {
+    charge_compilation_work(meter, 0, 0, 0)?;
+    result
+}
+
 /// Iterative preflight precedes all recursive clone, equality and hash work.
-fn inspect_expression(
+fn inspect_expression<M: BudgetMeter + ?Sized>(
     expression: &Expr,
     depth_limit: usize,
     node_limit: usize,
     total: &mut usize,
+    meter: &mut M,
 ) -> Result<(), ObjectiveCompilationError> {
-    let mut pending = vec![(expression, 0usize)];
+    charge_buffer::<(&Expr, usize), _>(1, meter)?;
+    let mut pending = Vec::new();
+    pending
+        .try_reserve_exact(1)
+        .map_err(|_| CompileError::AllocationFailure)?;
+    pending.push((expression, 0usize));
     let mut nodes = 0usize;
     while let Some((expression, depth)) = pending.pop() {
+        charge_compilation_work(meter, 1, 0, 0)?;
         if depth > depth_limit {
             return Err(resource("expression depth", depth_limit));
         }
@@ -126,41 +158,52 @@ fn inspect_expression(
             ));
         }
         match expression {
-            Expr::Integer(value) if value.bits() > MAX_OBJECTIVE_PAYLOAD_BITS => {
-                return Err(resource(
-                    "integer bits",
-                    MAX_OBJECTIVE_PAYLOAD_BITS as usize,
-                ));
+            Expr::Integer(value) => {
+                if value.bits() > MAX_OBJECTIVE_PAYLOAD_BITS {
+                    return Err(resource("integer bits", MAX_OBJECTIVE_PAYLOAD_BITS as usize));
+                }
+                charge_compilation_work(meter, value.bits().div_ceil(64) as usize + 1, 0, 0)?;
             }
-            Expr::Rational(value)
-                if value.numer().bits().max(value.denom().bits()) > MAX_OBJECTIVE_PAYLOAD_BITS =>
-            {
-                return Err(resource(
-                    "rational bits",
-                    MAX_OBJECTIVE_PAYLOAD_BITS as usize,
-                ));
+            Expr::Rational(value) => {
+                if value.numer().bits().max(value.denom().bits()) > MAX_OBJECTIVE_PAYLOAD_BITS {
+                    return Err(resource("rational bits", MAX_OBJECTIVE_PAYLOAD_BITS as usize));
+                }
+                let limbs = value.numer().bits().div_ceil(64) + value.denom().bits().div_ceil(64);
+                charge_compilation_work(meter, limbs as usize + 1, 0, 0)?;
             }
-            Expr::Sym(symbol) if symbol.name.len() > MAX_NAME_BYTES => {
-                return Err(resource("symbol bytes", MAX_NAME_BYTES));
+            Expr::Sym(symbol) => {
+                if symbol.name.len() > MAX_NAME_BYTES {
+                    return Err(resource("symbol bytes", MAX_NAME_BYTES));
+                }
+                charge_compilation_work(meter, symbol.name.len() + 1, 0, 0)?;
             }
             Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => {
-                if let Expr::Function(name, _) = expression
-                    && name.len() > MAX_NAME_BYTES
-                {
-                    return Err(resource("function bytes", MAX_NAME_BYTES));
+                if let Expr::Function(name, _) = expression {
+                    if name.len() > MAX_NAME_BYTES {
+                        return Err(resource("function bytes", MAX_NAME_BYTES));
+                    }
+                    charge_compilation_work(meter, name.len() + 1, 0, 0)?;
                 }
                 if args.len() > node_limit.saturating_sub(nodes)
                     || pending.len().saturating_add(args.len()) > node_limit
                 {
                     return Err(resource("expression nodes", node_limit));
                 }
+                charge_buffer::<(&Expr, usize), _>(args.len(), meter)?;
+                pending
+                    .try_reserve(args.len())
+                    .map_err(|_| CompileError::AllocationFailure)?;
                 pending.extend(args.iter().map(|child| (child, depth + 1)));
             }
             Expr::Pow(base, exponent) => {
+                charge_buffer::<(&Expr, usize), _>(2, meter)?;
+                pending
+                    .try_reserve(2)
+                    .map_err(|_| CompileError::AllocationFailure)?;
                 pending.push((base, depth + 1));
                 pending.push((exponent, depth + 1));
             }
-            _ => {}
+            Expr::Const(_) => {}
         }
     }
     Ok(())
@@ -175,14 +218,18 @@ struct Growth {
 
 /// Conservative expression-growth admission score. This is intentionally
 /// separate from mathematical acceptance and does not replace runtime budgets.
-fn growth(expression: &Expr) -> Growth {
-    match expression {
+fn growth<M: BudgetMeter + ?Sized>(
+    expression: &Expr,
+    meter: &mut M,
+) -> Result<Growth, ObjectiveCompilationError> {
+    charge_compilation_work(meter, 1, 0, 0)?;
+    Ok(match expression {
         Expr::Add(args) | Expr::Mul(args) => {
             let mut nodes = 0usize;
             let mut derivative = 0usize;
             let mut work = 0usize;
             for argument in args {
-                let child = growth(argument);
+                let child = growth(argument, meter)?;
                 nodes = nodes.saturating_add(child.nodes);
                 derivative = derivative.saturating_add(child.derivative);
                 work = work.saturating_add(child.work);
@@ -202,8 +249,8 @@ fn growth(expression: &Expr) -> Growth {
             }
         }
         Expr::Pow(base, exponent) => {
-            let base = growth(base);
-            let exponent_growth = growth(exponent);
+            let base = growth(base, meter)?;
+            let exponent_growth = growth(exponent, meter)?;
             let derivative = if matches!(exponent.as_ref(), Expr::Integer(_) | Expr::Rational(_)) {
                 4usize
                     .saturating_add(base.nodes)
@@ -232,7 +279,7 @@ fn growth(expression: &Expr) -> Growth {
             let mut derivative = 10usize;
             let mut work = 0usize;
             for argument in args {
-                let child = growth(argument);
+                let child = growth(argument, meter)?;
                 nodes = nodes.saturating_add(child.nodes);
                 derivative = derivative
                     .saturating_add(child.nodes.saturating_mul(4))
@@ -250,14 +297,16 @@ fn growth(expression: &Expr) -> Growth {
             derivative: 1,
             work: 1,
         },
-    }
+    })
 }
 
-fn stage_envelope(
+fn stage_envelope<M: BudgetMeter + ?Sized>(
     sources: &[Expr],
     variables: usize,
     total: &mut usize,
+    meter: &mut M,
 ) -> Result<(), ObjectiveCompilationError> {
+    charge_compilation_work(meter, 1, 0, 0)?;
     let mut units = 0usize;
     for source in sources {
         inspect_expression(
@@ -265,8 +314,9 @@ fn stage_envelope(
             MAX_OBJECTIVE_DERIVATIVE_DEPTH,
             MAX_COMPILE_OPS,
             total,
+            meter,
         )?;
-        let estimate = growth(source);
+        let estimate = growth(source, meter)?;
         if estimate.derivative > MAX_COMPILE_OPS {
             return Err(resource("predicted derivative nodes", MAX_COMPILE_OPS));
         }
@@ -281,15 +331,18 @@ fn stage_envelope(
     Ok(())
 }
 
-fn source_envelope(
+fn source_envelope<M: BudgetMeter + ?Sized>(
     source: &Expr,
     variables: &[Symbol],
     total: &mut usize,
+    meter: &mut M,
 ) -> Result<HashMap<Symbol, usize>, ObjectiveCompilationError> {
+    charge_compilation_work(meter, 1, 0, 0)?;
     if variables.len() > MAX_OBJECTIVE_VARIABLES {
         return Err(resource("variable count", MAX_OBJECTIVE_VARIABLES));
     }
     for variable in variables {
+        charge_compilation_work(meter, 1, 0, 0)?;
         if variable.name.len() > MAX_NAME_BYTES {
             return Err(resource("symbol bytes", MAX_NAME_BYTES));
         }
@@ -299,20 +352,29 @@ fn source_envelope(
         MAX_OBJECTIVE_SOURCE_DEPTH,
         MAX_OBJECTIVE_SOURCE_NODES,
         total,
+        meter,
     )?;
+    charge_buffer::<(Symbol, usize), _>(variables.len(), meter)?;
     let mut mapping = HashMap::new();
+    mapping
+        .try_reserve(variables.len())
+        .map_err(|_| CompileError::AllocationFailure)?;
     for (index, variable) in variables.iter().enumerate() {
+        charge_compilation_work(meter, variable.name.len() + 1, variable.name.len(), 1)?;
         if mapping.insert(variable.clone(), index).is_some() {
+            charge_compilation_work(meter, variable.name.len() + 1, variable.name.len(), 1)?;
             return Err(CompileError::DuplicateVariable(variable.clone()).into());
         }
     }
     Ok(mapping)
 }
 
-fn proof_envelope(
+fn proof_envelope<M: BudgetMeter + ?Sized>(
     proof: &DerivationTree,
     total: &mut usize,
+    meter: &mut M,
 ) -> Result<(), ObjectiveCompilationError> {
+    charge_compilation_work(meter, 1, 0, 0)?;
     if proof.steps.len() != 1 || proof.root != StepId(1) || proof.steps[0].id != StepId(1) {
         return Err(ObjectiveCompilationError::InvalidProofEnvelope);
     }
@@ -335,25 +397,33 @@ fn proof_envelope(
     if rule_name.len() > MAX_NAME_BYTES {
         return Err(resource("rule name bytes", MAX_NAME_BYTES));
     }
+    let before = *total;
     for expression in [claim_lhs, claim_rhs, lhs, rhs] {
         inspect_expression(
             expression,
             MAX_OBJECTIVE_DERIVATIVE_DEPTH + 1,
             MAX_COMPILE_OPS + 2,
             total,
+            meter,
         )?;
     }
+    // The one-step proof's bounded metadata and four already-inspected trees
+    // are traversed again by the independent proof-envelope estimator.
+    charge_compilation_work(meter, *total - before + rule_name.len() + 1, 0, 0)?;
     derivation_verification_units(proof)
         .map_err(|_| ObjectiveCompilationError::InvalidProofEnvelope)?;
+    charge_compilation_work(meter, 1, 0, 0)?;
     Ok(())
 }
 
-fn jacobian_envelope(
+fn jacobian_envelope<M: BudgetMeter + ?Sized>(
     system: &SparseJacobian,
     rows: usize,
     columns: usize,
     total: &mut usize,
+    meter: &mut M,
 ) -> Result<(), ObjectiveCompilationError> {
+    charge_compilation_work(meter, 1, 0, 0)?;
     if system.residuals.len() != rows
         || system.vars.len() != columns
         || system.entries.len() > rows.saturating_mul(columns)
@@ -365,6 +435,7 @@ fn jacobian_envelope(
         ));
     }
     for variable in &system.vars {
+        charge_compilation_work(meter, 1, 0, 0)?;
         if variable.name.len() > MAX_NAME_BYTES {
             return Err(resource("symbol bytes", MAX_NAME_BYTES));
         }
@@ -375,6 +446,7 @@ fn jacobian_envelope(
             MAX_OBJECTIVE_DERIVATIVE_DEPTH,
             MAX_COMPILE_OPS,
             total,
+            meter,
         )?;
     }
     for entry in &system.entries {
@@ -383,34 +455,146 @@ fn jacobian_envelope(
             MAX_OBJECTIVE_DERIVATIVE_DEPTH,
             MAX_COMPILE_OPS,
             total,
+            meter,
         )?;
-        proof_envelope(&entry.derivation, total)?;
+        proof_envelope(&entry.derivation, total, meter)?;
     }
-    system.validate_structure()?;
+    system.validate_structure_with_meter(meter)?;
     Ok(())
 }
 
 /// Only a proposal: the independent checker recomputes every omitted entry.
 /// Retained entries keep their original, unsimplified proof right-hand side.
-fn propose_zero_omissions(system: &mut SparseJacobian) {
-    system.entries.retain(|entry| {
-        !crate::diff(&system.residuals[entry.row], &system.vars[entry.col]).is_zero()
-    });
-    system.pattern.nonzeros = system
-        .entries
-        .iter()
-        .map(|entry| (entry.row, entry.col))
-        .collect();
+fn propose_zero_omissions<M: BudgetMeter + ?Sized>(
+    system: &mut SparseJacobian,
+    meter: &mut M,
+) -> Result<(), ObjectiveCompilationError> {
+    charge_buffer::<SparseJacobianEntry, _>(system.entries.len(), meter)?;
+    let mut retained = Vec::new();
+    retained
+        .try_reserve_exact(system.entries.len())
+        .map_err(|_| CompileError::AllocationFailure)?;
+    charge_buffer::<(usize, usize), _>(system.entries.len(), meter)?;
+    let mut nonzeros = Vec::new();
+    nonzeros
+        .try_reserve_exact(system.entries.len())
+        .map_err(|_| CompileError::AllocationFailure)?;
+    for entry in std::mem::take(&mut system.entries) {
+        charge_derivative_kernel(&system.residuals[entry.row], meter)?;
+        let derivative = crate::diff(&system.residuals[entry.row], &system.vars[entry.col]);
+        charge_compilation_work(meter, 1, 0, 0)?;
+        if !derivative.is_zero() {
+            nonzeros.push((entry.row, entry.col));
+            retained.push(entry);
+        }
+    }
+    charge_compilation_work(meter, 1, 0, 0)?;
+    system.entries = retained;
+    system.pattern.nonzeros = nonzeros;
     system.pattern.nnz = system.entries.len();
     // Deleting conflict edges preserves the existing valid column coloring.
+    Ok(())
 }
 
-fn gradient_sources(gradient: &SparseJacobian, count: usize) -> Vec<Expr> {
-    let mut sources = vec![Expr::from_i64(0); count];
-    for entry in &gradient.entries {
-        sources[entry.col] = entry.symbolic_deriv.clone();
-    }
+fn gradient_sources<M: BudgetMeter + ?Sized>(
+    gradient: &SparseJacobian,
+    count: usize,
+    meter: &mut M,
+) -> Result<Vec<Expr>, ObjectiveCompilationError> {
+    charge_buffer::<Expr, _>(count, meter)?;
+    let mut sources = Vec::new();
     sources
+        .try_reserve_exact(count)
+        .map_err(|_| CompileError::AllocationFailure)?;
+    for _ in 0..count {
+        charge_compilation_work(meter, 1, 0, 0)?;
+        sources.push(Expr::from_i64(0));
+    }
+    for entry in &gradient.entries {
+        charge_expression_copy(&entry.symbolic_deriv, meter)?;
+        sources[entry.col] = entry.symbolic_deriv.clone();
+        charge_compilation_work(meter, 1, 0, 0)?;
+    }
+    Ok(sources)
+}
+
+/// Exact typed comparisons after both operands pass their structural envelopes.
+/// Every visited node and scalar/name payload is charged; no printing,
+/// simplification or numeric sampling can establish a source binding.
+fn expressions_match<M: BudgetMeter + ?Sized>(
+    left: &Expr,
+    right: &Expr,
+    meter: &mut M,
+) -> Result<bool, ObjectiveCompilationError> {
+    charge_compilation_work(meter, 1, 0, 0)?;
+    Ok(match (left, right) {
+        (Expr::Sym(left), Expr::Sym(right)) => {
+            charge_compilation_work(meter, left.name.len() + right.name.len() + 1, 0, 0)?;
+            left == right
+        }
+        (Expr::Integer(left), Expr::Integer(right)) => {
+            let units = left.bits().div_ceil(64) + right.bits().div_ceil(64) + 1;
+            charge_compilation_work(meter, units as usize, 0, 0)?;
+            left == right
+        }
+        (Expr::Rational(left), Expr::Rational(right)) => {
+            let units = left.numer().bits().div_ceil(64)
+                + left.denom().bits().div_ceil(64)
+                + right.numer().bits().div_ceil(64)
+                + right.denom().bits().div_ceil(64)
+                + 1;
+            charge_compilation_work(meter, units as usize, 0, 0)?;
+            left == right
+        }
+        (Expr::Const(left), Expr::Const(right)) => left == right,
+        (Expr::Pow(left_base, left_exponent), Expr::Pow(right_base, right_exponent)) => {
+            expressions_match(left_base, right_base, meter)?
+                && expressions_match(left_exponent, right_exponent, meter)?
+        }
+        (Expr::Add(left), Expr::Add(right)) | (Expr::Mul(left), Expr::Mul(right)) => {
+            expression_lists_match(left, right, meter)?
+        }
+        (Expr::Function(left_name, left), Expr::Function(right_name, right)) => {
+            charge_compilation_work(meter, left_name.len() + right_name.len() + 1, 0, 0)?;
+            left_name == right_name && expression_lists_match(left, right, meter)?
+        }
+        _ => false,
+    })
+}
+
+fn expression_lists_match<M: BudgetMeter + ?Sized>(
+    left: &[Expr],
+    right: &[Expr],
+    meter: &mut M,
+) -> Result<bool, ObjectiveCompilationError> {
+    charge_compilation_work(meter, 1, 0, 0)?;
+    if left.len() != right.len() {
+        return Ok(false);
+    }
+    for (left, right) in left.iter().zip(right) {
+        if !expressions_match(left, right, meter)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn variables_match<M: BudgetMeter + ?Sized>(
+    left: &[Symbol],
+    right: &[Symbol],
+    meter: &mut M,
+) -> Result<bool, ObjectiveCompilationError> {
+    charge_compilation_work(meter, 1, 0, 0)?;
+    if left.len() != right.len() {
+        return Ok(false);
+    }
+    for (left, right) in left.iter().zip(right) {
+        charge_compilation_work(meter, left.name.len() + right.name.len() + 1, 0, 0)?;
+        if left != right {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 impl ObjectiveCandidate {
@@ -418,25 +602,46 @@ impl ObjectiveCandidate {
         source: &Expr,
         variables: &[Symbol],
     ) -> Result<Self, ObjectiveCompilationError> {
-        let mut total = 0;
-        let mapping = source_envelope(source, variables, &mut total)?;
-        // Reject unsupported original nodes before differentiation can erase them.
-        let compiled_objective = CompiledExpr::try_compile(source, &mapping)?;
-        stage_envelope(std::slice::from_ref(source), variables.len(), &mut total)?;
-        let mut gradient = SparseJacobian::try_build(std::slice::from_ref(source), variables)?;
-        propose_zero_omissions(&mut gradient);
-        jacobian_envelope(&gradient, 1, variables.len(), &mut total)?;
-        verify_sparse_jacobian_certificate(&gradient, &[])?;
-        let sources = gradient_sources(&gradient, variables.len());
-        stage_envelope(&sources, variables.len(), &mut total)?;
-        let mut hessian = SparseJacobian::try_build(&sources, variables)?;
-        propose_zero_omissions(&mut hessian);
-        jacobian_envelope(&hessian, variables.len(), variables.len(), &mut total)?;
-        Ok(Self {
-            compiled_objective,
-            gradient,
-            hessian,
-        })
+        Self::try_build_with_meter(source, variables, &mut Unbounded)
+    }
+
+    /// Generate both derivative stages under one cumulative caller ledger.
+    /// The intermediate gradient check is generator work; independent admission
+    /// repeats both checks under its own meter before publishing a program.
+    pub fn try_build_with_meter<M: BudgetMeter + ?Sized>(
+        source: &Expr,
+        variables: &[Symbol],
+        meter: &mut M,
+    ) -> Result<Self, ObjectiveCompilationError> {
+        let result = (|| {
+            let mut total = 0;
+            let mapping = source_envelope(source, variables, &mut total, meter)?;
+            // Reject unsupported original nodes before differentiation can erase them.
+            let compiled_objective = CompiledExpr::try_compile_with_meter(source, &mapping, meter)?;
+            stage_envelope(std::slice::from_ref(source), variables.len(), &mut total, meter)?;
+            let mut gradient =
+                SparseJacobian::try_build_with_meter(std::slice::from_ref(source), variables, meter)?;
+            propose_zero_omissions(&mut gradient, meter)?;
+            jacobian_envelope(&gradient, 1, variables.len(), &mut total, meter)?;
+            verify_sparse_jacobian_certificate_with_meter(&gradient, &[], meter)?;
+            let sources = gradient_sources(&gradient, variables.len(), meter)?;
+            stage_envelope(&sources, variables.len(), &mut total, meter)?;
+            let mut hessian = SparseJacobian::try_build_with_meter(&sources, variables, meter)?;
+            propose_zero_omissions(&mut hessian, meter)?;
+            jacobian_envelope(
+                &hessian,
+                variables.len(),
+                variables.len(),
+                &mut total,
+                meter,
+            )?;
+            Ok(Self {
+                compiled_objective,
+                gradient,
+                hessian,
+            })
+        })();
+        finish_compilation(result, meter)
     }
 }
 
@@ -445,11 +650,22 @@ impl VerifiedObjective {
         source: &Expr,
         variables: &[Symbol],
     ) -> Result<Self, ObjectiveCompilationError> {
-        Self::try_from_candidate(
-            source,
-            variables,
-            ObjectiveCandidate::try_build(source, variables)?,
-        )
+        Self::try_compile_with_meter(source, variables, &mut Unbounded)
+    }
+
+    /// Convenience compilation using one caller meter for generation and
+    /// admission. Call the two separate APIs when verification needs a protected
+    /// pool; this method never reserves or resets a caller's resources.
+    pub fn try_compile_with_meter<M: BudgetMeter + ?Sized>(
+        source: &Expr,
+        variables: &[Symbol],
+        meter: &mut M,
+    ) -> Result<Self, ObjectiveCompilationError> {
+        let result = (|| {
+            let candidate = ObjectiveCandidate::try_build_with_meter(source, variables, meter)?;
+            Self::try_from_candidate_with_meter(source, variables, candidate, meter)
+        })();
+        finish_compilation(result, meter)
     }
 
     pub fn try_from_candidate(
@@ -457,80 +673,112 @@ impl VerifiedObjective {
         variables: &[Symbol],
         candidate: ObjectiveCandidate,
     ) -> Result<Self, ObjectiveCompilationError> {
-        let mut total = 0;
-        let mapping = source_envelope(source, variables, &mut total)?;
-        jacobian_envelope(&candidate.gradient, 1, variables.len(), &mut total)?;
-        jacobian_envelope(
-            &candidate.hessian,
-            variables.len(),
-            variables.len(),
-            &mut total,
-        )?;
-        if candidate.gradient.vars != variables || candidate.hessian.vars != variables {
-            return Err(ObjectiveCompilationError::SourceMismatch(
-                "typed variable order",
-            ));
-        }
-        if candidate.gradient.residuals[0] != *source {
-            return Err(ObjectiveCompilationError::SourceMismatch(
-                "objective source",
-            ));
-        }
-        if !compiled_expression_matches(source, &mapping, &candidate.compiled_objective)? {
-            return Err(ObjectiveCompilationError::SourceMismatch(
-                "compiled objective",
-            ));
-        }
-        stage_envelope(std::slice::from_ref(source), variables.len(), &mut total)?;
-        let first = verify_sparse_jacobian_certificate(&candidate.gradient, &[])?;
-        let sources = gradient_sources(&candidate.gradient, variables.len());
-        if candidate.hessian.residuals != sources {
-            return Err(ObjectiveCompilationError::SourceMismatch(
-                "checked gradient source",
-            ));
-        }
-        stage_envelope(&sources, variables.len(), &mut total)?;
-        let second = verify_sparse_jacobian_certificate(&candidate.hessian, &[])?;
-        // Execute the exact programs admitted by the independent checker, not
-        // fresh generator output. Every absent column was independently proved
-        // zero above, so its complete canonical program is a single zero load.
-        let zero = CompiledExpr::try_from_ops(vec![CompiledOp::LoadConst(0.0)])
+        Self::try_from_candidate_with_meter(source, variables, candidate, &mut Unbounded)
+    }
+
+    /// Independently admit an untrusted proposal with cumulative metering.
+    /// Original source, ordered typed axes, every derivative and omitted zero,
+    /// both bytecode stages and the reusable execution plan are checked again.
+    /// A failed or cancelled admission returns no partially accepted program.
+    pub fn try_from_candidate_with_meter<M: BudgetMeter + ?Sized>(
+        source: &Expr,
+        variables: &[Symbol],
+        candidate: ObjectiveCandidate,
+        meter: &mut M,
+    ) -> Result<Self, ObjectiveCompilationError> {
+        let result = (|| {
+            let mut total = 0;
+            let mapping = source_envelope(source, variables, &mut total, meter)?;
+            jacobian_envelope(&candidate.gradient, 1, variables.len(), &mut total, meter)?;
+            jacobian_envelope(
+                &candidate.hessian,
+                variables.len(),
+                variables.len(),
+                &mut total,
+                meter,
+            )?;
+            if !variables_match(&candidate.gradient.vars, variables, meter)?
+                || !variables_match(&candidate.hessian.vars, variables, meter)?
+            {
+                return Err(ObjectiveCompilationError::SourceMismatch(
+                    "typed variable order",
+                ));
+            }
+            if !expressions_match(&candidate.gradient.residuals[0], source, meter)? {
+                return Err(ObjectiveCompilationError::SourceMismatch("objective source"));
+            }
+            if !compiled_expression_matches_with_meter(
+                source,
+                &mapping,
+                &candidate.compiled_objective,
+                meter,
+            )? {
+                return Err(ObjectiveCompilationError::SourceMismatch("compiled objective"));
+            }
+            stage_envelope(std::slice::from_ref(source), variables.len(), &mut total, meter)?;
+            let first =
+                verify_sparse_jacobian_certificate_with_meter(&candidate.gradient, &[], meter)?;
+            let sources = gradient_sources(&candidate.gradient, variables.len(), meter)?;
+            if !expression_lists_match(&candidate.hessian.residuals, &sources, meter)? {
+                return Err(ObjectiveCompilationError::SourceMismatch(
+                    "checked gradient source",
+                ));
+            }
+            stage_envelope(&sources, variables.len(), &mut total, meter)?;
+            let second =
+                verify_sparse_jacobian_certificate_with_meter(&candidate.hessian, &[], meter)?;
+            // Execute the exact programs admitted by the independent checker,
+            // not fresh generator output. Every absent column was proved zero.
+            charge_buffer::<CompiledOp, _>(1, meter)?;
+            let zero = CompiledExpr::try_from_ops_with_meter(
+                vec![CompiledOp::LoadConst(0.0)],
+                meter,
+            )
             .map_err(CompileError::InvalidBytecode)?;
-        let mut compiled_gradient = vec![zero; variables.len()];
-        for entry in &candidate.gradient.entries {
-            compiled_gradient[entry.col] = entry.compiled_deriv.clone();
-        }
-        let n = variables.len();
-        let receipt = ObjectiveReceipt {
-            variable_count: n,
-            gradient_proofs_verified: first.proofs_verified,
-            hessian_proofs_verified: second.proofs_verified,
-            zero_entries_checked: n - first.nnz + n * n - second.nnz,
-            hessian_nonzeros: second.nnz,
-        };
-        // Reuse only the exact immutable programs admitted above. The separate
-        // bytecode-span checker preserves their instruction order and branch
-        // boundaries. Candidate import rebuilds this derived plan; neither a
-        // proposed memo table nor a numerical cache can bypass source/proof
-        // verification.
-        let shared_evaluation = SharedEvaluationPlan::build(
-            (0..1 + compiled_gradient.len() + candidate.hessian.entries.len()).map(|index| {
-                if index == 0 {
-                    &candidate.compiled_objective
-                } else if index <= compiled_gradient.len() {
-                    &compiled_gradient[index - 1]
-                } else {
-                    &candidate.hessian.entries[index - 1 - compiled_gradient.len()].compiled_deriv
-                }
-            }),
-            &mut Unbounded,
-        )?;
-        Ok(Self {
-            candidate,
-            compiled_gradient,
-            receipt,
-            shared_evaluation,
-        })
+            charge_buffer::<CompiledExpr, _>(variables.len(), meter)?;
+            let mut compiled_gradient = Vec::new();
+            compiled_gradient
+                .try_reserve_exact(variables.len())
+                .map_err(|_| CompileError::AllocationFailure)?;
+            for _ in variables {
+                charge_buffer::<CompiledOp, _>(zero.ops().len(), meter)?;
+                compiled_gradient.push(zero.clone());
+            }
+            for entry in &candidate.gradient.entries {
+                charge_buffer::<CompiledOp, _>(entry.compiled_deriv.ops().len(), meter)?;
+                compiled_gradient[entry.col] = entry.compiled_deriv.clone();
+            }
+            let n = variables.len();
+            charge_compilation_work(meter, 1, std::mem::size_of::<ObjectiveReceipt>(), 0)?;
+            let receipt = ObjectiveReceipt {
+                variable_count: n,
+                gradient_proofs_verified: first.proofs_verified,
+                hessian_proofs_verified: second.proofs_verified,
+                zero_entries_checked: n - first.nnz + n * n - second.nnz,
+                hessian_nonzeros: second.nnz,
+            };
+            // Candidate import rebuilds this derived plan. Proposed memo tables
+            // and numerical caches cannot bypass source or proof verification.
+            let shared_evaluation = SharedEvaluationPlan::build(
+                (0..1 + compiled_gradient.len() + candidate.hessian.entries.len()).map(|index| {
+                    if index == 0 {
+                        &candidate.compiled_objective
+                    } else if index <= compiled_gradient.len() {
+                        &compiled_gradient[index - 1]
+                    } else {
+                        &candidate.hessian.entries[index - 1 - compiled_gradient.len()].compiled_deriv
+                    }
+                }),
+                meter,
+            )?;
+            Ok(Self {
+                candidate,
+                compiled_gradient,
+                receipt,
+                shared_evaluation,
+            })
+        })();
+        finish_compilation(result, meter)
     }
 
     pub fn objective(&self) -> &Expr {

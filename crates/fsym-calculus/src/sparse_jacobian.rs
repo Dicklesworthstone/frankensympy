@@ -253,7 +253,7 @@ pub(crate) fn charge_expression_copy<M: BudgetMeter + ?Sized>(
 /// kernels. Charge the existing product/chain-rule growth envelope and all
 /// source payloads before either kernel starts, then poll at its boundary.
 /// This is conservative logical work/storage, not an allocator or latency claim.
-fn charge_derivative_kernel<M: BudgetMeter + ?Sized>(
+pub(crate) fn charge_derivative_kernel<M: BudgetMeter + ?Sized>(
     source: &Expr,
     meter: &mut M,
 ) -> Result<(), CompileError> {

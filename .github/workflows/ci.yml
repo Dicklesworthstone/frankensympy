@@ -188,6 +188,7 @@ jobs:
           cargo test --locked -p fsym-calculus --lib compile::shared::tests -j1
           cargo test --locked -p fsym-calculus --test shared_numeric_evaluation --test verified_shared_evaluation -j1
           cargo test --locked -p fsym-calculus --test metered_verified_compilation -j1
+          cargo test --locked -p fsym-calculus --test metered_objective_compilation --test sparse_hessian -j1
           cargo test --locked -p fsym-calculus --test integral_evaluation_points -j1
           cargo test --locked -p fsym-durable --no-default-features --lib --test record_boundaries -j1
           cargo test --locked -p frankensympy --lib --test durable_root_search --test repairable_root_search --test search_checkpoint_session -j1
