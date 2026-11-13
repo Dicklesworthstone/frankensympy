@@ -1,0 +1,179 @@
+{
+  "recorded_at": "2026-11-13T01:58:39Z",
+  "base_commit": "a091306c8388a9e34c2d2b44ea07499649a4e25d",
+  "evidence_kind": "Scoped implementation receipt transcribed from observed tool outputs and saved source snapshots; not a raw execution log or a certification artifact.",
+  "source_commits_before_this_change": [
+    "bf92999df649e5243df8f34af45effc149528cfc",
+    "b43a694744c2929ebe8516f829b68bdc66c6b2cc",
+    "1e73e27eca4963472383cdbce413372012f57cdb"
+  ],
+  "changes": [
+    {
+      "scope": "Scoped native symbol assumptions",
+      "commit": "bf92999df649e5243df8f34af45effc149528cfc",
+      "behavior": "Facts bind to exact Symbol identity. Contradictory declarations remain inspectable but cannot authorize Boolean/Option predicate rewrites."
+    },
+    {
+      "scope": "Public solve systems",
+      "commit": "b43a694744c2929ebe8516f829b68bdc66c6b2cc",
+      "behavior": "Capture requested typed coordinates before generation; filter complete linear/polynomial solution tuples under one cumulative assumptions budget; retain unknowns and check=False behavior; make rebinding, resource and admission failures terminal."
+    },
+    {
+      "scope": "Integral.doit",
+      "commit": "1e73e27eca4963472383cdbce413372012f57cdb",
+      "behavior": "Preserve held arithmetic and closed-function source domains until integration admission, while evaluating explicit nested operations and retaining Piecewise branch conditions and ordering."
+    },
+    {
+      "scope": "Scoped native definedness",
+      "commit": "Recorded with this receipt",
+      "behavior": "A bounded bottom-up summary requires defined finite children for arithmetic, powers and functions. Extended-real membership does not imply finite real membership. Literal infinity signs and valid finite real/complex deductions are preserved."
+    }
+  ],
+  "native_identity_validation": {
+    "command": "cargo test --locked -p fsym-core --test scoped_assumption_identity -j1",
+    "baseline": {
+      "passed": 3,
+      "failed": 7,
+      "exit_code": 101,
+      "cases": 10
+    },
+    "fixed": {
+      "commit": "bf92999df649e5243df8f34af45effc149528cfc",
+      "passed": 12,
+      "failed": 0,
+      "exit_code": 0
+    },
+    "limitation": "The 12-pass result predates the definedness change in this receipt; it is not a final-tree result."
+  },
+  "definedness_counterexamples": {
+    "revision": "bf92999df649e5243df8f34af45effc149528cfc",
+    "status": "An exact-core standalone native probe ran successfully before the follow-up fix.",
+    "observed": [
+      "is_real(raw 0**-1) was true",
+      "is_nonzero(raw exp(log(0))) was true although the extended-value result is zero",
+      "sign(raw oo**-1) was +1 and nonzero was true although the value is zero",
+      "sign(raw 0*oo) was zero despite its undefined value",
+      "eval_pow(0, raw exp(0**-1)) returned zero while evaluation of the invalid children gives NaN",
+      "Under extended_real(x), 0**exp(x) returned zero while substituting x=-oo in the original gives one"
+    ],
+    "final_regressions": 13,
+    "final_status": "Not executed to a terminal result after the production fix."
+  },
+  "solver_oracle": {
+    "source": "observed tool execution transcript; no dedicated raw log",
+    "command": "/workspace/scratch/29289b697614/test-venv/bin/python -m pytest /workspace/scratch/29289b697614/frankensympy/python/tests/test_solve_system_assumptions.py -q -k 'not does_not_invoke and not mutation and not failure and not cumulative and not post_admission and not retains_the_original'",
+    "cwd": "/workspace/scratch/29289b697614",
+    "python": "3.12.14",
+    "sympy": "1.14.0",
+    "pytest": "8.4.2",
+    "passed": 27,
+    "deselected": 12
+  },
+  "new_public_candidate_tests": {
+    "solve_system_assumptions": {
+      "cases": 39,
+      "selected_in_ci": true
+    },
+    "integral_doit_source_domains": {
+      "cases": 19,
+      "file": "python/tests/test_exact_rational_integral.py",
+      "selected_in_ci": true
+    },
+    "status": "Actual-extension execution pending; no candidate pass is claimed."
+  },
+  "compilation_and_interruption": [
+    {
+      "command": "cargo build --locked -p fsym-python --features extension-module -j1",
+      "environment": {
+        "CARGO_INCREMENTAL": "0",
+        "PYO3_PYTHON": "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+        "debug_information": "disabled",
+        "jobs": 1
+      },
+      "core_revision": "bf92999df649e5243df8f34af45effc149528cfc",
+      "exit_code": 101,
+      "outcome": "rustc compiling fsym-solvers terminated by signal 9 (SIGKILL) during code generation. No Rust source diagnostic. Memory pressure was observed; no kernel OOM report was collected."
+    },
+    {
+      "command": "cargo test --locked -p fsym-core --test scoped_assumption_identity --test scoped_assumption_definedness -j1",
+      "scheduling": "Scratch RUSTC_WRAPPER added -Z unstable-options --jobs-frontend=1 --jobs-backend=1, with unchanged sources and graph.",
+      "exit_code": 130,
+      "outcome": "Interrupted during compilation; no test pass. Suspected scheduling interaction was not established. No second full extension build was started."
+    },
+    {
+      "command": "cargo test --locked -p fsym-core --test scoped_assumption_identity --test scoped_assumption_definedness -j1",
+      "scheduling": "Original focused environment, no wrapper, CARGO_INCREMENTAL=1",
+      "outcome": "Last observed running as session 61246; environment became unavailable before any terminal summary was recovered. All 25 final tests remain pending."
+    }
+  ],
+  "baseline_checks": {
+    "scope": "Initial checkout only, not the final feature revision",
+    "formatting": {
+      "command": "cargo fmt --check",
+      "exit_code": 0
+    },
+    "tools": {
+      "command": "python -m unittest discover -s tools -p 'test_*.py'",
+      "tests": 10,
+      "exit_code": 0
+    },
+    "strict_conformance_lab": {
+      "python": "3.14.10",
+      "sympy": "1.14.0",
+      "mpmath": "1.3.0",
+      "tests": 125,
+      "skipped": 4,
+      "exit_code": 0,
+      "note": "Earlier Python 3.12 run had two profile-version errors; required Python 3.14 resolved them without source/profile/golden changes."
+    },
+    "planning": {
+      "commands": [
+        "python tools/validate_planning.py",
+        "python tools/validate_planning.py --self-test"
+      ],
+      "exit_codes": [
+        0,
+        0
+      ]
+    },
+    "workspace_check": {
+      "command": "cargo check --workspace --all-targets --locked",
+      "exit_code": 130,
+      "outcome": "Interrupted while waiting for the global package-cache lock, before compilation."
+    }
+  },
+  "final_static_checks": {
+    "core_files": "Rustfmt and git diff --check passed before environment loss; independent source reviews found no mathematical-side-condition blocker.",
+    "python_files": "AST syntax and diff checks passed before publication. Source review is not actual-extension execution.",
+    "final_workspace_fmt": "Not run after final edits.",
+    "core_clippy": "Not run.",
+    "workspace_clippy": "Not run.",
+    "workspace_tests": "Not run.",
+    "planning_after_note_update": "Only notes and updated_at changed for two existing beads, checked structurally in memory; the planning validator could not be rerun after environment loss."
+  },
+  "toolchain": {
+    "pin": "nightly-2026-08-20",
+    "rustc": "1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "llvm": "23.1.0",
+    "workspace_graph": "Existing pinned donors fetched; manifests, dependencies and features unchanged.",
+    "rch": "Unavailable"
+  },
+  "source_sha256": {
+    "crates/fsym-core/src/assume.rs": "21e1ec13ed5073f1c16facdcabdac3554c6980dcb3062e6a06cb9a4cdf35b8e6",
+    "crates/fsym-core/tests/scoped_assumption_definedness.rs": "b4093748c4d6a2ba55685250a6e388d7ee11793da9619960bcc68c23a8513809",
+    "python/sympy/__init__.py": "0c3ce787af63902436c74f41bc381fe77081b8f1767a8e81e586e2eb5e840d4d",
+    "python/tests/test_solve_system_assumptions.py": "86f0a13f49096496422cbc1f9345bf31ba5a0b2639fbe1fb0580dea99f970a28",
+    ".github/workflows/ci.yml": "b4109db53f7e74b395586cbfe03ec67169bda3c8ec5fab94e4ac09d992c70cbd",
+    "python/sympy/integrals/integrals.py": "31398d69cf8774d53b0ba7e7b8eb5cee5e0dac69f516590337a82d3bbda6f17d",
+    "python/tests/test_exact_rational_integral.py": "b0b556279c847e8f41d2cc27157fa61f60746043509b885d12de4cf52b71065a"
+  },
+  "work_graph": {
+    "beads_notes_updated": [
+      "fra-7kf",
+      "fra-a5x"
+    ],
+    "status_priority_dependencies": "unchanged",
+    "claims_registry": "unchanged"
+  },
+  "scope": "Four bounded correctness repairs. No complete workspace, public-candidate conformance, profile certification, performance, workstream closure or portable-proof claim."
+}

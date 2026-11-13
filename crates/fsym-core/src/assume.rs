@@ -25,6 +25,8 @@ pub struct Facts {
     pub nonnegative: bool,
     pub nonpositive: bool,
     pub real: bool,
+    /// Membership in the extended real line does not establish finiteness.
+    pub extended_real: bool,
     pub integer: bool,
 }
 
@@ -57,7 +59,8 @@ impl Facts {
                 "nonzero" => f.nonzero = true,
                 "nonnegative" => f.nonnegative = true,
                 "nonpositive" => f.nonpositive = true,
-                "real" | "extended_real" => f.real = true,
+                "real" => f.real = true,
+                "extended_real" => f.extended_real = true,
                 "integer" => f.integer = true,
                 _ => {}
             }
@@ -73,8 +76,11 @@ impl Facts {
         if f.negative {
             f.nonpositive = true;
         }
-        if f.integer || f.nonnegative || f.nonpositive {
+        if f.integer || f.nonzero || f.nonnegative || f.nonpositive {
             f.real = true;
+        }
+        if f.real {
+            f.extended_real = true;
         }
         f
     }
@@ -132,127 +138,251 @@ pub fn facts_of(name: &str) -> Option<Facts> {
     CONTEXT.with(|c| c.borrow().iter().rev().find_map(|m| m.get(&sym).copied()))
 }
 
-/// Exact sign under the active facts: `Some(1)`, `Some(-1)`, `Some(0)`, or
-/// `None` when the facts do not decide it.
-pub fn sign(e: &Expr) -> Option<i8> {
-    match e {
-        Expr::Integer(n) => Some(if n.is_zero() {
-            0
-        } else if n.is_negative() {
-            -1
-        } else {
-            1
-        }),
-        Expr::Rational(r) => Some(if r.is_zero() {
-            0
-        } else if r.is_negative() {
-            -1
-        } else {
-            1
-        }),
-        Expr::Const(Constant::Pi | Constant::E | Constant::Infinity) => Some(1),
-        Expr::Const(Constant::NegativeInfinity) => Some(-1),
-        Expr::Const(_) => None,
+// Predicate helpers cannot turn a held undefined intermediate into a fact.
+// Analyze each child once: independently recursive finiteness/sign/nonzero
+// guards otherwise revisit nested powers exponentially. These unmetered
+// convenience queries have a fixed envelope and fail closed outside it.
+const MAX_FACT_DEPTH: usize = 128;
+const MAX_FACT_NODES: usize = 16_384;
+
+#[derive(Clone, Copy, Default)]
+struct StructuralFacts {
+    sign: Option<i8>,
+    real: bool,
+    integer: bool,
+    nonzero: bool,
+    finite: bool,
+}
+
+fn inferred_facts(e: &Expr) -> StructuralFacts {
+    let mut remaining = MAX_FACT_NODES;
+    structural_facts(e, 0, &mut remaining).unwrap_or_default()
+}
+
+fn structural_facts(e: &Expr, depth: usize, remaining: &mut usize) -> Option<StructuralFacts> {
+    if depth > MAX_FACT_DEPTH || *remaining == 0 {
+        return None;
+    }
+    *remaining -= 1;
+    let facts = match e {
+        Expr::Integer(_) | Expr::Rational(_) => {
+            let negative = match e {
+                Expr::Integer(n) => n.is_negative(),
+                Expr::Rational(r) => r.is_negative(),
+                _ => unreachable!(),
+            };
+            StructuralFacts {
+                sign: Some(if e.is_zero() {
+                    0
+                } else if negative {
+                    -1
+                } else {
+                    1
+                }),
+                real: true,
+                integer: matches!(e, Expr::Integer(_)),
+                nonzero: !e.is_zero(),
+                finite: true,
+            }
+        }
+        Expr::Const(Constant::Pi | Constant::E) => StructuralFacts {
+            sign: Some(1),
+            real: true,
+            finite: true,
+            nonzero: true,
+            ..StructuralFacts::default()
+        },
+        Expr::Const(Constant::I) => StructuralFacts {
+            finite: true,
+            nonzero: true,
+            ..StructuralFacts::default()
+        },
+        // Limits need these literal signs. They grant no finite-domain fact
+        // to a containing expression, such as 0*oo or oo**-1.
+        Expr::Const(Constant::Infinity | Constant::NegativeInfinity) => StructuralFacts {
+            sign: Some(if matches!(e, Expr::Const(Constant::Infinity)) {
+                1
+            } else {
+                -1
+            }),
+            ..StructuralFacts::default()
+        },
+        Expr::Const(_) => StructuralFacts::default(),
         Expr::Sym(s) => {
-            let f = consistent_facts_of_symbol(s)?;
-            if f.positive {
+            let Some(f) = consistent_facts_of_symbol(s) else {
+                return Some(StructuralFacts::default());
+            };
+            let sign = if f.positive {
                 Some(1)
             } else if f.negative {
                 Some(-1)
             } else {
                 None
+            };
+            let real = f.real
+                || f.integer
+                || f.nonzero
+                || f.positive
+                || f.negative
+                || f.nonnegative
+                || f.nonpositive;
+            StructuralFacts {
+                sign,
+                real,
+                integer: f.integer,
+                nonzero: f.nonzero || sign.is_some(),
+                finite: real,
             }
         }
-        Expr::Mul(xs) => xs.iter().try_fold(1i8, |acc, x| Some(acc * sign(x)?)),
-        Expr::Add(xs) => {
-            let signs: Option<Vec<i8>> = xs.iter().map(sign).collect();
-            let signs = signs?;
-            if signs.iter().all(|s| *s >= 0) && signs.contains(&1) {
+        Expr::Add(args) | Expr::Mul(args) => {
+            let product = matches!(e, Expr::Mul(_));
+            let mut result = StructuralFacts {
+                sign: Some(if product { 1 } else { 0 }),
+                real: true,
+                integer: true,
+                nonzero: product,
+                finite: true,
+            };
+            let (mut positive, mut negative, mut unknown) = (false, false, false);
+            for arg in args {
+                let f = structural_facts(arg, depth + 1, remaining)?;
+                if !f.finite {
+                    return Some(StructuralFacts::default());
+                }
+                result.real &= f.real;
+                result.integer &= f.integer;
+                if product {
+                    result.sign = result.sign.zip(f.sign).map(|(a, b)| a * b);
+                    result.nonzero &= f.nonzero;
+                } else {
+                    positive |= f.sign == Some(1);
+                    negative |= f.sign == Some(-1);
+                    unknown |= f.sign.is_none();
+                }
+            }
+            if !product {
+                result.sign = if unknown || positive && negative {
+                    None
+                } else if positive {
+                    Some(1)
+                } else if negative {
+                    Some(-1)
+                } else {
+                    Some(0)
+                };
+                result.nonzero = matches!(result.sign, Some(-1 | 1));
+            }
+            result
+        }
+        Expr::Pow(base, exponent) => {
+            let b = structural_facts(base, depth + 1, remaining)?;
+            let x = structural_facts(exponent, depth + 1, remaining)?;
+            if !b.finite || !x.finite {
+                return Some(StructuralFacts::default());
+            }
+            let integer_exponent = match exponent.as_ref() {
+                Expr::Integer(k) => Some(k),
+                _ => None,
+            };
+            let zero_exponent = integer_exponent.is_some_and(Zero::is_zero);
+            let nonnegative_integer = integer_exponent.is_some_and(|k| !k.is_negative());
+            if !nonnegative_integer
+                && !b.nonzero
+                && !(b.sign == Some(0) && x.real && x.sign == Some(1))
+            {
+                return Some(StructuralFacts::default());
+            }
+            let sign = if zero_exponent || b.sign == Some(1) && x.real {
                 Some(1)
-            } else if signs.iter().all(|s| *s <= 0) && signs.contains(&-1) {
-                Some(-1)
-            } else if signs.iter().all(|s| *s == 0) {
+            } else if b.sign == Some(-1) {
+                integer_exponent.map(|k| {
+                    if (k % crate::BigInt::from(2)).is_zero() {
+                        1
+                    } else {
+                        -1
+                    }
+                })
+            } else if b.sign == Some(0) && x.real && x.sign == Some(1) {
                 Some(0)
             } else {
                 None
+            };
+            StructuralFacts {
+                sign,
+                real: zero_exponent
+                    || b.real && integer_exponent.is_some()
+                    || b.sign == Some(1) && x.real
+                    || sign == Some(0),
+                integer: zero_exponent || b.integer && nonnegative_integer,
+                nonzero: b.nonzero || zero_exponent,
+                finite: true,
             }
-        }
-        Expr::Pow(b, x) => {
-            let sb = sign(b)?;
-            match (sb, x.as_ref()) {
-                (1, _) if is_real(x) => Some(1),
-                (-1, Expr::Integer(k)) => Some(if (k % num_bigint_two()).is_zero() {
-                    1
-                } else {
-                    -1
-                }),
-                (0, Expr::Integer(k)) if k.is_positive() => Some(0),
-                _ => None,
-            }
-        }
-        Expr::Function(name, args) if name == "exp" && args.len() == 1 && is_real(&args[0]) => {
-            Some(1)
-        }
-        Expr::Function(_, _) => None,
-    }
-}
-
-fn num_bigint_two() -> crate::BigInt {
-    crate::BigInt::from(2)
-}
-
-/// Whether `e` is real under the active facts (structural, exact).
-pub fn is_real(e: &Expr) -> bool {
-    match e {
-        Expr::Integer(_) | Expr::Rational(_) => true,
-        Expr::Const(c) => matches!(c, Constant::Pi | Constant::E),
-        Expr::Sym(s) => consistent_facts_of_symbol(s).is_some_and(|f| f.real),
-        Expr::Add(xs) | Expr::Mul(xs) => xs.iter().all(is_real),
-        Expr::Pow(b, x) => {
-            is_real(b)
-                && match x.as_ref() {
-                    Expr::Integer(_) => true,
-                    _ => sign(b) == Some(1) && is_real(x),
-                }
         }
         Expr::Function(name, args) => {
-            args.len() == 1
-                && is_real(&args[0])
-                && matches!(
-                    name.as_str(),
-                    "exp" | "sin" | "cos" | "atan" | "sinh" | "cosh" | "tanh" | "Abs"
-                )
+            let [arg] = args.as_slice() else {
+                return Some(StructuralFacts::default());
+            };
+            let a = structural_facts(arg, depth + 1, remaining)?;
+            if !a.finite {
+                return Some(StructuralFacts::default());
+            }
+            let finite = match name.as_str() {
+                "exp" | "sin" | "cos" | "sinh" | "cosh" | "Abs" | "abs" | "sqrt" | "erf"
+                | "erfc" | "sinc" | "re" | "im" | "conjugate" => true,
+                "log" | "ln" => a.nonzero,
+                "atan" | "tanh" => a.real,
+                _ => false,
+            };
+            if !finite {
+                return Some(StructuralFacts::default());
+            }
+            let real = match name.as_str() {
+                "Abs" | "abs" | "re" | "im" => true,
+                "log" | "ln" => a.sign == Some(1),
+                "sqrt" => matches!(a.sign, Some(0 | 1)),
+                _ => a.real,
+            };
+            let sign = match name.as_str() {
+                "exp" if real => Some(1),
+                "Abs" | "abs" if a.nonzero => Some(1),
+                "Abs" | "abs" | "sqrt" if a.sign == Some(0) => Some(0),
+                "sqrt" if a.sign == Some(1) => Some(1),
+                "conjugate" => a.sign,
+                _ => None,
+            };
+            StructuralFacts {
+                sign,
+                real,
+                finite: true,
+                nonzero: name == "exp"
+                    || matches!(name.as_str(), "Abs" | "abs" | "sqrt" | "conjugate") && a.nonzero,
+                ..StructuralFacts::default()
+            }
         }
-    }
+    };
+    Some(facts)
 }
 
-/// Whether `e` is an integer under the active facts (structural, exact).
+/// Exact sign under the active facts: `Some(1)`, `Some(-1)`, `Some(0)`, or
+/// `None` when the facts do not decide it. Literal real infinities keep their
+/// signs, but a nonfinite or undefined child cannot establish an arithmetic sign.
+pub fn sign(e: &Expr) -> Option<i8> {
+    inferred_facts(e).sign
+}
+
+/// Whether `e` is defined and finite real under the active facts.
+pub fn is_real(e: &Expr) -> bool {
+    inferred_facts(e).real
+}
+
+/// Whether `e` is a defined integer under the active facts.
 pub fn is_integer(e: &Expr) -> bool {
-    match e {
-        Expr::Integer(_) => true,
-        Expr::Sym(s) => consistent_facts_of_symbol(s).is_some_and(|f| f.integer),
-        Expr::Add(xs) | Expr::Mul(xs) => xs.iter().all(is_integer),
-        Expr::Pow(b, x) => {
-            is_integer(b) && matches!(x.as_ref(), Expr::Integer(k) if !k.is_negative())
-        }
-        _ => false,
-    }
+    inferred_facts(e).integer
 }
 
-/// Whether `e` is nonzero under the active facts (structural, exact).
+/// Whether `e` is defined, finite and nonzero under the active facts.
 pub fn is_nonzero(e: &Expr) -> bool {
-    if let Some(s) = sign(e) {
-        return s != 0;
-    }
-    match e {
-        Expr::Sym(s) => consistent_facts_of_symbol(s).is_some_and(|f| f.nonzero),
-        Expr::Mul(xs) => xs.iter().all(is_nonzero),
-        Expr::Pow(b, x) => {
-            is_nonzero(b) && matches!(x.as_ref(), Expr::Integer(_) | Expr::Rational(_))
-        }
-        Expr::Function(name, args) if name == "exp" && args.len() == 1 => true,
-        _ => false,
-    }
+    inferred_facts(e).nonzero
 }
 
 #[cfg(test)]
