@@ -16,6 +16,62 @@ from typing import Any
 from ..core import AppliedUndef, Function, Symbol, Tuple, sympify
 
 
+def _doit_integrand(function: Any, hints: dict[str, Any]) -> Any:
+    """Evaluate nested operations without folding the integrand's source tree.
+
+    Basic.doit deliberately evaluates held arithmetic constructors. Doing that
+    before integration loses original poles, including ones beneath a zero
+    product or power. Only explicit nested operations need evaluation here;
+    ordinary arithmetic and closed functions keep their original structure
+    until the integration lane has checked their domains.
+    """
+    from ..core import Basic, Derivative, _exact_surface_types, _is_closed_function_class
+    from ..functions.elementary.piecewise import Piecewise
+
+    exact_types = _exact_surface_types()
+    remaining = 16384
+
+    def visit(node: Any, depth: int) -> Any:
+        nonlocal remaining
+        if depth > 128 or remaining == 0:
+            raise ValueError("integral source exceeds the deep evaluation envelope")
+        remaining -= 1
+        cls = type(node)
+        if cls is Piecewise:
+            branches = node.args
+            if len(branches) > remaining:
+                raise ValueError("integral source exceeds the deep evaluation envelope")
+            values = tuple(visit(branch.expr, depth + 1) for branch in branches)
+            if all(value is branch.expr for value, branch in zip(values, branches)):
+                return node
+            return Piecewise(
+                *((value, branch.cond) for value, branch in zip(values, branches)),
+                evaluate=False,
+            )
+
+        # Dedicated doit implementations (Integral, Sum, transforms and custom
+        # Python hooks) keep their behavior. Derivative uses Basic.doit's
+        # explicit derivative branch rather than a separate override.
+        structural = (
+            cls is not Derivative
+            and isinstance(node, Basic)
+            and cls.doit is Basic.doit
+            and (any(cls is builtin for builtin in exact_types)
+                 or isinstance(node, Function) and _is_closed_function_class(cls))
+        )
+        if not structural:
+            return node.doit(**hints) if hasattr(node, "doit") else node
+        args = node.args
+        if len(args) > remaining:
+            raise ValueError("integral source exceeds the deep evaluation envelope")
+        values = tuple(visit(arg, depth + 1) for arg in args)
+        if all(value is arg for value, arg in zip(values, args)):
+            return node
+        return node.func(*values, evaluate=False)
+
+    return visit(function, 0)
+
+
 def _limit_tuple(lim: Any) -> Any:
     if type(lim).__name__ == "Tuple":
         items = tuple(lim.args)
@@ -139,7 +195,7 @@ class Integral(Function):
 
         func = self.function
         if hints.get("deep", True) and hasattr(func, "doit"):
-            func = func.doit(**hints)
+            func = _doit_integrand(func, hints)
         limits = self.limits
         if all(len(limit) != 2 for limit in limits):
             return integrate(func, *limits)

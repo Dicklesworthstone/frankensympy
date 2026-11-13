@@ -83,6 +83,109 @@ def test_held_original_interior_holes_cannot_be_erased(kind):
     assert isinstance(s.integrate(source, (x, 0, 2)), s.Integral)
 
 
+@pytest.mark.parametrize("kind", ["cancelled", "zero_product", "nested_inverse", "held_zero_power"])
+@pytest.mark.parametrize("deep", [False, True])
+def test_integral_doit_retains_the_original_domain_before_deep_evaluation(kind, deep):
+    x = s.Symbol("integral_doit_original_domain")
+    inverse = s.Pow(x - 1, -1, evaluate=False)
+    source = {
+        "cancelled": lambda: s.Mul(x - 1, inverse, evaluate=False),
+        "zero_product": lambda: s.Mul(0, inverse, evaluate=False),
+        "nested_inverse": lambda: s.Pow(inverse, -1, evaluate=False),
+        "held_zero_power": lambda: s.Pow(inverse, 0, evaluate=False),
+    }[kind]()
+    result = s.Integral(source, (x, 0, 2)).doit(deep=deep)
+    assert isinstance(result, s.Integral)
+    assert result.function is source
+    assert result.limits == ((x, 0, 2),)
+
+
+def test_integral_doit_keeps_original_domains_inside_elementary_functions():
+    x = s.Symbol("integral_doit_function_domain")
+    zero = s.Mul(0, s.Pow(x - 1, -1, evaluate=False), evaluate=False)
+    source = s.sin(zero, evaluate=False)
+    result = s.Integral(source, (x, 0, 2)).doit()
+    assert isinstance(result, s.Integral)
+    assert result.function is source
+
+
+@pytest.mark.parametrize("kind", ["zero_product", "held_zero_power"])
+def test_integral_doit_cannot_erase_excessive_original_power(kind):
+    x = s.Symbol("integral_doit_power_limit")
+    excessive = s.Pow(x, 10**9, evaluate=False)
+    source = (s.Mul(0, excessive, evaluate=False) if kind == "zero_product"
+              else s.Pow(excessive, 0, evaluate=False))
+    result = s.Integral(source, (x, 0, 1)).doit()
+    assert isinstance(result, s.Integral)
+    assert result.function is source
+
+
+def test_integral_doit_submits_one_original_source_to_the_checked_native_lane(monkeypatch):
+    from sympy.core import _native_expr
+
+    x = s.Symbol("integral_doit_source")
+    source = s.Mul(s.Add(x, x, evaluate=False), s.Rational(1, 2), evaluate=False)
+    native_source = _native_expr(source)
+    original = _native.integrate_definite_native
+    calls = []
+
+    def checked(value, *args):
+        calls.append(value)
+        return original(value, *args)
+
+    monkeypatch.setattr(_native, "integrate_definite_native", checked)
+    assert s.Integral(source, (x, 0, 2)).doit() == 2
+    assert calls == [native_source]
+
+
+@pytest.mark.parametrize("kind", ["cancelled", "zero_product", "nested_inverse", "held_zero_power"])
+def test_integral_doit_keeps_convergent_removable_endpoint_values(kind):
+    x = s.Symbol("integral_doit_endpoint")
+    inverse = s.Pow(x - 1, -1, evaluate=False)
+    source, expected = {
+        "cancelled": (s.Mul(x - 1, inverse, evaluate=False), s.Integer(1)),
+        "zero_product": (s.Mul(0, inverse, evaluate=False), s.Integer(0)),
+        "nested_inverse": (s.Pow(inverse, -1, evaluate=False), -s.Rational(1, 2)),
+        "held_zero_power": (s.Pow(inverse, 0, evaluate=False), s.Integer(1)),
+    }[kind]
+    assert s.Integral(source, (x, 0, 1)).doit() == expected
+
+
+def test_integral_doit_evaluates_nested_derivatives_and_integrals():
+    x, y = s.symbols("integral_doit_x integral_doit_y")
+    derivative = s.Derivative(x*x, x, evaluate=False)
+    assert s.Integral(derivative, (x, 0, 1)).doit() == 1
+    assert s.Integral(s.Add(derivative, 1, evaluate=False), (x, 0, 1)).doit() == 2
+    inner = s.Integral(y, (y, 0, 2))
+    source = s.Mul(x, inner, evaluate=False)
+    assert s.Integral(source, (x, 0, 1)).doit() == 1
+    assert s.Integral(derivative, (x, 0, 1)).doit(deep=False).has(s.Derivative)
+
+
+def test_integral_doit_nested_evaluation_preserves_neighboring_held_holes():
+    x = s.Symbol("integral_doit_neighbor")
+    derivative = s.Derivative(x*x, x, evaluate=False)
+    hole = s.Mul(0, s.Pow(x - 1, -1, evaluate=False), evaluate=False)
+    source = s.Add(derivative, hole, evaluate=False)
+    result = s.Integral(source, (x, 0, 2)).doit()
+    assert isinstance(result, s.Integral)
+    assert result.function.args[1] is hole
+    assert result.function.args[0] == 2*x
+
+
+def test_integral_doit_piecewise_keeps_active_holes_and_first_match_domains():
+    x = s.Symbol("integral_doit_piecewise")
+    hole = s.Mul(0, s.Pow(x - 1, -1, evaluate=False), evaluate=False)
+    active = s.Piecewise((hole, x >= 0), (1, True), evaluate=False)
+    with pytest.raises(ValueError):
+        s.Integral(active, (x, -1, 2)).doit()
+    inactive = s.Piecewise((hole, x < 0), (x, True), evaluate=False)
+    assert s.Integral(inactive, (x, 0, 2)).doit() == 2
+    derivative = s.Derivative(x*x, x, evaluate=False)
+    nested = s.Piecewise((derivative, x < 0), (x, True), evaluate=False)
+    assert s.Integral(nested, (x, -1, 1)).doit() == -s.Rational(1, 2)
+
+
 def test_removable_endpoint_holes_keep_their_original_guard_receipts():
     x = s.Symbol("exact_integral_endpoint")
     inverse = s.Pow(x - 1, -1, evaluate=False)
