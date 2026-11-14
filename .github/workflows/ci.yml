@@ -231,6 +231,8 @@ jobs:
           raise SystemExit(pytest.main([
               "-q", "-p", "no:cacheprovider",
               "python/tests/test_assumptions_soundness.py",
+              "python/tests/test_cse_integrity.py",
+              "python/tests/test_surface.py::SurfaceTests::test_cse_parse_expr_utilities_and_term_order",
               "python/tests/test_assumptions_context_adversaries.py",
               "python/tests/test_solve_assumptions.py",
               "python/tests/test_solve_system_assumptions.py",

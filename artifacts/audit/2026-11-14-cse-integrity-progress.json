@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "scope": "Exact bounded scalar common-subexpression elimination in the checked-out Python compatibility shell",
+  "base_commit": "ad8f94820f8ef26b730470efe4db5841fe775991",
+  "implementation_blobs": {
+    "python/sympy/simplify/cse_main.py": "98c6edbbb29f6753a556c6c00b33742ad905ce24",
+    "python/tests/test_cse_integrity.py": "7964c1964d2847acd75d26ff7f0a0dc3bf61daec"
+  },
+  "correctness_changes": [
+    "Replace common-argument frozensets with exact multiset subtraction, preserving held duplicate Add/Mul operands.",
+    "Use integer-reference DAG interning, memoized rewrites and dependency-ordered temporary definitions.",
+    "Preserve held denominator structure; disable operand factoring when Float metadata is present.",
+    "Avoid source-name capture and duplicate user temporaries; reject assumption-constrained temporary symbols.",
+    "Retain exact admitted scalar special functions and numeric constants; leave scoped, custom and noncommutative invocations unchanged.",
+    "Refuse changed built-in metadata/accessor implementations before observation; preflight bounded work, depth, input count and temporary attempts."
+  ],
+  "regression_functions_authored": 26,
+  "oracle": "Independent exact rational-coefficient polynomial evaluation over retained surface children; separate checks for held domains, scalar functions, metadata hooks and scope.",
+  "validation": {
+    "independent_algorithm_review": "completed",
+    "independent_python_boundary_review": "completed; metadata/ancestor admission and excessive test-construction issues corrected",
+    "remote_blob_readback": "byte-exact authored source/test readback",
+    "python_tests": "not executed after executor disconnection",
+    "native_tests": "not executed",
+    "python_syntax_execution": "not available",
+    "rustfmt_clippy_workspace_gates": "not completed in this session",
+    "ci_selection": [
+      "python/tests/test_cse_integrity.py",
+      "python/tests/test_surface.py::SurfaceTests::test_cse_parse_expr_utilities_and_term_order"
+    ]
+  },
+  "limits": [
+    "No upstream production fallback or new dependency.",
+    "Nonempty custom optimization pipelines explicitly unsupported; supplied temporary iterators and postprocess remain caller hooks.",
+    "Opaque/custom, binding/control-flow and noncommutative invocations return original inputs without extraction.",
+    "Work limits bound optimizer graph traversal; no general supervised-runtime or forced-cancellation claim.",
+    "No profile, compatibility, performance or campaign promotion; bead status and dependencies unchanged."
+  ]
+}
