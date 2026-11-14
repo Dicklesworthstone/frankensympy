@@ -2,8 +2,8 @@
 
 This development interface connects the root Rust library and the `frankensympy`
 NDJSON command to the existing original-source numerical and exact algebraic
-checkers. Its scope is complete real rational equations, inequalities and Boolean
-constraint combinations,
+checkers. Its scope is complete finite real polynomial systems, complete real
+rational equations, inequalities and Boolean constraint combinations,
 exact real residual/Jacobian enclosures, unique nonsingular local roots and
 complete finite-box root sets, objective/gradient/Hessian enclosures, locally
 classified stationary points, global box optimum value bounds, proper finite real
@@ -44,6 +44,70 @@ outside that box. For this example the contraction bound is `1/15`.
 The rational matrix is an untrusted preconditioner proposal. Its entries, a
 small residual, a solver convergence flag or a previously stored acceptance
 flag cannot authorize a root certificate.
+
+## Solve complete finite real polynomial systems
+
+`SolveRealPolynomialSystem` solves all registered polynomial residuals equal to
+zero over the reals. The bounded lane admits rational coefficients, one through
+eight ordered variables, and at most 64 equations. It returns every distinct
+real solution of a recognized finite system, including singular systems. The
+independently checked native solver uses a separating parameter when the last
+variable alone cannot distinguish all points, and can remove nilpotent structure
+through a checked radical while preserving the complete distinct point set.
+
+For example, the independent quadratic coordinates have four real solutions:
+
+```json
+{"id":"register-polynomial","type":"RegisterResidualSystem","payload":{"schema_version":1,"system":"system:quadratics","residuals":["x^2-2","y^2-3"],"variables":["x","y"]}}
+{"id":"solve-polynomial","type":"SolveRealPolynomialSystem","payload":{"schema_version":1,"system":"system:quadratics"}}
+```
+
+The successful response has `kind: "real_polynomial_system_solved"`,
+`evidence: "exact_cross_checked"`, `completeness: "complete"`, and
+`domain: "real"`. Its claim is
+`complete_distinct_real_solution_set_of_original_polynomial_system`.
+It retains the registered system, original ordered typed variables and context
+digest. Its `solution_set` contains:
+
+| Field | Exact meaning |
+| --- | --- |
+| `parameter` | The typed algebraic parameter used for this representation; it may be an original axis or a fresh internal symbol. |
+| `polynomial` | Nonzero monic defining polynomial, with exact rational coefficient strings in ascending degree. |
+| `roots` | Every distinct real parameter root in increasing order, identified by exact rational isolating bounds. |
+| `coordinates` | One ascending rational coefficient vector per original variable. Evaluate each vector at the same indexed parameter root to obtain a complete solution tuple. |
+
+For this example, the parameter is `t=x+y`, the defining polynomial is
+`["1","0","-10","0","1"]`, and the coordinate vectors are
+`["0","-9/2","0","1/2"]` and `["0","11/2","0","-1/2"]`. Thus
+each of the four distinct real roots of `t^4-10*t^2+1` represents exactly one
+tuple `((t^3-9*t)/2, (11*t-t^3)/2)`. Isolating bounds identify algebraic points;
+they are not approximate substituted coordinates or Cartesian solution boxes.
+
+Empty `roots` is a complete empty real solution set, both for inconsistent
+polynomial systems and for systems whose solutions are all nonreal. A
+positive-dimensional or unrecognized finite system refuses explicitly instead
+of returning a partial or empty list. The defining polynomial can have repeated
+roots, but output tuples occur once. This interface makes no original-ideal
+multiplicity, nonsingularity, complex-domain or portable-proof claim.
+
+All original source expressions are admitted before ideal-dimension or unit-ideal
+shortcuts. Unsupported functions and original variable denominators, including
+`0*(1/x)` or `x/x-1`, refuse in this polynomial lane. Rational constant
+denominators remain supported. The existing rational univariate requests below
+retain their broader pole-aware domain semantics. Request payloads cannot
+replace the registered source, coordinates, domain or accepted output.
+
+The native conversion, Gröbner, shape, radical and root-isolation bounds remain
+in force, including a maximum final parameter degree of 64. Generation and
+independent checking spend ordinary and protected verifier resources from one
+cumulative Session ledger. A caller-meter failure remains typed even across
+older solver error wrappers, and final response admission precedes publication.
+The fixed native search envelope can still return an explicit refusal. Larger
+systems may require the CLI's documented `--compute-steps`, `--memory-bytes`,
+`--allocations` and `--verifier-steps` allowances; no request replenishes them.
+
+Rust callers use `CertificationRequest::SolveRealPolynomialSystem` and the
+exported `ExactRealPolynomialSolutionSet` output type.
 
 ## Solve complete real rational equations and inequalities
 

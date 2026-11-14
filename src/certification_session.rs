@@ -56,6 +56,7 @@ mod compiled;
 mod compiled_objective;
 mod compiled_solvers;
 mod parametric;
+mod polynomial_solver;
 mod real_solver;
 pub use compiled::{CompiledResidualSystemId, MAX_SESSION_COMPILED_SYSTEMS};
 pub use compiled_objective::{CompiledObjectiveId, MAX_SESSION_COMPILED_OBJECTIVES};
@@ -68,6 +69,7 @@ pub use parametric::{
     ExactParametricRootWitness, ParametricFamilyId, ParametricFamilyReceipt, ParametricProblemId,
     ParametricSensitivityId,
 };
+pub use polynomial_solver::ExactRealPolynomialSolutionSet;
 pub use real_solver::{ExactRealSolutionSet, RealInequalityRelation};
 
 pub const CERTIFICATION_REQUEST_SCHEMA: u32 = 1;
@@ -709,6 +711,12 @@ pub enum CertificationRequest {
         residuals: Vec<String>,
         variables: Vec<String>,
     },
+    /// All distinct real solutions of a bounded finite polynomial system.
+    /// Algebraic coordinates are exact polynomials of one indexed real root.
+    SolveRealPolynomialSystem {
+        schema_version: u32,
+        system: ResidualSystemId,
+    },
     /// Complete real roots or a cofinite real set for one original rational source.
     SolveRealEquation {
         schema_version: u32,
@@ -962,6 +970,7 @@ impl CertificationRequest {
             | Self::ReplayBoxOptimizationFromArtifact { schema_version, .. }
             | Self::RegisterResidualSystem { schema_version, .. }
             | Self::SolveRealEquation { schema_version, .. }
+            | Self::SolveRealPolynomialSystem { schema_version, .. }
             | Self::SolveRealInequality { schema_version, .. }
             | Self::SolveRealConstraints { schema_version, .. }
             | Self::EncloseResidualJacobian { schema_version, .. }
@@ -1041,6 +1050,17 @@ pub(crate) fn decode_request(
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CertificationResponse {
+    RealPolynomialSystemSolved {
+        schema_version: u32,
+        system: ResidualSystemId,
+        variables: Vec<Symbol>,
+        evidence: &'static str,
+        claim: &'static str,
+        completeness: &'static str,
+        domain: &'static str,
+        solution_set: ExactRealPolynomialSolutionSet,
+        context_digest: [u8; 32],
+    },
     RealEquationSolved {
         schema_version: u32,
         system: ResidualSystemId,
@@ -1581,6 +1601,10 @@ pub enum CertificationSessionError {
     InvalidRealSolverProblem,
     #[error("exact real constraints require one variable and one relation per bounded residual")]
     InvalidRealConstraintsProblem,
+    #[error("exact real polynomial solving requires 1..8 variables and at most 64 residuals")]
+    InvalidRealPolynomialProblem,
+    #[error("the registered polynomial system has no supported complete finite representation")]
+    UnsupportedRealPolynomialSystem,
     #[error("exact real solving requires an admitted original rational expression")]
     UnsupportedRealSolverSource,
     #[error("box endpoints are reversed or dimensions are inconsistent")]
@@ -1601,6 +1625,8 @@ pub enum CertificationSessionError {
     Compilation(#[from] fsym_calculus::verified::VerifiedCompilationError),
     #[error("exact real solving refused: {0}")]
     RealSolver(#[from] fsym_solvers::real_equation::RealEquationError),
+    #[error("exact real polynomial solving refused: {0}")]
+    PolynomialSolver(#[from] fsym_solvers::SolverError),
     #[error("residual evaluation refused: {0}")]
     Evaluation(#[from] fsym_calculus::verified::ResidualEvaluationError),
     #[error("objective compilation refused: {0}")]
@@ -1640,6 +1666,7 @@ impl CertificationSessionError {
             | Self::InvalidNumericPoint
             | Self::InvalidRealSolverProblem
             | Self::InvalidRealConstraintsProblem
+            | Self::InvalidRealPolynomialProblem
             | Self::InvalidDomain
             | Self::InvalidSearchQuantum => "invalid_input",
             Self::DuplicateObject => "duplicate_object",
@@ -1658,7 +1685,9 @@ impl CertificationSessionError {
             | Self::UnknownParametricFamily
             | Self::UnknownTransfer => "unknown_object",
             Self::SearchNotReady => "search_not_ready",
-            Self::UnsupportedRealSolverSource => "unsupported_operation",
+            Self::UnsupportedRealSolverSource | Self::UnsupportedRealPolynomialSystem => {
+                "unsupported_operation"
+            }
             Self::WrongTransferMode => "wrong_transfer_mode",
             Self::ObjectLimit | Self::ArtifactLimit => "resource_limit_exceeded",
             Self::OutputLimit => "output_limit_exceeded",
@@ -1668,6 +1697,7 @@ impl CertificationSessionError {
             Self::Certification(error) => certification_error_code(error),
             Self::Compilation(error) => compiled::compilation_error_code(error),
             Self::RealSolver(error) => real_solver::error_code(error),
+            Self::PolynomialSolver(_) => "refused",
             Self::Evaluation(error) => compiled::evaluation_error_code(error),
             Self::ObjectiveCompilation(error) => compiled_objective::compilation_error_code(error),
             Self::ObjectiveEvaluation(error) => compiled_objective::evaluation_error_code(error),
@@ -2882,6 +2912,13 @@ impl CertificationState {
             ));
         }
         match request {
+            CertificationRequest::SolveRealPolynomialSystem { system, .. } => {
+                let problem = self
+                    .systems
+                    .get(&system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                polynomial_solver::solve(system, problem, context_digest, budget, lease)
+            }
             CertificationRequest::SolveRealEquation { system, .. } => {
                 let problem = self
                     .systems

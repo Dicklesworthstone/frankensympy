@@ -70,9 +70,9 @@ pub struct ExactRealSolutionSet {
 /// them concurrently or calls arbitrary user code. Each borrow lasts only
 /// for one charge/checkpoint. A failed borrow refuses access rather than
 /// panicking or falling back to a fresh/unbounded meter.
-struct LedgerView<'a, 'budget> {
-    ledger: &'a RefCell<&'budget mut Budget>,
-    verifier: Option<&'a VerifierLease>,
+pub(super) struct LedgerView<'a, 'budget> {
+    pub(super) ledger: &'a RefCell<&'budget mut Budget>,
+    pub(super) verifier: Option<&'a VerifierLease>,
 }
 
 impl BudgetMeter for LedgerView<'_, '_> {

@@ -1125,6 +1125,7 @@ impl Session {
             value.get("type").and_then(serde_json::Value::as_str),
             Some(
                 "RegisterResidualSystem"
+                    | "SolveRealPolynomialSystem"
                     | "SolveRealEquation"
                     | "SolveRealInequality"
                     | "SolveRealConstraints"

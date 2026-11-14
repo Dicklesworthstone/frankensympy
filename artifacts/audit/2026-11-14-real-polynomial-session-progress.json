@@ -1,0 +1,181 @@
+{
+  "schema": 1,
+  "feature": "Complete exact finite real polynomial systems through Session and NDJSON",
+  "base_commit": "6a5505089aae516b76a3690f548694e4da217e1a",
+  "implementation": {
+    "request": "SolveRealPolynomialSystem",
+    "response": "RealPolynomialSystemSolved",
+    "output_type": "ExactRealPolynomialSolutionSet",
+    "native_algorithm": "Existing independently checked metered_solve_real_rur_system",
+    "scope": [
+      "1..8 ordered typed variables and at most 64 original polynomial residuals",
+      "Complete distinct real point sets, including separating-form shears and checked radical reduction",
+      "Exact indexed parameter roots and ascending rational coordinate polynomials",
+      "Frozen source and context binding; complete response admitted before publication",
+      "Ordinary generation and protected verifier views share one cumulative session ledger",
+      "Recorded native caller-meter failures retain typed cancellation/exhaustion without parsing SolverError strings"
+    ],
+    "exclusions": [
+      "Positive-dimensional or unrecognized finite systems",
+      "Original variable denominators or unsupported functions in this polynomial lane",
+      "Original-ideal multiplicities, nonsingularity and complete complex solutions",
+      "Portable solver proof transport",
+      "Complete async runtime, workstream/profile certification"
+    ],
+    "new_test_functions": {
+      "integration": 12,
+      "private": 4
+    }
+  },
+  "review": {
+    "independent_source_reviewer": "/root",
+    "before_environment_loss": "Source review of new module, dispatch, docs and tests found no blocker; reviewed exact maps, protected authority, source retention, output admission and claim scope",
+    "recovered_bytes": "Reconstructed from exact applied patch contents and the pinned remote base. All feature paths, cases and assertions retained. Final reconstructed formatting has not been executed.",
+    "observed_existing_rust_blob_prefixes_match": {
+      "src/certification_session/real_solver.rs": "55182ae",
+      "src/lib.rs": "0df30c3",
+      "src/session.rs": "035caeb",
+      "src/certification_session.rs": "9e576fb"
+    }
+  },
+  "validation": {
+    "toolchain": "nightly-2026-08-20",
+    "selected_command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--test",
+      "real_polynomial_session",
+      "--test",
+      "real_solver_session",
+      "--test",
+      "real_constraints_session"
+    ],
+    "attempts": [
+      {
+        "number": 1,
+        "exit_code": 101,
+        "elapsed_seconds": 41.641,
+        "terminal": "SIGKILL in fsym-calculus library code generation before root Session compilation or tests",
+        "rustflags": "-Zunstable-options --jobs-backend=1 --jobs-frontend=1 -Cdebuginfo=0 -Ccodegen-units=256",
+        "observed_source_hash_count": 711,
+        "observed_source_bookends_identical": true,
+        "terminal_excerpt": "error: could not compile `fsym-calculus` (lib)\nCaused by:\n  process didn't exit successfully ... (signal: 9, SIGKILL: kill)"
+      },
+      {
+        "number": 2,
+        "exit_code": 101,
+        "elapsed_seconds": 114.761,
+        "terminal": "After passing calculus code generation, SIGKILL in fsym-solvers library code generation before root Session compilation or tests",
+        "rustflags": "-Zunstable-options --jobs-backend=1 --jobs-frontend=1 -Cdebuginfo=0",
+        "scratch_codegen_profiles": {
+          "dev": 256,
+          "test": 256,
+          "dev.package.fsym-calculus": 32,
+          "test.package.fsym-calculus": 32
+        },
+        "observed_source_hash_count": 711,
+        "observed_source_bookends_identical": true,
+        "terminal_excerpt": "error: could not compile `fsym-solvers` (lib)\nCaused by:\n  process didn't exit successfully ... (signal: 9, SIGKILL: kill)"
+      }
+    ],
+    "common_environment": {
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_TARGET_DIR": "/tmp/frankensympy-next-target"
+    },
+    "third_attempt": {
+      "prepared_only": true,
+      "executed": false,
+      "additional_scratch_codegen_overrides": {
+        "dev.package.fsym-solvers": 32,
+        "test.package.fsym-solvers": 32,
+        "dev.package.frankensympy-session-source-component-check": 32,
+        "test.package.frankensympy-session-source-component-check": 32
+      },
+      "reason_not_run": "Execution service unavailable during the subsequent root Python build; all compile plans stopped."
+    },
+    "tests_executed": 0,
+    "private_tests_executed": 0,
+    "strict_clippy_executed": false,
+    "original_final_scoped_rustfmt_and_diff_check": "Observed passing before environment loss; not transferable to reconstructed final bytes without a fresh check.",
+    "reconstructed_bytes_compilation_formatting_tests": "unexecuted",
+    "raw_logs": "Full logs were retained in scratch during execution, but became unavailable with the execution environment. Only the observed outcomes and these abbreviated terminal excerpts are retained here.",
+    "full_source_inventory": "Both original 711-file bookend comparisons were observed identical. The complete historical hash maps were in the unavailable scratch environment and have not been reconstructed as execution evidence."
+  },
+  "component_scope": {
+    "whole_root_library_and_cli": true,
+    "production_functions_replaced": [],
+    "selected_whole_runtime_modules": 5,
+    "selected_whole_pinned_codec_modules": 14,
+    "omitted_runtime_files": 12,
+    "omitted_donor_files": 1535,
+    "registry_identities_and_checksums_matching_production_lock": 58,
+    "original_path_packages": 25,
+    "metadata_platform": "x86_64-unknown-linux-gnu",
+    "donor_commit": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+    "scope": "Source component only; no full asynchronous runtime validation."
+  },
+  "files": [
+    {
+      "path": "src/certification_session/polynomial_solver.rs",
+      "blob_sha": "9f4e317043dbe783eb30bbe55c930bd5c246d3c8",
+      "sha256": "990595248388e698ce4549e50d36522f75a44a352e8884023cfe98527cce313c",
+      "bytes": 12376,
+      "remote_exact_readback": true,
+      "reconstructed_from_recorded_patches": true
+    },
+    {
+      "path": "tests/real_polynomial_session.rs",
+      "blob_sha": "709f21b637440848f0c0d3012a5f1d0598b69fd3",
+      "sha256": "e68b214e818469be19b07b16ce3ae164a480cf0c525230454c37f60b93f64fa5",
+      "bytes": 16036,
+      "remote_exact_readback": true,
+      "reconstructed_from_recorded_patches": true
+    },
+    {
+      "path": "src/certification_session/real_solver.rs",
+      "blob_sha": "55182ae0cc7def8e71b626cad2fbdeb4e595b5b6",
+      "sha256": "a5d4eefffe9ab160b70453f189ae6e470c01f23e7476481e67ed98db8e0fe18e",
+      "bytes": 18293,
+      "remote_exact_readback": true,
+      "reconstructed_from_recorded_patches": true
+    },
+    {
+      "path": "src/lib.rs",
+      "blob_sha": "0df30c38eb7caee8a7dec0f6c00ae989614382f9",
+      "sha256": "dffe0ec8a17decf8bcca8fa4abffeb96d2794bf6d40cd33b8fca967d2a9f2fb7",
+      "bytes": 6598,
+      "remote_exact_readback": true,
+      "reconstructed_from_recorded_patches": true
+    },
+    {
+      "path": "src/session.rs",
+      "blob_sha": "035caeb957cf208499ef8ff74155c1f8295cf3e3",
+      "sha256": "8a3f7a1013017e3ea009f87b6465830504f349683cd9a31685d3c0fe20dcbdbf",
+      "bytes": 60095,
+      "remote_exact_readback": true,
+      "reconstructed_from_recorded_patches": true
+    },
+    {
+      "path": "src/certification_session.rs",
+      "blob_sha": "9e576fb7cabd053c7ca00f5be81606086452f6dc",
+      "sha256": "666e27f2dc283c6f4641600620a4745e593ea6bb74780aec91240f76b59ae184",
+      "bytes": 185889,
+      "remote_exact_readback": true,
+      "reconstructed_from_recorded_patches": true
+    },
+    {
+      "path": "docs/NATIVE_CERTIFICATION_SESSION.md",
+      "blob_sha": "c12e7a40f7d94f93c91080ef2508c010f652414c",
+      "sha256": "5ab238f88fa0a6b3406b0c87ddf28f49647d072e342402d9ebd3615ac66667f1",
+      "bytes": 97902,
+      "remote_exact_readback": true,
+      "reconstructed_from_recorded_patches": true
+    }
+  ],
+  "claim_effects": "No bead status, dependency, compatibility profile or broad claim promotion."
+}

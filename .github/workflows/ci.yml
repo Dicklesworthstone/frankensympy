@@ -143,8 +143,9 @@ jobs:
         run: |
           cargo test --locked -p fsym-calculus --test program_artifact --test program_admission -j1
           cargo test --locked -p frankensympy --test compiled_program_transport --test compiled_program_cli --test compiled_artifacts --test compiled_residual_session --test compiled_residual_products --test compiled_objective_session --test compiled_solver_session --test compiled_solver_cli -j1
-          cargo test --locked -p frankensympy --test real_solver_session --test real_constraints_session -j1
+          cargo test --locked -p frankensympy --test real_solver_session --test real_constraints_session --test real_polynomial_session -j1
           cargo test --locked -p frankensympy --lib certification_session::real_solver::tests -j1
+          cargo test --locked -p frankensympy --lib certification_session::polynomial_solver::tests -j1
           cargo test --locked -p fsym-solvers --test real_equation --test real_inequality --test real_constraints -j1
           cargo test --locked -p fsym-rational --lib decimal_from_str -j1
           cargo test --locked -p fsym-core --lib real_evalf_ -j1
