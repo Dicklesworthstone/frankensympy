@@ -6,11 +6,14 @@
 //! growth and cumulative logical allocations have explicit bounds. LU and
 //! normal-equation identities use same-crate reference checks; least squares
 //! additionally replays portable rank evidence in the independent proof kernel.
+//! Sparse pseudoinverses and minimum-norm solves replay all four Penrose
+//! identities and the exact solution product in that independent kernel.
 //!
 //! This lane admits dimensions up to 8192, 262144 stored entries per matrix,
 //! 16384 bits per coefficient component (including uncancelled arithmetic
-//! intermediates), ten million metered compute units, and 256 MiB of cumulative
-//! logical allocation charges. Generation and checking share one caller meter;
+//! intermediates), ten million metered compute units (twenty million for the
+//! four-identity pseudoinverse lane), and 256 MiB of cumulative logical
+//! allocation charges. Generation and checking share one caller meter;
 //! this synchronous API does not reserve a protected verifier budget.
 
 #![forbid(unsafe_code)]
@@ -24,6 +27,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod least_squares;
 pub use least_squares::*;
+mod pseudoinverse;
+pub use pseudoinverse::*;
 
 const MAX_DIMENSION: usize = 8_192;
 const MAX_ENTRIES: usize = 262_144;
@@ -92,14 +97,20 @@ fn rejected(message: &str) -> MatrixError {
 struct Work<'a, M> {
     meter: &'a mut M,
     steps: u64,
+    max_steps: u64,
     allocation_bytes: u64,
 }
 
 impl<'a, M: BudgetMeter> Work<'a, M> {
     fn new(meter: &'a mut M) -> Self {
+        Self::with_step_limit(meter, MAX_WORK)
+    }
+
+    fn with_step_limit(meter: &'a mut M, max_steps: u64) -> Self {
         Self {
             meter,
             steps: 0,
+            max_steps,
             allocation_bytes: 0,
         }
     }
@@ -110,7 +121,7 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
             .steps
             .checked_add(amount)
             .ok_or_else(|| limit("work count overflow"))?;
-        if self.steps > MAX_WORK {
+        if self.steps > self.max_steps {
             return Err(limit("arithmetic work limit exceeded"));
         }
         if amount != 0 {
@@ -206,7 +217,7 @@ impl<M: BudgetMeter> BudgetMeter for Work<'_, M> {
         let mut bytes = self.allocation_bytes;
         for &(dimension, amount) in charges {
             let (counter, maximum) = match dimension {
-                Dimension::ComputeSteps => (&mut steps, MAX_WORK),
+                Dimension::ComputeSteps => (&mut steps, self.max_steps),
                 Dimension::MemoryBytes => (&mut bytes, MAX_ALLOCATION_BYTES),
                 _ => continue,
             };

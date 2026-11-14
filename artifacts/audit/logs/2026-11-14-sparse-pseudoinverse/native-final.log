@@ -1,0 +1,30 @@
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-proof-kernel)
+    Finished `test` profile [unoptimized] target(s) in 0.85s
+     Running tests/sparse_pseudoinverse.rs (/tmp/frankensympy-active-target/debug/build/fsym-matrices/aeba9e4f4f234d4f/out/sparse_pseudoinverse-aeba9e4f4f234d4f)
+
+running 9 tests
+test original_symbolic_and_undefined_sources_are_rejected_even_in_zero_lanes ... ok
+test all_zero_area_and_rank_zero_shapes_have_minimum_norm_zero_results ... ok
+test singular_exact_pseudoinverse_and_inconsistent_minimum_norm_multiple_rhs ... ok
+test source_candidate_and_nullspace_mutations_cannot_gain_acceptance ... ok
+test coupled_wide_and_tall_full_rank_anchors ... ok
+test scalar_rank_one_outer_products_match_the_closed_form ... ok
+test dimensions_height_shape_and_projector_fill_are_explicit_refusals ... ok
+test large_rank_deficient_block_system_never_requires_dense_materialization ... FAILED
+test one_cumulative_account_covers_generation_independent_replay_and_publication ... ok
+
+failures:
+
+---- large_rank_deficient_block_system_never_requires_dense_materialization stdout ----
+
+thread 'large_rank_deficient_block_system_never_requires_dense_materialization' (123) panicked at crates/fsym-matrices/tests/sparse_pseudoinverse.rs:116:54:
+called `Result::unwrap()` on an `Err` value: ResourceLimit("budget exhausted for compute_steps: requested 1, remaining 0")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    large_rank_deficient_block_system_never_requires_dense_materialization
+
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.24s
+
+error: test failed, to rerun pass `-p fsym-matrices --test sparse_pseudoinverse`

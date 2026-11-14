@@ -380,7 +380,7 @@ impl<'a, M: BudgetMeter> Reference<'a, M> {
         self.charge(Dimension::ComputeSteps, steps.max(1))?;
         Ok(())
     }
-    fn storage(&mut self, bytes: u64) -> Result<()> {
+    pub(super) fn storage(&mut self, bytes: u64) -> Result<()> {
         self.tick(1)?;
         self.charge_batch(&[
             (Dimension::MemoryBytes, bytes.max(1)),
@@ -388,7 +388,7 @@ impl<'a, M: BudgetMeter> Reference<'a, M> {
         ])?;
         Ok(())
     }
-    fn vector<T>(&mut self, capacity: usize) -> Result<Vec<T>> {
+    pub(super) fn vector<T>(&mut self, capacity: usize) -> Result<Vec<T>> {
         self.storage(capacity.saturating_mul(std::mem::size_of::<T>()) as u64)?;
         let mut result = Vec::new();
         result
@@ -428,7 +428,7 @@ impl<'a, M: BudgetMeter> Reference<'a, M> {
         check_scalar(&result)?;
         Ok(result)
     }
-    fn check_matrix(&mut self, matrix: &RationalSparseMatrix) -> Result<()> {
+    pub(super) fn check_matrix(&mut self, matrix: &RationalSparseMatrix) -> Result<()> {
         self.tick(1)?;
         if matrix.rows > MAX_SPARSE_RREF_DIMENSION || matrix.columns > MAX_SPARSE_RREF_DIMENSION {
             return Err(SparseRrefError::Limit("matrix dimensions"));
@@ -452,7 +452,7 @@ impl<'a, M: BudgetMeter> Reference<'a, M> {
         }
         Ok(())
     }
-    fn rows(&mut self, matrix: &RationalSparseMatrix) -> Result<Vec<Row>> {
+    pub(super) fn rows(&mut self, matrix: &RationalSparseMatrix) -> Result<Vec<Row>> {
         let mut rows = self.vector(matrix.rows)?;
         let mut entries = matrix.entries.as_slice();
         for index in 0..matrix.rows {
@@ -467,7 +467,7 @@ impl<'a, M: BudgetMeter> Reference<'a, M> {
         }
         Ok(rows)
     }
-    fn add_row(
+    pub(super) fn add_row(
         &mut self,
         target: &Row,
         source: &Row,
@@ -505,7 +505,7 @@ impl<'a, M: BudgetMeter> Reference<'a, M> {
         }
         Ok(result)
     }
-    fn digest(&mut self, matrix: &RationalSparseMatrix) -> Result<[u8; 32]> {
+    pub(super) fn digest(&mut self, matrix: &RationalSparseMatrix) -> Result<[u8; 32]> {
         let mut hash =
             blake3::Hasher::new_derive_key("frankensympy sparse rational matrix schema 1");
         for size in [matrix.rows, matrix.columns, matrix.entries.len()] {

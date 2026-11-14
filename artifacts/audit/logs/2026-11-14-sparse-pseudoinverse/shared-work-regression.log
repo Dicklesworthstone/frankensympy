@@ -1,0 +1,18 @@
+   Compiling fsym-matrices v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-matrices)
+    Finished `test` profile [unoptimized] target(s) in 0.90s
+     Running tests/sparse_least_squares.rs (/tmp/frankensympy-active-target/debug/build/fsym-matrices/cb2e6698713a91ba/out/sparse_least_squares-cb2e6698713a91ba)
+
+running 10 tests
+test unsupported_original_cells_do_not_hide_behind_zero_or_rank_shortcuts ... ok
+test acceptance_detects_perturbations_smaller_than_machine_precision ... ok
+test coupled_inconsistent_multiple_rhs_have_exact_unique_minimizers ... ok
+test acceptance_rejects_wrong_solutions_sources_and_rank_witnesses ... ok
+test zero_area_shapes_and_empty_rhs_retain_the_uniqueness_obligation ... ok
+test tiny_rational_coefficients_are_not_rounded_to_zero ... ok
+test all_small_single_column_systems_match_the_scalar_projection_formula ... ok
+test six_hundred_unknown_tall_system_stays_sparse_with_multiple_rhs ... ok
+test dimension_coefficient_and_gram_fill_limits_are_terminal ... ok
+test generation_acceptance_and_publication_share_the_budget_and_cancel_atomically ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.42s
+

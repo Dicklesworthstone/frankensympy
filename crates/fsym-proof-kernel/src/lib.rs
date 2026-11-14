@@ -28,6 +28,7 @@ pub mod rational_limit;
 pub mod rational_sum;
 pub mod rule;
 pub mod sparse_determinant;
+pub mod sparse_pseudoinverse;
 pub mod sparse_rref;
 
 pub use capsule::{

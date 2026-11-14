@@ -1,0 +1,122 @@
+{
+  "recorded_at": "2026-11-14T20:22:25.850245+00:00",
+  "base_commit": "12f6c9864eb72157297d146c21f11f3fd20db6b9",
+  "scope": "Sparse rational Moore-Penrose pseudoinverse and unique minimum-norm least squares; native production packages only",
+  "source_sha256": {
+    "crates/fsym-proof-kernel/src/lib.rs": "f5a95748e8dd0939dcc49d6325a5fd83f5065db353070faeabe409e6f8715534",
+    "crates/fsym-proof-kernel/src/sparse_rref.rs": "9da5b143f0150c34de5463931f90515b7ea2055e4ff47062a0466822425f2921",
+    "crates/fsym-proof-kernel/src/sparse_pseudoinverse.rs": "fdfafb59307263cfcad6a7c8bb78c9dab849292c4eb6215c8a9c7e79be8a2e7c",
+    "crates/fsym-proof-kernel/tests/sparse_pseudoinverse.rs": "12e7d2ac26283a393976bb1fc9186850dc61eafcef97ce1b7ff11b36b31538a7",
+    "crates/fsym-matrices/src/structured.rs": "9a669e6dc50e3af4acf1d743c4a59f269590f212dd4a2d7533b906e2b1e7324f",
+    "crates/fsym-matrices/src/structured/pseudoinverse.rs": "59d0e1bc6ed0565ab689afcf208a4b3ae9158e42be693bba32fa05abcab6017f",
+    "crates/fsym-matrices/tests/sparse_pseudoinverse.rs": "b5bc5271ee6bcd8865d00bbaf675d9e0c9f0135e33632988de316810150ff9e4"
+  },
+  "environment": "export PATH=\"/workspace/scratch/cdfae34e00d3/toolchain/rustup/toolchains/nightly-2026-08-20-x86_64-unknown-linux-gnu/bin:$PATH\"\nexport RUSTUP_HOME=/workspace/scratch/cdfae34e00d3/toolchain/rustup\nexport RUSTUP_TOOLCHAIN=nightly-2026-08-20\nexport CARGO_HOME=/tmp/frankensympy-active-cargo\nexport CARGO_TARGET_DIR=/tmp/frankensympy-active-target\nexport CARGO_BUILD_JOBS=1\nexport CARGO_INCREMENTAL=0\nexport CARGO_PROFILE_DEV_DEBUG=0\nexport CARGO_PROFILE_TEST_DEBUG=0\nexport RUSTFLAGS=\"-Zunstable-options --jobs-backend=1 --jobs-frontend=1 -Cdebuginfo=0 -Ccodegen-units=256\"\nexport CARGO_HTTP_USER_AGENT=\"frankensympy-agent (+https://github.com/Dicklesworthstone/frankensympy)\"\n",
+  "tests": [
+    {
+      "command": "cargo test --locked -p fsym-proof-kernel --test sparse_pseudoinverse -p fsym-matrices --test sparse_pseudoinverse",
+      "exit_code": 0,
+      "matrices_passed": 9,
+      "kernel_passed": 8,
+      "log": "artifacts/audit/logs/2026-11-14-sparse-pseudoinverse/native-accepted.log"
+    },
+    {
+      "command": "cargo clippy --locked -p fsym-proof-kernel --test sparse_pseudoinverse -p fsym-matrices --test sparse_pseudoinverse -- -D warnings",
+      "exit_code": 0,
+      "log": "artifacts/audit/logs/2026-11-14-sparse-pseudoinverse/clippy.log"
+    },
+    {
+      "command": "cargo test --locked -p fsym-matrices --test sparse_least_squares",
+      "exit_code": 0,
+      "passed": 10,
+      "reason": "Shared Work now has a private per-instance step cap; confirm unchanged default10M lane and measured cumulative budgets",
+      "log": "artifacts/audit/logs/2026-11-14-sparse-pseudoinverse/shared-work-regression.log"
+    }
+  ],
+  "initial_findings": [
+    {
+      "kind": "test_fixture_compile",
+      "description": "BigInt wrapper shifts require u32; From<usize> is absent. Changed two8192-bit shifts to u32 and one513 divisor to u64. No production change."
+    },
+    {
+      "kind": "bounded_resource",
+      "description": "Unchanged n600 rank-deficient A=[I I;2I 2I] complete solve exhausted existing structured10M aggregate compute bound; eight other matrix tests passed. No mathematical identity failed.",
+      "log": "artifacts/audit/logs/2026-11-14-sparse-pseudoinverse/native-final.log"
+    }
+  ],
+  "large_fixture_resource_diagnostic": {
+    "input_shape": [
+      1200,
+      1200
+    ],
+    "input_nonzeros": 2400,
+    "rhs_shape": [
+      1200,
+      1
+    ],
+    "generator": {
+      "compute_steps": 3612614,
+      "memory_bytes": 15873600,
+      "allocation_count": 576643,
+      "depth_limit": 0,
+      "random_draws": 0,
+      "time_budget": 0
+    },
+    "independent_acceptance": {
+      "compute_steps": 8604620,
+      "memory_bytes": 10830000,
+      "allocation_count": 1299012,
+      "depth_limit": 0,
+      "random_draws": 0,
+      "time_budget": 0
+    },
+    "combined": {
+      "compute_steps": 12217234,
+      "memory_bytes": 26703600,
+      "allocation_count": 1875655,
+      "depth_limit": 0,
+      "random_draws": 0,
+      "time_budget": 0
+    },
+    "log": "artifacts/audit/logs/2026-11-14-sparse-pseudoinverse/resource-diagnostic.log",
+    "rationale": "Linear sparse calculation requires12,217,234compute and26,703,600logicalbytes; a dedicated20M cap admits this functional size while preserving all four Penrose identities and one cumulative meter. Existing structured lanes retain10M, all retain256MiB cumulative allocation cap. Both Work::tick and BudgetMeter::charge_batch enforce instance cap; caller/protected meter grants are never reset or increased.",
+    "new_compute_cap": 20000000,
+    "ordinary_structured_compute_cap": 10000000,
+    "shared_cumulative_allocation_cap_bytes": 268435456
+  },
+  "coverage": [
+    "Four isolated Penrose identity weakening mutants",
+    "Rank-deficient inconsistent and coupled wide/tall multiple-RHS exact anchors",
+    "24 signed rank-one closed-form anchors",
+    "n600 rank-deficient sparse block beyond dense entry limit",
+    "Zero rank/zero-area/empty-RHS shapes",
+    "Original-source and nullspace solution mutations",
+    "Symbolic and held undefined inputs before zero shortcuts",
+    "Canonical schema/coordinate/shape/source mutations",
+    "Original coefficient height and dimension preflight",
+    "Projector intermediate fill refusal",
+    "Every measured cancellation safe point and exact one-less dimension budget refusal"
+  ],
+  "review": "runtime_gaps independently reviewed kernel sorted-vector products, generator rank factorization and metering; no blocker found. Static review, separate from executed tests.",
+  "limits": "No full workspace Cargo tests or full production Python build claimed; root owns Python bridge validation and final commit.",
+  "schema_version": 1,
+  "work_item": "fra-kfo",
+  "public_api": [
+    "SparseMatrix::pseudoinverse",
+    "SparseMatrix::metered_pseudoinverse",
+    "SparseMatrix::pseudoinverse_with_certificate",
+    "SparseMatrix::minimum_norm_least_squares",
+    "SparseMatrix::metered_minimum_norm_least_squares",
+    "SparseMatrix::minimum_norm_with_certificate",
+    "Separate untrusted candidates and consuming source-bound verifier entry points"
+  ],
+  "verification": "Independent proof-kernel sorted-vector products establish all four original-source Penrose identities. Minimum-norm acceptance additionally establishes X=P*B against the original RHS. No verifier-to-generator dependency.",
+  "publication_scope": "Native implementation, regression targets and evidence only. Python bridge is separate pending actual execution. No status, priority, dependency, profile or claim-tier promotion.",
+  "retained_log_sha256": {
+    "artifacts/audit/logs/2026-11-14-sparse-pseudoinverse/native-accepted.log": "d9fd7b3c64277322c584a2f7a8a0d081596e459bc9165460b72e2c5c31f57d96",
+    "artifacts/audit/logs/2026-11-14-sparse-pseudoinverse/clippy.log": "ecab3360780f759fbc45b55bcffee8365e4bd256998b4ce8a064c67744582ecf",
+    "artifacts/audit/logs/2026-11-14-sparse-pseudoinverse/shared-work-regression.log": "b4625ea5cda35c186e307274f4933cb748e05cd60e7e2bcd3bc9d66da6768701",
+    "artifacts/audit/logs/2026-11-14-sparse-pseudoinverse/native-final.log": "302c8e4149ba8c3ac9f213dc5c111d8a52c96bd360a811c5bc89e92df534d3a2",
+    "artifacts/audit/logs/2026-11-14-sparse-pseudoinverse/resource-diagnostic.log": "4a842432a78c019e379594e4129cea3b1f427af4bbfa6f04ee61a4bb7c7284fe"
+  }
+}

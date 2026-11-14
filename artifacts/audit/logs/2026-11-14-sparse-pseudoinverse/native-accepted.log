@@ -1,0 +1,33 @@
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-calculus)
+   Compiling fsym-solvers v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-solvers)
+   Compiling fsym-matrices v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-matrices)
+    Finished `test` profile [unoptimized] target(s) in 21.11s
+     Running tests/sparse_pseudoinverse.rs (/tmp/frankensympy-active-target/debug/build/fsym-matrices/aeba9e4f4f234d4f/out/sparse_pseudoinverse-aeba9e4f4f234d4f)
+
+running 9 tests
+test original_symbolic_and_undefined_sources_are_rejected_even_in_zero_lanes ... ok
+test all_zero_area_and_rank_zero_shapes_have_minimum_norm_zero_results ... ok
+test source_candidate_and_nullspace_mutations_cannot_gain_acceptance ... ok
+test singular_exact_pseudoinverse_and_inconsistent_minimum_norm_multiple_rhs ... ok
+test coupled_wide_and_tall_full_rank_anchors ... ok
+test scalar_rank_one_outer_products_match_the_closed_form ... ok
+test large_rank_deficient_block_system_never_requires_dense_materialization ... ok
+test dimensions_height_shape_and_projector_fill_are_explicit_refusals ... ok
+test one_cumulative_account_covers_generation_independent_replay_and_publication ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.73s
+
+     Running tests/sparse_pseudoinverse.rs (/tmp/frankensympy-active-target/debug/build/fsym-proof-kernel/7d2f520731189fad/out/sparse_pseudoinverse-7d2f520731189fad)
+
+running 8 tests
+test empty_rhs_never_skips_pseudoinverse_acceptance ... ok
+test oversized_coefficients_and_dimensions_fail_before_working_storage ... ok
+test canonical_coordinates_shapes_schema_and_source_are_not_advisory ... ok
+test every_penrose_identity_has_an_independent_weakening_mutant ... ok
+test rectangular_rank_deficient_and_zero_area_claims_are_exact ... ok
+test minimum_norm_claim_rejects_a_different_exact_least_squares_minimizer ... ok
+test reference_work_and_receipt_publication_are_cumulative_and_cancellable ... ok
+test sparse_input_does_not_authorize_unbounded_projector_fill ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.63s
+
