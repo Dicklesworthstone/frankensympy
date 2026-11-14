@@ -1,0 +1,279 @@
+{
+  "recorded_at": "2026-11-14T04:50:14Z",
+  "base_commit": "81cabbc08632126a9d04d240c363545ee6a98bd3",
+  "evidence_kind": "Scoped implementation and source-review receipt, transcribed from tool outputs. This is not an executable test log, a mathematical certificate, or a workstream closure.",
+  "planning_inputs": [
+    "COMPREHENSIVE_PLAN_FOR_FRANKENSYMPY.md",
+    "docs/CONSTITUTION.md",
+    "docs/SOURCE_PROJECT_AUDIT.md",
+    "docs/WORKSTREAM_GRAPH.md",
+    "registries/claims.toml",
+    ".beads/issues.jsonl"
+  ],
+  "priorities": [
+    "Restore the native Python bridge build so mathematical regressions can execute.",
+    "Preserve typed coordinates, coefficient symbols, and fresh integration constants through existing scalar ODE APIs.",
+    "Prevent numerical polynomial roots from silently losing complex components or returning an unconverged/incomplete multiset.",
+    "Connect existing exact polynomial and matrix engines to missing multivariate Poly resultant/discriminant APIs."
+  ],
+  "source_commits_before_this_change": [
+    {
+      "sha": "116a1afcc664ef149dece9ffb7fbe68a8cbbef61",
+      "title": "Restore the Python bridge build and unblock mathematical regressions",
+      "remotely_verified_message_paths_and_main": true
+    },
+    {
+      "sha": "fc79634eaf06fe1e1544a0dd39ff0731c24ad7ec",
+      "title": "Preserve typed symbols through scalar ODE solvers and exact checkers",
+      "remotely_verified_message_paths_and_main": true
+    },
+    {
+      "sha": "5280b7b3757d88a65343a381245bb76d566e727e",
+      "title": "Fix numerical polynomial root convergence and preserve complex components",
+      "remotely_verified_message_paths_and_main": true
+    }
+  ],
+  "baseline_failures": {
+    "source_commit": "81cabbc08632126a9d04d240c363545ee6a98bd3",
+    "ci_run": 43364046070,
+    "python_bridge": {
+      "job": 131731109241,
+      "outcome": "The existing native public-regression job failed compiling fsym-python: Result<Vec<PyRef<PyExpr>>, PyErr> could not collect iterator items with PyClassGuardError. New extension/public tests were never reached.",
+      "correction_commit": "116a1afcc664ef149dece9ffb7fbe68a8cbbef61",
+      "fix": "Map the PyO3 extraction error explicitly into PyErr. Add two native boundary regressions for wrong classes and mutable-borrow errors with successful subsequent retries."
+    },
+    "formatting": {
+      "job": 131731109263,
+      "outcome": "The baseline fmt gate reported six files; subsequent check and Clippy steps were skipped.",
+      "correction": "Apply the exact pinned rustfmt hunks from the observed baseline log. Their whitespace/trailing-call-comma equivalence was checked in JavaScript.",
+      "execution_limit": "The corrected tree has not been formatted or compiled locally."
+    }
+  },
+  "typed_scalar_ode": {
+    "commit": "fc79634eaf06fe1e1544a0dd39ff0731c24ad7ec",
+    "new_native_module": "crates/fsym-python/src/ode.rs",
+    "public_file": "python/sympy/solvers/ode.py",
+    "generators": 5,
+    "verifiers": 3,
+    "behavior": "Existing scalar generators and exact residual verifiers now receive native Expr/Symbol handles. Integration constants are fresh relative to coordinates and coefficient symbols, and results lift with original typed symbol owners.",
+    "tests": {
+      "native": 4,
+      "public_functions": 8,
+      "public_file": "python/tests/test_typed_scalar_ode.py",
+      "executed": false
+    },
+    "source_review": "Independent review checked signatures, symbol ownership, source-definedness checks, wrong-coordinate and tiny-candidate mutation rejection, and established rational examples.",
+    "limits": [
+      "No new ODE solution family or general completeness claim.",
+      "Existing native domain restrictions, including rational second-order forcing amplitudes and the positive-axis Euler scope, remain."
+    ]
+  },
+  "numerical_roots": {
+    "commit": "5280b7b3757d88a65343a381245bb76d566e727e",
+    "production_module": "python/sympy/polys/_numeric_roots.py",
+    "public_file": "python/sympy/__init__.py",
+    "behavior": [
+      "Honor maxsteps and cleanup; iteration exhaustion is terminal.",
+      "Use magnitude-group seeds and reciprocal Horner evaluation.",
+      "Require root-local scaled residual and Newton-correction checks plus complete coefficient reconstruction.",
+      "Permit cleanup only after that root's own error checks.",
+      "Normalize exact rational and Gaussian rational coefficients before binary64 conversion; reject lost or subnormal nonzero components.",
+      "Retain checked exact square-free multiplicities, terminal failures, and finite-field refusal."
+    ],
+    "regressions": {
+      "stdlib_methods": 15,
+      "stdlib_file": "tools/test_numeric_roots.py",
+      "public_functions": 14,
+      "public_file": "python/tests/test_nroots_convergence.py",
+      "executed": false,
+      "public_cases": 19
+    },
+    "source_review": "Independent source/math review accepted final blobs after correcting complex-component and subnormal conversion hazards.",
+    "arithmetic_model": {
+      "language": "JavaScript",
+      "executed": true,
+      "production_python_execution": false,
+      "examples": [
+        "known cubic and quartic roots",
+        "roots of unity",
+        "large real root with +/-i",
+        "tiny imaginary pairs",
+        "reciprocal scales near 1e+/-150",
+        "ordinary degree-five and degree-six multisets",
+        "cleanup=False",
+        "duplicate-root multiset rejection",
+        "precision settings from 1 through 15"
+      ],
+      "scope": "Arithmetic-model probes inform review; they do not establish that the Python implementation or native public shell passes."
+    },
+    "limits": [
+      "Approximate binary64 computation supports at most 15 requested significant digits.",
+      "Residual/reconstruction consistency does not certify exact roots, their completeness, or conditioning.",
+      "Nonzero subnormal coefficient ratios explicitly refuse.",
+      "NoConvergence is a local ArithmeticError subclass, not mpmath exception-class identity."
+    ],
+    "baseline_python_probe": {
+      "source_commit": "81cabbc08632126a9d04d240c363545ee6a98bd3",
+      "status": "Executed before executor loss; exit code 0",
+      "method": "Extract the unchanged _numeric_poly_roots FunctionDef with ast.parse, compile it alone, run four literal coefficient vectors, and evaluate the old global-scale real-root classifier.",
+      "observed": [
+        {
+          "coefficients": [
+            "1",
+            "-1e10",
+            "1",
+            "-1e10"
+          ],
+          "helper_roots": [
+            "1e10",
+            "2.737347341116911e-28 + 1j",
+            "-1j"
+          ],
+          "classified_real": [
+            10000000000,
+            2.737347341116911e-28,
+            0
+          ]
+        },
+        {
+          "coefficients": [
+            "1",
+            "0",
+            "1e-24"
+          ],
+          "helper_roots": [
+            "1e-12j",
+            "-1e-12j"
+          ],
+          "classified_real": [
+            0,
+            0
+          ]
+        },
+        {
+          "coefficients": [
+            "1",
+            "-1e20",
+            "1",
+            "-1e20"
+          ],
+          "helper_roots": [
+            "1e20",
+            "1j",
+            "-1j"
+          ],
+          "classified_real": [
+            100000000000000000000,
+            0,
+            0
+          ]
+        },
+        {
+          "coefficients": [
+            "1",
+            "0",
+            "0",
+            "0",
+            "-1"
+          ],
+          "helper_roots": [
+            "1",
+            "1j",
+            "-1",
+            "-1j"
+          ],
+          "classified_real": [
+            1,
+            -1
+          ]
+        }
+      ],
+      "limitation": "The probe did not import the native shell or execute public nroots, Poly, sqf_list, N, or final lifting/formatting. Full public failure was inferred from these observed decisions and the inspected source, not observed as a public call."
+    }
+  },
+  "polynomial_elimination": {
+    "recorded_with_this_change": true,
+    "source_blobs": {
+      "python/sympy/polys/polytools.py": "ac717f4829ed74533501066c25fc4b9768570931",
+      "python/tests/test_polynomial_resultants.py": "5ec9174945fa9f10249f02cc344701781d66f2ae"
+    },
+    "behavior": [
+      "Add bounded multivariate Poly/PurePoly resultant and discriminant methods plus inferred/full-ring module forms and domain/polys options.",
+      "Unify typed generator rings, eliminate the primary variable, and preserve remaining axes, output classes, and QQ/ZZ domains.",
+      "Normalize retained original sources through existing checked recursive division; make source, mutation, declaration, budget, and output failures terminal.",
+      "Retain the existing rational native scalar algorithms; use a bounded exact symbolic Sylvester determinant for polynomial coefficients.",
+      "Check exact leading-coefficient division for the polynomial discriminant.",
+      "Preserve the prior no-options explicit-single-axis parameter coefficient route before new admission, including x-free rational and closed function coefficients."
+    ],
+    "tests": {
+      "file": "python/tests/test_polynomial_resultants.py",
+      "functions": 28,
+      "executed": false,
+      "selected_in_ci": true
+    },
+    "independent_review": "Accepted by a reviewer other than the implementation author. Review caught and corrected PurePoly renaming that could erase a left coefficient parameter sharing identity with a right formal generator.",
+    "bounds": {
+      "typed_variables": 8,
+      "symbolic_sylvester_dimension": 8,
+      "prospective_expansion_terms": 4096,
+      "polynomial_output_degree": 256,
+      "coefficient_bits": 4096
+    },
+    "limits": [
+      "The new polynomial path covers QQ/ZZ and polynomial parameter inputs; multivariate output with undeclared coefficient parameters refuses.",
+      "The preserved general coefficient route is legacy exact computation, selected before admission. The new checked polynomial source/expansion claims do not extend to that route.",
+      "The symbolic determinant is an exact computation, not a new independently certified determinant or irreducibility theorem.",
+      "Poly.resultant(non-Poly) now follows the pinned upstream coefficient-domain coercion protocol; a polynomial expression containing generators must be supplied as a Poly operand to the method, or through the module function.",
+      "Finite-field dispatch remains on the existing implementation."
+    ]
+  },
+  "validation": {
+    "local_runtime": "Unavailable before new implementation execution. Pinned Rust setup and dependency preparation did not yield a usable executable environment.",
+    "new_python_tests_executed": false,
+    "new_rust_tests_executed": false,
+    "new_ast_syntax_check_executed": false,
+    "cargo_fmt_after_changes_executed": false,
+    "remote_ci": "Queued at the last recorded check; no new-code passing result is claimed.",
+    "selected_commands": [
+      "python -m unittest discover -s tools -p 'test_*.py'",
+      "cargo test --locked -p fsym-python --lib rational_cancel::tests -j1",
+      "cargo test --locked -p fsym-python --lib ode::tests -j1",
+      "Actual-extension pytest selections include test_typed_scalar_ode.py, test_nroots_convergence.py, the existing nroots surface expectation, and test_polynomial_resultants.py."
+    ],
+    "remote_ci_observed_at": "2026-11-14T04:50:14Z",
+    "remote_ci_runs": [
+      {
+        "id": 43557701560,
+        "sha": "5280b7b3757d88a65343a381245bb76d566e727e",
+        "status": "queued",
+        "conclusion": null,
+        "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/43557701560"
+      },
+      {
+        "id": 43556946176,
+        "sha": "fc79634eaf06fe1e1544a0dd39ff0731c24ad7ec",
+        "status": "queued",
+        "conclusion": null,
+        "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/43556946176"
+      },
+      {
+        "id": 43556787853,
+        "sha": "116a1afcc664ef149dece9ffb7fbe68a8cbbef61",
+        "status": "queued",
+        "conclusion": null,
+        "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/43556787853"
+      }
+    ],
+    "source_review": "Build-boundary, ODE, numerical-root, and polynomial-elimination source reviews completed. Review does not replace executable checks."
+  },
+  "work_graph": {
+    "beads_notes_updated": [
+      "fra-7kf",
+      "fra-o4g"
+    ],
+    "status_priority_dependencies": "unchanged",
+    "claims_registry": "unchanged",
+    "workstream_and_profile_gates": "remain open"
+  },
+  "scope": "Bounded functional changes using the existing dependency graph. No new production dependency, upstream fallback, golden regeneration, comparator weakening, complete-workspace pass, certified-root claim, profile promotion, or workstream closure."
+}

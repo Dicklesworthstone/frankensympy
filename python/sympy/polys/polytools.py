@@ -520,24 +520,19 @@ class Poly(Basic):
         return decompose(self, polys=True)
 
     def resultant(self, other: Any) -> Any:
-        """Resultant with respect to the primary generator."""
+        """Eliminate the primary generator in the unified exact polynomial ring."""
         if _finitefield.is_finite(self):
             return _finitefield.scalar_operation(self, "resultant", other)
         if _finitefield.is_finite(other):
             from .polyerrors import UnificationFailed
             raise UnificationFailed("cannot unify rational and prime-field polynomials")
-        other_expr = other.as_expr() if isinstance(other, Poly) else _wrap(_native_expr(other))
-        raw = _native.poly_resultant_native(
-            _native_expr(self._expr), _native_expr(other_expr), _symbol_binding(self.gen)
-        )
-        return _lift_native_result(raw, self._expr, other_expr, *self._gens)
+        return _polynomial_elimination(self, other, _method=True)
 
     def discriminant(self) -> Any:
-        """Discriminant with respect to the primary generator."""
+        """Discriminant in the remaining exact polynomial generators."""
         if _finitefield.is_finite(self):
             return _finitefield.scalar_operation(self, "discriminant")
-        raw = _native.poly_discriminant_native(_native_expr(self._expr), _symbol_binding(self.gen))
-        return _lift_native_result(raw, self._expr, *self._gens)
+        return _polynomial_elimination(self, discriminant=True, _method=True)
 
     def gcd(self, other: Any) -> "Poly":
         """Checked greatest common divisor in the unified ZZ or QQ ring."""
@@ -1527,26 +1522,397 @@ def half_gcdex(f: Any, g: Any, x: Any = None, **kwargs: Any) -> Tuple[Any, Any]:
     return s, h
 
 
+def _elimination_generator_union(left, right):
+    """Merge typed rings with shared axes ordered as in the left operand.
+
+    Unique right axes stay in the gaps between successive common axes. This
+    preserves the primary variable selected by the public polynomial protocol,
+    including a right-only axis that precedes the first common variable.
+    """
+    common = tuple(variable for variable in left if variable in right)
+    gaps = [[]]
+    for variable in right:
+        if variable in common:
+            gaps.append([])
+        else:
+            gaps[-1].append(variable)
+    result, gap = [], 0
+    for variable in left:
+        if variable in common:
+            result.extend(gaps[gap])
+            gap += 1
+        result.append(variable)
+    result.extend(gaps[-1])
+    return tuple(result)
+
+
+def _polynomial_elimination(left, right=None, *, discriminant=False, gens=(),
+                            domain=None, polys=None, _method=False):
+    """Source-bound QQ/ZZ resultant or discriminant in the primary variable.
+
+    Original sources and declarations pass the existing checked polynomial
+    conversion/division lane before coefficient extraction. The symbolic
+    Sylvester determinant uses the existing exact, pivot-free matrix lane.
+    Its value is an exact computation, not a new certificate or irreducibility
+    claim. Original mutable owners remain retained through final lifting.
+    """
+    from ..core import Dummy, diff
+    from .polyerrors import GeneratorsNeeded, UnificationFailed
+
+    if domain is not None and (type(domain) is not str or domain not in ("ZZ", "QQ")):
+        raise NotImplementedError("polynomial elimination supports only ZZ and QQ")
+    if polys is not None and type(polys) is not bool:
+        raise TypeError("polys must be a bool")
+    container = None
+    if len(gens) == 1 and type(gens[0]) in (tuple, list):
+        container = gens[0]
+        if len(container) > 8:
+            raise ValueError("polynomial elimination supports at most eight generators")
+        gens = tuple(container)
+    requested = tuple(gens)
+    if len(requested) > 8:
+        raise ValueError("polynomial elimination supports at most eight generators")
+    for variable in requested:
+        if type(variable) is not Symbol and type(variable) is not Dummy:
+            raise TypeError("polynomial elimination requires exact built-in generators")
+
+    originals = (left,) if discriminant else (left, right)
+    states, original_bases = [], []
+    for value in originals:
+        if not issubclass(type(value), Poly):
+            states.append(None)
+            continue
+        _rational_ideal_source(value)
+        namespace = object.__getattribute__(value, "__dict__")
+        ring = namespace.get("_gens")
+        extra = namespace.get("_extra_syms", frozenset())
+        if type(ring) is not tuple or not ring or len(ring) > 8:
+            raise ValueError("polynomial elimination requires a bounded original generator tuple")
+        if type(extra) is not frozenset or len(extra) > 8:
+            raise ValueError("polynomial elimination requires bounded coefficient parameters")
+        if type(namespace.get("_domain_given")) is not bool:
+            raise ValueError("polynomial elimination requires an exact domain declaration")
+        for variable in (*ring, *extra):
+            if type(variable) is not Symbol and type(variable) is not Dummy:
+                raise TypeError("polynomial elimination requires exact built-in generators")
+        declared = namespace.get("_domain") if namespace["_domain_given"] else None
+        states.append((value, ring, extra, declared))
+        original_bases.append(GroebnerBasis([], ring, "QQ", "lex"))
+        if extra:
+            original_bases.append(GroebnerBasis([], tuple(extra), "QQ", "lex"))
+
+    retained = _IdealQuotientSnapshot(
+        GroebnerBasis(list(originals), requested, "QQ", "lex"), *original_bases,
+    )
+    sources, _, equations, _ = retained.inputs()[0]
+
+    def unchanged():
+        retained.unchanged()
+        if container is not None and (len(container) != len(requested)
+                or any(current is not original for current, original in zip(container, requested))):
+            raise RuntimeError("polynomial elimination generator container mutated during evaluation")
+
+    if _method and states[0] is None:
+        raise TypeError("polynomial elimination methods require an exact Poly owner")
+    carry_ring = _method or all(state is not None for state in states)
+    renaming = None
+    if requested:
+        operation_gens = requested
+    elif carry_ring:
+        operation_gens = states[0][1]
+        if len(states) == 2 and states[1] is not None:
+            if type(left) is PurePoly:
+                if len(operation_gens) != len(states[1][1]):
+                    raise UnificationFailed("PurePoly resultant requires equal generator counts")
+                renaming = dict(zip(states[1][1], operation_gens))
+            else:
+                operation_gens = _elimination_generator_union(operation_gens, states[1][1])
+    else:
+        symbols = set().union(*(source.free_symbols for source in sources))
+        symbols = sorted(symbols, key=lambda variable:
+                         (variable.name, _symbol_binding(variable).identity_hex))
+        operation_gens = tuple(_sort_gens(symbols))
+    if not operation_gens:
+        raise GeneratorsNeeded("polynomial elimination of constants requires explicit generators")
+    if len(operation_gens) > 8 or len(set(operation_gens)) != len(operation_gens):
+        raise ValueError("polynomial elimination requires at most eight distinct typed generators")
+
+    source_symbols = [source.free_symbols for source in sources]
+    parameter_sources = [set(symbols) for symbols in source_symbols]
+    if renaming is not None:
+        # Only right formal axes are renamed. A left coefficient parameter
+        # with the same name/identity remains part of the coefficient domain.
+        parameter_sources[1] -= set(states[1][1])
+    parameters = set().union(*parameter_sources) - set(operation_gens)
+    if carry_ring:
+        parameters |= set().union(*(state[2] for state in states if state is not None))
+    parameters -= set(operation_gens)
+    if _method and len(states) == 2 and states[1] is None:
+        coefficient_symbols = source_symbols[0] - set(states[0][1]) | states[0][2]
+        if source_symbols[1] - coefficient_symbols:
+            raise UnificationFailed("scalar does not belong to the left polynomial coefficient domain")
+        if not coefficient_symbols and not isinstance(sources[1], (Integer, Rational)):
+            raise UnificationFailed("resultant methods require an exact coefficient or Poly operand")
+    # A coefficient parameter cannot silently become a polynomial generator
+    # during a two-Poly domain unification.
+    if carry_ring and not requested and len(states) == 2 and states[1] is not None:
+        for state, symbols in zip(states, source_symbols):
+            coefficients = symbols - set(state[1]) | state[2]
+            if coefficients & set(operation_gens):
+                raise UnificationFailed("polynomial generators overlap the coefficient domain")
+    if parameters and len(operation_gens) > 1:
+        raise NotImplementedError(
+            "multivariate elimination with undeclared coefficient parameters is not supported; "
+            "declare the complete polynomial ring"
+        )
+
+    all_symbols = set(operation_gens).union(*source_symbols)
+    for state in states:
+        if state is not None:
+            all_symbols.update(state[1])
+            all_symbols.update(state[2])
+    if len(all_symbols) > 8:
+        raise ValueError("polynomial elimination supports at most eight total typed variables")
+    for variable in all_symbols:
+        if type(variable) is not Symbol and type(variable) is not Dummy:
+            raise TypeError("polynomial elimination requires exact built-in generators")
+        assumptions = object.__getattribute__(variable, "_assumptions")
+        if assumptions.get("commutative", True) is not True:
+            raise PolynomialError("noncommutative polynomial elimination is not supported")
+    extras = sorted(all_symbols - set(operation_gens), key=lambda variable:
+                    (variable.name, _symbol_binding(variable).identity_hex))
+    full_gens = (*operation_gens, *extras)
+    snapshot = _IdealQuotientSnapshot(GroebnerBasis(list(originals), full_gens, "QQ", "lex"))
+    sources, _, equations, bindings = snapshot.inputs()[0]
+    unchanged()
+
+    def check():
+        snapshot.unchanged()
+        unchanged()
+
+    normalization = domain or ("QQ" if carry_ring and any(
+        state is not None and state[3] == "QQ" for state in states) else "auto")
+    one = _native_expr(Integer(1))
+    zero = _native_expr(Integer(0))
+    raw_sources, source_domains = [], []
+    for equation, state in zip(equations, states):
+        original_ring = ([_symbol_binding(variable) for variable in state[1]]
+                         if state is not None and state[3] in ("ZZ", "QQ") else None)
+        original_domain = state[3] if original_ring is not None else None
+        raw, remainder, source_domain = _native.poly_recursive_div_native(
+            equation, one, list(bindings), left_variables=original_ring,
+            left_domain=original_domain, domain=normalization, auto=False,
+        )
+        check()
+        if remainder != zero:
+            raise RuntimeError("polynomial source normalization has a nonzero remainder")
+        if type(source_domain) is not str or source_domain not in ("ZZ", "QQ"):
+            raise RuntimeError("polynomial elimination received an invalid coefficient domain")
+        raw_sources.append(raw)
+        source_domains.append(source_domain)
+    if (_method and len(states) == 2 and states[1] is None
+            and source_domains[0] == "ZZ" and source_domains[1] == "QQ"):
+        raise UnificationFailed("scalar does not belong to the left integer coefficient domain")
+    context = (*sources, *full_gens)
+    normalized = [_lift_native_result(raw, *context) for raw in raw_sources]
+    check()
+    if renaming is not None:
+        normalized[1] = normalized[1].xreplace(renaming)
+        check()
+
+    primary = operation_gens[0]
+    numeric = all(not (source.free_symbols - {primary}) for source in normalized)
+    if numeric:
+        if discriminant:
+            raw_result = _native.poly_discriminant_native(
+                _native_expr(normalized[0]), _symbol_binding(primary))
+        else:
+            raw_result = _native.poly_resultant_native(
+                _native_expr(normalized[0]), _native_expr(normalized[1]), _symbol_binding(primary))
+        check()
+    else:
+        if not discriminant:
+            result = _sylvester_resultant(normalized[0], normalized[1], primary)
+        else:
+            coefficients = _coeffs_in(normalized[0], primary)
+            degree = len(coefficients) - 1
+            if degree == 0:
+                result = Integer(0)
+            elif degree == 1:
+                result = Integer(1)
+            else:
+                resultant_value = _sylvester_resultant(
+                    normalized[0], diff(normalized[0], primary), primary)
+                check()
+                sign = -1 if degree * (degree - 1) // 2 % 2 else 1
+                raw_result, remainder, _ = _native.poly_recursive_div_native(
+                    _native_expr(sign * resultant_value), _native_expr(coefficients[0]),
+                    list(bindings), domain="QQ", auto=False,
+                )
+                check()
+                if remainder != zero:
+                    raise RuntimeError("polynomial discriminant has a nonexact leading-coefficient quotient")
+                result = _lift_native_result(raw_result, *context)
+        check()
+        raw_result = _native_expr(result)
+
+    # Re-admit the complete result before publication and retain typed source
+    # owners when lifting symbols returned by the matrix/native scalar lanes.
+    raw_result, remainder, _ = _native.poly_recursive_div_native(
+        raw_result, one, list(bindings), domain="QQ", auto=False,
+    )
+    check()
+    if remainder != zero:
+        raise RuntimeError("polynomial result normalization has a nonzero remainder")
+    value = _lift_native_result(raw_result, *context)
+    check()
+    if primary in value.free_symbols:
+        raise RuntimeError("polynomial elimination retained its eliminated generator")
+    remaining = operation_gens[1:]
+    want_polys = _method or (polys if polys is not None else any(state is not None for state in states))
+    if want_polys and remaining:
+        cls = type(left) if carry_ring else Poly
+        result_domain = "QQ" if "QQ" in source_domains else "ZZ"
+        value = cls(value, *remaining, domain=result_domain)
+    check()
+    return value
+
+
+def _resultant_source_cost(source, primary, generators):
+    """Sparse coefficient support and conservative exact expansion bounds."""
+    terms = Poly(source, primary, *generators).terms()
+    counts = {}
+    maximum_degree = numerator_bits = denominator_bits = 0
+    for powers, coefficient in terms:
+        if coefficient == 0:
+            continue
+        if not isinstance(coefficient, Rational):
+            raise ValueError("symbolic resultants require rational polynomial coefficients")
+        counts[powers[0]] = counts.get(powers[0], 0) + 1
+        maximum_degree = max(maximum_degree, sum(powers[1:]))
+        numerator_bits = max(numerator_bits, abs(int(coefficient.p)).bit_length())
+        denominator_bits += (int(coefficient.q) - 1).bit_length()
+    degree = max(counts, default=0)
+    return ([counts.get(power, 0) for power in range(degree, -1, -1)],
+            maximum_degree, numerator_bits + denominator_bits)
+
+
 def _sylvester_resultant(p: Any, q: Any, x: Any) -> Any:
+    """Exact bounded symbolic resultant of already admitted polynomial inputs."""
     from ..core import expand
     from ..matrices import Matrix
 
     a = _coeffs_in(p, x)
     b = _coeffs_in(q, x)
+    if all(coefficient == 0 for coefficient in a) or all(coefficient == 0 for coefficient in b):
+        return Integer(0)
     m, n = len(a) - 1, len(b) - 1
     if m == 0 and n == 0:
-        return 1
+        return Integer(1)
+    generators = tuple(sorted((p.free_symbols | q.free_symbols) - {x}, key=lambda variable:
+                              (variable.name, _symbol_binding(variable).identity_hex)))
+    a_counts, a_degree, a_bits = _resultant_source_cost(p, x, generators)
+    b_counts, b_degree, b_bits = _resultant_source_cost(q, x, generators)
+    if n*a_degree + m*b_degree > 256:
+        raise ValueError("symbolic resultant exceeds the degree256 output bound")
+    if m == 0 or n == 0:
+        count, power = (a_counts[0], n) if m == 0 else (b_counts[0], m)
+        expansion = 1
+        for _ in range(power):
+            expansion *= count
+            if expansion > 4096:
+                raise ValueError("symbolic resultant exceeds the 4096-term expansion bound")
+        if n*a_bits + m*b_bits + expansion.bit_length() > 4096:
+            raise ValueError("symbolic resultant exceeds the 4096-bit coefficient bound")
+        return expand(a[0] ** n if m == 0 else b[0] ** m)
+    size = m + n
+    if size > 8:
+        raise ValueError("symbolic resultant Sylvester dimension exceeds the bounded limit of 8")
+    weights = ([[0]*i + a_counts + [0]*(size-m-1-i) for i in range(n)]
+               + [[0]*i + b_counts + [0]*(size-n-1-i) for i in range(m)])
+    # Count all prospective monomial products before constructing any matrix
+    # entry products. Every prefix is bounded, including dead determinant paths.
+    prefixes = {0: 1}
+    for row in weights:
+        following = {}
+        for used, count in prefixes.items():
+            for column, weight in enumerate(row):
+                if weight and not (used & (1 << column)):
+                    mask = used | (1 << column)
+                    following[mask] = following.get(mask, 0) + count*weight
+        if sum(following.values()) > 4096:
+            raise ValueError("symbolic resultant exceeds the 4096-term expansion bound")
+        prefixes = following
+    expansion = sum(prefixes.values())
+    if n*a_bits + m*b_bits + max(1, expansion).bit_length() > 4096:
+        raise ValueError("symbolic resultant exceeds the 4096-bit coefficient bound")
+    rows = []
+    for i in range(n):
+        rows.append([0]*i + a + [0]*(size-m-1-i))
+    for i in range(m):
+        rows.append([0]*i + b + [0]*(size-n-1-i))
+    return expand(Matrix(rows).det())
+
+
+def _legacy_sylvester_resultant(p: Any, q: Any, x: Any) -> Any:
+    """Existing explicit-axis computation over general x-free coefficients.
+
+    This compatibility route is selected before QQ/ZZ polynomial admission.
+    It makes no source-certificate or polynomial expansion-bound claim.
+    """
+    from ..core import expand
+    from ..matrices import Matrix
+
+    a = _coeffs_in(p, x)
+    b = _coeffs_in(q, x)
+    if all(coefficient == 0 for coefficient in a) or all(coefficient == 0 for coefficient in b):
+        return Integer(0)
+    m, n = len(a) - 1, len(b) - 1
+    if m == 0 and n == 0:
+        return Integer(1)
     if m == 0:
         return expand(a[0] ** n)
     if n == 0:
         return expand(b[0] ** m)
     size = m + n
+    if size > 8:
+        raise ValueError("symbolic resultant Sylvester dimension exceeds the bounded limit of 8")
     rows = []
     for i in range(n):
         rows.append([0] * i + a + [0] * (size - m - 1 - i))
     for i in range(m):
         rows.append([0] * i + b + [0] * (size - n - 1 - i))
     return expand(Matrix(rows).det())
+
+
+
+
+def _legacy_elimination_sources(operands, primary, additional_gens, options):
+    """Select the preexisting no-options explicit-axis coefficient route.
+
+    New Poly/inferred/multiaxis requests use the checked polynomial route.
+    Explicit numeric Poly declarations also require that route so enlarging
+    an operation ring cannot repair an invalid original coefficient domain.
+    No admission exception selects or retries this compatibility computation.
+    """
+    from ..core import Dummy, sympify
+
+    if additional_gens or options or (type(primary) is not Symbol and type(primary) is not Dummy):
+        return None
+    sources = []
+    for value in operands:
+        if isinstance(value, Poly):
+            source = _rational_ideal_source(value)
+            namespace = object.__getattribute__(value, "__dict__")
+            declared = namespace.get("_domain_given")
+            if type(declared) is not bool or (declared and namespace.get("_domain") is not None):
+                return None
+        else:
+            source = sympify(value)
+        sources.append(source)
+    if any(source.free_symbols - {primary} for source in sources):
+        return tuple(sources)
+    return None
 
 
 def _has_parameters(f: Any, x: Any) -> bool:
@@ -1556,17 +1922,18 @@ def _has_parameters(f: Any, x: Any) -> bool:
     return bool(set(expr.free_symbols) - {x})
 
 
-def resultant(p: Any, q: Any, x: Any = None, **kwargs: Any) -> Any:
-    """Resultant of two polynomials in ``x`` in their declared coefficient domain."""
-    modular = _finitefield.binary_entry(p, q, (x,) if x is not None else (), kwargs, "resultant")
+def resultant(p: Any, q: Any, x: Any = None, *gens: Any, **kwargs: Any) -> Any:
+    """Resultant in the first explicit or inferred polynomial generator."""
+    generators = (x, *gens) if x is not None else gens
+    modular = _finitefield.binary_entry(p, q, generators, kwargs, "resultant")
     if modular is not None:
         return modular
-    if kwargs:
-        raise TypeError("explicit resultant options currently require a prime field")
-    if x is not None and (_has_parameters(p, x) or _has_parameters(q, x)):
-        return _sylvester_resultant(p, q, x)
-    poly_p = Poly(p, x) if x is not None else (p if isinstance(p, Poly) else Poly(p))
-    return poly_p.resultant(q)
+    if set(kwargs) - {"domain", "polys"}:
+        raise TypeError("unsupported resultant options")
+    legacy = _legacy_elimination_sources((p, q), x, gens, kwargs)
+    if legacy is not None:
+        return _legacy_sylvester_resultant(*legacy, x)
+    return _polynomial_elimination(p, q, gens=generators, **kwargs)
 
 
 def _decompose_power(f: Any) -> tuple:
@@ -1666,24 +2033,29 @@ def terms_gcd(f: Any, *gens: Any, clear: bool = True, deep: bool = False, expand
     return _Mul(k, term, poly_part)
 
 
-def discriminant(p: Any, x: Any = None, **kwargs: Any) -> Any:
-    """Discriminant specialized to the declared coefficient domain."""
-    modular = _finitefield.unary_entry(p, (x,) if x is not None else (), kwargs, "discriminant")
+def discriminant(p: Any, x: Any = None, *gens: Any, **kwargs: Any) -> Any:
+    """Discriminant in the first explicit or inferred polynomial generator."""
+    generators = (x, *gens) if x is not None else gens
+    modular = _finitefield.unary_entry(p, generators, kwargs, "discriminant")
     if modular is not None:
         return modular
-    if kwargs:
-        raise TypeError("explicit discriminant options currently require a prime field")
-    from ..core import diff as _diff, expand, sympify as _sympify
+    if set(kwargs) - {"domain", "polys"}:
+        raise TypeError("unsupported discriminant options")
+    legacy = _legacy_elimination_sources((p,), x, gens, kwargs)
+    if legacy is not None:
+        from ..core import diff, expand
 
-    if x is not None and _has_parameters(p, x):
-        expr = p.as_expr() if isinstance(p, Poly) else _sympify(p)
-        a = _coeffs_in(expr, x)
-        n = len(a) - 1
-        r = _sylvester_resultant(expr, _diff(expr, x), x)
-        sign = -1 if (n * (n - 1) // 2) % 2 else 1
-        return expand(cancel(sign * r / a[0]))
-    poly_p = Poly(p, x) if x is not None else (p if isinstance(p, Poly) else Poly(p))
-    return poly_p.discriminant()
+        expr = legacy[0]
+        coefficients = _coeffs_in(expr, x)
+        degree = len(coefficients) - 1
+        if degree == 0:
+            return Integer(0)
+        if degree == 1:
+            return Integer(1)
+        value = _legacy_sylvester_resultant(expr, diff(expr, x), x)
+        sign = -1 if degree * (degree - 1) // 2 % 2 else 1
+        return expand(cancel(sign * value / coefficients[0]))
+    return _polynomial_elimination(p, discriminant=True, gens=generators, **kwargs)
 
 
 def sqf_list(p: Any, x: Any = None, *gens: Any, **kwargs: Any) -> Tuple[Any, List[Tuple[Any, int]]]:
