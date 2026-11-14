@@ -41,6 +41,7 @@ fsym-budget.workspace = true
 fsym-calculus.workspace = true
 fsym-core.workspace = true
 fsym-durable.workspace = true
+fsym-numeric-consumer.workspace = true
 fsym-polys.workspace = true
 fsym-proof-kernel.workspace = true
 fsym-runtime.workspace = true

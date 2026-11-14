@@ -369,14 +369,16 @@ source and replay it under new session-local names:
 ```
 
 The product is `[-5,3,0]`. The received handle also supports
-`EvaluateResidualJacobian`, `EvaluateJacobianTransposeVectorProduct`, reexport,
-and `ReleaseCompiledResidualSystem` just like a locally compiled program.
+`EvaluateResidualJacobian`, `EvaluateJacobianTransposeVectorProduct`,
+`SolveCompiledResidualSystem`, `SolveCompiledLeastSquares`, reexport, and
+`ReleaseCompiledResidualSystem` just like a locally compiled program.
 
 For an objective, use `ExportCompiledObjective` with `program`, followed by
 `ReplayCompiledObjective` with `objective`, a new `program`, and `artifact`.
 The receiving objective must already be registered. Replay returns the ordinary
 `objective_compiled` response, and the new handle supports `EvaluateObjective`,
-`EvaluateHessianVectorProduct`, reexport, and `ReleaseCompiledObjective`.
+`EvaluateHessianVectorProduct`, `MinimizeCompiledObjective`, reexport, and
+`ReleaseCompiledObjective`.
 
 Inline artifacts are limited to 24 KiB. Both kinds also use the existing 1 MiB
 chunked transfer route:
@@ -435,6 +437,117 @@ the existing Session export format, and their returned programs can be
 reexported with the functions above. `ProgramReplayError::Transport` and
 `ProgramReplayError::Admission` distinguish transport refusals from independent
 mathematical admission failures; neither failure returns an executable program.
+
+## Solve with locally compiled or restored programs
+
+Numerical solving consumes the immutable, independently admitted program already
+held by a session. The following operations work with either a locally compiled
+handle or one returned by replay. They do not generate derivatives again, change
+the registered source, or select a replacement backend after a refusal.
+
+| Request | Explicit backend | Successful numerical result |
+| --- | --- | --- |
+| `SolveCompiledResidualSystem` | `frankennumpy`, `frankenscipy`, `frankenscipy_analytic`, or `sparse` | A point meeting the residual tolerance for a square system |
+| `SolveCompiledLeastSquares` | `dense` or `sparse` | A point meeting the tolerance for the gradient of `0.5 * sum(residuals^2)` |
+| `MinimizeCompiledObjective` | Fixed Hessian-assisted descent using the admitted FrankenNumPy adapter | A point meeting the objective-gradient tolerance |
+
+For example, compile a square system and refine an initial point:
+
+```json
+{"id":"register","type":"RegisterResidualSystem","payload":{"schema_version":1,"system":"system:solve","residuals":["x^2-2","y-x"],"variables":["x","y"]}}
+{"id":"compile","type":"CompileResidualSystem","payload":{"schema_version":1,"system":"system:solve","program":"program:solve"}}
+{"id":"solve","type":"SolveCompiledResidualSystem","payload":{"schema_version":1,"program":"program:solve","initial":["1","1"],"backend":"frankennumpy"}}
+```
+
+The result has kind `compiled_residual_system_solved`, a `root` near
+`[sqrt(2), sqrt(2)]`, the original residual infinity norm, iteration count,
+selected backend, and `termination: "residual_tolerance"`. Point coordinates
+always follow the frozen declared variable order, including after workspace
+rebinding. The result also identifies the original system, program, and frozen
+context digest.
+
+Least squares retains every residual row, including inconsistent and constant
+rows. For residuals `["x-1", "x-3"]` and variable `["x"]`, either least-squares
+backend with initial `["0"]` returns a point near `[2]`, residuals near `[1,-1]`,
+cost near `1`, and gradient norm near zero. This is not a root of the residual
+system. Send `SolveCompiledLeastSquares` with `program`, `initial`, `backend`,
+and `schema_version: 1`; its result has kind `compiled_least_squares_solved`,
+`point`, `residuals`, `cost`, `gradient_norm`, `iterations`, `evaluations`, and
+`termination: "gradient_tolerance"`, together with the source/program/context
+and backend fields. Dense least squares requires at least as many residuals as
+variables. Sparse least squares also supports underdetermined and rank-deficient
+systems; it does not claim a unique solution or a minimum-norm solution.
+
+For an objective, use the compiled objective handle:
+
+```json
+{"id":"register","type":"RegisterObjective","payload":{"schema_version":1,"objective":"objective:descent","source":"(x-1)^2+2*(y+2)^2","variables":["x","y"]}}
+{"id":"compile","type":"CompileObjective","payload":{"schema_version":1,"objective":"objective:descent","program":"objective_program:descent"}}
+{"id":"minimize","type":"MinimizeCompiledObjective","payload":{"schema_version":1,"program":"objective_program:descent","initial":["0","0"]}}
+```
+
+Here the expected point is near `[1,-2]`, with value and gradient near zero.
+The `compiled_objective_minimized` result reports `point`, `value`, `gradient`,
+`gradient_norm`, `iterations`, `evaluations`, and `regularizations`, along with
+the objective/program/context fields and `termination: "gradient_tolerance"`.
+A stationary initial point can also be a maximum or saddle; successful
+termination alone does not classify it.
+
+All three result kinds explicitly report `outcome: "approximate"` and
+`numeric_model: "binary64"`. They contain no evidence receipt or certificate.
+Use `CertifyRootBox` or `CertifyStationaryPoint` separately for their exact
+original-source interval claims. A numerical proposal does not bypass those
+independent checks.
+
+### Controls, limits, and failure behavior
+
+The optional `options` object accepts `max_iterations`, `max_step_norm`, and
+either `residual_tolerance` for roots or `gradient_tolerance` for the other two
+operations. Numerical controls and initial coordinates are finite decimal
+strings, with the same 512-byte bound and binary64 rounding as evaluation
+points. Iteration counts are nonnegative integers bounded by 1024. A zero
+iteration allowance checks the initial point against the stopping criterion.
+
+FrankenNumPy and sparse root solving default to 64 iterations, residual
+tolerance `"1e-12"`, and maximum step norm `"1e6"`. Least squares and objective
+descent default to 64 iterations, gradient tolerance `"1e-10"`, and maximum
+step norm `"1e6"`. Tolerances must be nonnegative; maximum step norm must be
+positive. FrankenNumPy Newton refuses an oversized step; the sparse Newton,
+least-squares and descent drivers bound the trial step before searching.
+
+Both FrankenSciPy root backends retain their pinned controls: 200 iterations and
+residual tolerance `1e-10`. They reject any supplied non-null tuning field in
+`options`, even if it equals a default, rather than ignoring it. Omit `options`
+or use an empty object for those backends. Unknown controls, duplicate fields,
+unknown backend names and numeric controls encoded as JSON numbers refuse as
+`malformed_request`.
+
+Session registration retains its existing bounds of 1–16 ordered variables and
+1–64 residuals; selecting a sparse backend does not enlarge those registration
+limits. Root solving requires equal residual and variable counts. These drivers
+preserve the original source and derivative domain checks, including held poles
+and Hessian singularities at stationary points. Nonfinite results refuse.
+
+Input conversion, controls, unsuccessful trials, actual consumer work, and
+response admission spend the same ordinary cumulative session budget. Solver
+requests do not spend protected verifier fuel after the program is admitted.
+Cancellation is observed at the existing metered callback and synchronous kernel
+boundaries; this interface does not promise preemption inside a donor kernel.
+
+Invalid controls or point dimensions return `invalid_input`; unsupported root
+shapes return `unsupported_operation`; domain or nonfinite evaluations return
+`numeric_evaluation_refused`; nonconvergence returns `numeric_no_convergence`;
+and rejected donor solves return `numeric_consumer_refused`. Existing
+`budget_exhausted`, `cancelled`, `unsupported_schema`, and `unknown_object`
+codes remain distinct. A failed solve or final response admission retains the
+resident handle and all previously spent resources. Releasing a program makes
+it unavailable to these consumers as well as to evaluation.
+
+Rust callers use the same `CertificationRequest` variants and the public
+`CompiledRootBackend`, `CompiledLeastSquaresBackend`,
+`CompiledRootSolveOptions`, and `CompiledStationarityOptions` types. The Session
+API returns typed response variants; the NDJSON envelope serializes their
+snake-case result kinds.
 
 ## Enclose an objective and certify a stationary point
 

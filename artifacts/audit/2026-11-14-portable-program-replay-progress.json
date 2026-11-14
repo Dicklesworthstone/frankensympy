@@ -252,10 +252,36 @@
       "warnings": "Seven existing component donor dead-code/unused-feature warnings were visible; no full-workspace warning-free result is claimed.",
       "evidence_retention": {
         "observations": "The test-running agent observed terminal exit 0. Root independently inspected all eight per-target result lines and the final target output before disconnection.",
-        "raw_root_logs_available_in_commit": false,
-        "full_533_hash_inventory_available_in_commit": false,
-        "limitation": "Root test/Clippy logs and the full source/module inventories remained in scratch when the executor disconnected. No reconstructed full transcript or invented hash list is presented as original evidence.",
-        "reconstruction": "The committed reproduction recipe is reconstructed after the loss from the existing tracked whole-module templates and observed actual commands. The reconstructed recipe itself was not executed in this session."
+        "raw_root_logs_available_in_commit": true,
+        "full_533_hash_inventory_available_in_commit": true,
+        "limitation": "At initial recording the execution environment was disconnected and these files were unavailable. The environment later recovered with its original scratch files intact; the original logs and both contemporaneous hash snapshots are now retained. The recovered Clippy log is empty and establishes no Clippy result.",
+        "reconstruction": "The committed reproduction recipe is reconstructed after the loss from the existing tracked whole-module templates and observed actual commands. The reconstructed recipe itself was not executed in this session.",
+        "recovered_at_utc": "2026-11-14T20:24:34.658640+00:00",
+        "recovered_files": {
+          "artifacts/audit/reproduction/2026-11-14-portable-program-replay/component-tests.txt": {
+            "bytes": 10026,
+            "sha256": "09c252f053191b389e62ca494bdf6b74eb3e8c5f6f4b706639aa78f86c60c273"
+          },
+          "artifacts/audit/reproduction/2026-11-14-portable-program-replay/component-initial-compile.txt": {
+            "bytes": 6436,
+            "sha256": "24d288cabd3cb5bd47691a38a6b368fc9381deb36cbed25254908503064477f2"
+          },
+          "artifacts/audit/reproduction/2026-11-14-portable-program-replay/normal-root-build-interrupted.txt": {
+            "bytes": 3190,
+            "sha256": "7ee45635cc024e7e724a0d273423abb60f55551c10a28409bed8e9c9291505d9"
+          },
+          "artifacts/audit/reproduction/2026-11-14-portable-program-replay/component-pre-run.json": {
+            "bytes": 183298,
+            "sha256": "e41c7c81a0cca386f569d1d81db9e68f74600ca19e21727be7f793569e1fe41d"
+          },
+          "artifacts/audit/reproduction/2026-11-14-portable-program-replay/component-post-tests.json": {
+            "bytes": 183298,
+            "sha256": "d7bab5f6571b88e7f63bd47692061038d9ecee17514d52496cc0004a1c410f4e"
+          }
+        },
+        "recovered_source_maps_equal": true,
+        "recovered_harness_maps_equal": true,
+        "recovered_component_clippy_log_bytes": 0
       }
     },
     "source_review": "Separate source reviewers checked native admission and the merged canonical transport, expected-context/source binding, protected accounting, and response-before-publication boundaries. No remaining blocker was reported.",

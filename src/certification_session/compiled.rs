@@ -6,7 +6,9 @@
 
 use super::{
     CERTIFICATION_REQUEST_SCHEMA, CertificationResponse, CertificationSessionError,
-    MAX_SESSION_ROOT_ARTIFACT_BYTES, ResidualSystemId, admit_response, charge, valid_label,
+    CompiledLeastSquaresBackend, CompiledRootBackend, CompiledRootSolveOptions,
+    CompiledStationarityOptions, MAX_SESSION_ROOT_ARTIFACT_BYTES, ResidualSystemId, admit_response,
+    charge, valid_label,
 };
 use crate::certification::ResidualProblem;
 use crate::program_transport::{decode_residual_program, export_residual_program};
@@ -16,6 +18,7 @@ use fsym_calculus::compile::{CompileError, EvalError};
 use fsym_calculus::program_artifact::admit_residual_candidate;
 use fsym_calculus::sparse_jacobian::{JacobianVerificationError, SparseJacobian};
 use fsym_calculus::verified::{ResidualEvaluationError, VerifiedCompilationError};
+use fsym_numeric_consumer::LeastSquaresTermination;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
 use std::mem::{size_of, size_of_val};
@@ -228,6 +231,90 @@ impl CompiledState {
         Ok(response)
     }
 
+    /// Reuse an immutable, already admitted artifact for an approximate solve.
+    /// Solving consumes ordinary work and cannot create or strengthen a proof.
+    pub(super) fn solve(
+        &self,
+        id: CompiledResidualSystemId,
+        initial: &[String],
+        backend: CompiledRootBackend,
+        options: &CompiledRootSolveOptions,
+        budget: &mut Budget,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        budget.checkpoint()?;
+        let resident = self
+            .programs
+            .get(&id)
+            .ok_or(CertificationSessionError::UnknownCompiledSystem)?;
+        let proposal = super::compiled_solvers::solve_root(
+            &resident.program,
+            initial,
+            backend,
+            options,
+            budget,
+        )?;
+        charge(budget, 1, resident.source.as_str().len())?;
+        let response = CertificationResponse::CompiledResidualSystemSolved {
+            schema_version: CERTIFICATION_REQUEST_SCHEMA,
+            system: resident.source.clone(),
+            program: id,
+            backend,
+            outcome: "approximate",
+            numeric_model: "binary64",
+            root: proposal.root,
+            residual_norm: proposal.residual_norm,
+            iterations: proposal.iterations,
+            termination: "residual_tolerance",
+            context_digest: resident.context_digest,
+        };
+        // A refusal retains the immutable program and all consumed work.
+        admit_response(&response, budget)?;
+        Ok(response)
+    }
+
+    pub(super) fn least_squares(
+        &self,
+        id: CompiledResidualSystemId,
+        initial: &[String],
+        backend: CompiledLeastSquaresBackend,
+        options: &CompiledStationarityOptions,
+        budget: &mut Budget,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        budget.checkpoint()?;
+        let resident = self
+            .programs
+            .get(&id)
+            .ok_or(CertificationSessionError::UnknownCompiledSystem)?;
+        let proposal = super::compiled_solvers::solve_least_squares(
+            &resident.program,
+            initial,
+            backend,
+            options,
+            budget,
+        )?;
+        charge(budget, 1, resident.source.as_str().len())?;
+        let response = CertificationResponse::CompiledLeastSquaresSolved {
+            schema_version: CERTIFICATION_REQUEST_SCHEMA,
+            system: resident.source.clone(),
+            program: id,
+            backend,
+            outcome: "approximate",
+            numeric_model: "binary64",
+            point: proposal.point,
+            residuals: proposal.residuals,
+            cost: proposal.cost,
+            gradient_norm: proposal.gradient_norm,
+            iterations: proposal.iterations,
+            evaluations: proposal.evaluations,
+            termination: match proposal.termination {
+                LeastSquaresTermination::GradientTolerance => "gradient_tolerance",
+            },
+            context_digest: resident.context_digest,
+        };
+        admit_response(&response, budget)?;
+        Ok(response)
+    }
+
     pub(super) fn evaluate(
         &self,
         id: CompiledResidualSystemId,
@@ -346,7 +433,7 @@ impl CompiledState {
     }
 }
 
-fn numeric_values(
+pub(super) fn numeric_values(
     values: &[String],
     expected: usize,
     lane: &'static str,

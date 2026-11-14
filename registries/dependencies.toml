@@ -77,6 +77,12 @@ portable_verifier_allowed = false
 # adapter to expose bounded candidate solves. Only that adapter calls the
 # pinned fnp-linalg/fsci-opt kernels; neither donor enters a verifier closure.
 # The square-system cap is 16, below fnp-linalg's parallel threshold of 512.
+# The L7 frankensympy Session/NDJSON facade also uses that internal adapter
+# for explicitly selected root/least-squares solvers and objective descent.
+# Only already admitted compiled programs reach these ordinary-budget proposal
+# calls; responses remain approximate. No donor type enters the wire or core,
+# and protected verification remains a separate operation. Existing donor
+# versions and features are unchanged, including fsci-opt's preserve_order.
 
 [[allowed_source]]
 id = "frankenscipy"

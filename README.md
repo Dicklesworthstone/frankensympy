@@ -262,6 +262,16 @@ inline and chunked transfer, with cumulative budgets and protected verifier
 resources. Numerical values remain approximate binary64. Stored acceptance
 flags, cached values and shared execution plans are never imported as authority.
 
+Both locally compiled and restored handles can drive numerical solvers directly
+through the Session or NDJSON interface. `SolveCompiledResidualSystem` selects
+FrankenNumPy Newton, either FrankenSciPy root backend, or sparse Newton;
+`SolveCompiledLeastSquares` selects dense or sparse fitting; and
+`MinimizeCompiledObjective` reuses the admitted gradient and Hessian for descent.
+These operations spend ordinary cumulative resources and retain every original
+source-domain check. Their outputs remain approximate proposals. Least-squares
+stationarity can have nonzero residuals, and objective stationarity alone does
+not prove a minimum. Backend failures never silently choose another algorithm.
+
 ### Objective derivatives and local stationary points
 
 The native session also accepts `RegisterObjective`, `EncloseObjective`, and

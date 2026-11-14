@@ -1,0 +1,517 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-11-14T20:31:50.457810+00:00",
+  "scope": "Numerical consumers of locally compiled and restored Session/NDJSON programs",
+  "work_item": "fra-campaign-jacobian-bundle-ukp",
+  "base_commit": "cd01340086eb414426a5054ec755c3f9498e9aa9",
+  "functionality": [
+    "SolveCompiledResidualSystem selects real FrankenNumPy, FrankenSciPy finite-difference, FrankenSciPy analytic, or sparse root consumers without fallback or derivative regeneration.",
+    "SolveCompiledLeastSquares selects actual dense or sparse consumers, retaining inconsistent, rank-deficient and underdetermined distinctions.",
+    "MinimizeCompiledObjective reuses the admitted gradient and sparse Hessian for bounded approximate descent.",
+    "Locally compiled and source-bound replayed programs share these consumers, immutable source/context and original-domain guards.",
+    "Controls, point conversion, unsuccessful trials, consumer work and response admission share ordinary cumulative resources; verifier reserves are not consumed by proposals.",
+    "Outputs label approximate binary64 convergence or stationarity, never a root/minimum proof; failed operations retain program handles."
+  ],
+  "limits": {
+    "session_variables": 16,
+    "session_residuals": 64,
+    "configured_iteration_cap": 1024,
+    "fixed_scipy_iterations": 200,
+    "fixed_scipy_residual_tolerance": 1e-10,
+    "number_string_bytes": 512
+  },
+  "dependency_change": "Only the existing internal fsym-numeric-consumer adapter is added to the L7 facade. Actual already admitted pinned fnp-linalg/fsci-opt dependencies and features are retained, including serde_json preserve_order/float_roundtrip. No verifier dependency edge or donor version changes.",
+  "validation": {
+    "recorded_at": "2026-11-14T20:28:42.610353+00:00",
+    "normal_production_build": {
+      "command": [
+        "cargo",
+        "build",
+        "--locked",
+        "-p",
+        "frankensympy",
+        "--lib",
+        "--bin",
+        "frankensympy"
+      ],
+      "cwd": "/workspace/scratch/be76fc747855/frankensympy",
+      "environment": {
+        "PATH_prefix": "/workspace/scratch/be76fc747855/rustup/toolchains/nightly-2026-08-20-x86_64-unknown-linux-gnu/bin",
+        "CARGO_HOME": "/workspace/scratch/be76fc747855/cargo-cache",
+        "CARGO_BUILD_JOBS": "1",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "RUSTFLAGS": "unset",
+        "CARGO_INCREMENTAL": "unset",
+        "codegen_units_override": null
+      },
+      "exit_code": 101,
+      "result": "blocked: actual pinned asupersync library rustc received SIGKILL",
+      "test_verdict": null,
+      "log": "/workspace/scratch/be76fc747855/normal-compiled-solvers-build.log",
+      "log_sha256": "f868568bdb573037c02bb730125efefbb190355280a9bf2a9e8d686d585935b0"
+    },
+    "component_tests": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "frankensympy-session-source-component-check",
+        "--test",
+        "compiled_solver_session",
+        "--test",
+        "compiled_solver_cli",
+        "--test",
+        "compiled_program_transport",
+        "--test",
+        "compiled_program_cli",
+        "--test",
+        "compiled_artifacts",
+        "--test",
+        "compiled_residual_session",
+        "--test",
+        "compiled_residual_products",
+        "--test",
+        "compiled_objective_session",
+        "--test",
+        "artifact_transfer",
+        "--test",
+        "artifact_transfer_session",
+        "--",
+        "--test-threads=1"
+      ],
+      "cwd": "/workspace/scratch/be76fc747855/session-solvers-source-component",
+      "environment": {
+        "PATH_prefix": "/workspace/scratch/be76fc747855/rustup/toolchains/nightly-2026-08-20-x86_64-unknown-linux-gnu/bin",
+        "CARGO_HOME": "/workspace/scratch/be76fc747855/cargo-cache",
+        "CARGO_BUILD_JOBS": "1",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "RUSTFLAGS": "unset",
+        "CARGO_INCREMENTAL": "unset",
+        "codegen_units_override": null,
+        "CARGO_TARGET_DIR": "/workspace/scratch/be76fc747855/frankensympy/target"
+      },
+      "exit_code": 0,
+      "targets": [
+        {
+          "target": "artifact_transfer",
+          "result": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "artifact_transfer_session",
+          "result": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_artifacts",
+          "result": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_objective_session",
+          "result": "ok",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_program_cli",
+          "result": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_program_transport",
+          "result": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_residual_products",
+          "result": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_residual_session",
+          "result": "ok",
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_solver_cli",
+          "result": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_solver_session",
+          "result": "ok",
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        }
+      ],
+      "totals": {
+        "passed": 71,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered_out": 0
+      },
+      "log": "/workspace/scratch/be76fc747855/component-compiled-solvers-integrated-tests.log",
+      "log_sha256": "6efe4b08c5dd500c3c58d24d36fba64354eb8444300c8e76722d7cfce7a66375",
+      "source_inventory_before": "/workspace/scratch/be76fc747855/session-solvers-source-component/solver-integrated-pre-run.json",
+      "source_inventory_after": "/workspace/scratch/be76fc747855/session-solvers-source-component/solver-integrated-post-run.json",
+      "original_source_file_count": 671,
+      "original_sources_identical_before_after": true,
+      "harness_identical_before_after": true,
+      "source_sha256_map_digest": "96283c7348caf85e82e7272bbb2158f2e089d299524ee71f7a89cb0afaa8d1fb",
+      "source_map_digest_encoding": "UTF-8 JSON with sorted keys and compact separators",
+      "original_path_package_count": 25,
+      "registry_package_count": 58,
+      "registry_identities_match_original_lock": true,
+      "asupersync_pin": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+      "numpy_pin": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+      "scipy_pin": "213a417c739025ed865a3875c89a7d86726ecb5a",
+      "scope": "Unchanged complete root library and CLI sources with whole original synchronous runtime and pinned codec dependency modules; source-component validation only",
+      "source_functions_modified_or_substituted": [],
+      "not_covered": [
+        "full production Cargo dependency graph",
+        "asynchronous runtime scheduling/cancellation implementation",
+        "donor runtime transport/security",
+        "omitted runtime modules and their tests",
+        "workspace CI gates",
+        "compatibility profiles"
+      ],
+      "selected_whole_runtime_modules": 5,
+      "selected_whole_codec_modules": 14,
+      "omitted_runtime_files": 12,
+      "omitted_donor_files": 1535,
+      "integration_reason": "Concurrent main0162ce38 changed actual proof-kernel dependency sources; reran same selected targets on merged source",
+      "repository_head_at_snapshot": "0162ce38f362c9fb290e41c43d28a77123a9dd9a"
+    },
+    "strict_component_clippy": {
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "-p",
+        "frankensympy-session-source-component-check",
+        "--no-deps",
+        "--lib",
+        "--bin",
+        "frankensympy",
+        "--test",
+        "compiled_solver_session",
+        "--test",
+        "compiled_solver_cli",
+        "--test",
+        "compiled_program_transport",
+        "--test",
+        "compiled_program_cli",
+        "--test",
+        "compiled_artifacts",
+        "--test",
+        "compiled_residual_session",
+        "--test",
+        "compiled_residual_products",
+        "--test",
+        "compiled_objective_session",
+        "--test",
+        "artifact_transfer",
+        "--test",
+        "artifact_transfer_session",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "cwd": "/workspace/scratch/be76fc747855/session-solvers-source-component",
+      "environment": {
+        "PATH_prefix": "/workspace/scratch/be76fc747855/rustup/toolchains/nightly-2026-08-20-x86_64-unknown-linux-gnu/bin",
+        "CARGO_HOME": "/workspace/scratch/be76fc747855/cargo-cache",
+        "CARGO_BUILD_JOBS": "1",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "RUSTFLAGS": "unset",
+        "CARGO_INCREMENTAL": "unset",
+        "codegen_units_override": null,
+        "CARGO_TARGET_DIR": "/workspace/scratch/be76fc747855/frankensympy/target"
+      },
+      "exit_code": 0,
+      "scope": "original root lib/bin and ten selected integration targets in exact-source component; dependencies not linted by Clippy",
+      "log": "/workspace/scratch/be76fc747855/component-compiled-solvers-clippy.log",
+      "log_sha256": "98f278f6b606df5370b911acc34d158bc0633f9343d1c40d9649f37c398e9d23",
+      "source_inventory_after": "/workspace/scratch/be76fc747855/session-solvers-source-component/solver-post-clippy.json",
+      "original_source_file_count": 671,
+      "original_sources_and_harness_unchanged_from_integrated_tests": true,
+      "dependency_warnings": "Seven existing partial donor-composition Rust warnings remain visible; no suppressed warnings or replacement functions."
+    },
+    "initial_component_tests": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "frankensympy-session-source-component-check",
+        "--test",
+        "compiled_solver_session",
+        "--test",
+        "compiled_solver_cli",
+        "--test",
+        "compiled_program_transport",
+        "--test",
+        "compiled_program_cli",
+        "--test",
+        "compiled_artifacts",
+        "--test",
+        "compiled_residual_session",
+        "--test",
+        "compiled_residual_products",
+        "--test",
+        "compiled_objective_session",
+        "--test",
+        "artifact_transfer",
+        "--test",
+        "artifact_transfer_session",
+        "--",
+        "--test-threads=1"
+      ],
+      "cwd": "/workspace/scratch/be76fc747855/session-solvers-source-component",
+      "environment": {
+        "PATH_prefix": "/workspace/scratch/be76fc747855/rustup/toolchains/nightly-2026-08-20-x86_64-unknown-linux-gnu/bin",
+        "CARGO_HOME": "/workspace/scratch/be76fc747855/cargo-cache",
+        "CARGO_BUILD_JOBS": "1",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "RUSTFLAGS": "unset",
+        "CARGO_INCREMENTAL": "unset",
+        "codegen_units_override": null,
+        "CARGO_TARGET_DIR": "/workspace/scratch/be76fc747855/frankensympy/target"
+      },
+      "exit_code": 0,
+      "targets": [
+        {
+          "target": "artifact_transfer",
+          "result": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "artifact_transfer_session",
+          "result": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_artifacts",
+          "result": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_objective_session",
+          "result": "ok",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_program_cli",
+          "result": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_program_transport",
+          "result": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_residual_products",
+          "result": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_residual_session",
+          "result": "ok",
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_solver_cli",
+          "result": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_solver_session",
+          "result": "ok",
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        }
+      ],
+      "totals": {
+        "passed": 71,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered_out": 0
+      },
+      "log": "/workspace/scratch/be76fc747855/component-compiled-solvers-tests.log",
+      "log_sha256": "119a73f61b90f4f42811a450108da7a798765e64ce443d6421fccba114c31475",
+      "source_inventory_before": "/workspace/scratch/be76fc747855/session-solvers-source-component/solver-pre-run.json",
+      "source_inventory_after": "/workspace/scratch/be76fc747855/session-solvers-source-component/solver-post-run.json",
+      "original_source_file_count": 669,
+      "original_sources_identical_before_after": true,
+      "harness_identical_before_after": true,
+      "source_sha256_map_digest": "d07707d74bbf4b6ad2df94f68637832bc9629dc352ab36b4f1a2d8e2b6459108",
+      "source_map_digest_encoding": "UTF-8 JSON with sorted keys and compact separators",
+      "original_path_package_count": 25,
+      "registry_package_count": 58,
+      "registry_identities_match_original_lock": true,
+      "asupersync_pin": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+      "numpy_pin": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+      "scipy_pin": "213a417c739025ed865a3875c89a7d86726ecb5a",
+      "scope": "Unchanged complete root library and CLI sources with whole original synchronous runtime and pinned codec dependency modules; source-component validation only",
+      "source_functions_modified_or_substituted": [],
+      "not_covered": [
+        "full production Cargo dependency graph",
+        "asynchronous runtime scheduling/cancellation implementation",
+        "donor runtime transport/security",
+        "omitted runtime modules and their tests",
+        "workspace CI gates",
+        "compatibility profiles"
+      ],
+      "selected_whole_runtime_modules": 5,
+      "selected_whole_codec_modules": 14,
+      "omitted_runtime_files": 12,
+      "omitted_donor_files": 1535
+    }
+  },
+  "retained_evidence": {
+    "artifacts/audit/reproduction/2026-11-14-compiled-solvers/normal-build.txt": {
+      "bytes": 29909,
+      "sha256": "f868568bdb573037c02bb730125efefbb190355280a9bf2a9e8d686d585935b0"
+    },
+    "artifacts/audit/reproduction/2026-11-14-compiled-solvers/component-baseline-tests.txt": {
+      "bytes": 14009,
+      "sha256": "119a73f61b90f4f42811a450108da7a798765e64ce443d6421fccba114c31475"
+    },
+    "artifacts/audit/reproduction/2026-11-14-compiled-solvers/component-integrated-tests.txt": {
+      "bytes": 12807,
+      "sha256": "6efe4b08c5dd500c3c58d24d36fba64354eb8444300c8e76722d7cfce7a66375"
+    },
+    "artifacts/audit/reproduction/2026-11-14-compiled-solvers/component-pre-run.json": {
+      "bytes": 212860,
+      "sha256": "1acce65ba7f31a8d3bc7f70fba1352a23de25f88a706effd122424e0e797e511"
+    },
+    "artifacts/audit/reproduction/2026-11-14-compiled-solvers/component-post-tests.json": {
+      "bytes": 212860,
+      "sha256": "d7b4795955708b2a4b5fb0878f2ea3589c1f326275c7d62212268aeb93720687"
+    },
+    "artifacts/audit/reproduction/2026-11-14-compiled-solvers/Cargo.toml": {
+      "bytes": 3059,
+      "sha256": "31cedf5dfee360d436379b7c32af6144ef034b51ebccbe11790e3715808c03ae"
+    },
+    "artifacts/audit/reproduction/2026-11-14-compiled-solvers/Cargo.lock": {
+      "bytes": 17651,
+      "sha256": "ff10cfc1ea62ae7e0e74da89359f4e4de3f01507cdd3e124d065bc46d0c1306e"
+    },
+    "artifacts/audit/reproduction/2026-11-14-compiled-solvers/record_scope.py": {
+      "bytes": 6593,
+      "sha256": "fbf4f7548d10492a15df90d8c1fb1b337c6ac85ae47fca52d75d57dc085505ec"
+    },
+    "artifacts/audit/reproduction/2026-11-14-compiled-solvers/runtime/Cargo.toml": {
+      "bytes": 1191,
+      "sha256": "71d4fe19b33837ec659990b4a40bc0d13ecf660b7fe55b4ed7c970df7c649f82"
+    },
+    "artifacts/audit/reproduction/2026-11-14-compiled-solvers/runtime/lib.rs": {
+      "bytes": 677,
+      "sha256": "26519278ff27d36b946552fd22017bca48396d581157f92976f0aa152ddeb304"
+    },
+    "artifacts/audit/reproduction/2026-11-14-compiled-solvers/codec/Cargo.toml": {
+      "bytes": 2121,
+      "sha256": "e96111702ecac45795c64401eaf3b0bcf53df59aef50ae38658b5b27c5285ba0"
+    },
+    "artifacts/audit/reproduction/2026-11-14-compiled-solvers/codec/lib.rs": {
+      "bytes": 1975,
+      "sha256": "14225adb31cac231b8af216c744fe5c719a5132d2da6970744f94371f568c6af"
+    },
+    "artifacts/audit/reproduction/2026-11-14-compiled-solvers/component-clippy.txt": {
+      "bytes": 5783,
+      "sha256": "98f278f6b606df5370b911acc34d158bc0633f9343d1c40d9649f37c398e9d23"
+    }
+  },
+  "formatting": "Pinned changed-source rustfmt and git diff --check passed. Full workspace formatting and full workspace gates are not claimed.",
+  "concurrent_work": "Preserved independent sparse pseudoinverse main0162ce3, then reran all71 component tests and strict scoped Clippy against its changed proof kernel. Subsequently preserved forward Mellin5a10af1 and real Session solvingcd01340, reconciling shared public exports and CI selections without dropping either feature. Shared-dispatch post-merge regression execution is in progress; the retained71-test and671-hash evidence above is explicitly the0162ce3 source scope.",
+  "status": "Implemented with scoped executable evidence. Full asynchronous runtime, workspace, campaign, performance and compatibility gates remain open; no claim tier or bead status promotion."
+}

@@ -54,10 +54,15 @@ use thiserror::Error;
 
 mod compiled;
 mod compiled_objective;
+mod compiled_solvers;
 mod parametric;
 mod real_solver;
 pub use compiled::{CompiledResidualSystemId, MAX_SESSION_COMPILED_SYSTEMS};
 pub use compiled_objective::{CompiledObjectiveId, MAX_SESSION_COMPILED_OBJECTIVES};
+pub use compiled_solvers::{
+    CompiledLeastSquaresBackend, CompiledRootBackend, CompiledRootSolveOptions,
+    CompiledStationarityOptions,
+};
 pub use parametric::{
     ExactParametricRootWitness, ParametricFamilyId, ParametricFamilyReceipt, ParametricProblemId,
     ParametricSensitivityId,
@@ -443,6 +448,15 @@ pub enum CertificationRequest {
         point: Vec<String>,
         direction: Vec<String>,
     },
+    /// Propose an approximate stationary point with the admitted objective,
+    /// gradient and Hessian. This does not certify a minimum or existence.
+    MinimizeCompiledObjective {
+        schema_version: u32,
+        program: CompiledObjectiveId,
+        initial: Vec<String>,
+        #[serde(default)]
+        options: CompiledStationarityOptions,
+    },
     ReleaseCompiledObjective {
         schema_version: u32,
         program: CompiledObjectiveId,
@@ -493,6 +507,26 @@ pub enum CertificationRequest {
         program: CompiledResidualSystemId,
         point: Vec<String>,
         weights: Vec<String>,
+    },
+    /// Run an explicitly selected numerical consumer on this immutable checked
+    /// program. A small residual is a proposal, not a root certificate.
+    SolveCompiledResidualSystem {
+        schema_version: u32,
+        program: CompiledResidualSystemId,
+        initial: Vec<String>,
+        backend: CompiledRootBackend,
+        #[serde(default)]
+        options: CompiledRootSolveOptions,
+    },
+    /// Seek approximate stationarity of half the squared residual norm.
+    /// Inconsistent and rank-deficient systems retain explicit backend limits.
+    SolveCompiledLeastSquares {
+        schema_version: u32,
+        program: CompiledResidualSystemId,
+        initial: Vec<String>,
+        backend: CompiledLeastSquaresBackend,
+        #[serde(default)]
+        options: CompiledStationarityOptions,
     },
     ReleaseCompiledResidualSystem {
         schema_version: u32,
@@ -880,6 +914,7 @@ impl CertificationRequest {
             | Self::ReplayCompiledObjectiveFromArtifact { schema_version, .. }
             | Self::EvaluateObjective { schema_version, .. }
             | Self::EvaluateHessianVectorProduct { schema_version, .. }
+            | Self::MinimizeCompiledObjective { schema_version, .. }
             | Self::ReleaseCompiledObjective { schema_version, .. }
             | Self::CompileResidualSystem { schema_version, .. }
             | Self::ExportCompiledResidualSystem { schema_version, .. }
@@ -888,6 +923,8 @@ impl CertificationRequest {
             | Self::EvaluateResidualJacobian { schema_version, .. }
             | Self::EvaluateJacobianVectorProduct { schema_version, .. }
             | Self::EvaluateJacobianTransposeVectorProduct { schema_version, .. }
+            | Self::SolveCompiledResidualSystem { schema_version, .. }
+            | Self::SolveCompiledLeastSquares { schema_version, .. }
             | Self::ReleaseCompiledResidualSystem { schema_version, .. }
             | Self::RegisterParametricProblem { schema_version, .. }
             | Self::CertifyParametricRoot { schema_version, .. }
@@ -1064,6 +1101,22 @@ pub enum CertificationResponse {
         schema_version: u32,
         program: CompiledObjectiveId,
     },
+    CompiledObjectiveMinimized {
+        schema_version: u32,
+        objective: ObjectiveId,
+        program: CompiledObjectiveId,
+        outcome: &'static str,
+        numeric_model: &'static str,
+        point: Vec<f64>,
+        value: f64,
+        gradient: Vec<f64>,
+        gradient_norm: f64,
+        iterations: usize,
+        evaluations: usize,
+        regularizations: usize,
+        termination: &'static str,
+        context_digest: [u8; 32],
+    },
     ResidualSystemCompiled {
         schema_version: u32,
         system: ResidualSystemId,
@@ -1082,6 +1135,35 @@ pub enum CertificationResponse {
         system: ResidualSystemId,
         program: CompiledResidualSystemId,
         artifact: String,
+    },
+    CompiledResidualSystemSolved {
+        schema_version: u32,
+        system: ResidualSystemId,
+        program: CompiledResidualSystemId,
+        backend: CompiledRootBackend,
+        outcome: &'static str,
+        numeric_model: &'static str,
+        root: Vec<f64>,
+        residual_norm: f64,
+        iterations: usize,
+        termination: &'static str,
+        context_digest: [u8; 32],
+    },
+    CompiledLeastSquaresSolved {
+        schema_version: u32,
+        system: ResidualSystemId,
+        program: CompiledResidualSystemId,
+        backend: CompiledLeastSquaresBackend,
+        outcome: &'static str,
+        numeric_model: &'static str,
+        point: Vec<f64>,
+        residuals: Vec<f64>,
+        cost: f64,
+        gradient_norm: f64,
+        iterations: usize,
+        evaluations: usize,
+        termination: &'static str,
+        context_digest: [u8; 32],
     },
     ResidualJacobianEvaluated {
         schema_version: u32,
@@ -1500,6 +1582,10 @@ pub enum CertificationSessionError {
     ObjectiveCompilation(#[from] fsym_calculus::sparse_hessian::ObjectiveCompilationError),
     #[error("objective evaluation refused: {0}")]
     ObjectiveEvaluation(#[from] fsym_calculus::sparse_hessian::ObjectiveEvaluationError),
+    #[error("compiled-system numerical consumer refused: {0}")]
+    Consumer(#[from] fsym_numeric_consumer::SystemConsumerError),
+    #[error("compiled-objective numerical consumer refused: {0}")]
+    ObjectiveConsumer(#[from] fsym_numeric_consumer::ObjectiveConsumerError),
     #[error("compiled program transport refused: {0}")]
     ProgramTransport(#[from] crate::program_transport::ProgramTransportError),
     #[error("compiled program admission refused: {0}")]
@@ -1559,6 +1645,8 @@ impl CertificationSessionError {
             Self::Evaluation(error) => compiled::evaluation_error_code(error),
             Self::ObjectiveCompilation(error) => compiled_objective::compilation_error_code(error),
             Self::ObjectiveEvaluation(error) => compiled_objective::evaluation_error_code(error),
+            Self::Consumer(error) => consumer_error_code(error),
+            Self::ObjectiveConsumer(error) => objective_consumer_error_code(error),
             Self::ProgramTransport(error) => match error {
                 crate::program_transport::ProgramTransportError::Envelope(error) => {
                     certification_error_code(error)
@@ -1582,6 +1670,65 @@ impl CertificationSessionError {
             Self::DurableSearch(error) => durable_search_error_code(error),
             Self::RepairableSearch(error) => repairable_search_error_code(error),
         }
+    }
+}
+
+fn consumer_error_code(error: &fsym_numeric_consumer::SystemConsumerError) -> &'static str {
+    use fsym_numeric_consumer::SystemConsumerError;
+    match error {
+        SystemConsumerError::UnsupportedShape { .. }
+        | SystemConsumerError::UnsupportedSparseRootShape { .. } => "unsupported_operation",
+        SystemConsumerError::Dimension { .. } | SystemConsumerError::InvalidRequest(_) => {
+            "invalid_input"
+        }
+        SystemConsumerError::NonFinite(_) => "numeric_evaluation_refused",
+        SystemConsumerError::LinearSolve(_)
+        | SystemConsumerError::NonlinearSolve(_)
+        | SystemConsumerError::ConsumerContract(_) => "numeric_consumer_refused",
+        SystemConsumerError::NoConvergence { .. }
+        | SystemConsumerError::SparseLeastSquaresNoConvergence { .. } => "numeric_no_convergence",
+        SystemConsumerError::Evaluation(error) => {
+            compiled::eval_error_code(error, "numeric_evaluation_refused")
+        }
+        SystemConsumerError::SparseEvaluation(error) => compiled::evaluation_error_code(error),
+        SystemConsumerError::Meter(MeterError::Cancelled)
+        | SystemConsumerError::Certification(RootBoxError::Meter(MeterError::Cancelled)) => {
+            "cancelled"
+        }
+        SystemConsumerError::Meter(MeterError::Budget(_))
+        | SystemConsumerError::Certification(RootBoxError::Meter(MeterError::Budget(_))) => {
+            "budget_exhausted"
+        }
+        SystemConsumerError::Certification(RootBoxError::Domain(_)) => "domain_not_certified",
+        SystemConsumerError::Certification(RootBoxError::Unsupported(_)) => "unsupported_operation",
+        SystemConsumerError::Certification(RootBoxError::ResourceLimit(_)) => {
+            "resource_limit_exceeded"
+        }
+        SystemConsumerError::Certification(_) => "refused",
+    }
+}
+
+fn objective_consumer_error_code(
+    error: &fsym_numeric_consumer::ObjectiveConsumerError,
+) -> &'static str {
+    use fsym_numeric_consumer::ObjectiveConsumerError;
+    match error {
+        ObjectiveConsumerError::InvalidRequest(_) | ObjectiveConsumerError::Dimension { .. } => {
+            "invalid_input"
+        }
+        ObjectiveConsumerError::NonFinite(_) => "numeric_evaluation_refused",
+        ObjectiveConsumerError::LinearSolve(_) | ObjectiveConsumerError::ConsumerContract(_) => {
+            "numeric_consumer_refused"
+        }
+        ObjectiveConsumerError::NoConvergence { .. } => "numeric_no_convergence",
+        ObjectiveConsumerError::Evaluation(error) => {
+            compiled_objective::evaluation_error_code(error)
+        }
+        ObjectiveConsumerError::Arithmetic(error) => {
+            compiled::eval_error_code(error, "numeric_evaluation_refused")
+        }
+        ObjectiveConsumerError::Meter(MeterError::Cancelled) => "cancelled",
+        ObjectiveConsumerError::Meter(MeterError::Budget(_)) => "budget_exhausted",
     }
 }
 
@@ -2809,6 +2956,14 @@ impl CertificationState {
             CertificationRequest::EvaluateObjective { program, point, .. } => {
                 self.compiled_objectives.evaluate(program, &point, budget)
             }
+            CertificationRequest::MinimizeCompiledObjective {
+                program,
+                initial,
+                options,
+                ..
+            } => self
+                .compiled_objectives
+                .minimize(program, &initial, &options, budget),
             CertificationRequest::EvaluateHessianVectorProduct {
                 program,
                 point,
@@ -2891,6 +3046,24 @@ impl CertificationState {
             CertificationRequest::EvaluateResidualJacobian { program, point, .. } => {
                 self.compiled.evaluate(program, &point, budget)
             }
+            CertificationRequest::SolveCompiledResidualSystem {
+                program,
+                initial,
+                backend,
+                options,
+                ..
+            } => self
+                .compiled
+                .solve(program, &initial, backend, &options, budget),
+            CertificationRequest::SolveCompiledLeastSquares {
+                program,
+                initial,
+                backend,
+                options,
+                ..
+            } => self
+                .compiled
+                .least_squares(program, &initial, backend, &options, budget),
             CertificationRequest::EvaluateJacobianVectorProduct {
                 program,
                 point,

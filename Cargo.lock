@@ -611,6 +611,7 @@ dependencies = [
  "fsym-calculus",
  "fsym-core",
  "fsym-durable",
+ "fsym-numeric-consumer",
  "fsym-polys",
  "fsym-proof-kernel",
  "fsym-runtime",

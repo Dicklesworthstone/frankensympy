@@ -12,11 +12,18 @@ Recorded 2026-11-14. This preserves actual test outcomes and a reconstruction re
 
 Before executor loss, all 533 pre-run/post-test original-source hashes matched. All 46 registry package identities/checksums matched the repository lockfile. The component used 20 complete original path packages, five whole runtime modules and fourteen whole pinned donor modules plus the original table. It inventoried twelve runtime and 1,535 donor files as omitted. No source function was substituted.
 
-The root raw logs and complete hash/module inventories remained in scratch when the executor disconnected and are not claimed to be preserved here. The main progress JSON records confirmed terminal outcomes, scope and exact original commands. The original native raw log was already committed before the loss.
+The execution environment subsequently recovered with its original scratch files
+intact. `component-tests.txt` now preserves the successful 57-test transcript;
+`component-initial-compile.txt` and `normal-root-build-interrupted.txt` preserve
+the unsuccessful and interrupted attempts. `component-pre-run.json` and
+`component-post-tests.json` retain the original complete hash/module inventories.
+Their 533 original-source hashes and harness hashes match exactly. The recovered
+Clippy log was empty, so no Clippy pass is inferred. The main progress JSON records
+the recovery and file hashes without changing the original execution scope.
 
 ## Reconstructed setup recipe
 
-`prepare_component.py` was reconstructed after executor loss from the existing tracked whole-module templates and observed setup. Root independently checked its template anchors through GitHub. This reconstructed recipe was not executed in this session and does not retroactively reproduce the lost logs or hash list.
+`prepare_component.py` was reconstructed after executor loss from the existing tracked whole-module templates and observed setup. Root independently checked its template anchors through GitHub. This reconstructed recipe was not executed for the original run; the recovered original logs and inventories above now supply that run's retained evidence.
 
 Use a checkout containing the test-helper fix with blob `303cb43587939f731193b139270b587a53fabfde`. Prepare the exact pinned donors with the repository's existing donor-fetch instructions. The script requires asupersync at `b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f` and refuses changed registry identities/checksums. Choose a new output directory outside both source trees.
 

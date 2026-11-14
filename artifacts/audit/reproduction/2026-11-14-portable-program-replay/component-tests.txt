@@ -1,0 +1,157 @@
+warning: static `EPHEMERAL_REGION_COUNTER` is never used
+  --> /workspace/scratch/be76fc747855/asupersync/src/types/id.rs:21:8
+   |
+21 | static EPHEMERAL_REGION_COUNTER: AtomicU32 = AtomicU32::new(1);
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: static `EPHEMERAL_TASK_COUNTER` is never used
+  --> /workspace/scratch/be76fc747855/asupersync/src/types/id.rs:22:8
+   |
+22 | static EPHEMERAL_TASK_COUNTER: AtomicU32 = AtomicU32::new(1);
+   |        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `next_bootstrap_region_id` is never used
+  --> /workspace/scratch/be76fc747855/asupersync/src/types/id.rs:32:15
+   |
+32 | pub(crate) fn next_bootstrap_region_id() -> RegionId {
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `next_bootstrap_task_id` is never used
+  --> /workspace/scratch/be76fc747855/asupersync/src/types/id.rs:41:15
+   |
+41 | pub(crate) fn next_bootstrap_task_id() -> TaskId {
+   |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated function `from_arena` is never used
+  --> /workspace/scratch/be76fc747855/asupersync/src/types/id.rs:57:25
+   |
+52 | impl RegionId {
+   | ------------- associated function in this implementation
+...
+57 |     pub(crate) const fn from_arena(index: ArenaIndex) -> Self {
+   |                         ^^^^^^^^^^
+
+warning: feature `try_trait_v2` is declared but not used
+ --> codec/lib.rs:3:54
+  |
+3 | #![cfg_attr(feature = "nightly-outcome-try", feature(try_trait_v2))]
+  |                                                      ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_features)]` (part of `#[warn(unused)]`) on by default
+
+warning: feature `try_trait_v2_residual` is declared but not used
+ --> codec/lib.rs:4:54
+  |
+4 | #![cfg_attr(feature = "nightly-outcome-try", feature(try_trait_v2_residual))]
+  |                                                      ^^^^^^^^^^^^^^^^^^^^^
+
+warning: `asupersync-codec-source-component` (lib) generated 7 warnings
+   Compiling frankensympy-session-source-component-check v0.1.0 (/workspace/scratch/be76fc747855/session-source-component-current)
+    Finished `test` profile [unoptimized] target(s) in 5.25s
+     Running /workspace/scratch/be76fc747855/frankensympy/tests/artifact_transfer.rs (/workspace/scratch/be76fc747855/frankensympy/target/debug/build/frankensympy-session-source-component-check/32ac7e62cb3d7100/out/artifact_transfer-32ac7e62cb3d7100)
+
+running 7 tests
+test allocation_and_late_copy_budget_refusals_do_not_accept_a_chunk ... ok
+test complete_chunks_cannot_substitute_for_final_content_validation ... ok
+test content_and_chunk_domains_bind_kind_payload_length_and_position ... ok
+test every_cancellation_safe_point_preserves_the_unpublished_prefix ... ok
+test exact_retries_are_charged_and_conflicting_or_future_chunks_leave_prefix_unchanged ... ok
+test maximum_opaque_payload_round_trips_without_borrowing_verifier_fuel ... ok
+test typed_ids_manifests_and_retained_capacity_are_bounded ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running /workspace/scratch/be76fc747855/frankensympy/tests/artifact_transfer_session.rs (/workspace/scratch/be76fc747855/frankensympy/target/debug/build/frankensympy-session-source-component-check/ee44763ef4d036a8/out/artifact_transfer_session-ee44763ef4d036a8)
+
+running 7 tests
+test chunk_acknowledgement_budget_refusal_does_not_advance_the_prefix ... ok
+test digest_valid_transfers_still_require_expected_kind_sources_domain_and_mathematics ... ok
+test fresh_cli_exchanges_both_proof_kinds_above_the_inline_limit_in_bounded_frames ... ok
+test replay_uses_one_cumulative_protected_pool_and_preserves_the_staged_bytes ... ok
+test staged_chunks_are_ordered_retryable_and_never_mathematical_evidence ... ok
+test transfer_slots_release_explicitly_and_wire_inputs_remain_strict ... ok
+test verified_replay_and_late_child_collision_publish_no_partial_root_set ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+
+     Running /workspace/scratch/be76fc747855/frankensympy/tests/compiled_artifacts.rs (/workspace/scratch/be76fc747855/frankensympy/target/debug/build/frankensympy-session-source-component-check/71628f030af9be80/out/compiled_artifacts-71628f030af9be80)
+
+running 6 tests
+test canonical_inner_source_derivative_and_bytecode_forgery_cannot_gain_admission ... ok
+test outer_wire_rejects_unknown_duplicate_noncanonical_oversized_and_unfunded_inputs ... ok
+test receiver_binds_exact_sources_axis_order_typed_identity_and_context ... ok
+test replay_restores_both_program_kinds_and_hand_derived_numeric_products ... ok
+test session_and_native_replay_interoperate_in_both_directions_for_both_kinds ... ok
+test transport_keeps_original_domains_and_singular_derivatives_even_for_zero_products ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running /workspace/scratch/be76fc747855/frankensympy/tests/compiled_objective_session.rs (/workspace/scratch/be76fc747855/frankensympy/target/debug/build/frankensympy-session-source-component-check/21a6986731de9ff7/out/compiled_objective_session-21a6986731de9ff7)
+
+running 11 tests
+test bounded_handles_are_session_local_and_release_reuses_capacity_without_refunds ... ok
+test compilation_cannot_borrow_missing_or_exhausted_verifier_authority ... ok
+test every_final_publication_resource_can_refuse_a_fully_checked_objective_handle ... ok
+test failed_release_preserves_the_handle_and_unsupported_sources_publish_none ... ok
+test fresh_cli_budget_and_second_derivative_failures_publish_no_numeric_result ... ok
+test fresh_cli_executes_objective_and_hessian_product_lifecycle_with_explicit_approximation ... ok
+test frozen_objective_compiles_once_and_returns_hand_derived_values_and_sparse_products ... ok
+test numerical_output_exhaustion_keeps_the_program_and_never_borrows_verifier_fuel ... ok
+test original_and_second_derivative_domains_refuse_even_zero_directions_without_poisoning_handles ... ok
+test point_and_direction_validation_retains_finite_decimal_and_dimension_contracts ... ok
+test strict_wire_schemas_fields_duplicate_keys_and_typed_ids_are_enforced ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running /workspace/scratch/be76fc747855/frankensympy/tests/compiled_program_cli.rs (/workspace/scratch/be76fc747855/frankensympy/target/debug/build/frankensympy-session-source-component-check/afa1383b77b2271c/out/compiled_program_cli-afa1383b77b2271c)
+
+running 2 tests
+test cli_streams_a_large_program_without_raising_frame_limits_or_trusting_transfer ... ok
+test default_cli_exports_and_replays_both_program_kinds_after_sender_exits ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running /workspace/scratch/be76fc747855/frankensympy/tests/compiled_program_transport.rs (/workspace/scratch/be76fc747855/frankensympy/target/debug/build/frankensympy-session-source-component-check/bc93f1a354887998/out/compiled_program_transport-bc93f1a354887998)
+
+running 9 tests
+test canonical_derivative_bytecode_and_sparsity_forgery_never_becomes_a_program ... ok
+test large_program_uses_chunked_transport_and_digest_checks_never_grant_acceptance ... ok
+test malformed_schemas_unknown_metadata_and_noncanonical_payloads_refuse ... ok
+test objective_hessian_candidate_transfers_across_multiple_chunks ... ok
+test objective_program_replays_with_new_receipt_and_no_cross_call_numeric_cache ... ok
+test original_domains_survive_replay_even_for_zero_direction_or_weights ... ok
+test replay_binds_raw_sources_ordered_axes_and_context_before_any_publication ... ok
+test replay_resource_exhaustion_including_output_admission_publishes_no_handle ... ok
+test residual_program_replays_in_fresh_session_and_reuses_all_sparse_products ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+
+     Running /workspace/scratch/be76fc747855/frankensympy/tests/compiled_residual_products.rs (/workspace/scratch/be76fc747855/frankensympy/target/debug/build/frankensympy-session-source-component-check/7520ec2903066a19/out/compiled_residual_products-7520ec2903066a19)
+
+running 7 tests
+test both_input_spaces_have_independent_dimension_and_finite_scalar_admission ... ok
+test finite_inputs_cannot_publish_overflowed_products_or_reductions ... ok
+test fresh_cli_supports_both_products_without_dense_or_certified_numeric_payloads ... ok
+test output_admission_exhaustion_retains_programs_and_cumulative_work ... ok
+test rectangular_products_match_independent_derivatives_and_the_adjoint_identity ... ok
+test wire_schema_and_handle_lifetime_fail_closed_for_both_product_directions ... ok
+test zero_vectors_cannot_erase_original_or_derivative_domain_failures ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running /workspace/scratch/be76fc747855/frankensympy/tests/compiled_residual_session.rs (/workspace/scratch/be76fc747855/frankensympy/target/debug/build/frankensympy-session-source-component-check/3e6916fda52ab89e/out/compiled_residual_session-3e6916fda52ab89e)
+
+running 8 tests
+test bounded_handles_reject_duplicates_release_without_refunds_and_reuse_capacity ... ok
+test compiled_program_preserves_frozen_source_order_and_honest_numeric_outcomes ... ok
+test each_exhausted_resource_retains_charges_and_prevents_handle_publication ... ok
+test failed_release_admission_retains_the_program_and_unsupported_sources_publish_none ... ok
+test fresh_cli_budget_and_source_domain_failures_publish_no_successful_numeric_value ... ok
+test fresh_cli_compiles_evaluates_releases_and_keeps_approximation_explicit ... ok
+test inputs_domains_and_nonfinite_results_fail_without_partial_numeric_output ... ok
+test strict_wire_validation_does_not_publish_unknown_schemas_fields_or_duplicate_keys ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+

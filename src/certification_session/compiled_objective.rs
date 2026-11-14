@@ -7,7 +7,8 @@
 
 use super::{
     CERTIFICATION_REQUEST_SCHEMA, CertificationResponse, CertificationSessionError,
-    MAX_SESSION_ROOT_ARTIFACT_BYTES, ObjectiveId, admit_response, charge, valid_label,
+    CompiledStationarityOptions, MAX_SESSION_ROOT_ARTIFACT_BYTES, ObjectiveId, admit_response,
+    charge, valid_label,
 };
 use crate::objective::ObjectiveProblem;
 use crate::program_transport::{decode_objective_program, export_objective_program};
@@ -232,6 +233,43 @@ impl CompiledObjectiveState {
         Ok(response)
     }
 
+    /// Numerical descent reports approximate stationarity only. The immutable
+    /// source and derivative guards remain active on every trial evaluation.
+    pub(super) fn minimize(
+        &self,
+        id: CompiledObjectiveId,
+        initial: &[String],
+        options: &CompiledStationarityOptions,
+        budget: &mut Budget,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        budget.checkpoint()?;
+        let resident = self
+            .programs
+            .get(&id)
+            .ok_or(CertificationSessionError::UnknownCompiledObjective)?;
+        let proposal =
+            super::compiled_solvers::minimize(&resident.program, initial, options, budget)?;
+        charge(budget, 1, resident.source.as_str().len())?;
+        let response = CertificationResponse::CompiledObjectiveMinimized {
+            schema_version: CERTIFICATION_REQUEST_SCHEMA,
+            objective: resident.source.clone(),
+            program: id,
+            outcome: "approximate",
+            numeric_model: "binary64",
+            point: proposal.point,
+            value: proposal.value,
+            gradient: proposal.gradient,
+            gradient_norm: proposal.gradient_norm,
+            iterations: proposal.iterations,
+            evaluations: proposal.evaluations,
+            regularizations: proposal.regularizations,
+            termination: "gradient_tolerance",
+            context_digest: resident.context_digest,
+        };
+        admit_response(&response, budget)?;
+        Ok(response)
+    }
+
     pub(super) fn evaluate(
         &self,
         id: CompiledObjectiveId,
@@ -324,7 +362,7 @@ impl CompiledObjectiveState {
     }
 }
 
-fn numeric_values(
+pub(super) fn numeric_values(
     values: &[String],
     expected: usize,
     lane: &'static str,

@@ -1,0 +1,79 @@
+   Compiling libc v0.2.189
+   Compiling typenum v1.20.1
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+   Compiling hybrid-array v0.4.14
+   Compiling rand_core v0.10.1
+   Compiling getrandom v0.4.3
+   Compiling zeroize v1.9.0
+   Compiling crypto-common v0.2.2
+   Compiling memchr v2.8.3
+   Compiling serde_json v1.0.151
+   Compiling num-bigint v0.4.8
+   Compiling fsym-budget v0.1.0 (/workspace/scratch/be76fc747855/frankensympy/crates/fsym-budget)
+   Compiling thiserror v2.0.20
+   Compiling fsym-bigint v0.1.0 (/workspace/scratch/be76fc747855/frankensympy/crates/fsym-bigint)
+   Compiling cmov v0.5.4
+   Compiling ctutils v0.4.2
+   Compiling generic-array v0.14.7
+   Compiling fsym-modular v0.1.0 (/workspace/scratch/be76fc747855/frankensympy/crates/fsym-modular)
+   Compiling num-rational v0.4.2
+   Compiling block-buffer v0.12.1
+   Compiling fsym-rational v0.1.0 (/workspace/scratch/be76fc747855/frankensympy/crates/fsym-rational)
+   Compiling fsym-id v0.1.0 (/workspace/scratch/be76fc747855/frankensympy/crates/fsym-id)
+   Compiling fsym-core v0.1.0 (/workspace/scratch/be76fc747855/frankensympy/crates/fsym-core)
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling digest v0.10.7
+   Compiling inout v0.2.2
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/be76fc747855/frankensympy/crates/fsym-assumptions)
+   Compiling semver v1.0.28
+   Compiling base64ct v1.8.3
+   Compiling pem-rfc7468 v0.7.0
+   Compiling rustc_version v0.4.1
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/be76fc747855/frankensympy/crates/fsym-proof-kernel)
+   Compiling cipher v0.5.2
+   Compiling universal-hash v0.6.1
+   Compiling getrandom v0.2.17
+   Compiling rustix v1.1.4
+   Compiling const-oid v0.9.6
+   Compiling der v0.7.10
+   Compiling rand_core v0.6.4
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/be76fc747855/frankensympy/crates/fsym-evidence)
+   Compiling curve25519-dalek v4.1.3
+   Compiling signature v2.2.0
+   Compiling anyhow v1.0.104
+   Compiling cpubits v0.1.1
+   Compiling linux-raw-sys v0.12.1
+   Compiling const-oid v0.10.2
+   Compiling rustversion v1.0.23
+   Compiling cpufeatures v0.2.17
+   Compiling digest v0.11.3
+   Compiling ppv-lite86 v0.2.21
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/be76fc747855/frankensympy/crates/fsym-polys)
+   Compiling spki v0.7.3
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling memoffset v0.9.1
+   Compiling subtle v2.6.1
+   Compiling cfg_aliases v0.2.2
+   Compiling crossbeam-utils v0.8.22
+   Compiling parking_lot_core v0.9.12
+   Compiling either v1.18.0
+   Compiling itertools v0.14.0
+   Compiling nix v0.31.3
+   Compiling pkcs8 v0.10.2
+   Compiling fsym-simplify v0.1.0 (/workspace/scratch/be76fc747855/frankensympy/crates/fsym-simplify)
+   Compiling rand_chacha v0.3.1
+   Compiling sha2 v0.10.9
+   Compiling polyval v0.7.3
+   Compiling ed25519 v2.2.3
+   Compiling aead v0.6.1
+   Compiling errno v0.3.14
+   Compiling scopeguard v1.2.0
+   Compiling smallvec v1.15.2
+   Compiling tinyvec_macros v0.1.1
+   Compiling virtue-next v0.1.3
+   Compiling crc32fast v1.5.1
+   Compiling bincode-next v3.1.1
+   Compiling signal-hook v0.4.4
+   Compiling bincode_derive-next v3.1.1
