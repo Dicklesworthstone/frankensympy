@@ -26,6 +26,7 @@ use crate::sparse_jacobian::{
 use fsym_budget::{BudgetMeter, Unbounded};
 use fsym_core::{Expr, Symbol};
 use fsym_proof_kernel::{Claim, DerivationTree, ProofRule, StepId, derivation_verification_units};
+use serde::Serialize;
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -39,7 +40,7 @@ pub const MAX_OBJECTIVE_DIFFERENTIATION_UNITS: usize = 20_000_000;
 const MAX_NAME_BYTES: usize = 256;
 
 /// Public, untrusted proposal. Importing it always repeats both checkers.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ObjectiveCandidate {
     pub compiled_objective: CompiledExpr,
     pub gradient: SparseJacobian,

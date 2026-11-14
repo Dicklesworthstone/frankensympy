@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "scope": "Bounded canonical transport for independently checkable residual/Jacobian and objective/gradient/Hessian candidates",
+  "base_commit": "fbf4d72ebf6bca134cf40f53bb5fee239826dc60",
+  "implementation": [
+    "Borrowed export preserves original typed sources, ordered axes, derivative proof steps, sparsity and candidate bytecode.",
+    "Bounded RawValue preflight precedes owned deserialization, rational gcd work and aggregate expression/bytecode allocation.",
+    "Decoding returns public untrusted candidates only; existing independent admission constructors remain mandatory.",
+    "Receipts, accepted flags, shared execution plans and numerical caches do not travel."
+  ],
+  "validation": {
+    "toolchain": "nightly-2026-08-20; rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "workspace_lock": "repository Cargo.lock and exact pinned workspace donors",
+    "native_tests": {
+      "command": "cargo test -p fsym-calculus --test program_artifact",
+      "rustflags": "-D warnings",
+      "passed": 10,
+      "failed": 0
+    },
+    "clippy": {
+      "command": "cargo clippy -p fsym-calculus --test program_artifact -- -D warnings",
+      "result": "passed"
+    },
+    "review": "Independent codec/admission-boundary review completed; retained-scalar preflight added after review.",
+    "ci": "Selected in the existing G3 native integration cohort; full workspace discovery retained."
+  },
+  "limits": {
+    "schema_version": 1,
+    "payload_bytes": 1048576,
+    "json_depth": 96,
+    "integer_bits": 4096,
+    "expression_depth": 32,
+    "portable_proof": "one rooted definitional equality step; more general proof envelopes explicitly refuse",
+    "context": "Inner codec does not establish source or assumption-context authority; receiving facade must bind those before admission."
+  },
+  "status": "Implementation and focused native evidence only. No profile, campaign, performance or workstream gate is promoted."
+}

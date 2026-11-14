@@ -13,6 +13,7 @@ pub mod gruntz;
 pub mod hermite;
 pub mod integrate;
 pub mod parametric_cover;
+pub mod program_artifact;
 pub mod proof;
 pub mod quadrature;
 pub mod rational_definite;
