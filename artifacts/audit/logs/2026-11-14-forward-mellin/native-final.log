@@ -1,0 +1,23 @@
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-calculus)
+    Finished `test` profile [unoptimized] target(s) in 8.73s
+     Running tests/forward_mellin.rs (/tmp/frankensympy-active-target/debug/build/fsym-calculus/ca3a351410e7b4f0/out/forward_mellin-ca3a351410e7b4f0)
+
+running 13 tests
+test algebraic_inner_rewrites_outside_the_checked_lane_are_explicitly_unsupported ... ok
+test input_envelopes_and_untrusted_strip_growth_are_bounded_before_cloning ... ok
+test original_undefined_powers_are_checked_before_zero_or_cancellation ... ok
+test typed_variable_identity_is_preserved_and_aliasing_is_refused ... ok
+test fractional_beta_order_is_checked_as_a_real_positive_axis_power ... ok
+test zero_has_the_whole_strip_and_no_other_pure_power_is_claimed ... ok
+test candidate_formula_cannot_hide_undefined_zero_powers_in_affine_arguments ... ok
+test beta_verifier_rejects_source_scale_and_order_mutations ... ok
+test verifier_binds_derivative_and_amplitude_to_the_original_source ... ok
+test gamma_kernels_have_exact_values_and_directional_maximal_strips ... ok
+test candidate_parameter_formula_and_strip_mutations_never_publish ... ok
+test beta_kernels_include_reciprocal_powers_and_nonunit_scales ... ok
+test generation_and_independent_verification_have_separate_terminal_budgets ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+    Checking fsym-calculus v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-calculus)
+    Finished `dev` profile [unoptimized] target(s) in 3.25s

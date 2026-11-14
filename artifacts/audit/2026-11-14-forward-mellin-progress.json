@@ -1,0 +1,161 @@
+{
+  "schema": "frankensympy.focused_native_validation.v1",
+  "feature": "bounded exact forward Mellin transforms",
+  "work_item": "fra-a5x",
+  "workstream": "WS18",
+  "status": "native_implemented_uncertified",
+  "checkout": {
+    "repository": "Dicklesworthstone/frankensympy",
+    "branch": "main",
+    "base_commit": "12f6c9864eb72157297d146c21f11f3fd20db6b9",
+    "local_worktree": "/workspace/scratch/cdfae34e00d3/frankensympy-active",
+    "note": "Tests used the explicitly hashed working-tree source. Remote publication is the parent agent's separate responsibility."
+  },
+  "source_sha256": {
+    "crates/fsym-calculus/src/forward_mellin.rs": "ec11614168e8e14a3e82b8323e6590ba23515f0581bd782128241580a0e857cb",
+    "crates/fsym-calculus/tests/forward_mellin.rs": "a0f00f107835b5be44ee44f26934673c31e100278edacea591a69f8309e4ff85",
+    "crates/fsym-calculus/src/lib.rs": "ed4a863daa619ca6adc4769e293c9f9a3d1f5b5097b8766a372b725ecc23e13c",
+    "Cargo.lock": "6935b01ef3f91365feb1a37e75c6cbb4d4f82654d46641aca678414dc547ca46",
+    "rust-toolchain.toml": "cdaedf5d65db22fa32d18beadab465c1b7653285dfb2e14d23f7dfd9677f9848"
+  },
+  "native_api": [
+    "fsym_calculus::forward_mellin::generate_mellin_candidate",
+    "fsym_calculus::forward_mellin::verify_mellin_candidate",
+    "fsym_calculus::forward_mellin::metered_mellin_transform",
+    "fsym_calculus::forward_mellin::mellin_transform",
+    "fsym_calculus::forward_mellin::{MellinKernel,MellinCandidate,VerifiedMellin}"
+  ],
+  "mathematical_scope": {
+    "axis": "x in the strictly positive real axis, independent of printed/surface assumptions",
+    "parameters": "Exact rational coefficient C and shift a; b,A,B,q positive rationals; p a nonzero integer with abs(p)<=16",
+    "gamma": {
+      "source": "C*x^a*exp(-b*x^p)",
+      "value": "C/abs(p) * b^(-(s+a)/p) * gamma((s+a)/p)",
+      "strip": "p>0: (-a,+infinity); p<0: (-infinity,-a)"
+    },
+    "beta": {
+      "source": "C*x^a*(A+B*x^p)^(-q)",
+      "value": "C/abs(p) * A^((s+a)/p-q) * B^(-(s+a)/p) * gamma((s+a)/p) * gamma(q-(s+a)/p) / gamma(q)",
+      "strip": "p>0: (-a,p*q-a); p<0: (p*q-a,-a)"
+    },
+    "zero": "Exact literal zero has transform zero and strip (-infinity,+infinity)",
+    "analytic_conditions": "All premises discharged by exact rational positivity; successful auxiliary condition is true",
+    "source_equality_verifier": "Independent exact Laurent-rational logarithmic differentiation plus exact multiplicative value at x=1; no call from the checker to the structural monomial/binomial recognizer",
+    "domain_check": "All original source children/powers/denominators are inspected before any cancellation; unsupported sign/branch premises remain unsupported, explicit undefined zero powers refuse",
+    "candidate_formula_check": "Independent multiplicative gamma/power signature and affine parameter checks; affine input grammar permits only entire literal/Sym/Add/Mul arithmetic before reduction",
+    "strip_check": "Independent endpoint calculation from the gamma/beta integral premises and source asymptotic exponents; finite sums are unsupported because cancellation may enlarge the maximal fundamental strip",
+    "boundaries": [
+      "Only integer arithmetic powers occur inside exponential/binomial kernels; rational shifts remain outside",
+      "No sum composition, symbolic scale parameters, floats, complex scales, general special-function kernels, or distributional transforms",
+      "Beta expressions may retain gamma products while upstream SymPy emits trigonometrically equivalent forms",
+      "In-process checked identity receipts only; no portable proof-kernel schema or mathematical certification claim"
+    ]
+  },
+  "bounds": {
+    "source_nodes": 4096,
+    "source_depth": 64,
+    "cumulative_source_name_bytes": 65536,
+    "combined_axis_name_bytes": 65536,
+    "input_scalar_bits": 4096,
+    "intermediate_scalar_growth_bits": 65536,
+    "candidate_parameter_and_strip_bits": 32768,
+    "original_rational_power_absolute_value": 16,
+    "nonzero_kernel_integer_power_absolute_value": 16,
+    "verifier_polynomial_terms": 128,
+    "verifier_laurent_degree_absolute_value": 1024,
+    "compute_steps_per_phase": 40000000,
+    "memory_bytes_per_phase": 268435456,
+    "phases": "Independent generator and verifier meters/caps; terminal cancellation and budget failure never become Unsupported or a fresh retry",
+    "before_copy": "Native expression envelope inspection borrows nodes before recursive arithmetic or cloning"
+  },
+  "environment": {
+    "setup": "source /tmp/frankensympy-active-env.sh",
+    "rustc": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "rustc_commit": "f7d782a3be46d6bb4b9792fe69a61db389ba1769",
+    "cargo": "cargo 1.100.0-nightly (514c56dd7 2026-08-19)",
+    "llvm": "23.1.0",
+    "target": "x86_64-unknown-linux-gnu",
+    "toolchain_pin": "nightly-2026-08-20",
+    "cargo_build_jobs": 1,
+    "rustflags": "-Zunstable-options --jobs-backend=1 --jobs-frontend=1 -Cdebuginfo=0 -Ccodegen-units=256",
+    "profile_debug": 0,
+    "incremental": 0,
+    "dependency_policy": "Production workspace and unchanged production Cargo.lock; no added dependencies"
+  },
+  "final_native_validation": {
+    "execution_session": 63822,
+    "commands": [
+      "cargo test --locked -p fsym-calculus --test forward_mellin",
+      "cargo clippy --locked -p fsym-calculus --test forward_mellin -- -D warnings"
+    ],
+    "tests": {
+      "passed": 13,
+      "failed": 0,
+      "ignored": 0,
+      "filtered_out": 0,
+      "test_execution_seconds": 0.02
+    },
+    "clippy": "passed with warnings denied",
+    "raw_log": "artifacts/audit/logs/2026-11-14-forward-mellin/native-final.log",
+    "raw_log_sha256": "17227b41cdd7c0cdb6e5aa66735071a14e076dfdb583a536efb99808c22580a8",
+    "evidence": [
+      "Exact gamma and beta sample values via a separate test-only rational/gamma-integer interpreter",
+      "Positive/negative powers, rational shifts, nonunit positive scales and fractional beta order",
+      "Correct open maximal strips and zero whole-strip behavior",
+      "Source derivative and amplitude changes rejected",
+      "Kernel parameter, formula factor and strip endpoint mutations rejected",
+      "Original undefined/cancelled sources do not lose domain obligations",
+      "Candidate raw zero powers and nested reciprocal poles refused before affine normalization",
+      "Typed same-spelling identities and transform-variable alias refusal",
+      "Borrowed source and untrusted candidate resource bounds",
+      "Independent generator/verifier budget exhaustion and cancellation at first/middle/final observed checkpoints"
+    ]
+  },
+  "preserved_review_history": {
+    "earlier_native_run": {
+      "execution_session": 52688,
+      "tests_passed": 12,
+      "tests_failed": 0,
+      "clippy": "passed",
+      "source_sha256": "c31eedb17d8142082973b18a40fac6d40b0cf6caca63630362d78de2d4d7d888",
+      "tests_sha256": "1e372d8c9eeafb6f747909770087d10659173cdcc97c26c7f4f7d1a6f8ad6887",
+      "log": "artifacts/audit/logs/2026-11-14-forward-mellin/native.log",
+      "log_sha256": "eeecbddcc59b4ab8f0f1f07451f5fa41aca08598f8787e3ad9c5b9252493147a",
+      "capture_note": "Exact tool output preserved in a text log; final 13-test run used direct stdout/stderr redirection"
+    },
+    "independent_review": {
+      "reviewer": "/root/verify_repository",
+      "method": "Static source review independent of implementation and tests",
+      "finding": "Candidate affine reduction could erase original domain obligations such as gamma(s+0^0-1), gamma(s+(s-1)^0-1), or a reciprocal nested under a zero exponent",
+      "resolution": "Candidate-only entire affine grammar preflight rejects all original Pow nodes before reduction; quotient additionally rejects zero numerator with nonpositive powers",
+      "regression": "Raw literal/nonconstant/nested-pole mutants plus legitimate source exp(-x*(x^2)^0), which remains valid on x>0",
+      "final_review": "No remaining blocker found in formulas, maximal strips, independent source proof or corrected candidate-domain checks; review itself was static"
+    }
+  },
+  "oracle": {
+    "interpreter": "python -I outside candidate PYTHONPATH",
+    "python": "3.12.14",
+    "package": "sympy",
+    "version": "1.14.0",
+    "source_file": "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/site-packages/sympy/integrals/transforms.py",
+    "source_sha256": "febc1192b3a7578cdbcb6ecc649f5da49aed4051b88136cbee768ba452d7283a",
+    "manifest_target_commit": "16fa855354eb7bcabd3fe10993841e03b1382692",
+    "provenance_limit": "Executed installed 1.14.0 distribution; did not claim this installed directory is a Git checkout of the manifest commit",
+    "anchors_passed": 11,
+    "checks": [
+      "Default successful result and strip are Python tuples",
+      "Condition object is symbolic BooleanTrue singleton, not Python bool",
+      "noconds=True returns expression; default .doit() returns three-tuple",
+      "Exact zero whole-strip and unsupported bare MellinTransform behavior",
+      "Eleven exact rational interior values/strips across gamma/beta families; limits avoid upstream removable trig singularities"
+    ],
+    "raw_log": "artifacts/audit/logs/2026-11-14-forward-mellin/oracle.log",
+    "raw_log_sha256": "597e2d6fba1ca5384de692b91b9d298d5f3e16be702aabe3227441a7b45212f0",
+    "production_use": "None; installed upstream is a development oracle only"
+  },
+  "pending_separate_evidence": {
+    "python_bridge": "Authored typed PyO3 bridge; full production compilation and public execution pending parent build",
+    "public_tests": "20 test functions / 41 parametrized cases by AST inventory, not yet collected or executed",
+    "compatibility": "No profile certification, complete Mellin API compatibility, exact upstream canonical-form parity, or performance claim"
+  }
+}

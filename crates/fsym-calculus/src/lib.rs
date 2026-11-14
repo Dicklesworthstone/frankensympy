@@ -7,6 +7,7 @@ pub mod compile;
 pub mod delayed_laplace;
 pub mod elementary_rational_definite;
 pub mod exponential_sum;
+pub mod forward_mellin;
 pub mod fourier;
 pub mod geometric_sum;
 pub mod gruntz;
