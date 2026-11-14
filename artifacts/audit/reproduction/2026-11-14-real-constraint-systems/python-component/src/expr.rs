@@ -1,0 +1,1399 @@
+//! SymPy-compatible Expr, Basic, Atom surface over native kernel (WS05).
+
+#![forbid(unsafe_code)]
+
+use fsym_calculus::diff;
+use fsym_calculus::proof as calculus_proof;
+use fsym_core::{BigInt, BigRational, Constant, Expr, parse};
+use fsym_functions::{
+    abs_val as abs_expr, acos as acos_expr, acosh as acosh_expr, acot as acot_expr,
+    acoth as acoth_expr, acsc as acsc_expr, acsch as acsch_expr, asec as asec_expr,
+    asech as asech_expr, asin as asin_expr, asinh as asinh_expr, atan as atan_expr,
+    atanh as atanh_expr, bell as bell_expr, bernoulli as bernoulli_expr, binomial as binomial_expr,
+    catalan as catalan_expr, ceiling as ceiling_expr, cos as cos_expr, cosh as cosh_expr,
+    cot as cot_expr, coth as coth_expr, csc as csc_expr, csch as csch_expr, erf as erf_expr,
+    erfc as erfc_expr, exp as exp_expr, factorial as factorial_expr, fibonacci as fibonacci_expr,
+    floor as floor_expr, gamma as gamma_expr, harmonic as harmonic_expr, log as log_expr,
+    lucas as lucas_expr, sec as sec_expr, sech as sech_expr, sign as sign_expr, sin as sin_expr,
+    sinc as sinc_expr, sinh as sinh_expr, subfactorial as subfactorial_expr, tan as tan_expr,
+    tanh as tanh_expr, zeta as zeta_expr,
+};
+use fsym_printing::{latex, pretty as render_pretty};
+use pyo3::basic::CompareOp;
+use pyo3::exceptions::{PyNotImplementedError, PyRecursionError, PyTypeError, PyValueError};
+use pyo3::prelude::*;
+use pyo3::types::{PyBytes, PyDict, PyInt, PyTuple};
+use std::collections::BTreeSet;
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::Arc;
+
+/// Maximum magnitude admitted by the Python integer bridge before byte conversion.
+///
+/// This is a bridge resource policy, not a mathematical precision limit. Checking the exact
+/// built-in `int.bit_length()` first prevents an already-large Python integer from forcing an
+/// unbounded temporary byte buffer across the boundary.
+pub(crate) const MAX_PYTHON_INTEGER_BITS: usize = 8 * 1024 * 1024;
+
+#[derive(Debug, PartialEq, Eq)]
+enum MultiquadraticSourceError {
+    Unsupported,
+    ResourceLimit(&'static str),
+}
+
+/// Inspect borrowed nodes before the Python shell can clone any child tree.
+/// Count repeated Arc paths as well: they become owned values in `raw_args`.
+fn multiquadratic_source_size(source: &Expr) -> Result<usize, MultiquadraticSourceError> {
+    let mut pending = vec![(source, 0usize)];
+    let mut visited = 0usize;
+    while let Some((node, depth)) = pending.pop() {
+        visited += 1;
+        if visited > 4096 || depth > 64 {
+            return Err(MultiquadraticSourceError::ResourceLimit(
+                "minimal_polynomial source exceeds its node or depth limit",
+            ));
+        }
+        match node {
+            Expr::Const(Constant::I) => {}
+            Expr::Integer(value) if value.bits() <= 4096 => {}
+            Expr::Rational(value)
+                if value.numer().bits() <= 4096 && value.denom().bits() <= 4096 => {}
+            Expr::Integer(_) | Expr::Rational(_) => {
+                return Err(MultiquadraticSourceError::ResourceLimit(
+                    "minimal_polynomial literal exceeds 4096 bits",
+                ));
+            }
+            Expr::Add(children) | Expr::Mul(children) => {
+                if children.len() > 4096 - visited - pending.len() {
+                    return Err(MultiquadraticSourceError::ResourceLimit(
+                        "minimal_polynomial source exceeds its node limit",
+                    ));
+                }
+                pending.extend(children.iter().map(|child| (child, depth + 1)));
+            }
+            Expr::Pow(base, exponent) => {
+                if 2 > 4096 - visited - pending.len() {
+                    return Err(MultiquadraticSourceError::ResourceLimit(
+                        "minimal_polynomial source exceeds its node limit",
+                    ));
+                }
+                pending.push((base.as_ref(), depth + 1));
+                pending.push((exponent.as_ref(), depth + 1));
+            }
+            _ => return Err(MultiquadraticSourceError::Unsupported),
+        }
+    }
+    Ok(visited)
+}
+
+/// Effective depth bound for bridge arithmetic, overridable via
+/// `FSYM_MAX_EXPR_DEPTH` for callers who genuinely need deeper trees.
+fn max_expr_depth() -> usize {
+    std::env::var("FSYM_MAX_EXPR_DEPTH")
+        .ok()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .filter(|limit| *limit > 0)
+        .unwrap_or(fsym_core::MAX_EXPR_DEPTH)
+}
+
+/// Typed refusal for trees whose clone/drop/display recursion would exhaust
+/// the native stack (gauntlet bead fra-native-drop-depth-bound-9mk).
+pub(crate) fn ensure_admissible_depth(expr: &Expr) -> PyResult<()> {
+    let limit = max_expr_depth();
+    let depth = expr.nesting_depth();
+    if depth > limit {
+        return Err(PyRecursionError::new_err(format!(
+            "expression nesting depth {depth} exceeds the bridge bound {limit} \
+             (FSYM_MAX_EXPR_DEPTH); refusing instead of risking a native stack overflow"
+        )));
+    }
+    Ok(())
+}
+
+pub(crate) fn exact_python_integer(value: &Bound<'_, PyAny>, argument: &str) -> PyResult<BigInt> {
+    let py = value.py();
+    if !value.is_exact_instance(&py.get_type::<PyInt>()) {
+        return Err(PyTypeError::new_err(format!(
+            "{argument} must be an exact built-in int"
+        )));
+    }
+
+    let bit_length = value.call_method0("bit_length")?.extract::<usize>()?;
+    if bit_length > MAX_PYTHON_INTEGER_BITS {
+        return Err(PyValueError::new_err(format!(
+            "{argument} exceeds the Python integer bridge limit of {MAX_PYTHON_INTEGER_BITS} bits"
+        )));
+    }
+
+    let byte_length = bit_length
+        .div_ceil(u8::BITS as usize)
+        .checked_add(1)
+        .ok_or_else(|| PyValueError::new_err("Python integer byte length overflow"))?;
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("signed", true)?;
+    let encoded = value.call_method("to_bytes", (byte_length, "big"), Some(&kwargs))?;
+    let bytes = encoded.cast::<PyBytes>()?;
+    Ok(BigInt::from_signed_bytes_be(bytes.as_bytes()))
+}
+
+pub(crate) fn bigint_to_python_int<'py>(
+    value: &BigInt,
+    py: Python<'py>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let bit_length = usize::try_from(value.bits()).unwrap_or(usize::MAX);
+    if bit_length > MAX_PYTHON_INTEGER_BITS {
+        return Err(PyValueError::new_err(format!(
+            "integer exceeds the Python integer bridge limit of {MAX_PYTHON_INTEGER_BITS} bits"
+        )));
+    }
+    let encoded = value.to_signed_bytes_be();
+    let bytes = PyBytes::new(py, &encoded);
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("signed", true)?;
+    py.get_type::<PyInt>()
+        .call_method("from_bytes", (bytes, "big"), Some(&kwargs))
+}
+
+/// Python compatibility wrapper for native FrankenSymPy symbolic expressions.
+#[pyclass(name = "Expr", module = "fsym_python", subclass)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PyExpr {
+    pub inner: Expr,
+}
+
+impl PyExpr {
+    pub fn from_expr(inner: Expr) -> Self {
+        Self { inner }
+    }
+}
+
+impl std::fmt::Display for PyExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+
+#[pymethods]
+impl PyExpr {
+    #[new]
+    #[pyo3(signature = (src=None))]
+    pub fn new(src: Option<&str>) -> PyResult<Self> {
+        match src {
+            Some(s) => parse(s)
+                .map(Self::from_expr)
+                .map_err(|e| PyValueError::new_err(e.to_string())),
+            None => Ok(Self::from_expr(Expr::from_i64(0))),
+        }
+    }
+
+    /// Tuple of direct structural subexpressions (`args`).
+    #[getter]
+    pub fn args<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+        PyTuple::new(py, self.raw_args())
+    }
+
+    /// Direct list of subexpressions for Rust callers.
+    pub fn raw_args(&self) -> Vec<PyExpr> {
+        match &self.inner {
+            Expr::Sym(_) | Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => Vec::new(),
+            Expr::Add(terms) | Expr::Mul(terms) => {
+                terms.iter().map(|t| PyExpr::from_expr(t.clone())).collect()
+            }
+            Expr::Pow(base, exp) => vec![
+                PyExpr::from_expr((**base).clone()),
+                PyExpr::from_expr((**exp).clone()),
+            ],
+            Expr::Function(_, args) => args.iter().map(|a| PyExpr::from_expr(a.clone())).collect(),
+        }
+    }
+
+    /// Borrowed admission for the exact multiquadratic Python source lane.
+    /// This checks shape and allocation bounds, not algebraic definedness.
+    pub fn multiquadratic_source_size(&self) -> PyResult<usize> {
+        multiquadratic_source_size(&self.inner).map_err(|error| match error {
+            MultiquadraticSourceError::Unsupported => PyNotImplementedError::new_err(
+                "minimal_polynomial supports exact multiquadratic constants over QQ",
+            ),
+            MultiquadraticSourceError::ResourceLimit(message) => PyValueError::new_err(message),
+        })
+    }
+
+    /// Callable constructor (`func`) for SymPy reconstruction invariant: `expr.func(*expr.args) == expr`.
+    #[getter]
+    pub fn func<'py>(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
+        match &self.inner {
+            Expr::Sym(_) => Ok(py.get_type::<PySymbol>().into()),
+            Expr::Integer(_) => Ok(py.get_type::<PyInteger>().into()),
+            Expr::Rational(_) => Ok(py.get_type::<PyRational>().into()),
+            Expr::Add(_) => Ok(py.get_type::<PyAdd>().into()),
+            Expr::Mul(_) => Ok(py.get_type::<PyMul>().into()),
+            Expr::Pow(_, _) => Ok(py.get_type::<PyPow>().into()),
+            Expr::Function(name, _) if name == "Derivative" => {
+                Ok(py.get_type::<PyDerivative>().into())
+            }
+            _ => Ok(py.get_type::<PyExpr>().into()),
+        }
+    }
+
+    /// Operation or class identifier string.
+    #[getter]
+    pub fn func_name(&self) -> String {
+        match &self.inner {
+            Expr::Sym(_) => "Symbol".into(),
+            Expr::Integer(_) => "Integer".into(),
+            Expr::Rational(_) => "Rational".into(),
+            Expr::Const(_) => "Constant".into(),
+            Expr::Add(_) => "Add".into(),
+            Expr::Mul(_) => "Mul".into(),
+            Expr::Pow(_, _) => "Pow".into(),
+            Expr::Function(name, _) => name.clone(),
+        }
+    }
+
+    /// Set of free symbolic variable names in the expression.
+    #[getter]
+    pub fn free_symbols(&self) -> Vec<String> {
+        let mut symbols = BTreeSet::new();
+        collect_free_syms(&self.inner, &mut symbols);
+        symbols.into_iter().collect()
+    }
+
+    /// Tests if a subexpression or pattern is contained within this expression.
+    pub fn has(&self, pattern: &PyExpr) -> bool {
+        expr_contains(&self.inner, &pattern.inner)
+    }
+
+    /// True when some applied function named ``name`` occurs in the tree
+    /// (the shell uses it to detect interned Float payloads cheaply).
+    pub fn has_function(&self, name: &str) -> bool {
+        expr_has_function(&self.inner, name)
+    }
+
+    #[getter]
+    pub fn is_integer(&self) -> bool {
+        matches!(&self.inner, Expr::Integer(_))
+    }
+
+    #[getter]
+    pub fn is_rational(&self) -> bool {
+        matches!(&self.inner, Expr::Rational(_))
+    }
+
+    #[getter]
+    pub fn is_symbol(&self) -> bool {
+        matches!(&self.inner, Expr::Sym(_))
+    }
+
+    #[getter]
+    pub fn is_add(&self) -> bool {
+        matches!(&self.inner, Expr::Add(_))
+    }
+
+    #[getter]
+    pub fn is_mul(&self) -> bool {
+        matches!(&self.inner, Expr::Mul(_))
+    }
+
+    #[getter]
+    pub fn is_pow(&self) -> bool {
+        matches!(&self.inner, Expr::Pow(_, _))
+    }
+
+    #[getter]
+    pub fn is_number(&self) -> bool {
+        matches!(
+            &self.inner,
+            Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_)
+        )
+    }
+
+    /// Exact Python numerator for an Integer or Rational bridge value.
+    pub fn exact_numerator<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        match &self.inner {
+            Expr::Integer(value) => bigint_to_python_int(value, py),
+            Expr::Rational(value) => bigint_to_python_int(value.numer(), py),
+            _ => Err(PyValueError::new_err(
+                "exact numerator requires an Integer or Rational expression",
+            )),
+        }
+    }
+
+    /// Exact Python denominator for an Integer or Rational bridge value.
+    pub fn exact_denominator<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        match &self.inner {
+            Expr::Integer(_) => bigint_to_python_int(&BigInt::from(1), py),
+            Expr::Rational(value) => bigint_to_python_int(value.denom(), py),
+            _ => Err(PyValueError::new_err(
+                "exact denominator requires an Integer or Rational expression",
+            )),
+        }
+    }
+
+    pub fn __str__(&self) -> String {
+        format!("{}", self.inner)
+    }
+
+    pub fn __repr__(&self) -> String {
+        format!("{}", self.inner)
+    }
+
+    pub fn __abs__(&self) -> PyExpr {
+        PyExpr::from_expr(abs_expr(self.inner.clone()))
+    }
+
+    pub fn _repr_latex_(&self) -> PyResult<String> {
+        latex(&self.inner)
+            .map(|rendered| format!("${rendered}$"))
+            .map_err(|error| PyValueError::new_err(error.to_string()))
+    }
+
+    /// Unicode-math pretty form. This is a printer view, not semantic identity.
+    pub fn pretty(&self) -> PyResult<String> {
+        render_pretty(&self.inner).map_err(|error| PyValueError::new_err(error.to_string()))
+    }
+
+    pub fn __hash__(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.inner.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    pub fn __richcmp__(&self, other: &PyExpr, op: CompareOp) -> PyResult<bool> {
+        match op {
+            CompareOp::Eq => Ok(self.inner == other.inner),
+            CompareOp::Ne => Ok(self.inner != other.inner),
+            CompareOp::Lt => Ok(self.inner < other.inner),
+            CompareOp::Le => Ok(self.inner <= other.inner),
+            CompareOp::Gt => Ok(self.inner > other.inner),
+            CompareOp::Ge => Ok(self.inner >= other.inner),
+        }
+    }
+
+    pub fn __add__(&self, other: &PyExpr) -> PyResult<PyExpr> {
+        ensure_admissible_depth(&self.inner)?;
+        ensure_admissible_depth(&other.inner)?;
+        Ok(PyExpr::from_expr(self.inner.clone() + other.inner.clone()))
+    }
+
+    pub fn __radd__(&self, other: &PyExpr) -> PyResult<PyExpr> {
+        ensure_admissible_depth(&other.inner)?;
+        ensure_admissible_depth(&self.inner)?;
+        Ok(PyExpr::from_expr(other.inner.clone() + self.inner.clone()))
+    }
+
+    pub fn __sub__(&self, other: &PyExpr) -> PyResult<PyExpr> {
+        ensure_admissible_depth(&self.inner)?;
+        ensure_admissible_depth(&other.inner)?;
+        Ok(PyExpr::from_expr(
+            self.inner.clone() + (other.inner.clone() * Expr::from_i64(-1)),
+        ))
+    }
+
+    pub fn __rsub__(&self, other: &PyExpr) -> PyResult<PyExpr> {
+        ensure_admissible_depth(&other.inner)?;
+        ensure_admissible_depth(&self.inner)?;
+        Ok(PyExpr::from_expr(
+            other.inner.clone() + (self.inner.clone() * Expr::from_i64(-1)),
+        ))
+    }
+
+    pub fn __mul__(&self, other: &PyExpr) -> PyResult<PyExpr> {
+        ensure_admissible_depth(&self.inner)?;
+        ensure_admissible_depth(&other.inner)?;
+        Ok(PyExpr::from_expr(self.inner.clone() * other.inner.clone()))
+    }
+
+    pub fn __rmul__(&self, other: &PyExpr) -> PyResult<PyExpr> {
+        ensure_admissible_depth(&other.inner)?;
+        ensure_admissible_depth(&self.inner)?;
+        Ok(PyExpr::from_expr(other.inner.clone() * self.inner.clone()))
+    }
+
+    pub fn __neg__(&self) -> PyResult<PyExpr> {
+        ensure_admissible_depth(&self.inner)?;
+        Ok(PyExpr::from_expr(self.inner.clone() * Expr::from_i64(-1)))
+    }
+
+    pub fn __pow__(&self, other: &PyExpr, _modulo: Option<Py<PyAny>>) -> PyResult<PyExpr> {
+        ensure_admissible_depth(&self.inner)?;
+        ensure_admissible_depth(&other.inner)?;
+        Ok(PyExpr::from_expr(Expr::Pow(
+            Arc::new(self.inner.clone()),
+            Arc::new(other.inner.clone()),
+        )))
+    }
+    /// Substitute sub-expression: `expr.subs(old, new)`.
+    pub fn subs(&self, old: &PyExpr, new: &PyExpr) -> PyResult<PyExpr> {
+        Ok(PyExpr::from_expr(
+            self.inner.subs_expr(&old.inner, &new.inner),
+        ))
+    }
+
+    /// Exact differentiation ∂expr / ∂var through the typed binding contract.
+    ///
+    /// The variable must be a [`PySymbolBinding`]: a printed name is refused,
+    /// because two symbols that print identically may be different atoms.
+    #[pyo3(signature = (var, *more_vars))]
+    pub fn diff(
+        &self,
+        var: &Bound<'_, PyAny>,
+        more_vars: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<PyExpr> {
+        let mut symbols = Vec::with_capacity(more_vars.len() + 1);
+        symbols.push(crate::binding::extract_binding(var)?.to_symbol());
+        for value in &more_vars {
+            symbols.push(crate::binding::extract_binding(value)?.to_symbol());
+        }
+        let mut res = self.inner.clone();
+        for symbol in &symbols {
+            res = diff(&res, symbol);
+        }
+        Ok(PyExpr::from_expr(res))
+    }
+
+    /// Differentiation with an independently verified, replayable receipt.
+    ///
+    /// The derivative is generated, then checked by the independent derivation
+    /// verifier in `fsym-calculus` before the receipt is handed out; a refused
+    /// derivation raises and never returns a receipt.
+    pub fn diff_with_receipt<'py>(
+        &self,
+        py: Python<'py>,
+        var: &Bound<'py, PyAny>,
+    ) -> PyResult<(PyExpr, Bound<'py, PyDict>)> {
+        let symbol = crate::binding::extract_binding(var)?.to_symbol();
+        let (deriv, tree) = calculus_proof::verified_diff(&self.inner, &symbol);
+        calculus_proof::verify_diff_derivation(&tree, &self.inner, &symbol, &deriv)
+            .map_err(|error| PyValueError::new_err(format!("derivation refused: {error}")))?;
+        let receipt = PyDict::new(py);
+        receipt.set_item("schema", "fsym.diff.receipt.v1")?;
+        receipt.set_item("expr", self.inner.to_string())?;
+        receipt.set_item("variable", symbol.name.clone())?;
+        receipt.set_item("variable_plain", symbol.identity.is_none())?;
+        receipt.set_item(
+            "variable_identity",
+            crate::binding::PySymbolBinding::from_symbol(&symbol).identity_hex,
+        )?;
+        receipt.set_item(
+            "rule",
+            calculus_proof::classify_diff_rule(&self.inner, &symbol),
+        )?;
+        receipt.set_item(
+            "lhs",
+            calculus_proof::make_diff_term(&self.inner, &symbol).to_string(),
+        )?;
+        receipt.set_item("rhs", deriv.to_string())?;
+        receipt.set_item("derivative", deriv.to_string())?;
+        receipt.set_item("verifier", "fsym-calculus::proof::verify_diff_derivation")?;
+        // Identity material, so the receipt can be replayed from its own bytes:
+        // printed text alone cannot distinguish same-name declared atoms.
+        let mut bindings = self.inner.free_symbols();
+        bindings.extend(deriv.free_symbols());
+        bindings.sort();
+        bindings.dedup();
+        let symbols: Vec<(String, String)> = bindings
+            .iter()
+            .filter(|symbol| symbol.identity.is_some())
+            .map(|symbol| {
+                (
+                    symbol.name.clone(),
+                    crate::binding::PySymbolBinding::from_symbol(symbol).identity_hex,
+                )
+            })
+            .collect();
+        receipt.set_item("symbols", symbols)?;
+        Ok((PyExpr::from_expr(deriv), receipt))
+    }
+
+    /// The typed binding of this expression when it is a symbol atom.
+    #[getter]
+    pub fn symbol_binding(&self) -> Option<crate::binding::PySymbolBinding> {
+        match &self.inner {
+            Expr::Sym(symbol) => Some(crate::binding::PySymbolBinding::from_symbol(symbol)),
+            _ => None,
+        }
+    }
+
+    /// Free symbols as typed bindings, so the shell can restore the exact
+    /// declared surface objects instead of re-minting same-name look-alikes.
+    #[getter]
+    pub fn free_symbol_bindings(&self) -> Vec<crate::binding::PySymbolBinding> {
+        let mut symbols = self.inner.free_symbols();
+        symbols.sort();
+        symbols.dedup();
+        symbols
+            .iter()
+            .map(crate::binding::PySymbolBinding::from_symbol)
+            .collect()
+    }
+
+    /// Evaluate expression to floating point number.
+    pub fn evalf(&self) -> PyResult<f64> {
+        self.inner
+            .evalf()
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    /// Pickle support: `__reduce__` returns `(Expr, (string_representation,))`.
+    pub fn __reduce__(&self, py: Python<'_>) -> PyResult<(Py<PyAny>, (String,))> {
+        let expr_cls = py.get_type::<PyExpr>().into();
+        Ok((expr_cls, (self.__str__(),)))
+    }
+
+    /// Deepcopy support.
+    pub fn __deepcopy__(&self, _memo: Py<PyAny>) -> PyExpr {
+        self.clone()
+    }
+}
+
+fn collect_free_syms(expr: &Expr, set: &mut BTreeSet<String>) {
+    match expr {
+        Expr::Sym(s) => {
+            set.insert(s.name.clone());
+        }
+        Expr::Add(terms) | Expr::Mul(terms) => {
+            for t in terms {
+                collect_free_syms(t, set);
+            }
+        }
+        Expr::Pow(b, e) => {
+            collect_free_syms(b, set);
+            collect_free_syms(e, set);
+        }
+        Expr::Function(_, args) => {
+            for a in args {
+                collect_free_syms(a, set);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn expr_contains(haystack: &Expr, needle: &Expr) -> bool {
+    if haystack == needle {
+        return true;
+    }
+    match haystack {
+        Expr::Add(terms) | Expr::Mul(terms) => terms.iter().any(|t| expr_contains(t, needle)),
+        Expr::Pow(b, e) => expr_contains(b, needle) || expr_contains(e, needle),
+        Expr::Function(_, args) => args.iter().any(|a| expr_contains(a, needle)),
+        _ => false,
+    }
+}
+
+fn expr_has_function(e: &Expr, name: &str) -> bool {
+    match e {
+        Expr::Add(terms) | Expr::Mul(terms) => terms.iter().any(|t| expr_has_function(t, name)),
+        Expr::Pow(b, x) => expr_has_function(b, name) || expr_has_function(x, name),
+        Expr::Function(f, args) => f == name || args.iter().any(|a| expr_has_function(a, name)),
+        _ => false,
+    }
+}
+
+/// Dedicated Symbol class for Python SymPy drop-in compatibility.
+#[pyclass(name = "Symbol", module = "fsym_python")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PySymbol {
+    pub inner: PyExpr,
+}
+
+#[pymethods]
+impl PySymbol {
+    #[new]
+    pub fn new(name: &str) -> Self {
+        Self {
+            inner: PyExpr::from_expr(Expr::symbol(name)),
+        }
+    }
+
+    #[getter]
+    pub fn name(&self) -> String {
+        match &self.inner.inner {
+            Expr::Sym(s) => s.name.clone(),
+            _ => String::new(),
+        }
+    }
+
+    pub fn __str__(&self) -> String {
+        self.inner.__str__()
+    }
+
+    pub fn __repr__(&self) -> String {
+        format!("Symbol('{}')", self.name())
+    }
+
+    pub fn as_expr(&self) -> PyExpr {
+        self.inner.clone()
+    }
+}
+
+/// Dedicated Integer class for Python SymPy drop-in compatibility.
+#[pyclass(name = "Integer", module = "fsym_python")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PyInteger {
+    pub inner: PyExpr,
+}
+
+#[pymethods]
+impl PyInteger {
+    #[new]
+    pub fn new(val: i64) -> Self {
+        Self {
+            inner: PyExpr::from_expr(Expr::from_i64(val)),
+        }
+    }
+
+    #[getter]
+    pub fn p<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        match &self.inner.inner {
+            Expr::Integer(n) => bigint_to_python_int(n, py),
+            _ => Err(PyValueError::new_err(
+                "Integer wrapper does not contain an integer expression",
+            )),
+        }
+    }
+
+    #[getter]
+    pub fn q(&self) -> i64 {
+        1
+    }
+
+    pub fn __str__(&self) -> String {
+        self.inner.__str__()
+    }
+
+    pub fn __repr__(&self) -> String {
+        format!("Integer({})", self.inner.__str__())
+    }
+
+    pub fn as_expr(&self) -> PyExpr {
+        self.inner.clone()
+    }
+}
+
+/// Dedicated Rational class for Python SymPy drop-in compatibility.
+#[pyclass(name = "Rational", module = "fsym_python")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PyRational {
+    pub inner: PyExpr,
+}
+
+#[pymethods]
+impl PyRational {
+    #[new]
+    pub fn new(p: i64, q: i64) -> PyResult<Self> {
+        if q == 0 {
+            return Err(PyValueError::new_err("Denominator cannot be zero"));
+        }
+        let r = BigRational::new(BigInt::from(p), BigInt::from(q));
+        Ok(Self {
+            inner: PyExpr::from_expr(Expr::Rational(r)),
+        })
+    }
+
+    #[getter]
+    pub fn p<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        match &self.inner.inner {
+            Expr::Rational(r) => bigint_to_python_int(r.numer(), py),
+            Expr::Integer(n) => bigint_to_python_int(n, py),
+            _ => Err(PyValueError::new_err(
+                "Rational wrapper does not contain an exact numeric expression",
+            )),
+        }
+    }
+
+    #[getter]
+    pub fn q<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        match &self.inner.inner {
+            Expr::Rational(r) => bigint_to_python_int(r.denom(), py),
+            Expr::Integer(_) => bigint_to_python_int(&BigInt::from(1), py),
+            _ => Err(PyValueError::new_err(
+                "Rational wrapper does not contain an exact numeric expression",
+            )),
+        }
+    }
+
+    pub fn __str__(&self) -> String {
+        self.inner.__str__()
+    }
+
+    pub fn __repr__(&self) -> String {
+        match &self.inner.inner {
+            Expr::Rational(r) => format!("Rational({}, {})", r.numer(), r.denom()),
+            Expr::Integer(n) => format!("Rational({n}, 1)"),
+            other => format!("Rational({other})"),
+        }
+    }
+
+    pub fn as_expr(&self) -> PyExpr {
+        self.inner.clone()
+    }
+}
+
+/// Dedicated Add class for Python SymPy drop-in compatibility with `evaluate=False` support.
+#[pyclass(name = "Add", module = "fsym_python")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PyAdd {
+    pub inner: PyExpr,
+}
+
+#[pymethods]
+impl PyAdd {
+    #[new]
+    #[pyo3(signature = (*args, evaluate=true))]
+    pub fn new(args: Vec<PyExpr>, evaluate: bool) -> Self {
+        let exprs: Vec<Expr> = args.into_iter().map(|a| a.inner).collect();
+        let inner = if evaluate {
+            // Canonical args order after folding (bead
+            // fra-add-args-canonical-order-o1i): the pinned oracle sorts Add
+            // args in every case — Add(-8, w) and Add(w, -8) both read
+            // (-8, w); Add(z, y) and Add(y, z) both read (y, z).
+            // Arithmetic-only simplification: trigonometric rewrite rules
+            // (e.g. the Pythagorean fold) must NOT fire at construction -
+            // the oracle keeps sin(x)**2 + cos(x)**2 unevaluated until an
+            // explicit simplification call (WS07 findings).
+            let folded = fsym_simplify::simplify_no_trig(&Expr::Add(exprs));
+            match folded {
+                Expr::Add(mut terms) => {
+                    fsym_core::canonicalize_add_args(&mut terms);
+                    Expr::Add(terms)
+                }
+                other => other,
+            }
+        } else {
+            Expr::Add(exprs)
+        };
+        Self {
+            inner: PyExpr::from_expr(inner),
+        }
+    }
+
+    pub fn as_expr(&self) -> PyExpr {
+        self.inner.clone()
+    }
+}
+
+/// Dedicated Mul class for Python SymPy drop-in compatibility with `evaluate=False` support.
+#[pyclass(name = "Mul", module = "fsym_python")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PyMul {
+    pub inner: PyExpr,
+}
+
+#[pymethods]
+impl PyMul {
+    #[new]
+    #[pyo3(signature = (*args, evaluate=true))]
+    pub fn new(args: Vec<PyExpr>, evaluate: bool) -> Self {
+        let exprs: Vec<Expr> = args.into_iter().map(|a| a.inner).collect();
+        let inner = if evaluate {
+            // Arithmetic-only at construction (see PyAdd note): the oracle
+            // applies no trigonometric rewrites on Mul construction either.
+            // The n-ary product is built first with upstream Mul.flatten
+            // semantics (a two-factor Number*Add distributes:
+            // Mul(-1, x - 1) -> 1 - x).
+            let built = if exprs.len() == 2 {
+                fsym_core::rebuild_mul(exprs)
+            } else {
+                Expr::Mul(exprs)
+            };
+            fsym_simplify::simplify_no_trig(&built)
+        } else {
+            Expr::Mul(exprs)
+        };
+        Self {
+            inner: PyExpr::from_expr(inner),
+        }
+    }
+
+    pub fn as_expr(&self) -> PyExpr {
+        self.inner.clone()
+    }
+}
+
+/// Dedicated Pow class for Python SymPy drop-in compatibility.
+#[pyclass(name = "Pow", module = "fsym_python")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PyPow {
+    pub inner: PyExpr,
+}
+
+#[pymethods]
+impl PyPow {
+    #[new]
+    #[pyo3(signature = (base, exp, evaluate=true))]
+    pub fn new(base: PyExpr, exp: PyExpr, evaluate: bool) -> Self {
+        let raw = Expr::Pow(Arc::new(base.inner), Arc::new(exp.inner));
+        let inner = if evaluate {
+            match raw {
+                Expr::Pow(b, e) => fsym_core::elementary::eval_pow((*b).clone(), (*e).clone()),
+                other => other,
+            }
+        } else {
+            raw
+        };
+        Self {
+            inner: PyExpr::from_expr(inner),
+        }
+    }
+
+    pub fn as_expr(&self) -> PyExpr {
+        self.inner.clone()
+    }
+}
+
+/// Dedicated Derivative class for Python SymPy drop-in compatibility.
+#[pyclass(name = "Derivative", module = "fsym_python")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PyDerivative {
+    pub inner: PyExpr,
+}
+
+#[pymethods]
+impl PyDerivative {
+    #[new]
+    #[pyo3(signature = (expr, *variables, evaluate=false))]
+    pub fn new(expr: PyExpr, variables: Vec<PyExpr>, evaluate: bool) -> Self {
+        if evaluate {
+            let mut cur = expr.inner;
+            for v in variables {
+                if let Expr::Sym(s) = v.inner {
+                    cur = diff(&cur, &s);
+                }
+            }
+            Self {
+                inner: PyExpr::from_expr(cur),
+            }
+        } else {
+            let mut args = vec![expr.inner];
+            args.extend(variables.into_iter().map(|v| v.inner));
+            Self {
+                inner: PyExpr::from_expr(Expr::Function("Derivative".into(), args)),
+            }
+        }
+    }
+
+    pub fn as_expr(&self) -> PyExpr {
+        self.inner.clone()
+    }
+}
+
+/// Construct a Symbol expression, optionally carrying a typed identity
+/// derived from the declared assumption facts. Without facts the atom stays
+/// plain, so the default surface behaviour is unchanged.
+#[pyfunction]
+#[pyo3(signature = (name, assumptions=None))]
+pub fn py_symbol(name: &str, assumptions: Option<Vec<(String, String)>>) -> PyResult<PyExpr> {
+    let binding = crate::binding::PySymbolBinding::new(name.to_string(), assumptions)?;
+    Ok(PyExpr::from_expr(Expr::Sym(binding.to_symbol())))
+}
+
+/// Construct an Integer expression.
+pub fn py_integer(val: i64) -> PyExpr {
+    PyExpr::from_expr(Expr::from_i64(val))
+}
+
+/// Construct an arbitrary-precision Integer expression from an exact Python `int`.
+#[pyfunction(name = "py_integer")]
+pub fn py_integer_from_python(value: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    exact_python_integer(value, "value").map(|integer| PyExpr::from_expr(Expr::Integer(integer)))
+}
+
+/// Construct a Rational expression.
+pub fn py_rational(p: i64, q: i64) -> PyResult<PyExpr> {
+    if q == 0 {
+        return Err(PyValueError::new_err("Denominator cannot be zero"));
+    }
+    let r = BigRational::new(BigInt::from(p), BigInt::from(q));
+    Ok(PyExpr::from_expr(Expr::Rational(r)))
+}
+
+/// Construct an arbitrary-precision Rational expression from exact Python `int` values.
+#[pyfunction(name = "py_rational")]
+pub fn py_rational_from_python(
+    numerator: &Bound<'_, PyAny>,
+    denominator: &Bound<'_, PyAny>,
+) -> PyResult<PyExpr> {
+    let numerator = exact_python_integer(numerator, "numerator")?;
+    let denominator = exact_python_integer(denominator, "denominator")?;
+    if denominator.is_zero() {
+        return Err(PyValueError::new_err("Denominator cannot be zero"));
+    }
+    Ok(PyExpr::from_expr(Expr::Rational(BigRational::new(
+        numerator,
+        denominator,
+    ))))
+}
+
+/// Construct an Add expression.
+#[pyfunction]
+#[pyo3(signature = (*args))]
+pub fn py_add(args: Vec<PyExpr>) -> PyExpr {
+    let mut exprs: Vec<Expr> = args.into_iter().map(|a| a.inner).collect();
+    fsym_core::canonicalize_add_args(&mut exprs);
+    PyExpr::from_expr(Expr::Add(exprs))
+}
+
+/// Arithmetic-only simplification (no trigonometric rewrite rules).
+#[pyfunction]
+#[pyo3(signature = (expr))]
+pub fn py_simplify_no_trig(expr: PyExpr) -> PyExpr {
+    PyExpr::from_expr(fsym_simplify::simplify_no_trig(&expr.inner))
+}
+
+/// Powsimp-mode simplification (symbolic exponent merging, no trig).
+#[pyfunction]
+#[pyo3(signature = (expr))]
+pub fn py_simplify_powsimp(expr: PyExpr) -> PyExpr {
+    PyExpr::from_expr(fsym_simplify::simplify_powsimp(&expr.inner))
+}
+
+/// TrigOnly-mode simplification (trig folds, no exp combining).
+#[pyfunction]
+#[pyo3(signature = (expr))]
+pub fn py_simplify_trig_only(expr: PyExpr) -> PyExpr {
+    PyExpr::from_expr(fsym_simplify::simplify_trig_only(&expr.inner))
+}
+
+/// Construct a Mul expression.
+#[pyfunction]
+#[pyo3(signature = (*args))]
+pub fn py_mul(args: Vec<PyExpr>) -> PyExpr {
+    let exprs: Vec<Expr> = args.into_iter().map(|a| a.inner).collect();
+    PyExpr::from_expr(Expr::Mul(exprs))
+}
+
+/// Construct a Pow expression.
+#[pyfunction]
+pub fn py_pow(base: PyExpr, exp: PyExpr) -> PyExpr {
+    // Match PyPow::new construction semantics: arithmetic simplification
+    // applies (nested Pow flattening: (x**2)**3 -> x**6).
+    PyExpr::from_expr(fsym_core::elementary::eval_pow(base.inner, exp.inner))
+}
+
+/// Construct a named function application.
+#[pyfunction]
+#[pyo3(signature = (name, *args))]
+pub fn py_function(name: String, args: Vec<PyExpr>) -> PyResult<PyExpr> {
+    if name.is_empty() {
+        return Err(PyValueError::new_err("Function name must be non-empty"));
+    }
+    Ok(PyExpr::from_expr(Expr::Function(
+        name,
+        args.into_iter().map(|arg| arg.inner).collect(),
+    )))
+}
+
+/// Native automatic evaluation of a named function application.
+///
+/// Returns the evaluated expression when an exact rule fires, and `None`
+/// when the application stays unevaluated (or the name/arity is not a
+/// natively evaluated function). Python function classes use this as their
+/// `eval` hook so construction semantics live in the native kernel.
+#[pyfunction]
+pub fn py_eval_function(name: &str, args: Vec<PyExpr>) -> Option<PyExpr> {
+    let mut args: Vec<Expr> = args.into_iter().map(|a| a.inner).collect();
+    let unevaluated = Expr::Function(name.to_string(), args.clone());
+    let value = match (name, args.len()) {
+        ("binomial", 2) => match fsym_core::elementary::eval_function(name, &args) {
+            Some(v) => v,
+            None => {
+                let k = args.pop().expect("arity checked");
+                let n = args.pop().expect("arity checked");
+                binomial_expr(n, k)
+            }
+        },
+        (_, 1) => {
+            let arg = args.pop().expect("arity checked");
+            match name {
+                "sin" => sin_expr(arg),
+                "cos" => cos_expr(arg),
+                "tan" => tan_expr(arg),
+                "cot" => cot_expr(arg),
+                "sec" => sec_expr(arg),
+                "csc" => csc_expr(arg),
+                "asin" => asin_expr(arg),
+                "acos" => acos_expr(arg),
+                "atan" => atan_expr(arg),
+                "acot" => acot_expr(arg),
+                "asec" => asec_expr(arg),
+                "acsc" => acsc_expr(arg),
+                "sinh" => sinh_expr(arg),
+                "cosh" => cosh_expr(arg),
+                "tanh" => tanh_expr(arg),
+                "coth" => coth_expr(arg),
+                "sech" => sech_expr(arg),
+                "csch" => csch_expr(arg),
+                "asinh" => asinh_expr(arg),
+                "acosh" => acosh_expr(arg),
+                "atanh" => atanh_expr(arg),
+                "acoth" => acoth_expr(arg),
+                "asech" => asech_expr(arg),
+                "acsch" => acsch_expr(arg),
+                "sinc" => sinc_expr(arg),
+                "exp" => exp_expr(arg),
+                "log" => log_expr(arg),
+                "Abs" => abs_expr(arg),
+                "sign" => sign_expr(arg),
+                "floor" => floor_expr(arg),
+                "ceiling" => ceiling_expr(arg),
+                "factorial" => factorial_expr(arg),
+                "subfactorial" => subfactorial_expr(arg),
+                "fibonacci" => fibonacci_expr(arg),
+                "lucas" => lucas_expr(arg),
+                "harmonic" => harmonic_expr(arg),
+                "catalan" => catalan_expr(arg),
+                "bernoulli" => bernoulli_expr(arg),
+                "bell" => bell_expr(arg),
+                other => fsym_core::elementary::eval_function(other, std::slice::from_ref(&arg))
+                    .unwrap_or_else(|| Expr::Function(other.to_string(), vec![arg])),
+            }
+        }
+        _ => fsym_core::elementary::eval_function(name, &args)
+            .unwrap_or_else(|| Expr::Function(name.to_string(), args.clone())),
+    };
+    if value == unevaluated {
+        None
+    } else {
+        Some(PyExpr::from_expr(value))
+    }
+}
+
+/// Exact absolute value constructor.
+#[pyfunction]
+pub fn py_abs(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(abs_expr(arg.inner))
+}
+
+/// Exact sine constructor, including the identity `sin(0) = 0`.
+#[pyfunction]
+pub fn py_sin(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(sin_expr(arg.inner))
+}
+
+/// Exact cosine constructor, including the identity `cos(0) = 1`.
+#[pyfunction]
+pub fn py_cos(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(cos_expr(arg.inner))
+}
+
+/// Exact exponential constructor, including the identity `exp(0) = 1`.
+#[pyfunction]
+pub fn py_exp(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(exp_expr(arg.inner))
+}
+
+/// Exact natural logarithm constructor, including `log(1) = 0`.
+#[pyfunction]
+pub fn py_log(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(log_expr(arg.inner))
+}
+
+/// Exact tangent constructor, including tan(0) = 0.
+#[pyfunction]
+pub fn py_tan(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(tan_expr(arg.inner))
+}
+
+/// Exact arcsine constructor, including asin(0) = 0.
+#[pyfunction]
+pub fn py_asin(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(asin_expr(arg.inner))
+}
+
+/// Exact arctangent constructor, including atan(0) = 0.
+#[pyfunction]
+pub fn py_atan(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(atan_expr(arg.inner))
+}
+
+/// Exact hyperbolic sine constructor, including sinh(0) = 0.
+#[pyfunction]
+pub fn py_sinh(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(sinh_expr(arg.inner))
+}
+
+/// Exact hyperbolic cosine constructor, including cosh(0) = 1.
+#[pyfunction]
+pub fn py_cosh(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(cosh_expr(arg.inner))
+}
+
+/// Exact hyperbolic tangent constructor, including tanh(0) = 0.
+#[pyfunction]
+pub fn py_tanh(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(tanh_expr(arg.inner))
+}
+
+/// Exact floor constructor.
+#[pyfunction]
+pub fn py_floor(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(floor_expr(arg.inner))
+}
+
+/// Exact ceiling constructor.
+#[pyfunction]
+pub fn py_ceiling(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(ceiling_expr(arg.inner))
+}
+
+/// Exact factorial constructor.
+#[pyfunction]
+pub fn py_factorial(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(factorial_expr(arg.inner))
+}
+
+/// Exact gamma constructor.
+#[pyfunction]
+pub fn py_gamma(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(gamma_expr(arg.inner))
+}
+
+/// Exact fibonacci constructor.
+#[pyfunction]
+pub fn py_fibonacci(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(fibonacci_expr(arg.inner))
+}
+
+/// Exact cotangent constructor.
+#[pyfunction]
+pub fn py_cot(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(cot_expr(arg.inner))
+}
+
+/// Exact secant constructor.
+#[pyfunction]
+pub fn py_sec(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(sec_expr(arg.inner))
+}
+
+/// Exact cosecant constructor.
+#[pyfunction]
+pub fn py_csc(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(csc_expr(arg.inner))
+}
+
+/// Exact arccosine constructor.
+#[pyfunction]
+pub fn py_acos(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(acos_expr(arg.inner))
+}
+
+/// Exact arccotangent constructor.
+#[pyfunction]
+pub fn py_acot(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(acot_expr(arg.inner))
+}
+
+/// Exact arcsecant constructor.
+#[pyfunction]
+pub fn py_asec(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(asec_expr(arg.inner))
+}
+
+/// Exact arccosecant constructor.
+#[pyfunction]
+pub fn py_acsc(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(acsc_expr(arg.inner))
+}
+
+/// Exact hyperbolic cotangent constructor.
+#[pyfunction]
+pub fn py_coth(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(coth_expr(arg.inner))
+}
+
+/// Exact hyperbolic secant constructor.
+#[pyfunction]
+pub fn py_sech(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(sech_expr(arg.inner))
+}
+
+/// Exact hyperbolic cosecant constructor.
+#[pyfunction]
+pub fn py_csch(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(csch_expr(arg.inner))
+}
+
+/// Exact inverse hyperbolic sine constructor.
+#[pyfunction]
+pub fn py_asinh(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(asinh_expr(arg.inner))
+}
+
+/// Exact inverse hyperbolic cosine constructor.
+#[pyfunction]
+pub fn py_acosh(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(acosh_expr(arg.inner))
+}
+
+/// Exact inverse hyperbolic tangent constructor.
+#[pyfunction]
+pub fn py_atanh(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(atanh_expr(arg.inner))
+}
+
+/// Exact inverse hyperbolic cotangent constructor.
+#[pyfunction]
+pub fn py_acoth(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(acoth_expr(arg.inner))
+}
+
+/// Exact inverse hyperbolic secant constructor.
+#[pyfunction]
+pub fn py_asech(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(asech_expr(arg.inner))
+}
+
+/// Exact inverse hyperbolic cosecant constructor.
+#[pyfunction]
+pub fn py_acsch(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(acsch_expr(arg.inner))
+}
+
+/// Exact cardinal sine constructor.
+#[pyfunction]
+pub fn py_sinc(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(sinc_expr(arg.inner))
+}
+
+/// Exact error function constructor.
+#[pyfunction]
+pub fn py_erf(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(erf_expr(arg.inner))
+}
+
+/// Exact complementary error function constructor.
+#[pyfunction]
+pub fn py_erfc(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(erfc_expr(arg.inner))
+}
+
+/// Exact signum constructor.
+#[pyfunction]
+pub fn py_sign(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(sign_expr(arg.inner))
+}
+
+/// Exact binomial coefficient constructor.
+#[pyfunction]
+pub fn py_binomial(n: PyExpr, k: PyExpr) -> PyExpr {
+    PyExpr::from_expr(binomial_expr(n.inner, k.inner))
+}
+
+/// Exact Lucas number constructor.
+#[pyfunction]
+pub fn py_lucas(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(lucas_expr(arg.inner))
+}
+
+/// Exact Harmonic number constructor.
+#[pyfunction]
+pub fn py_harmonic(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(harmonic_expr(arg.inner))
+}
+
+/// Exact Catalan number constructor.
+#[pyfunction]
+pub fn py_catalan(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(catalan_expr(arg.inner))
+}
+
+/// Exact Bernoulli number constructor.
+#[pyfunction]
+pub fn py_bernoulli(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(bernoulli_expr(arg.inner))
+}
+
+/// Exact Bell number constructor.
+#[pyfunction]
+pub fn py_bell(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(bell_expr(arg.inner))
+}
+
+/// Exact subfactorial constructor.
+#[pyfunction]
+pub fn py_subfactorial(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(subfactorial_expr(arg.inner))
+}
+
+/// Exact Riemann Zeta constructor.
+#[pyfunction]
+pub fn py_zeta(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(zeta_expr(arg.inner))
+}
+
+/// Construct a Derivative expression representation.
+#[pyfunction]
+pub fn py_derivative(expr: PyExpr, var: PyExpr) -> PyExpr {
+    match &var.inner {
+        Expr::Sym(s) => PyExpr::from_expr(diff(&expr.inner, s)),
+        _ => PyExpr::from_expr(Expr::Function(
+            "Derivative".into(),
+            vec![expr.inner, var.inner],
+        )),
+    }
+}
+
+#[cfg(test)]
+mod multiquadratic_source_tests {
+    use super::{MultiquadraticSourceError, multiquadratic_source_size};
+    use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
+    use std::sync::Arc;
+
+    #[test]
+    fn imaginary_unit_and_exact_arithmetic_have_a_borrowed_node_count() {
+        let root = Expr::Pow(
+            Arc::new(Expr::from_i64(2)),
+            Arc::new(Expr::Rational(BigRational::new(1.into(), 2.into()))),
+        );
+        let source = Expr::Add(vec![Expr::Const(Constant::I), root, Expr::from_i64(3)]);
+        assert_eq!(multiquadratic_source_size(&source), Ok(6));
+        let undefined = Expr::Pow(Arc::new(Expr::from_i64(0)), Arc::new(Expr::from_i64(-1)));
+        // The shell must still reject this denominator after shape admission.
+        assert_eq!(multiquadratic_source_size(&undefined), Ok(3));
+    }
+
+    #[test]
+    fn symbols_other_constants_and_functions_are_not_closed_field_sources() {
+        for source in [
+            Expr::Sym(Symbol::new("x")),
+            Expr::Const(Constant::Pi),
+            Expr::Function("sqrt".into(), vec![Expr::from_i64(2)]),
+        ] {
+            assert_eq!(
+                multiquadratic_source_size(&source),
+                Err(MultiquadraticSourceError::Unsupported)
+            );
+        }
+    }
+
+    #[test]
+    fn expanded_native_paths_and_large_literals_refuse_before_copying() {
+        let wide = Expr::Add(vec![Expr::from_i64(1); 4096]);
+        let large = Expr::Integer(BigInt::from(1) << 4096u32);
+        let mut shared = Arc::new(Expr::from_i64(1));
+        for _ in 0..12 {
+            shared = Arc::new(Expr::Pow(Arc::clone(&shared), Arc::clone(&shared)));
+        }
+        for source in [&wide, &large, shared.as_ref()] {
+            assert!(matches!(
+                multiquadratic_source_size(source),
+                Err(MultiquadraticSourceError::ResourceLimit(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn depth_is_checked_without_recursive_clone_or_traversal() {
+        let mut source = Expr::from_i64(1);
+        for _ in 0..64 {
+            source = Expr::Pow(Arc::new(source), Arc::new(Expr::from_i64(1)));
+        }
+        assert_eq!(multiquadratic_source_size(&source), Ok(129));
+        source = Expr::Pow(Arc::new(source), Arc::new(Expr::from_i64(1)));
+        assert!(matches!(
+            multiquadratic_source_size(&source),
+            Err(MultiquadraticSourceError::ResourceLimit(_))
+        ));
+    }
+}

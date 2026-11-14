@@ -103,7 +103,7 @@ def _solve_rational_constraints(relations, symbols, conjunction_false=False):
                 if not valid:
                     raise ValueError("real constraint scalar owner does not match its native source")
                 fixed = {Zero: (0, 1), One: (1, 1), NegativeOne: (-1, 1), Half: (1, 2)}.get(kind)
-                if fixed is not None and native != _native.py_rational(*fixed):
+                if fixed is not None and (native.exact_numerator(), native.exact_denominator()) != fixed:
                     raise ValueError("real constraint constant owner does not match its native value")
             return retained
 

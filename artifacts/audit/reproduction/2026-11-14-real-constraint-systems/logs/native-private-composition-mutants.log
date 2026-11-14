@@ -1,0 +1,9 @@
+   Compiling fsym-solvers v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-solvers)
+    Finished `test` profile [unoptimized] target(s) in 15.42s
+     Running unittests src/lib.rs (/workspace/scratch/aac5c0ea4661/validation/session-component/target/debug/build/fsym-solvers/1255ac80f5a9b468/out/fsym_solvers-1255ac80f5a9b468)
+
+running 1 test
+test real_equation::real_constraints::tests::reference_composition_rejects_maps_masks_sources_and_formula_mutants ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 80 filtered out; finished in 0.04s
+

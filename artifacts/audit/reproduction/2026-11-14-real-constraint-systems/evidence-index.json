@@ -1,0 +1,535 @@
+{
+  "date": "2026-11-14",
+  "scope": "Byte-exact observed native, actual-source Session and mathematical/PyO3 component evidence, including failures and the final successful frozen runs. This does not establish full remote-main, async runtime, workspace or profile integration.",
+  "native": "43 original production package integration tests plus 1 selected private mutation test passed; 80 unrelated unit tests filtered.",
+  "session": "22 component tests and strict scoped Clippy passed; full production asynchronous runtime graph excluded.",
+  "bookend_equality": {
+    "inventory_scope": "Recorded source superset; native Cargo run itself uses the unchanged production fsym-solvers package, not the component wrappers.",
+    "source_hash_count": 680,
+    "harness_hash_count": 8,
+    "source_hashes_unchanged": true,
+    "harness_hashes_unchanged": true
+  },
+  "reproduction": "Reconstruct repository baseline 6a5505089aae516b76a3690f548694e4da217e1a, overlay the four retained tested-source files, and preserve the exact donor identities and absolute checkout layout recorded in the manifests. The preparation recipe reconstructs the unchanged bridge files and the declared six-helper omissions. All generated manifests, metadata, two shortened bridge source files, exact scripts, runner wheel hashes and per-run full source/harness inventories are retained. Script copies preserve original paths; their recorded environment and commands are authoritative.",
+  "files": [
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/Cargo.toml",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/session-component/Cargo.toml",
+      "bytes": 3313,
+      "sha256": "60d991a535ff46b69321c30979d1bdd57456e00b9f2fa09443f8e0bf78e6bb77"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/Cargo.lock",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/session-component/Cargo.lock",
+      "bytes": 17651,
+      "sha256": "ff10cfc1ea62ae7e0e74da89359f4e4de3f01507cdd3e124d065bc46d0c1306e"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/metadata.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/session-component/metadata.json",
+      "bytes": 393701,
+      "sha256": "e67f7bc0c670c712625be445f33dfb3391706cc484e01ad9cce9a681b5225b87"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/runtime/Cargo.toml",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/session-component/runtime/Cargo.toml",
+      "bytes": 1191,
+      "sha256": "54b0f3737a515486ce31cc249e50e80e80e538a8cefc7544dad1d030eba478ff"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/runtime/lib.rs",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/session-component/runtime/lib.rs",
+      "bytes": 677,
+      "sha256": "b3a6298fc481f3842dd5c2ce9dbc84ad0fbcfe323272ea32c3e81f45d2fdfe28"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/codec/Cargo.toml",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/session-component/codec/Cargo.toml",
+      "bytes": 2121,
+      "sha256": "e2901d2ff61f39b2e1029c7e9616d263fd6dfca6f978d767fadbd23b2fb07639"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/codec/lib.rs",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/session-component/codec/lib.rs",
+      "bytes": 1975,
+      "sha256": "823f790b818646e8c8862b421ade4295748bfbbb997b15c1b8843ee3a391482b"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/record_scope.py",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/session-component/record_scope.py",
+      "bytes": 6593,
+      "sha256": "1e2de41ef1de2b99318377fa913b7559dc80c94ffb6cee737d7d98c51e1c7874"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/component-current-pre-run.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/session-component/component-current-pre-run.json",
+      "bytes": 214300,
+      "sha256": "ccf3b4147ce73e958778dacd6d049b8ac20b3a428ccec84c1977713edd4123d2"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/component-post-session-tests.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/session-component/component-post-session-tests.json",
+      "bytes": 214300,
+      "sha256": "c37873c08e0ecf7fbcd6413949dfc95df3669b53b6a6443d33b4463de1fbef3e"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/native-current-pre-run.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/session-component/native-current-pre-run.json",
+      "bytes": 214300,
+      "sha256": "1fb06a422d204a2289c228c84ccbf1f6446a761d881b6e904d542401225a492a"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/native-post-run.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/session-component/native-post-run.json",
+      "bytes": 214300,
+      "sha256": "e7f5681d0b67c74d3869c796988c729047d644b6adc1687d15963c7260096fca"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/session-tests.log",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/session-component/session-tests.log",
+      "bytes": 9145,
+      "sha256": "dfd344d9eb0cb212c395b81f3a2872103d7161f9b647514d9ea7d5b1c3d0d140"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/session-test-command.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/session-component/session-test-command.json",
+      "bytes": 486,
+      "sha256": "483b63e5e99a04d779d6df86a3399c420688dd626ac7509831cb0c2b14d05cb3"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/session-test-result.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/session-component/session-test-result.json",
+      "bytes": 571,
+      "sha256": "3082cad93dd6f16cb029148ace476742cabfff0c88b6966d65323afba6c17585"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/session-test-bookends.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/session-component/session-test-bookends.json",
+      "bytes": 272,
+      "sha256": "38f2c23d18476545d09aa034c5977add7fc3a1da4f8f79c31256b4c73db07c54"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/component-clippy.log",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/session-component/component-clippy.log",
+      "bytes": 6197,
+      "sha256": "5f840042ceb8b5edd83499864ef977e86af01131dcf9e286886028d1d3ef57b9"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/native-current-regressions-result.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/logs/native-current-regressions-result.json",
+      "bytes": 1400,
+      "sha256": "397712f9786961d02f8d331afc4d8910d9cd2bc0f9461e9562801894de8fc740"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/native-three-regressions.log",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/logs/native-three-regressions.log",
+      "bytes": 6711,
+      "sha256": "5c258f1076a63035aee82c1cd3e4bb75717ae8abafa6525ea5bc234403e286e5"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/native-private-composition-mutants.log",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/logs/native-private-composition-mutants.log",
+      "bytes": 576,
+      "sha256": "a253096712ee38cf64b1ad848aa81f9e3efbde2d269ef08cc6f8c4a44f518407"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/final-workspace-fmt-result.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/logs/final-workspace-fmt-result.json",
+      "bytes": 575,
+      "sha256": "59ae38b9b79f9172a919955e10747b0c770df60a0a891efcb0bb2e805d939d01"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/final-workspace-fmt.log",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/logs/final-workspace-fmt.log",
+      "bytes": 49617,
+      "sha256": "5743414eff4019d35f4c81fd43c3fda9ae7cfeafdb0e8acf84ce0ee95c44fc6e"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/baseline-workspace-check.log",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/logs/baseline-workspace-check.log",
+      "bytes": 38632,
+      "sha256": "f3832db08c7527b3161926dd116fc25e859f88d1827c5af6f33bed060708a806"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-build/build.log",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-build.log",
+      "bytes": 4865,
+      "sha256": "88399a671106f0d009ae4227785857bafe851c7e61543d308cefd39bb5908dd7"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-build/result.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-build-result.json",
+      "bytes": 736,
+      "sha256": "65302d988a800658edbd2e749b7d728a1f07dc8ae5033bfeeb0d9b38c5c118de"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-build/prior-review-transition.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/bridge-fix-transition.json",
+      "bytes": 657,
+      "sha256": "3cfb6d82bc8b08256cd77464c0415adfdb5c69105e686a3bff7dda3a8f78de98"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/native-scoped-clippy-result.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/logs/native-scoped-clippy-result.json",
+      "bytes": 812,
+      "sha256": "ceed581d16c30b945dd2775cd342f771bb9f3abe4a5b190bd12407e7141dbcad"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/native-scoped-clippy.log",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/logs/native-scoped-clippy.log",
+      "bytes": 2283,
+      "sha256": "248a74ca704385501ce3b83778f636665ace9a12a5f5e4581d5cf46af1eaf83f"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/native-pre-clippy.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/session-component/native-pre-clippy.json",
+      "bytes": 214300,
+      "sha256": "8c47845b4484b0aabb8140324a911ccd08d134ed6edcd7b6fc37ab1469106547"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/native-post-clippy.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/session-component/native-post-clippy.json",
+      "bytes": 214300,
+      "sha256": "0d1c7a955fc181fe6148a128a566ef0540d346880b90ce8e5e0dcefc9f642d22"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-clippy/clippy.log",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-bridge-clippy.log",
+      "bytes": 3581,
+      "sha256": "136d985d1ba72e7546da7e4fa87538ee298d4cf82ca324b272d727caee10700a"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-clippy/result.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-bridge-clippy-result.json",
+      "bytes": 997,
+      "sha256": "76f85e1728d20517cd0318b4e1d3a6f432a1b7af30a609a686ccdf22ccc1a614"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-tests/tests.log",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-pinned-runner-tests.log",
+      "bytes": 118532,
+      "sha256": "956e8ee0de31aceba0edc396e47edeceeb77996306c615bbf1b24778b6ccb834"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-tests/result.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-pinned-runner-suite-result.json",
+      "bytes": 4100,
+      "sha256": "1b9aa14277625e3509b8b92fa5b436d7d5181bf99bae8572df8624f4d716d383"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-tests/pre.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-pinned-runner-pre-tests.json",
+      "bytes": 188251,
+      "sha256": "7dd1f9fa9b94cb5190a1e08006100b7af77f1f537fa3d1f10be22a1b535248cc"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-tests/post.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-pinned-runner-post-tests.json",
+      "bytes": 188251,
+      "sha256": "7dd1f9fa9b94cb5190a1e08006100b7af77f1f537fa3d1f10be22a1b535248cc"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/retry1-tests/tests.log",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-retry1-pinned-runner-tests.log",
+      "bytes": 2426,
+      "sha256": "ebb8b77a53d479c35cd8fc8a36709922c591014c3e73d41b47e95356fbbf1d74"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/retry1-tests/result.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-retry1-pinned-runner-suite-result.json",
+      "bytes": 4126,
+      "sha256": "fc56ae2a1a40fa3cb40e4cb4a6f912abaeb2f0e5c64b64d97bfd9aa295912a65"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/retry1-tests/pre.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-retry1-pinned-runner-pre-tests.json",
+      "bytes": 188251,
+      "sha256": "27bacd7aad73f339cada3ce190aadd2b17cad7d3d1281730ee43bed379255ae3"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/retry1-tests/post.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-retry1-pinned-runner-post-tests.json",
+      "bytes": 188251,
+      "sha256": "27bacd7aad73f339cada3ce190aadd2b17cad7d3d1281730ee43bed379255ae3"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/tested-source-overlays/crates/fsym-python/src/real_inequality.rs",
+      "original_path": "/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-python/src/real_inequality.rs",
+      "bytes": 10448,
+      "sha256": "97b1991539f7e97cfcbd2ade9c7889692d13f04ebd684dfd0eff633cf17bdcf6"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/tested-source-overlays/python/sympy/solvers/inequalities.py",
+      "original_path": "/workspace/scratch/aac5c0ea4661/frankensympy/python/sympy/solvers/inequalities.py",
+      "bytes": 15267,
+      "sha256": "9950011ae36678f5c02f5561b269d935b636e31b5a07ca9cda26bc5a4c1a7e22"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/tested-source-overlays/python/sympy/__init__.py",
+      "original_path": "/workspace/scratch/aac5c0ea4661/frankensympy/python/sympy/__init__.py",
+      "bytes": 86995,
+      "sha256": "a2370dbf4724b421c0ceb73ba2b124a95ccedc56df692b00267a6504ea8437b4"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/tested-source-overlays/python/tests/test_real_constraint_systems.py",
+      "original_path": "/workspace/scratch/aac5c0ea4661/frankensympy/python/tests/test_real_constraint_systems.py",
+      "bytes": 11969,
+      "sha256": "775d67f9fdf37e6d4549f3afc93edebc0d3268cae0bb4d5733bcdc7ebd1745d8"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/Cargo.toml",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/Cargo.toml",
+      "bytes": 1872,
+      "sha256": "d3ed9dd4981d8330c35d0885871933d79077ff45ba834d368ac0917963ce1bc6"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/Cargo.lock",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/Cargo.lock",
+      "bytes": 17336,
+      "sha256": "3bf263f6e5d95fb3015349cdc69636ea66b45f2ecfe4ee2c607fd4383936ad68"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/metadata.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/metadata.json",
+      "bytes": 426407,
+      "sha256": "8e1e2b019810f865e652f277fd982a23458bbc8143b5e6a522f9643386791899"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/runtime/Cargo.toml",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/runtime/Cargo.toml",
+      "bytes": 217,
+      "sha256": "ad759ab496cc6f36887d3b24684c24ab902abe0cd7e28741419f1197aa679edd"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/runtime/lib.rs",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/runtime/lib.rs",
+      "bytes": 93,
+      "sha256": "ae062de5d08d45dd4cd97a476dc1143d98d93a00bda2b5fc9165992f6c3991d1"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/bridge-composition.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/bridge-composition.json",
+      "bytes": 8527,
+      "sha256": "bd01a952a7dec092c273f62c01a3f4189477aac1ad0a8351ddea09de8233412e"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/record_scope.py",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/record_scope.py",
+      "bytes": 4340,
+      "sha256": "61cfb2313656c613dc10a82ba6082e3c78c3de919ccceddee88973425aa6a54d"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/src/lib.rs",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/src/lib.rs",
+      "bytes": 118274,
+      "sha256": "55eb93797f725ac2663de4822ea1347247db4ae382c025a7bdc3f6b9a932a2e0"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/src/expr.rs",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/src/expr.rs",
+      "bytes": 47151,
+      "sha256": "4e8eff4b98fd31e3fb844295ec5d74c57f5ad0de41dbef23ba64901cef1f6116"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/recipes/prepare_python_component.py",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/prepare_python_component.py",
+      "bytes": 4704,
+      "sha256": "3b0eae0d67775e0fccb4a90eb1f565239e19681d861dc81a677aa4027040b031"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/recipes/run_python_gates.py",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/run_python_gates.py",
+      "bytes": 6083,
+      "sha256": "89869f8fb8d9c6dc7ac6ada43f6f1dd9b62b9296d700793735572eae7259efae"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/recipes/run_python_gates_retry1.py",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/run_python_gates_retry1.py",
+      "bytes": 6126,
+      "sha256": "5cf77c813be427c74b8d41598281977eda0f7cb9768657fc0b9c6884aa77cfa0"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/recipes/run_python_gates_retry2.py",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/run_python_gates_retry2.py",
+      "bytes": 5735,
+      "sha256": "533a6f870560a9fc18a462b673251afbe7c9f6bb565a19e0f564cd41a925e971"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/build.log",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-retry2-build.log",
+      "bytes": 60,
+      "sha256": "d7ba34e20b61e9242d2488631b62fd0c0608b42c1b083224644cb867e388fbb5"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/build-result.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-retry2-build-result.json",
+      "bytes": 1611,
+      "sha256": "bc4da3ac9613de98bd7b41181acf9619bb4d1d0275eb25c89a30c73acb7ebbba"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/pre-build.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-retry2-pre-build.json",
+      "bytes": 188251,
+      "sha256": "95cf1797be215d5c0142b9ac54d646bf893d6649f2c53ed946fe8f851293a692"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/post-build.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-retry2-post-build.json",
+      "bytes": 188251,
+      "sha256": "95cf1797be215d5c0142b9ac54d646bf893d6649f2c53ed946fe8f851293a692"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/smoke.log",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-retry2-pinned-runner-smoke.log",
+      "bytes": 239,
+      "sha256": "a808c161afc4f4009ca24a6d87bf80d1d98108f4a36fdd7246bdaf30665f9760"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/tests.log",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-retry2-pinned-runner-tests.log",
+      "bytes": 99,
+      "sha256": "59cab6ca06d6f5dc38882da43b88a1b71c5e043b2b49b01342225c471cdc4e56"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/result.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-retry2-pinned-runner-suite-result.json",
+      "bytes": 4131,
+      "sha256": "4c3639efe86d5dc2b7c67e1777348ec24b933f20bc36da4439acae24e8541d77"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/pre-tests.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-retry2-pinned-runner-pre-tests.json",
+      "bytes": 188251,
+      "sha256": "95cf1797be215d5c0142b9ac54d646bf893d6649f2c53ed946fe8f851293a692"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/post-tests.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-retry2-pinned-runner-post-tests.json",
+      "bytes": 188251,
+      "sha256": "95cf1797be215d5c0142b9ac54d646bf893d6649f2c53ed946fe8f851293a692"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/clippy.log",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-final-bridge-clippy.log",
+      "bytes": 176,
+      "sha256": "d53b970dfd08ac2509a4b49739c7602f4de560fe86589efa9a81ac290f56aa55"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/clippy-result.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-final-bridge-clippy-result.json",
+      "bytes": 1150,
+      "sha256": "8f553a9a0e88cdafc3f8e151bb0ced79aa9cf853d69679dee0e0c99a58bdf0de"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/pre-clippy.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-final-bridge-pre-clippy.json",
+      "bytes": 188251,
+      "sha256": "27bacd7aad73f339cada3ce190aadd2b17cad7d3d1281730ee43bed379255ae3"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/post-clippy.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-final-bridge-post-clippy.json",
+      "bytes": 188251,
+      "sha256": "27bacd7aad73f339cada3ce190aadd2b17cad7d3d1281730ee43bed379255ae3"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/intermediate-build/result.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-corrected-build-result.json",
+      "bytes": 974,
+      "sha256": "d1723eb9e009ff0bdb0d6ed70e9e32a7cd4cbb30d5171dead2b979c5d4b4e085"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/intermediate-build/build.log",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-corrected-build.log",
+      "bytes": 177,
+      "sha256": "ca19a283bafcdbfe3d1df0a30e995fe887c5cf989ed87434b4f33604950db912"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/intermediate-build/pre.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-corrected-pre-build.json",
+      "bytes": 188251,
+      "sha256": "72a8d46d4c86c253c4ab1387b74ee54ba42ebdd1e54bce0c457a30d0cf216fc1"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/intermediate-build/post.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-corrected-post-build.json",
+      "bytes": 188251,
+      "sha256": "72a8d46d4c86c253c4ab1387b74ee54ba42ebdd1e54bce0c457a30d0cf216fc1"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-runner/tests.log",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-facade-tests.log",
+      "bytes": 98,
+      "sha256": "a638fde482278dbb4e0085e3a8dffd741f866654f77984dfc6e25d536fdae37a"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-runner/pre.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-pre-tests.json",
+      "bytes": 188251,
+      "sha256": "72a8d46d4c86c253c4ab1387b74ee54ba42ebdd1e54bce0c457a30d0cf216fc1"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-runner/post.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-post-tests.json",
+      "bytes": 188251,
+      "sha256": "72a8d46d4c86c253c4ab1387b74ee54ba42ebdd1e54bce0c457a30d0cf216fc1"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/runner/wheel-manifest.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/python-runner-8.4.2/wheel-manifest.json",
+      "bytes": 1707,
+      "sha256": "d72b2e3a8bca4bea5984bd7f8943107095cc3e98373ca67b3c7c809d1b646348"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/final-registries.log",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/logs/final-registries.log",
+      "bytes": 4311,
+      "sha256": "4aba7a10746ee42797cc41c9288cbe6c53447fc3b5e82528c3c7af7faa3c9e2b"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/final-registries-result.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/logs/final-registries-result.json",
+      "bytes": 273,
+      "sha256": "e2fb8d577c8a7471816a51b10f11ab43554fd02dc4732871521a4553274dc9d5"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/final-planning-direct.log",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/logs/final-planning-direct.log",
+      "bytes": 540,
+      "sha256": "36a109f30a8f0d98799d2cdaefd6fcf783b6d2ca01c750475d6b3da3fa49434e"
+    },
+    {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/final-planning-direct-result.json",
+      "original_path": "/workspace/scratch/aac5c0ea4661/validation/logs/final-planning-direct-result.json",
+      "bytes": 528,
+      "sha256": "592039c88bba56935da483967767ab7f9db1f240b49de7aa01206e605e9a5842"
+    }
+  ],
+  "schema_version": 1,
+  "python": "39 cases pass (15 new,24 existing) under pytest 8.4.2; strict scoped bridge Clippy passes. Full production async runtime and six named simplify/expand helpers are excluded, with no stubs or replacement implementations.",
+  "tested_source_overlays": {
+    "crates/fsym-python/src/real_inequality.rs": {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/tested-source-overlays/crates/fsym-python/src/real_inequality.rs",
+      "sha256": "97b1991539f7e97cfcbd2ade9c7889692d13f04ebd684dfd0eff633cf17bdcf6"
+    },
+    "python/sympy/solvers/inequalities.py": {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/tested-source-overlays/python/sympy/solvers/inequalities.py",
+      "sha256": "9950011ae36678f5c02f5561b269d935b636e31b5a07ca9cda26bc5a4c1a7e22"
+    },
+    "python/sympy/__init__.py": {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/tested-source-overlays/python/sympy/__init__.py",
+      "sha256": "a2370dbf4724b421c0ceb73ba2b124a95ccedc56df692b00267a6504ea8437b4"
+    },
+    "python/tests/test_real_constraint_systems.py": {
+      "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/tested-source-overlays/python/tests/test_real_constraint_systems.py",
+      "sha256": "775d67f9fdf37e6d4549f3afc93edebc0d3268cae0bb4d5733bcdc7ebd1745d8"
+    }
+  },
+  "final_python_bookends": {
+    "binary_sha256": "eaddec5e59d488f8ae55320882c54ff6fd83f0dfc4110ffe96ebfd33c64c76ab",
+    "source_hash_count": 942,
+    "harness_hash_count": 48,
+    "source_hashes_unchanged": true,
+    "harness_hashes_unchanged": true
+  }
+}

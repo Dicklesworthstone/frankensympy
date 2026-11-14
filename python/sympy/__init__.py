@@ -2189,7 +2189,11 @@ def reduce_inequalities(inequalities: Any, symbols: Any = None) -> Any:
     checked = _solve_rational_constraints(rels, symbols, conjunction_false)
     if checked is not None:
         return checked
-    x = _inequality_symbol(rels, (symbols,) if symbols is not None else ())
+    # The admitted original sides retain Piecewise's branch-aware symbol view.
+    # A relation's lowered native tree encodes Boolean guards as protocol atoms
+    # and must not turn those guards into solve coordinates.
+    original_sides = [side for relation in rels for side in (relation.lhs, relation.rhs)]
+    x = _inequality_symbol(original_sides, (symbols,) if symbols is not None else ())
     sol = EmptySet() if conjunction_false else Reals()
     for r in rels:
         if _is_inequality(r):

@@ -1,0 +1,3203 @@
+//! # fsym-python
+//!
+//! PyO3 bindings exposing FrankenSymPy to CPython as a native extension.
+//! Symbolic operations use exact native values. The numerical preview API
+//! explicitly evaluates approximate finite-real binary64 programs.
+
+use fsym_calculus::{diff, integrate, taylor};
+use fsym_core::{BigInt, BigRational, Expr, Symbol, parse};
+use fsym_ntheory::{factorint, totient};
+use fsym_runtime::{Budget, BudgetLimits};
+use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
+
+fn parse_expr(src: &str) -> PyResult<Expr> {
+    parse(src).map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// Parse-failures and typed domain refusals both surface as `ValueError`
+/// with the original message.
+fn to_value_error<E: std::fmt::Display>(e: E) -> PyErr {
+    PyValueError::new_err(e.to_string())
+}
+
+/// Library version.
+#[pyfunction]
+fn version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+/// Render a symbol.
+#[pyfunction]
+fn symbol(name: &str) -> String {
+    format!("{}", Symbol::new(name))
+}
+
+/// Miller-Rabin primality test.
+#[pyfunction]
+fn is_prime(n: u64) -> bool {
+    fsym_ntheory::is_prime(n)
+}
+
+/// Prime factorization as a {prime: exponent} mapping.
+#[pyfunction]
+fn factorize(n: u64) -> PyResult<std::collections::BTreeMap<u64, u32>> {
+    factorint(n).map_err(to_value_error)
+}
+
+/// Euler's totient φ(n).
+#[pyfunction]
+fn euler_totient(n: u64) -> PyResult<u64> {
+    totient(n).map_err(to_value_error)
+}
+
+/// Taylor polynomial of `src` around `var = at` through degree `order`.
+#[pyfunction]
+fn taylor_expr(src: &str, var: &str, at: i64, order: usize) -> PyResult<String> {
+    let e = parse_expr(src)?;
+    let at_expr = parse_expr(&at.to_string())?;
+    taylor(&e, &Symbol::new(var), &at_expr, order)
+        .map(|v| v.to_string())
+        .map_err(to_value_error)
+}
+
+/// `(coefficient, exponent)` term strings and the remainder order string.
+type SeriesTermStrings = (Vec<(String, String)>, Option<String>);
+
+/// Generalized series about `x0` to absolute order `n`: returns the
+/// `(coefficient, exponent)` terms in the local variable and the remainder
+/// order (`None` when exact).
+#[pyfunction]
+fn series_expansion_expr(src: &str, var: &str, x0: &str, n: i64) -> PyResult<SeriesTermStrings> {
+    let e = parse_expr(src)?;
+    let point = parse_expr(x0)?;
+    let (terms, order) = fsym_calculus::series_expansion(&e, &Symbol::new(var), &point, n)
+        .map_err(to_value_error)?;
+    Ok((
+        terms
+            .into_iter()
+            .map(|(c, k)| (c.to_string(), k.to_string()))
+            .collect(),
+        order.map(|o| o.to_string()),
+    ))
+}
+
+/// Closed form of `sum_{var=a}^{b} src`; `None` when no rule applies.
+#[pyfunction]
+fn summation_expr(src: &str, var: &str, a: &str, b: &str) -> PyResult<Option<String>> {
+    let e = parse_expr(src)?;
+    let lo = parse_expr(a)?;
+    let hi = parse_expr(b)?;
+    fsym_calculus::summation::checked_summation(&e, &Symbol::new(var), &lo, &hi)
+        .map(|value| value.map(|value| value.to_string()))
+        .map_err(to_value_error)
+}
+
+/// Floating complex value `(re, im)` of a symbol-free expression; a probe
+/// for locating candidates that callers must verify exactly.
+#[pyfunction]
+fn complex_value_expr(src: &str) -> PyResult<Option<(f64, f64)>> {
+    let e = parse_expr(src)?;
+    Ok(fsym_calculus::gruntz::complex_value(&e).map(|v| (v.re, v.im)))
+}
+
+/// Real solution set of the univariate inequality `src op 0`.
+#[pyfunction]
+fn solve_inequality_expr(src: &str, var: &str, op: &str) -> PyResult<sets::PySymSet> {
+    let e = parse_expr(src)?;
+    let op = fsym_solvers::inequality::IneqOp::from_str_op(op)
+        .ok_or_else(|| PyValueError::new_err(format!("unsupported inequality operator {op}")))?;
+    fsym_solvers::inequality::solve_univariate_inequality(&e, &Symbol::new(var), op)
+        .map(|inner| sets::PySymSet { inner })
+        .map_err(to_value_error)
+}
+
+/// Closed form of `prod_{var=a}^{b} src`; `None` when no rule applies.
+#[pyfunction]
+fn product_expr(src: &str, var: &str, a: &str, b: &str) -> PyResult<Option<String>> {
+    let e = parse_expr(src)?;
+    let lo = parse_expr(a)?;
+    let hi = parse_expr(b)?;
+    Ok(fsym_calculus::summation::product(&e, &Symbol::new(var), &lo, &hi).map(|v| v.to_string()))
+}
+
+/// `digits` correctly rounded significant digits of a real constant as
+/// `d.ddd...e<exp>` from a certified ball enclosure (refuses otherwise).
+#[pyfunction]
+fn evalf_decimal_expr(src: &str, digits: u32) -> PyResult<String> {
+    let e = parse_expr(src)?;
+    e.evalf_decimal(digits).map_err(to_value_error)
+}
+
+/// Differentiate `src` with respect to `var`.
+#[pyfunction]
+fn diff_expr(src: &str, var: &str) -> PyResult<String> {
+    let e = parse_expr(src)?;
+    Ok(diff(&e, &Symbol::new(var)).to_string())
+}
+
+/// Replays a differentiation receipt through the independent derivation
+/// verifier. A tampered rule, right-hand side, or derivative returns `False`;
+/// nothing is accepted on the receipt's own assertion.
+#[pyfunction]
+#[pyo3(signature = (expr_src, variable, rule, rhs_src, deriv_src, symbols=None))]
+fn verify_diff_receipt_expr(
+    expr_src: &str,
+    variable: &Bound<'_, PyAny>,
+    rule: &str,
+    rhs_src: &str,
+    deriv_src: &str,
+    symbols: Option<Vec<(String, String)>>,
+) -> PyResult<bool> {
+    let symbol = binding::extract_binding(variable)?.to_symbol();
+    // Re-apply the declared identities the receipt recorded: printed text
+    // cannot distinguish same-name declared atoms on its own.
+    let mut substitutions: std::collections::HashMap<Symbol, Expr> =
+        std::collections::HashMap::new();
+    for (name, identity_hex) in symbols.unwrap_or_default() {
+        let identity = binding::PySymbolBinding::from_identity(name.clone(), &identity_hex)?;
+        substitutions.insert(Symbol::new(name), Expr::Sym(identity.to_symbol()));
+    }
+    let expr = lower_with_identities(parse_expr(expr_src)?, &substitutions);
+    Ok(fsym_calculus::proof::verify_diff_receipt(&expr, &symbol, rule, rhs_src, deriv_src).is_ok())
+}
+
+fn lower_with_identities(
+    expr: Expr,
+    substitutions: &std::collections::HashMap<Symbol, Expr>,
+) -> Expr {
+    if substitutions.is_empty() {
+        expr
+    } else {
+        expr.subs(substitutions)
+    }
+}
+
+/// Indefinite integral of `src` with respect to `var`.
+///
+/// Raises `ValueError` when no rule applies — refusals are explicit.
+#[pyfunction]
+#[pyo3(signature = (src, var, facts=Vec::new()))]
+fn integrate_expr(src: &str, var: &str, facts: Vec<(String, Vec<String>)>) -> PyResult<String> {
+    let e = parse_expr(src)?;
+    with_symbol_facts(facts, || integrate(&e, &Symbol::new(var)))
+        .map(|v| v.to_string())
+        .map_err(to_value_error)
+}
+
+/// Runs `f` with the caller's declared symbol facts in scope.
+fn with_symbol_facts<R>(facts: Vec<(String, Vec<String>)>, f: impl FnOnce() -> R) -> R {
+    let scope = facts
+        .into_iter()
+        .map(|(name, names)| (name, fsym_core::assume::Facts::from_names(&names)))
+        .collect();
+    fsym_core::assume::with_facts(scope, f)
+}
+
+/// Limit of `src` as `var -> to` (`to` may be `"oo"` / `"-oo"`).
+#[pyfunction]
+#[pyo3(signature = (src, var, to, dir="+", facts=Vec::new()))]
+fn limit_expr(
+    src: &str,
+    var: &str,
+    to: &str,
+    dir: &str,
+    facts: Vec<(String, Vec<String>)>,
+) -> PyResult<String> {
+    let e = parse_expr(src)?;
+    let point = parse_expr(to)?;
+    let direction = match dir {
+        "+" => fsym_calculus::gruntz::Direction::Plus,
+        "-" => fsym_calculus::gruntz::Direction::Minus,
+        "+-" => fsym_calculus::gruntz::Direction::Both,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "direction must be one of '+', '-', '+-', got {other:?}"
+            )));
+        }
+    };
+    with_symbol_facts(facts, || {
+        fsym_calculus::limit_dir(&e, &Symbol::new(var), &point, direction)
+    })
+    .map(|v| v.to_string())
+    .map_err(to_value_error)
+}
+
+/// Solve a linear equation `expr == 0` for `var`.
+#[pyfunction]
+fn solve_linear_expr(src: &str, var: &str) -> PyResult<String> {
+    let e = parse_expr(src)?;
+    fsym_solvers::solve_linear(&e, &Symbol::new(var))
+        .map(|v| v.to_string())
+        .map_err(to_value_error)
+}
+
+/// Definite integral of `src` from `a` to `b` with respect to `var`.
+#[pyfunction]
+#[pyo3(signature = (src, var, a_src, b_src, facts=Vec::new()))]
+fn integrate_definite_expr(
+    src: &str,
+    var: &str,
+    a_src: &str,
+    b_src: &str,
+    facts: Vec<(String, Vec<String>)>,
+) -> PyResult<String> {
+    let e = parse_expr(src)?;
+    let a = parse_expr(a_src)?;
+    let b = parse_expr(b_src)?;
+    with_symbol_facts(facts, || {
+        fsym_calculus::integrate_definite(&e, &Symbol::new(var), &a, &b)
+    })
+    .map(|v| v.to_string())
+    .map_err(to_value_error)
+}
+
+/// Laplace transform of `src(t)` to `s`.
+#[pyfunction]
+fn laplace_expr(src: &str, t_var: &str, s_var: &str) -> PyResult<String> {
+    let e = parse_expr(src)?;
+    fsym_calculus::laplace_transform(&e, &Symbol::new(t_var), &Symbol::new(s_var))
+        .map(|v| v.to_string())
+        .map_err(to_value_error)
+}
+
+/// Exact 1st-order linear ODE solver: dy/dx + P(x)*y = Q(x).
+#[pyfunction]
+fn dsolve_linear_first_order_expr(p_src: &str, q_src: &str, x_var: &str) -> PyResult<String> {
+    let p = parse_expr(p_src)?;
+    let q = parse_expr(q_src)?;
+    let c1 = Symbol::new("C1");
+    fsym_solvers::dsolve_linear_first_order(&p, &q, &Symbol::new(x_var), &c1)
+        .map(|v| v.to_string())
+        .map_err(to_value_error)
+}
+
+/// Exact 2nd-order constant-coefficient ODE solver: a*y'' + b*y' + c*y = 0.
+#[pyfunction]
+fn dsolve_const_coeff_second_order_expr(a: i64, b: i64, c: i64, x_var: &str) -> PyResult<String> {
+    let c1 = Symbol::new("C1");
+    let c2 = Symbol::new("C2");
+    fsym_solvers::dsolve_const_coeff_second_order(a, b, c, &Symbol::new(x_var), &c1, &c2)
+        .map(|v| v.to_string())
+        .map_err(to_value_error)
+}
+
+/// Exact Cauchy-Euler 2nd-order ODE solver: a*x^2*y'' + b*x*y' + c*y = 0.
+#[pyfunction]
+fn dsolve_cauchy_euler_expr(a: i64, b: i64, c: i64, x_var: &str) -> PyResult<String> {
+    let c1 = Symbol::new("C1");
+    let c2 = Symbol::new("C2");
+    fsym_solvers::dsolve_cauchy_euler(a, b, c, &Symbol::new(x_var), &c1, &c2)
+        .map(|v| v.to_string())
+        .map_err(to_value_error)
+}
+
+/// Exact 2nd-order nonhomogeneous constant-coefficient ODE solver: a*y'' + b*y' + c*y = f(x).
+#[pyfunction]
+fn dsolve_const_coeff_second_order_nonhomogeneous_expr(
+    a: i64,
+    b: i64,
+    c: i64,
+    f_src: &str,
+    x_var: &str,
+) -> PyResult<String> {
+    let f = parse_expr(f_src)?;
+    let c1 = Symbol::new("C1");
+    let c2 = Symbol::new("C2");
+    fsym_solvers::dsolve_const_coeff_second_order_nonhomogeneous(
+        a,
+        b,
+        c,
+        &f,
+        &Symbol::new(x_var),
+        &c1,
+        &c2,
+    )
+    .map(|v| v.to_string())
+    .map_err(to_value_error)
+}
+
+/// Exact separable linear ODE solver: y'(x) = f(x)*y(x).
+#[pyfunction]
+fn dsolve_separable_linear_expr(f_src: &str, x_var: &str) -> PyResult<String> {
+    let f = parse_expr(f_src)?;
+    let c1 = Symbol::new("C1");
+    fsym_solvers::dsolve_separable_linear(&f, &Symbol::new(x_var), &c1)
+        .map(|v| v.to_string())
+        .map_err(to_value_error)
+}
+
+/// Independent verifier for first-order linear ODE: y'(x) + P(x)*y(x) = Q(x).
+#[pyfunction]
+fn verify_linear_first_order_solution_expr(
+    sol_src: &str,
+    p_src: &str,
+    q_src: &str,
+    x_var: &str,
+) -> PyResult<bool> {
+    let sol = parse_expr(sol_src)?;
+    let p = parse_expr(p_src)?;
+    let q = parse_expr(q_src)?;
+    Ok(fsym_solvers::verify_linear_first_order_solution(
+        &sol,
+        &p,
+        &q,
+        &Symbol::new(x_var),
+    ))
+}
+
+/// Independent verifier for 2nd-order constant coefficient ODE: a*y''(x) + b*y'(x) + c*y(x) = 0.
+#[pyfunction]
+fn verify_const_coeff_second_order_solution_expr(
+    sol_src: &str,
+    a: i64,
+    b: i64,
+    c: i64,
+    x_var: &str,
+) -> PyResult<bool> {
+    let sol = parse_expr(sol_src)?;
+    Ok(fsym_solvers::verify_const_coeff_second_order_solution(
+        &sol,
+        a,
+        b,
+        c,
+        &Symbol::new(x_var),
+    ))
+}
+
+/// Independent verifier for Cauchy-Euler ODE: a*x^2*y''(x) + b*x*y'(x) + c*y(x) = 0.
+#[pyfunction]
+fn verify_cauchy_euler_solution_expr(
+    sol_src: &str,
+    a: i64,
+    b: i64,
+    c: i64,
+    x_var: &str,
+) -> PyResult<bool> {
+    let sol = parse_expr(sol_src)?;
+    Ok(fsym_solvers::verify_cauchy_euler_solution(
+        &sol,
+        a,
+        b,
+        c,
+        &Symbol::new(x_var),
+    ))
+}
+
+/// Zero-dimensional polynomial system in any number of variables (lex Groebner).
+#[pyfunction]
+fn solve_polynomial_system_expr(
+    eq_sources: Vec<String>,
+    var_names: Vec<String>,
+) -> PyResult<Vec<Vec<String>>> {
+    let vars: Vec<Symbol> = var_names.into_iter().map(Symbol::new).collect();
+    let eqs = eq_sources
+        .iter()
+        .map(|s| parse_expr(s))
+        .collect::<PyResult<Vec<Expr>>>()?;
+    let sols =
+        fsym_solvers::polysys::solve_polynomial_system(&eqs, &vars).map_err(to_value_error)?;
+    Ok(fsym_solvers::polysys::sort_solutions(sols)
+        .into_iter()
+        .map(|s| s.into_iter().map(|e| e.to_string()).collect())
+        .collect())
+}
+
+/// Two-variable polynomial system (legacy lane).
+#[pyfunction]
+fn solve_poly_system_expr(
+    eq_sources: Vec<String>,
+    var1: &str,
+    var2: &str,
+) -> PyResult<Vec<(String, String)>> {
+    let x = Symbol::new(var1);
+    let y = Symbol::new(var2);
+    let gens = vec![x.clone(), y.clone()];
+    let mut polys = Vec::with_capacity(eq_sources.len());
+    for s in &eq_sources {
+        let e = parse_expr(s)?;
+        let p = fsym_polys::multivariate::MultivariatePoly::from_expr(&e, &gens)
+            .map_err(to_value_error)?;
+        polys.push(p);
+    }
+    let solutions = fsym_solvers::solve_2var_poly_system(&polys, &x, &y).map_err(to_value_error)?;
+    let mut out = Vec::with_capacity(solutions.len());
+    for sol in solutions {
+        let x_str = sol
+            .get(&x)
+            .map(|e| e.to_string())
+            .unwrap_or_else(|| "0".to_string());
+        let y_str = sol
+            .get(&y)
+            .map(|e| e.to_string())
+            .unwrap_or_else(|| "0".to_string());
+        out.push((x_str, y_str));
+    }
+    Ok(out)
+}
+
+/// Univariate polynomial coefficients in descending degree order.
+#[pyfunction]
+fn poly_coeffs_expr(p_src: &str, var: &str) -> PyResult<Vec<String>> {
+    let e = parse_expr(p_src)?;
+    let sym = Symbol::new(var);
+    let poly =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e, &sym).map_err(to_value_error)?;
+    let coeffs: Vec<String> = poly
+        .coeffs
+        .iter()
+        .rev()
+        .map(|r| {
+            if r.is_integer() {
+                Expr::Integer(r.to_integer()).to_string()
+            } else {
+                Expr::Rational(r.clone()).to_string()
+            }
+        })
+        .collect();
+    Ok(coeffs)
+}
+
+/// Univariate polynomial degree (None for zero polynomial).
+#[pyfunction]
+fn poly_degree_expr(p_src: &str, var: &str) -> PyResult<Option<usize>> {
+    let e = parse_expr(p_src)?;
+    let sym = Symbol::new(var);
+    let poly =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e, &sym).map_err(to_value_error)?;
+    Ok(poly.degree())
+}
+
+/// Degree of a multivariate polynomial with respect to a target generator, or total degree if none specified.
+#[pyfunction]
+fn poly_multivariate_degree_expr(
+    p_src: &str,
+    var_names: Vec<String>,
+    target_var: Option<&str>,
+) -> PyResult<Option<usize>> {
+    let e = parse_expr(p_src)?;
+    let gens: Vec<Symbol> = var_names.into_iter().map(Symbol::new).collect();
+    let poly =
+        fsym_polys::multivariate::MultivariatePoly::from_expr(&e, &gens).map_err(to_value_error)?;
+    if let Some(target) = target_var {
+        let sym = Symbol::new(target);
+        if let Some(idx) = gens.iter().position(|g| g == &sym) {
+            Ok(Some(
+                usize::try_from(poly.degree_in(idx)).unwrap_or(usize::MAX),
+            ))
+        } else {
+            Ok(Some(0))
+        }
+    } else {
+        Ok(poly
+            .total_degree()
+            .map(|d| usize::try_from(d).unwrap_or(usize::MAX)))
+    }
+}
+
+/// Leading coefficient of a univariate polynomial.
+#[pyfunction]
+fn poly_leading_coeff_expr(p_src: &str, var: &str) -> PyResult<String> {
+    let e = parse_expr(p_src)?;
+    let sym = Symbol::new(var);
+    let poly =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e, &sym).map_err(to_value_error)?;
+    let lc = poly.leading_coeff();
+    let lc_expr = if lc.is_integer() {
+        Expr::Integer(lc.to_integer())
+    } else {
+        Expr::Rational(lc.clone())
+    };
+    Ok(lc_expr.to_string())
+}
+
+/// Monic normalization of a univariate polynomial.
+#[pyfunction]
+fn poly_monic_expr(p_src: &str, var: &str) -> PyResult<String> {
+    let e = parse_expr(p_src)?;
+    let sym = Symbol::new(var);
+    let poly =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e, &sym).map_err(to_value_error)?;
+    let monic = poly.make_monic().map_err(to_value_error)?;
+    Ok(monic.to_expr().to_string())
+}
+
+/// Polynomial division with remainder returning (quotient, remainder).
+#[pyfunction]
+fn poly_div_rem_expr(p1_src: &str, p2_src: &str, var: &str) -> PyResult<(String, String)> {
+    let e1 = parse_expr(p1_src)?;
+    let e2 = parse_expr(p2_src)?;
+    let sym = Symbol::new(var);
+    let poly1 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e1, &sym).map_err(to_value_error)?;
+    let poly2 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e2, &sym).map_err(to_value_error)?;
+    let (q, r) = poly1.div_rem(&poly2).map_err(to_value_error)?;
+    Ok((q.to_expr().to_string(), r.to_expr().to_string()))
+}
+
+/// Univariate polynomial resultant.
+#[pyfunction]
+fn poly_resultant_expr(p1_src: &str, p2_src: &str, var: &str) -> PyResult<String> {
+    let e1 = parse_expr(p1_src)?;
+    let e2 = parse_expr(p2_src)?;
+    let sym = Symbol::new(var);
+    let poly1 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e1, &sym).map_err(to_value_error)?;
+    let poly2 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e2, &sym).map_err(to_value_error)?;
+    let res = poly1.resultant(&poly2).map_err(to_value_error)?;
+    let res_expr = if res.is_integer() {
+        Expr::Integer(res.to_integer())
+    } else {
+        Expr::Rational(res)
+    };
+    Ok(res_expr.to_string())
+}
+
+/// Univariate polynomial discriminant.
+#[pyfunction]
+fn poly_discriminant_expr(p_src: &str, var: &str) -> PyResult<String> {
+    let e = parse_expr(p_src)?;
+    let sym = Symbol::new(var);
+    let poly =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e, &sym).map_err(to_value_error)?;
+    let disc = poly.discriminant().map_err(to_value_error)?;
+    let disc_expr = if disc.is_integer() {
+        Expr::Integer(disc.to_integer())
+    } else {
+        Expr::Rational(disc)
+    };
+    Ok(disc_expr.to_string())
+}
+
+/// Univariate polynomial greatest common divisor (monic).
+#[pyfunction]
+fn poly_gcd_expr(p1_src: &str, p2_src: &str, var: &str) -> PyResult<String> {
+    let e1 = parse_expr(p1_src)?;
+    let e2 = parse_expr(p2_src)?;
+    let sym = Symbol::new(var);
+    let poly1 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e1, &sym).map_err(to_value_error)?;
+    let poly2 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e2, &sym).map_err(to_value_error)?;
+    let g = poly1.gcd(&poly2).map_err(to_value_error)?;
+    Ok(g.to_expr().to_string())
+}
+
+/// Univariate polynomial least common multiple (monic).
+#[pyfunction]
+fn poly_lcm_expr(p1_src: &str, p2_src: &str, var: &str) -> PyResult<String> {
+    let e1 = parse_expr(p1_src)?;
+    let e2 = parse_expr(p2_src)?;
+    let sym = Symbol::new(var);
+    let poly1 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e1, &sym).map_err(to_value_error)?;
+    let poly2 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e2, &sym).map_err(to_value_error)?;
+    let g = poly1.gcd(&poly2).map_err(to_value_error)?;
+    let lcm = if g.is_zero() {
+        fsym_polys::univariate::UnivariatePoly::zero(sym)
+    } else {
+        let prod = poly1.mul(&poly2).map_err(to_value_error)?;
+        let (q, _) = prod.div_rem(&g).map_err(to_value_error)?;
+        q.to_monic()
+    };
+    Ok(lcm.to_expr().to_string())
+}
+
+/// Univariate polynomial extended GCD: returns (u, v, gcd) such that u*p1 + v*p2 = gcd.
+#[pyfunction]
+fn poly_gcdex_expr(p1_src: &str, p2_src: &str, var: &str) -> PyResult<(String, String, String)> {
+    let e1 = parse_expr(p1_src)?;
+    let e2 = parse_expr(p2_src)?;
+    let sym = Symbol::new(var);
+    let poly1 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e1, &sym).map_err(to_value_error)?;
+    let poly2 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e2, &sym).map_err(to_value_error)?;
+    let cert = poly1.extended_gcd(&poly2).map_err(to_value_error)?;
+    Ok((
+        cert.u.to_expr().to_string(),
+        cert.v.to_expr().to_string(),
+        cert.gcd.to_expr().to_string(),
+    ))
+}
+
+/// Univariate polynomial composition: computes p1(p2(var)).
+#[pyfunction]
+fn poly_compose_expr(p1_src: &str, p2_src: &str, var: &str) -> PyResult<String> {
+    let e1 = parse_expr(p1_src)?;
+    let e2 = parse_expr(p2_src)?;
+    let sym = Symbol::new(var);
+    let poly1 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e1, &sym).map_err(to_value_error)?;
+    let poly2 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e2, &sym).map_err(to_value_error)?;
+    let comp = poly1.compose(&poly2).map_err(to_value_error)?;
+    Ok(comp.to_expr().to_string())
+}
+
+/// Univariate polynomial shift: computes p(var + a) where a is rational.
+#[pyfunction]
+fn poly_shift_expr(p_src: &str, a_src: &str, var: &str) -> PyResult<String> {
+    let e = parse_expr(p_src)?;
+    let a_expr = parse_expr(a_src)?;
+    let sym = Symbol::new(var);
+    let poly =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e, &sym).map_err(to_value_error)?;
+    let a_rat = match a_expr {
+        Expr::Integer(i) => BigRational::from_integer(i),
+        Expr::Rational(r) => r,
+        _ => {
+            return Err(PyValueError::new_err(
+                "shift amount must be an exact integer or rational",
+            ));
+        }
+    };
+    let shifted = poly.shift(&a_rat).map_err(to_value_error)?;
+    Ok(shifted.to_expr().to_string())
+}
+
+/// Univariate polynomial square-free factorization returning (scale, [(factor, multiplicity), ...]).
+#[pyfunction]
+fn poly_sqf_list_expr(p_src: &str, var: &str) -> PyResult<(String, Vec<(String, usize)>)> {
+    let e = parse_expr(p_src)?;
+    let sym = Symbol::new(var);
+    let poly =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e, &sym).map_err(to_value_error)?;
+    let result =
+        fsym_polys::factorization::square_free_decomposition(&poly).map_err(to_value_error)?;
+    let scale_expr = if result.scale.is_integer() {
+        Expr::Integer(result.scale.to_integer())
+    } else {
+        Expr::Rational(result.scale)
+    };
+    let factors = result
+        .factors
+        .into_iter()
+        .map(|f| (f.poly.to_expr().to_string(), f.multiplicity))
+        .collect();
+    Ok((scale_expr.to_string(), factors))
+}
+
+/// Multivariate factorization over QQ in the given generators:
+/// (scale, [(primitive integer factor, multiplicity), ...]).
+#[pyfunction]
+fn poly_factor_multivariate_expr(
+    p_src: &str,
+    gens: Vec<String>,
+) -> PyResult<(String, Vec<(String, usize)>)> {
+    let e = parse_expr(p_src)?;
+    let gens: Vec<Symbol> = gens.into_iter().map(Symbol::new).collect();
+    let poly =
+        fsym_polys::multivariate::MultivariatePoly::from_expr(&e, &gens).map_err(to_value_error)?;
+    let result = fsym_polys::multifactor::factor_multivariate(&poly).map_err(to_value_error)?;
+    let scale = if result.scale.is_integer() {
+        Expr::Integer(result.scale.to_integer())
+    } else {
+        Expr::Rational(result.scale)
+    };
+    let mut factors = Vec::new();
+    for (f, m) in result.factors {
+        factors.push((f.to_expr().map_err(to_value_error)?.to_string(), m));
+    }
+    Ok((scale.to_string(), factors))
+}
+
+fn factor_list_univariate_core(e: &Expr, sym: &Symbol) -> PyResult<(Expr, Vec<(Expr, usize)>)> {
+    let poly = fsym_polys::univariate::UnivariatePoly::from_expr(e, sym).map_err(to_value_error)?;
+    // Complete factorization over Q (Zassenhaus with irreducibility
+    // witnesses), reported as upstream factor_list over ZZ: primitive
+    // integer factors with positive leading coefficient, content in scale.
+    let result =
+        fsym_polys::factorization::complete_factorization(&poly).map_err(to_value_error)?;
+    let mut scale = result.scale.clone();
+    let mut factors = Vec::new();
+    for f in result.factors {
+        let mut den = BigInt::from(1);
+        for c in &f.poly.coeffs {
+            let d = c.denom().clone();
+            let g = fsym_core::arith::gcd(&den, &d);
+            den = den * d / g;
+        }
+        let ints: Vec<BigInt> = f
+            .poly
+            .coeffs
+            .iter()
+            .map(|c| (c.clone() * BigRational::from_integer(den.clone())).to_integer())
+            .collect();
+        let mut content = BigInt::from(0);
+        for c in &ints {
+            content = fsym_core::arith::gcd(&content, c);
+        }
+        if content == BigInt::from(0) {
+            continue;
+        }
+        let multiplier = BigRational::new(den, content.clone());
+        let prim: Vec<BigRational> = ints
+            .into_iter()
+            .map(|c| BigRational::new(c, content.clone()))
+            .collect();
+        let prim_poly = fsym_polys::univariate::UnivariatePoly::new(sym.clone(), prim);
+        let k = i32::try_from(f.multiplicity).map_err(to_value_error)?;
+        scale /= multiplier.pow(k).map_err(to_value_error)?;
+        factors.push((prim_poly.to_expr(), f.multiplicity));
+    }
+    let scale_expr = if scale.is_integer() {
+        Expr::Integer(scale.to_integer())
+    } else {
+        Expr::Rational(scale)
+    };
+    Ok((scale_expr, factors))
+}
+
+/// Univariate polynomial factorization into rational factors: (scale, [(factor, multiplicity), ...]).
+#[pyfunction]
+fn poly_factor_list_expr(p_src: &str, var: &str) -> PyResult<(String, Vec<(String, usize)>)> {
+    let e = parse_expr(p_src)?;
+    let sym = Symbol::new(var);
+    let (scale_expr, factors) = factor_list_univariate_core(&e, &sym)?;
+    Ok((
+        scale_expr.to_string(),
+        factors
+            .into_iter()
+            .map(|(f, m)| (f.to_string(), m))
+            .collect(),
+    ))
+}
+
+fn poly_roots_univariate_core(e: &Expr, sym: &Symbol) -> PyResult<Vec<(Expr, usize)>> {
+    let poly = fsym_polys::univariate::UnivariatePoly::from_expr(e, sym).map_err(to_value_error)?;
+    if poly.is_zero() {
+        return Err(PyValueError::new_err(
+            "roots of the zero polynomial are undefined",
+        ));
+    }
+    let fact = fsym_polys::factorization::complete_factorization(&poly).map_err(to_value_error)?;
+    let mut found: Vec<(Expr, usize)> = Vec::new();
+    for t in &fact.factors {
+        if let Ok(rs) = fsym_solvers::univariate::poly_roots(&t.poly) {
+            found.extend(rs.into_iter().map(|(r, _)| (r, t.multiplicity)));
+        }
+    }
+    let order =
+        fsym_solvers::univariate::sort_roots(found.iter().map(|(r, _)| r.clone()).collect());
+    Ok(order
+        .into_iter()
+        .filter_map(|r| found.iter().find(|(f, _)| *f == r).map(|(_, m)| (r, *m)))
+        .collect())
+}
+
+/// Univariate polynomial roots with multiplicities: [(root, multiplicity), ...].
+#[pyfunction]
+fn poly_roots_expr(p_src: &str, var: &str) -> PyResult<Vec<(String, usize)>> {
+    let e = parse_expr(p_src)?;
+    let sym = Symbol::new(var);
+    Ok(poly_roots_univariate_core(&e, &sym)?
+        .into_iter()
+        .map(|(r, m)| (r.to_string(), m))
+        .collect())
+}
+
+/// Reduced multivariate Groebner basis under `order` (lex, grlex, grevlex).
+#[pyfunction]
+#[pyo3(signature = (eq_sources, var_names, order="lex"))]
+fn groebner_basis_expr(
+    eq_sources: Vec<String>,
+    var_names: Vec<String>,
+    order: &str,
+) -> PyResult<Vec<String>> {
+    let term_order = match order {
+        "lex" => fsym_polys::TermOrder::Lex,
+        "grlex" => fsym_polys::TermOrder::DegLex,
+        "grevlex" => fsym_polys::TermOrder::DegRevLex,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "unknown monomial order {other:?}"
+            )));
+        }
+    };
+    let gens: Vec<Symbol> = var_names.into_iter().map(Symbol::new).collect();
+    let mut polys = Vec::with_capacity(eq_sources.len());
+    for s in &eq_sources {
+        let e = parse_expr(s)?;
+        let p = fsym_polys::multivariate::MultivariatePoly::from_expr(&e, &gens)
+            .map_err(to_value_error)?;
+        polys.push(p);
+    }
+    let basis = fsym_polys::groebner::groebner_basis(&polys, term_order).map_err(to_value_error)?;
+    let mut out = Vec::with_capacity(basis.len());
+    for p in basis {
+        let expr = p.to_expr().map_err(to_value_error)?;
+        out.push(expr.to_string());
+    }
+    Ok(out)
+}
+
+fn polynomial_content(
+    polynomial: &fsym_polys::MultivariatePoly,
+    meter: &mut Budget,
+) -> PyResult<BigRational> {
+    let mut numerator = BigInt::from(0);
+    let mut denominator = BigInt::from(1);
+    for coefficient in polynomial.terms().values() {
+        numerator = fsym_core::arith::metered_gcd(&numerator, coefficient.numer(), meter)
+            .map_err(to_value_error)?;
+        denominator = polynomial_integer_lcm(&denominator, coefficient.denom(), meter)?;
+    }
+    BigRational::metered_new(&numerator, &denominator, meter).map_err(to_value_error)
+}
+
+fn polynomial_integer_lcm(a: &BigInt, b: &BigInt, meter: &mut Budget) -> PyResult<BigInt> {
+    if a == &BigInt::from(0) || b == &BigInt::from(0) {
+        return Ok(BigInt::from(0));
+    }
+    let common = fsym_core::arith::metered_gcd(a, b, meter).map_err(to_value_error)?;
+    let quotient = fsym_core::arith::metered_exact_div(a, &common, meter)
+        .map_err(to_value_error)?
+        .ok_or_else(|| PyValueError::new_err("polynomial content division was not exact"))?;
+    let result = fsym_core::arith::metered_mul(&quotient, b, meter).map_err(to_value_error)?;
+    if result.bits() > 4096 {
+        return Err(PyValueError::new_err(
+            "polynomial content exceeds 4096 bits",
+        ));
+    }
+    Ok(result)
+}
+
+/// The compatibility shell chooses ZZ content normalization or monic QQ
+/// normalization only after both original sources have entered the bounded
+/// typed ring. Generation, independent acceptance, normalization and lifting
+/// retain the same pair of ledgers; a failure never retries by factorization.
+fn multivariate_gcd_lcm_core(
+    left: &Expr,
+    right: &Expr,
+    variables: &[Symbol],
+    lcm: bool,
+    domain: &str,
+    generator: &mut Budget,
+    verifier: &mut Budget,
+) -> PyResult<PyExpr> {
+    if !matches!(domain, "QQ" | "ZZ" | "auto") {
+        return Err(PyValueError::new_err(
+            "polynomial GCD domain must be ZZ, QQ, or auto",
+        ));
+    }
+    let left = fsym_polys::bounded_polynomial_from_expr(left, variables, generator)
+        .map_err(to_value_error)?;
+    let right = fsym_polys::bounded_polynomial_from_expr(right, variables, generator)
+        .map_err(to_value_error)?;
+    let integral = left
+        .terms()
+        .values()
+        .chain(right.terms().values())
+        .all(|coefficient| coefficient.is_integer());
+    if domain == "ZZ" && !integral {
+        return Err(PyValueError::new_err(
+            "noninteger coefficients cannot be represented in ZZ",
+        ));
+    }
+    let accepted = fsym_polys::checked_multivariate_gcd(&left, &right, generator, verifier)
+        .map_err(to_value_error)?;
+    let (gcd, multiple) = accepted.into_parts();
+    let mut result = if lcm { multiple } else { gcd };
+    let scalar_content = domain == "auto" && variables.is_empty();
+    if (domain == "ZZ" || (domain == "auto" && integral) || scalar_content) && !result.is_zero() {
+        let left_content = polynomial_content(&left, generator)?;
+        let right_content = polynomial_content(&right, generator)?;
+        let numerator = if lcm {
+            polynomial_integer_lcm(left_content.numer(), right_content.numer(), generator)?
+        } else {
+            fsym_core::arith::metered_gcd(left_content.numer(), right_content.numer(), generator)
+                .map_err(to_value_error)?
+        };
+        let denominator = if !scalar_content {
+            BigInt::from(1)
+        } else if lcm {
+            fsym_core::arith::metered_gcd(left_content.denom(), right_content.denom(), generator)
+                .map_err(to_value_error)?
+        } else {
+            polynomial_integer_lcm(left_content.denom(), right_content.denom(), generator)?
+        };
+        let content = BigRational::metered_new(&numerator, &denominator, generator)
+            .map_err(to_value_error)?;
+        let result_content = polynomial_content(&result, generator)?;
+        let scale = content
+            .metered_div(&result_content, generator)
+            .map_err(to_value_error)?;
+        if scale.numer().bits() > 4096 || scale.denom().bits() > 4096 {
+            return Err(PyValueError::new_err(
+                "polynomial content exceeds 4096 bits",
+            ));
+        }
+        for coefficient in result.terms.values_mut() {
+            let scaled = coefficient
+                .metered_mul(&scale, generator)
+                .map_err(to_value_error)?;
+            if scaled.numer().bits() > 4096 || scaled.denom().bits() > 4096 {
+                return Err(PyValueError::new_err(
+                    "polynomial coefficient exceeds 4096 bits",
+                ));
+            }
+            *coefficient = scaled;
+        }
+    }
+    let ring_bytes = variables.iter().map(|symbol| symbol.name.len() + 128).sum();
+    let mut lifted = ideal_operations::lift_basis(vec![result], ring_bytes, generator, verifier)?;
+    lifted
+        .pop()
+        .ok_or_else(|| PyValueError::new_err("missing checked polynomial result"))
+}
+
+fn multivariate_gcd_lcm_strings(
+    left: &str,
+    right: &str,
+    variables: &Bound<'_, pyo3::types::PyList>,
+    lcm: bool,
+    domain: &str,
+) -> PyResult<String> {
+    if left.len() > 65_536 || right.len() > 65_536 {
+        return Err(PyValueError::new_err(
+            "polynomial input exceeds 65536 bytes",
+        ));
+    }
+    let mut generator = ideal_operations::budget();
+    let mut verifier = ideal_operations::budget();
+    let variables = ideal_operations::symbols(variables, &mut generator)?;
+    ideal_operations::charge(
+        &mut generator,
+        left.len() + right.len(),
+        (left.len() + right.len()) * 64,
+    )?;
+    let (left, right) = (parse_expr(left)?, parse_expr(right)?);
+    let result = multivariate_gcd_lcm_core(
+        &left,
+        &right,
+        &variables,
+        lcm,
+        domain,
+        &mut generator,
+        &mut verifier,
+    )?;
+    Ok(result.inner.to_string())
+}
+
+/// Independently checked multivariate GCD, monic over QQ by default.
+#[pyfunction]
+#[pyo3(signature = (p1_src, p2_src, var_names, domain="QQ"))]
+fn poly_multivariate_gcd_expr(
+    p1_src: &str,
+    p2_src: &str,
+    var_names: &Bound<'_, pyo3::types::PyList>,
+    domain: &str,
+) -> PyResult<String> {
+    multivariate_gcd_lcm_strings(p1_src, p2_src, var_names, false, domain)
+}
+
+/// Independently checked multivariate LCM, monic over QQ by default.
+#[pyfunction]
+#[pyo3(signature = (p1_src, p2_src, var_names, domain="QQ"))]
+fn poly_multivariate_lcm_expr(
+    p1_src: &str,
+    p2_src: &str,
+    var_names: &Bound<'_, pyo3::types::PyList>,
+    domain: &str,
+) -> PyResult<String> {
+    multivariate_gcd_lcm_strings(p1_src, p2_src, var_names, true, domain)
+}
+
+/// Multivariate polynomial division with remainder returning (quotient, remainder).
+#[pyfunction]
+fn poly_multivariate_div_rem_expr(
+    p1_src: &str,
+    p2_src: &str,
+    var_names: Vec<String>,
+) -> PyResult<(String, String)> {
+    let e1 = parse_expr(p1_src)?;
+    let e2 = parse_expr(p2_src)?;
+    let gens: Vec<Symbol> = var_names.into_iter().map(Symbol::new).collect();
+    let poly1 = fsym_polys::multivariate::MultivariatePoly::from_expr(&e1, &gens)
+        .map_err(to_value_error)?;
+    let poly2 = fsym_polys::multivariate::MultivariatePoly::from_expr(&e2, &gens)
+        .map_err(to_value_error)?;
+    let (quotients, rem) = poly1
+        .div_rem(&[poly2], fsym_polys::TermOrder::Lex)
+        .map_err(to_value_error)?;
+    let q_expr = quotients
+        .first()
+        .cloned()
+        .unwrap_or_else(|| fsym_polys::multivariate::MultivariatePoly::zero(gens.clone()))
+        .to_expr()
+        .map_err(to_value_error)?;
+    let r_expr = rem.to_expr().map_err(to_value_error)?;
+    Ok((q_expr.to_string(), r_expr.to_string()))
+}
+
+/// Algebraic equation solver (linear, quadratic, factorable higher-degree polynomial).
+#[pyfunction]
+fn solve_expr(src: &str, var: &str) -> PyResult<Vec<String>> {
+    let e = parse_expr(src)?;
+    fsym_solvers::solve(&e, &Symbol::new(var))
+        .map(|roots| roots.into_iter().map(|r| r.to_string()).collect())
+        .map_err(to_value_error)
+}
+
+/// Fourier transform of `src(t)` to `omega`.
+#[pyfunction]
+fn fourier_expr(src: &str, t_var: &str, omega_var: &str) -> PyResult<String> {
+    let e = parse_expr(src)?;
+    fsym_calculus::fourier_transform(&e, &Symbol::new(t_var), &Symbol::new(omega_var))
+        .map(|v| v.to_string())
+        .map_err(to_value_error)
+}
+
+// ---------------------------------------------------------------------------
+// Structured PyExpr / PySymbolBinding native FFI entrypoints (WS05)
+// ---------------------------------------------------------------------------
+
+fn extract_symbol_arg(value: &Bound<'_, PyAny>) -> PyResult<Symbol> {
+    if let Ok(binding) = value.extract::<PyRef<'_, binding::PySymbolBinding>>() {
+        return Ok(binding.to_symbol());
+    }
+    if let Ok(py_sym) = value.extract::<PyRef<'_, PySymbol>>()
+        && let Expr::Sym(s) = &py_sym.inner.inner
+    {
+        return Ok(s.clone());
+    }
+    if let Ok(py_expr) = value.extract::<PyRef<'_, PyExpr>>()
+        && let Expr::Sym(s) = &py_expr.inner
+    {
+        return Ok(s.clone());
+    }
+    if let Ok(name) = value.extract::<&str>() {
+        if name.is_empty() {
+            return Err(PyValueError::new_err("symbol name must not be empty"));
+        }
+        return Ok(Symbol::new(name));
+    }
+    Err(PyValueError::new_err(
+        "expected a SymbolBinding, native Symbol/Expr(Sym), or symbol name",
+    ))
+}
+
+fn with_typed_or_named_facts<R>(
+    facts: Vec<(Bound<'_, PyAny>, Vec<String>)>,
+    f: impl FnOnce() -> R,
+) -> PyResult<R> {
+    let mut scope = std::collections::HashMap::with_capacity(facts.len());
+    for (key, names) in facts {
+        let sym = extract_symbol_arg(&key)?;
+        scope.insert(sym, fsym_core::assume::Facts::from_names(&names));
+    }
+    Ok(fsym_core::assume::with_symbol_facts(scope, f))
+}
+
+fn rational_to_expr(r: BigRational) -> Expr {
+    if r.is_integer() {
+        Expr::Integer(r.to_integer())
+    } else {
+        Expr::Rational(r)
+    }
+}
+
+type PySeriesResult = (Vec<(PyExpr, PyExpr)>, Option<PyExpr>);
+type PyFactorListResult = (PyExpr, Vec<(PyExpr, usize)>);
+
+/// Structured indefinite integration of `expr` with respect to `var` without string parsing.
+#[pyfunction]
+#[pyo3(signature = (expr, var, facts=Vec::new()))]
+fn integrate_native(
+    expr: &PyExpr,
+    var: &Bound<'_, PyAny>,
+    facts: Vec<(Bound<'_, PyAny>, Vec<String>)>,
+) -> PyResult<PyExpr> {
+    let sym = extract_symbol_arg(var)?;
+    let res = with_typed_or_named_facts(facts, || integrate(&expr.inner, &sym))?;
+    res.map(PyExpr::from_expr).map_err(to_value_error)
+}
+
+/// Structured definite integration of `expr` from `a` to `b` with respect to `var`.
+#[pyfunction]
+#[pyo3(signature = (expr, var, a, b, facts=Vec::new()))]
+fn integrate_definite_native(
+    expr: &PyExpr,
+    var: &Bound<'_, PyAny>,
+    a: &PyExpr,
+    b: &PyExpr,
+    facts: Vec<(Bound<'_, PyAny>, Vec<String>)>,
+) -> PyResult<PyExpr> {
+    let sym = extract_symbol_arg(var)?;
+    let res = with_typed_or_named_facts(facts, || {
+        fsym_calculus::integrate_definite(&expr.inner, &sym, &a.inner, &b.inner)
+    })?;
+    res.map(PyExpr::from_expr).map_err(to_value_error)
+}
+
+/// Structured limit of `expr` as `var -> to` along `dir`.
+#[pyfunction]
+#[pyo3(signature = (expr, var, to, dir="+", facts=Vec::new()))]
+fn limit_native(
+    expr: &PyExpr,
+    var: &Bound<'_, PyAny>,
+    to: &PyExpr,
+    dir: &str,
+    facts: Vec<(Bound<'_, PyAny>, Vec<String>)>,
+) -> PyResult<PyExpr> {
+    let sym = extract_symbol_arg(var)?;
+    let direction = match dir {
+        "+" => fsym_calculus::gruntz::Direction::Plus,
+        "-" => fsym_calculus::gruntz::Direction::Minus,
+        "+-" => fsym_calculus::gruntz::Direction::Both,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "direction must be one of '+', '-', '+-', got {other:?}"
+            )));
+        }
+    };
+    let res = with_typed_or_named_facts(facts, || {
+        fsym_calculus::limit_dir(&expr.inner, &sym, &to.inner, direction)
+    })?;
+    res.map(PyExpr::from_expr).map_err(to_value_error)
+}
+
+/// Structured one-sided series about `x0` to absolute order `n`.
+#[pyfunction]
+#[pyo3(signature = (expr, var, x0, n, dir="+", facts=Vec::new()))]
+fn series_expansion_native(
+    expr: &PyExpr,
+    var: &Bound<'_, PyAny>,
+    x0: &PyExpr,
+    n: i64,
+    dir: &str,
+    facts: Vec<(Bound<'_, PyAny>, Vec<String>)>,
+) -> PyResult<PySeriesResult> {
+    let sym = extract_symbol_arg(var)?;
+    let direction = match dir {
+        "+" => fsym_calculus::gruntz::Direction::Plus,
+        "-" => fsym_calculus::gruntz::Direction::Minus,
+        _ => return Err(PyValueError::new_err("series direction must be '+' or '-'")),
+    };
+    let (terms, order) = with_typed_or_named_facts(facts, || {
+        fsym_calculus::series_expansion_dir(&expr.inner, &sym, &x0.inner, n, direction)
+    })?
+    .map_err(to_value_error)?;
+    Ok((
+        terms
+            .into_iter()
+            .map(|(c, k)| (PyExpr::from_expr(c), PyExpr::from_expr(rational_to_expr(k))))
+            .collect(),
+        order.map(|o| PyExpr::from_expr(rational_to_expr(o))),
+    ))
+}
+
+/// Structured closed-form summation `sum_{var=a}^{b} expr`.
+#[pyfunction]
+fn summation_native(
+    expr: &PyExpr,
+    var: &Bound<'_, PyAny>,
+    a: &PyExpr,
+    b: &PyExpr,
+) -> PyResult<Option<PyExpr>> {
+    let sym = extract_symbol_arg(var)?;
+    fsym_calculus::summation::checked_summation(&expr.inner, &sym, &a.inner, &b.inner)
+        .map(|value| value.map(PyExpr::from_expr))
+        .map_err(to_value_error)
+}
+
+/// Structured closed-form product `prod_{var=a}^{b} expr`.
+#[pyfunction]
+fn product_native(
+    expr: &PyExpr,
+    var: &Bound<'_, PyAny>,
+    a: &PyExpr,
+    b: &PyExpr,
+) -> PyResult<Option<PyExpr>> {
+    let sym = extract_symbol_arg(var)?;
+    Ok(
+        fsym_calculus::summation::product(&expr.inner, &sym, &a.inner, &b.inner)
+            .map(PyExpr::from_expr),
+    )
+}
+
+/// Structured complex value probe `(re, im)` for a symbol-free `PyExpr`.
+#[pyfunction]
+fn complex_value_native(expr: &PyExpr) -> Option<(f64, f64)> {
+    fsym_calculus::gruntz::complex_value(&expr.inner).map(|v| (v.re, v.im))
+}
+
+/// Structured `digits` correctly rounded significant digits from a certified ball enclosure.
+#[pyfunction]
+fn evalf_decimal_native(expr: &PyExpr, digits: u32) -> PyResult<String> {
+    expr.inner.evalf_decimal(digits).map_err(to_value_error)
+}
+
+/// Structured univariate inequality solver `expr op 0`.
+#[pyfunction]
+fn solve_inequality_native(
+    expr: &PyExpr,
+    var: &Bound<'_, PyAny>,
+    op: &str,
+) -> PyResult<sets::PySymSet> {
+    let sym = extract_symbol_arg(var)?;
+    let op = fsym_solvers::inequality::IneqOp::from_str_op(op)
+        .ok_or_else(|| PyValueError::new_err(format!("unsupported inequality operator {op}")))?;
+    fsym_solvers::inequality::solve_univariate_inequality(&expr.inner, &sym, op)
+        .map(|inner| sets::PySymSet { inner })
+        .map_err(to_value_error)
+}
+
+/// Structured algebraic equation solver returning `Vec<PyExpr>`.
+#[pyfunction]
+fn solve_native(expr: &PyExpr, var: &Bound<'_, PyAny>) -> PyResult<Vec<PyExpr>> {
+    let sym = extract_symbol_arg(var)?;
+    fsym_solvers::solve(&expr.inner, &sym)
+        .map(|roots| roots.into_iter().map(PyExpr::from_expr).collect())
+        .map_err(to_value_error)
+}
+
+/// Structured exact polynomial one-form potential, preserving coordinate identity.
+#[pyfunction]
+fn exact_ode_potential_native(m: &PyExpr, n: &PyExpr, x: &PyExpr, y: &PyExpr) -> PyResult<PyExpr> {
+    let (Expr::Sym(x), Expr::Sym(y)) = (&x.inner, &y.inner) else {
+        return Err(PyValueError::new_err(
+            "exact ODE coordinates must be native Symbol expressions",
+        ));
+    };
+    fsym_solvers::exact_ode_potential(&m.inner, &n.inner, x, y)
+        .map(PyExpr::from_expr)
+        .map_err(to_value_error)
+}
+
+/// Independently verify both partial derivatives of a structured ODE potential.
+#[pyfunction]
+fn verify_exact_ode_potential_native(
+    potential: &PyExpr,
+    m: &PyExpr,
+    n: &PyExpr,
+    x: &PyExpr,
+    y: &PyExpr,
+) -> PyResult<bool> {
+    let (Expr::Sym(x), Expr::Sym(y)) = (&x.inner, &y.inner) else {
+        return Err(PyValueError::new_err(
+            "exact ODE coordinates must be native Symbol expressions",
+        ));
+    };
+    Ok(fsym_solvers::verify_exact_ode_potential(
+        &potential.inner,
+        &m.inner,
+        &n.inner,
+        x,
+        y,
+    ))
+}
+
+/// Structured zero-dimensional polynomial system solver returning `Vec<Vec<PyExpr>>`.
+#[pyfunction]
+fn solve_polynomial_system_native(
+    eqs: Vec<PyExpr>,
+    vars: Vec<Bound<'_, PyAny>>,
+) -> PyResult<Vec<Vec<PyExpr>>> {
+    let syms = vars
+        .iter()
+        .map(extract_symbol_arg)
+        .collect::<PyResult<Vec<Symbol>>>()?;
+    let exprs: Vec<Expr> = eqs.into_iter().map(|e| e.inner).collect();
+    let sols =
+        fsym_solvers::polysys::solve_polynomial_system(&exprs, &syms).map_err(to_value_error)?;
+    Ok(fsym_solvers::polysys::sort_solutions(sols)
+        .into_iter()
+        .map(|s| s.into_iter().map(PyExpr::from_expr).collect())
+        .collect())
+}
+
+/// Admit every original polynomial before deciding whether this is an affine
+/// system. A nonlinear equation returns `None` only after all other source
+/// expressions have passed the same bounded exact polynomial boundary.
+/// Rows contain the rational coefficients followed by the negated constant.
+#[pyfunction]
+fn polynomial_affine_matrix_native(
+    eqs: Vec<PyExpr>,
+    vars: Vec<Bound<'_, PyAny>>,
+) -> PyResult<Option<Vec<Vec<PyExpr>>>> {
+    if vars.is_empty() || vars.len() > 8 || eqs.len() > 64 {
+        return Err(PyValueError::new_err(
+            "affine polynomial systems require 1..8 variables and at most 64 equations",
+        ));
+    }
+    let syms = vars
+        .iter()
+        .map(extract_symbol_arg)
+        .collect::<PyResult<Vec<Symbol>>>()?;
+    if syms
+        .iter()
+        .enumerate()
+        .any(|(i, var)| syms[..i].contains(var))
+    {
+        return Err(PyValueError::new_err("duplicate solve variables"));
+    }
+    let mut meter = Budget::new(BudgetLimits::uniform(128 * 1024 * 1024, 0));
+    let polys = eqs
+        .iter()
+        .map(|eq| {
+            fsym_polys::bounded_polynomial_from_expr(&eq.inner, &syms, &mut meter)
+                .map_err(to_value_error)
+        })
+        .collect::<PyResult<Vec<_>>>()?;
+    if polys
+        .iter()
+        .any(|poly| poly.total_degree().is_some_and(|degree| degree > 1))
+    {
+        return Ok(None);
+    }
+    let cells = (polys.len() * (syms.len() + 1)).max(1) as u64;
+    meter
+        .try_charge_batch(&[
+            (fsym_runtime::Dimension::ComputeSteps, cells),
+            (fsym_runtime::Dimension::MemoryBytes, cells * 2048),
+        ])
+        .map_err(to_value_error)?;
+    let rows = polys
+        .iter()
+        .map(|poly| {
+            let mut row = vec![BigRational::from_integer(0.into()); syms.len() + 1];
+            for (exponents, coefficient) in poly.terms() {
+                // Bounded admission and total degree <= 1 establish that a
+                // nonconstant monomial has exactly one exponent equal to one.
+                if let Some(column) = exponents.iter().position(|&exponent| exponent == 1) {
+                    row[column] = coefficient.clone();
+                } else {
+                    row[syms.len()] = -coefficient.clone();
+                }
+            }
+            row.into_iter()
+                .map(|value| PyExpr::from_expr(rational_to_expr(value)))
+                .collect()
+        })
+        .collect();
+    Ok(Some(rows))
+}
+
+/// Structured univariate polynomial coefficients in descending degree order.
+#[pyfunction]
+fn poly_coeffs_native(p: &PyExpr, var: &Bound<'_, PyAny>) -> PyResult<Vec<PyExpr>> {
+    let sym = extract_symbol_arg(var)?;
+    let poly = fsym_polys::univariate::UnivariatePoly::from_expr(&p.inner, &sym)
+        .map_err(to_value_error)?;
+    Ok(poly
+        .coeffs
+        .into_iter()
+        .rev()
+        .map(|r| PyExpr::from_expr(rational_to_expr(r)))
+        .collect())
+}
+
+/// Structured univariate polynomial degree.
+#[pyfunction]
+fn poly_degree_native(p: &PyExpr, var: &Bound<'_, PyAny>) -> PyResult<Option<usize>> {
+    let sym = extract_symbol_arg(var)?;
+    let poly = fsym_polys::univariate::UnivariatePoly::from_expr(&p.inner, &sym)
+        .map_err(to_value_error)?;
+    Ok(poly.degree())
+}
+
+/// Structured multivariate polynomial degree.
+#[pyfunction]
+#[pyo3(signature = (p, vars, target_var=None))]
+fn poly_multivariate_degree_native(
+    p: &PyExpr,
+    vars: Vec<Bound<'_, PyAny>>,
+    target_var: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Option<usize>> {
+    let gens = vars
+        .iter()
+        .map(extract_symbol_arg)
+        .collect::<PyResult<Vec<Symbol>>>()?;
+    let poly = fsym_polys::multivariate::MultivariatePoly::from_expr(&p.inner, &gens)
+        .map_err(to_value_error)?;
+    if let Some(target) = target_var {
+        let sym = extract_symbol_arg(target)?;
+        if let Some(idx) = gens.iter().position(|g| g == &sym) {
+            Ok(Some(
+                usize::try_from(poly.degree_in(idx)).unwrap_or(usize::MAX),
+            ))
+        } else {
+            Ok(Some(0))
+        }
+    } else {
+        Ok(poly
+            .total_degree()
+            .map(|d| usize::try_from(d).unwrap_or(usize::MAX)))
+    }
+}
+
+/// Structured leading coefficient of a univariate polynomial.
+#[pyfunction]
+fn poly_leading_coeff_native(p: &PyExpr, var: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    let sym = extract_symbol_arg(var)?;
+    let poly = fsym_polys::univariate::UnivariatePoly::from_expr(&p.inner, &sym)
+        .map_err(to_value_error)?;
+    Ok(PyExpr::from_expr(rational_to_expr(
+        poly.leading_coeff().clone(),
+    )))
+}
+
+/// Structured monic normalization of a univariate polynomial.
+#[pyfunction]
+fn poly_monic_native(p: &PyExpr, var: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    let sym = extract_symbol_arg(var)?;
+    let poly = fsym_polys::univariate::UnivariatePoly::from_expr(&p.inner, &sym)
+        .map_err(to_value_error)?;
+    let monic = poly.make_monic().map_err(to_value_error)?;
+    Ok(PyExpr::from_expr(monic.to_expr()))
+}
+
+/// Structured univariate polynomial division with remainder.
+#[pyfunction]
+fn poly_div_rem_native(
+    p1: &PyExpr,
+    p2: &PyExpr,
+    var: &Bound<'_, PyAny>,
+) -> PyResult<(PyExpr, PyExpr)> {
+    let sym = extract_symbol_arg(var)?;
+    let poly1 = fsym_polys::univariate::UnivariatePoly::from_expr(&p1.inner, &sym)
+        .map_err(to_value_error)?;
+    let poly2 = fsym_polys::univariate::UnivariatePoly::from_expr(&p2.inner, &sym)
+        .map_err(to_value_error)?;
+    let (q, r) = poly1.div_rem(&poly2).map_err(to_value_error)?;
+    Ok((
+        PyExpr::from_expr(q.to_expr()),
+        PyExpr::from_expr(r.to_expr()),
+    ))
+}
+
+/// Structured univariate polynomial resultant.
+#[pyfunction]
+fn poly_resultant_native(p1: &PyExpr, p2: &PyExpr, var: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    let sym = extract_symbol_arg(var)?;
+    let poly1 = fsym_polys::univariate::UnivariatePoly::from_expr(&p1.inner, &sym)
+        .map_err(to_value_error)?;
+    let poly2 = fsym_polys::univariate::UnivariatePoly::from_expr(&p2.inner, &sym)
+        .map_err(to_value_error)?;
+    let res = poly1.resultant(&poly2).map_err(to_value_error)?;
+    Ok(PyExpr::from_expr(rational_to_expr(res)))
+}
+
+/// Structured univariate polynomial discriminant.
+#[pyfunction]
+fn poly_discriminant_native(p: &PyExpr, var: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    let sym = extract_symbol_arg(var)?;
+    let poly = fsym_polys::univariate::UnivariatePoly::from_expr(&p.inner, &sym)
+        .map_err(to_value_error)?;
+    let disc = poly.discriminant().map_err(to_value_error)?;
+    Ok(PyExpr::from_expr(rational_to_expr(disc)))
+}
+
+/// Structured univariate polynomial GCD (monic).
+#[pyfunction]
+fn poly_gcd_native(p1: &PyExpr, p2: &PyExpr, var: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    let sym = extract_symbol_arg(var)?;
+    let poly1 = fsym_polys::univariate::UnivariatePoly::from_expr(&p1.inner, &sym)
+        .map_err(to_value_error)?;
+    let poly2 = fsym_polys::univariate::UnivariatePoly::from_expr(&p2.inner, &sym)
+        .map_err(to_value_error)?;
+    let g = poly1.gcd(&poly2).map_err(to_value_error)?;
+    Ok(PyExpr::from_expr(g.to_expr()))
+}
+
+/// Structured univariate polynomial LCM (monic).
+#[pyfunction]
+fn poly_lcm_native(p1: &PyExpr, p2: &PyExpr, var: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    let sym = extract_symbol_arg(var)?;
+    let poly1 = fsym_polys::univariate::UnivariatePoly::from_expr(&p1.inner, &sym)
+        .map_err(to_value_error)?;
+    let poly2 = fsym_polys::univariate::UnivariatePoly::from_expr(&p2.inner, &sym)
+        .map_err(to_value_error)?;
+    let g = poly1.gcd(&poly2).map_err(to_value_error)?;
+    let lcm = if g.is_zero() {
+        fsym_polys::univariate::UnivariatePoly::zero(sym)
+    } else {
+        let prod = poly1.mul(&poly2).map_err(to_value_error)?;
+        let (q, _) = prod.div_rem(&g).map_err(to_value_error)?;
+        q.to_monic()
+    };
+    Ok(PyExpr::from_expr(lcm.to_expr()))
+}
+
+/// Structured univariate polynomial extended GCD: returns (u, v, gcd).
+#[pyfunction]
+fn poly_gcdex_native(
+    p1: &PyExpr,
+    p2: &PyExpr,
+    var: &Bound<'_, PyAny>,
+) -> PyResult<(PyExpr, PyExpr, PyExpr)> {
+    let sym = extract_symbol_arg(var)?;
+    let poly1 = fsym_polys::univariate::UnivariatePoly::from_expr(&p1.inner, &sym)
+        .map_err(to_value_error)?;
+    let poly2 = fsym_polys::univariate::UnivariatePoly::from_expr(&p2.inner, &sym)
+        .map_err(to_value_error)?;
+    let cert = poly1.extended_gcd(&poly2).map_err(to_value_error)?;
+    Ok((
+        PyExpr::from_expr(cert.u.to_expr()),
+        PyExpr::from_expr(cert.v.to_expr()),
+        PyExpr::from_expr(cert.gcd.to_expr()),
+    ))
+}
+
+/// Structured univariate polynomial composition `p1(p2(var))`.
+#[pyfunction]
+fn poly_compose_native(p1: &PyExpr, p2: &PyExpr, var: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    let sym = extract_symbol_arg(var)?;
+    let poly1 = fsym_polys::univariate::UnivariatePoly::from_expr(&p1.inner, &sym)
+        .map_err(to_value_error)?;
+    let poly2 = fsym_polys::univariate::UnivariatePoly::from_expr(&p2.inner, &sym)
+        .map_err(to_value_error)?;
+    let comp = poly1.compose(&poly2).map_err(to_value_error)?;
+    Ok(PyExpr::from_expr(comp.to_expr()))
+}
+
+/// Structured univariate polynomial shift `p(var + a)`.
+#[pyfunction]
+fn poly_shift_native(p: &PyExpr, a: &PyExpr, var: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    let sym = extract_symbol_arg(var)?;
+    let poly = fsym_polys::univariate::UnivariatePoly::from_expr(&p.inner, &sym)
+        .map_err(to_value_error)?;
+    let a_rat = match &a.inner {
+        Expr::Integer(i) => BigRational::from_integer(i.clone()),
+        Expr::Rational(r) => r.clone(),
+        _ => {
+            return Err(PyValueError::new_err(
+                "shift amount must be an exact integer or rational",
+            ));
+        }
+    };
+    let shifted = poly.shift(&a_rat).map_err(to_value_error)?;
+    Ok(PyExpr::from_expr(shifted.to_expr()))
+}
+
+/// Structured univariate square-free factorization.
+#[pyfunction]
+fn poly_sqf_list_native(p: &PyExpr, var: &Bound<'_, PyAny>) -> PyResult<PyFactorListResult> {
+    let sym = extract_symbol_arg(var)?;
+    let poly = fsym_polys::univariate::UnivariatePoly::from_expr(&p.inner, &sym)
+        .map_err(to_value_error)?;
+    let result =
+        fsym_polys::factorization::square_free_decomposition(&poly).map_err(to_value_error)?;
+    let scale_expr = rational_to_expr(result.scale);
+    let factors = result
+        .factors
+        .into_iter()
+        .map(|f| (PyExpr::from_expr(f.poly.to_expr()), f.multiplicity))
+        .collect();
+    Ok((PyExpr::from_expr(scale_expr), factors))
+}
+
+/// Structured univariate factorization over Q reported in ZZ primitive factor_list form.
+#[pyfunction]
+fn poly_factor_list_native(p: &PyExpr, var: &Bound<'_, PyAny>) -> PyResult<PyFactorListResult> {
+    let sym = extract_symbol_arg(var)?;
+    let (scale_expr, factors) = factor_list_univariate_core(&p.inner, &sym)?;
+    Ok((
+        PyExpr::from_expr(scale_expr),
+        factors
+            .into_iter()
+            .map(|(f, m)| (PyExpr::from_expr(f), m))
+            .collect(),
+    ))
+}
+
+/// Structured multivariate factorization over QQ in the given generators.
+#[pyfunction]
+fn poly_factor_multivariate_native(
+    p: &PyExpr,
+    gens: Vec<Bound<'_, PyAny>>,
+) -> PyResult<PyFactorListResult> {
+    let syms = gens
+        .iter()
+        .map(extract_symbol_arg)
+        .collect::<PyResult<Vec<Symbol>>>()?;
+    let poly = fsym_polys::multivariate::MultivariatePoly::from_expr(&p.inner, &syms)
+        .map_err(to_value_error)?;
+    let result = fsym_polys::multifactor::factor_multivariate(&poly).map_err(to_value_error)?;
+    let scale = rational_to_expr(result.scale);
+    let mut factors = Vec::with_capacity(result.factors.len());
+    for (f, m) in result.factors {
+        factors.push((PyExpr::from_expr(f.to_expr().map_err(to_value_error)?), m));
+    }
+    Ok((PyExpr::from_expr(scale), factors))
+}
+
+/// Structured univariate polynomial roots with multiplicities.
+#[pyfunction]
+fn poly_roots_native(p: &PyExpr, var: &Bound<'_, PyAny>) -> PyResult<Vec<(PyExpr, usize)>> {
+    let sym = extract_symbol_arg(var)?;
+    Ok(poly_roots_univariate_core(&p.inner, &sym)?
+        .into_iter()
+        .map(|(r, m)| (PyExpr::from_expr(r), m))
+        .collect())
+}
+
+/// Decode the three supported exact monomial orders.
+fn groebner_term_order(order: &str) -> PyResult<fsym_polys::TermOrder> {
+    match order {
+        "lex" => Ok(fsym_polys::TermOrder::Lex),
+        "grlex" => Ok(fsym_polys::TermOrder::DegLex),
+        "grevlex" => Ok(fsym_polys::TermOrder::DegRevLex),
+        other => Err(PyValueError::new_err(format!(
+            "unknown monomial order {other:?}"
+        ))),
+    }
+}
+
+fn groebner_polynomials(
+    eqs: &[PyExpr],
+    gens: &[Symbol],
+) -> PyResult<Vec<fsym_polys::MultivariatePoly>> {
+    groebner_polynomials_with_meter(eqs, gens, &mut groebner_operation_budget())
+}
+
+fn groebner_polynomials_with_meter(
+    eqs: &[PyExpr],
+    gens: &[Symbol],
+    conversion_meter: &mut Budget,
+) -> PyResult<Vec<fsym_polys::MultivariatePoly>> {
+    if eqs.len() > 64 || gens.len() > 8 {
+        return Err(PyValueError::new_err(
+            "checked Groebner operations support at most 64 basis elements and eight generators",
+        ));
+    }
+    eqs.iter()
+        .map(|eq| {
+            fsym_polys::bounded_polynomial_from_expr(&eq.inner, gens, conversion_meter)
+                .map_err(to_value_error)
+        })
+        .collect()
+}
+
+fn groebner_operation_budget() -> Budget {
+    // Distinct bounded synchronous meters for generation and verification.
+    // This is not a runtime-owned protected verifier-pool reservation.
+    Budget::new(BudgetLimits::uniform(128 * 1024 * 1024, 0))
+}
+
+fn checked_groebner_source(
+    polys: &[fsym_polys::MultivariatePoly],
+    gens: &[Symbol],
+    order: fsym_polys::TermOrder,
+) -> PyResult<fsym_polys::groebner::VerifiedGroebnerBasis> {
+    // Retain the polynomial ring for the empty basis/zero ideal.
+    let zero = [fsym_polys::MultivariatePoly::zero(gens.to_vec())];
+    let source = if polys.is_empty() { &zero[..] } else { polys };
+    fsym_polys::certify_groebner_basis(
+        source,
+        order,
+        &mut groebner_operation_budget(),
+        &mut groebner_operation_budget(),
+    )
+    .map_err(to_value_error)
+}
+
+#[pyfunction]
+fn groebner_is_zero_dimensional_native(
+    eqs: Vec<PyExpr>,
+    vars: Vec<Bound<'_, PyAny>>,
+    order: &str,
+) -> PyResult<bool> {
+    let gens = vars
+        .iter()
+        .map(extract_symbol_arg)
+        .collect::<PyResult<Vec<_>>>()?;
+    let polys = groebner_polynomials(&eqs, &gens)?;
+    Ok(checked_groebner_source(&polys, &gens, groebner_term_order(order)?)?.is_zero_dimensional())
+}
+
+#[pyfunction]
+fn groebner_fglm_native(
+    eqs: Vec<PyExpr>,
+    vars: Vec<Bound<'_, PyAny>>,
+    order: &str,
+    target_order: &str,
+) -> PyResult<Vec<PyExpr>> {
+    let gens = vars
+        .iter()
+        .map(extract_symbol_arg)
+        .collect::<PyResult<Vec<_>>>()?;
+    let polys = groebner_polynomials(&eqs, &gens)?;
+    let source = checked_groebner_source(&polys, &gens, groebner_term_order(order)?)?;
+    let converted = source
+        .fglm(
+            groebner_term_order(target_order)?,
+            &mut groebner_operation_budget(),
+            &mut groebner_operation_budget(),
+        )
+        .map_err(to_value_error)?;
+    converted
+        .basis()
+        .iter()
+        .map(|poly| {
+            poly.to_expr()
+                .map(PyExpr::from_expr)
+                .map_err(to_value_error)
+        })
+        .collect()
+}
+
+#[pyfunction]
+#[pyo3(signature = (eqs, vars, order, polynomial, integer_domain=false))]
+fn groebner_reduce_native(
+    eqs: Vec<PyExpr>,
+    vars: Vec<Bound<'_, PyAny>>,
+    order: &str,
+    polynomial: &PyExpr,
+    integer_domain: bool,
+) -> PyResult<(Vec<PyExpr>, PyExpr)> {
+    let gens = vars
+        .iter()
+        .map(extract_symbol_arg)
+        .collect::<PyResult<Vec<_>>>()?;
+    let divisors = groebner_polynomials(&eqs, &gens)?;
+    if divisors.iter().any(fsym_polys::MultivariatePoly::is_zero) {
+        return Err(PyValueError::new_err(
+            "a Groebner basis cannot contain a zero divisor",
+        ));
+    }
+    let order = groebner_term_order(order)?;
+    // A checked complete basis is essential when a nonzero normal form is
+    // subsequently used by contains() to assert non-membership.
+    checked_groebner_source(&divisors, &gens, order)?;
+    let f = fsym_polys::bounded_polynomial_from_expr(
+        &polynomial.inner,
+        &gens,
+        &mut groebner_operation_budget(),
+    )
+    .map_err(to_value_error)?;
+    if integer_domain
+        && f.terms
+            .values()
+            .any(|coefficient| !coefficient.is_integer())
+    {
+        return Err(PyValueError::new_err(
+            "noninteger input coefficients cannot be represented in ZZ",
+        ));
+    }
+    let (quotients, remainder) = fsym_polys::checked_polynomial_division(
+        &f,
+        &divisors,
+        order,
+        &mut groebner_operation_budget(),
+        &mut groebner_operation_budget(),
+    )
+    .map_err(to_value_error)?;
+    let quotients = quotients
+        .iter()
+        .map(|poly| {
+            poly.to_expr()
+                .map(PyExpr::from_expr)
+                .map_err(to_value_error)
+        })
+        .collect::<PyResult<Vec<_>>>()?;
+    Ok((
+        quotients,
+        PyExpr::from_expr(remainder.to_expr().map_err(to_value_error)?),
+    ))
+}
+
+#[pyfunction]
+#[pyo3(signature = (eqs, vars, order="lex"))]
+fn groebner_basis_native(
+    eqs: Vec<PyExpr>,
+    vars: Vec<Bound<'_, PyAny>>,
+    order: &str,
+) -> PyResult<Vec<PyExpr>> {
+    let term_order = groebner_term_order(order)?;
+    let gens = vars
+        .iter()
+        .map(extract_symbol_arg)
+        .collect::<PyResult<Vec<Symbol>>>()?;
+    let mut generator = groebner_operation_budget();
+    let mut verifier = groebner_operation_budget();
+    let polys = groebner_polynomials_with_meter(&eqs, &gens, &mut generator)?;
+    let basis =
+        fsym_polys::checked_groebner_basis(&polys, term_order, &mut generator, &mut verifier)
+            .map_err(to_value_error)?;
+    let mut out = Vec::with_capacity(basis.basis().len());
+    for p in basis.basis() {
+        let expr = p.to_expr().map_err(to_value_error)?;
+        out.push(PyExpr::from_expr(expr));
+    }
+    Ok(out)
+}
+
+/// Structured, independently checked multivariate GCD in the exact typed ring.
+#[pyfunction]
+#[pyo3(signature = (p1, p2, vars, domain="QQ"))]
+fn poly_multivariate_gcd_native(
+    p1: &PyExpr,
+    p2: &PyExpr,
+    vars: &Bound<'_, pyo3::types::PyList>,
+    domain: &str,
+) -> PyResult<PyExpr> {
+    let mut generator = ideal_operations::budget();
+    let mut verifier = ideal_operations::budget();
+    let variables = ideal_operations::symbols(vars, &mut generator)?;
+    multivariate_gcd_lcm_core(
+        &p1.inner,
+        &p2.inner,
+        &variables,
+        false,
+        domain,
+        &mut generator,
+        &mut verifier,
+    )
+}
+
+/// Structured, independently checked multivariate LCM in the exact typed ring.
+#[pyfunction]
+#[pyo3(signature = (p1, p2, vars, domain="QQ"))]
+fn poly_multivariate_lcm_native(
+    p1: &PyExpr,
+    p2: &PyExpr,
+    vars: &Bound<'_, pyo3::types::PyList>,
+    domain: &str,
+) -> PyResult<PyExpr> {
+    let mut generator = ideal_operations::budget();
+    let mut verifier = ideal_operations::budget();
+    let variables = ideal_operations::symbols(vars, &mut generator)?;
+    multivariate_gcd_lcm_core(
+        &p1.inner,
+        &p2.inner,
+        &variables,
+        true,
+        domain,
+        &mut generator,
+        &mut verifier,
+    )
+}
+
+/// Structured multivariate polynomial division with remainder.
+#[pyfunction]
+fn poly_multivariate_div_rem_native(
+    p1: &PyExpr,
+    p2: &PyExpr,
+    vars: Vec<Bound<'_, PyAny>>,
+) -> PyResult<(PyExpr, PyExpr)> {
+    let gens = vars
+        .iter()
+        .map(extract_symbol_arg)
+        .collect::<PyResult<Vec<Symbol>>>()?;
+    let poly1 = fsym_polys::multivariate::MultivariatePoly::from_expr(&p1.inner, &gens)
+        .map_err(to_value_error)?;
+    let poly2 = fsym_polys::multivariate::MultivariatePoly::from_expr(&p2.inner, &gens)
+        .map_err(to_value_error)?;
+    let (quotients, rem) = poly1
+        .div_rem(&[poly2], fsym_polys::TermOrder::Lex)
+        .map_err(to_value_error)?;
+    let q_expr = quotients
+        .first()
+        .cloned()
+        .unwrap_or_else(|| fsym_polys::multivariate::MultivariatePoly::zero(gens.clone()))
+        .to_expr()
+        .map_err(to_value_error)?;
+    let r_expr = rem.to_expr().map_err(to_value_error)?;
+    Ok((PyExpr::from_expr(q_expr), PyExpr::from_expr(r_expr)))
+}
+
+/// Mobius function μ(n).
+#[pyfunction]
+fn mobius_fn(n: u64) -> PyResult<i64> {
+    fsym_ntheory::mobius(n).map_err(to_value_error)
+}
+
+/// Divisor count d(n).
+#[pyfunction]
+fn divisor_count_fn(n: u64) -> PyResult<u64> {
+    fsym_ntheory::divisor_count(n).map_err(to_value_error)
+}
+
+/// Divisor power sum σ_k(n).
+#[pyfunction]
+fn divisor_sum_fn(n: u64, k: u32) -> PyResult<u64> {
+    fsym_ntheory::divisor_sum(n, k).map_err(to_value_error)
+}
+
+/// Jacobi symbol (a/n).
+#[pyfunction]
+fn jacobi_symbol_fn(a: i64, n: u64) -> PyResult<i64> {
+    fsym_ntheory::jacobi_symbol(a, n).map_err(to_value_error)
+}
+
+/// Legendre symbol (a/p) for odd prime p.
+#[pyfunction]
+fn legendre_symbol_fn(a: i64, p: u64) -> PyResult<i64> {
+    fsym_ntheory::legendre_symbol(a, p).map_err(to_value_error)
+}
+
+/// Square-free check for integer n.
+#[pyfunction]
+fn is_square_free_fn(n: u64) -> PyResult<bool> {
+    fsym_ntheory::is_square_free(n).map_err(to_value_error)
+}
+
+/// Number of distinct prime factors of n: ω(n).
+#[pyfunction]
+fn prime_omega_fn(n: u64) -> PyResult<u32> {
+    fsym_ntheory::prime_omega(n).map_err(to_value_error)
+}
+
+/// Total number of prime factors of n counted with multiplicity: Ω(n).
+#[pyfunction]
+fn prime_big_omega_fn(n: u64) -> PyResult<u32> {
+    fsym_ntheory::prime_big_omega(n).map_err(to_value_error)
+}
+
+/// Perfect number check: sum of proper divisors equals n.
+#[pyfunction]
+fn is_perfect_number_fn(n: u64) -> PyResult<bool> {
+    fsym_ntheory::is_perfect_number(n).map_err(to_value_error)
+}
+
+/// Carmichael lambda function λ(n).
+#[pyfunction]
+fn carmichael_fn(n: u64) -> PyResult<u64> {
+    fsym_ntheory::carmichael(n).map_err(to_value_error)
+}
+
+/// Primitive root check: whether g is a primitive root modulo p.
+#[pyfunction]
+fn is_primitive_root_fn(g: u64, p: u64) -> PyResult<bool> {
+    fsym_ntheory::is_primitive_root(g, p).map_err(to_value_error)
+}
+
+/// Integer floor of k-th root of n.
+#[pyfunction]
+fn integer_nth_root_fn(n: u64, k: u32) -> PyResult<u64> {
+    fsym_ntheory::integer_nth_root(n, k).map_err(to_value_error)
+}
+
+/// Modular inverse of a modulo m using extended GCD.
+#[pyfunction]
+fn mod_inverse_fn(a_str: &str, m_str: &str) -> PyResult<String> {
+    let a_big = a_str.trim().parse::<BigInt>().map_err(to_value_error)?;
+    let m_big = m_str.trim().parse::<BigInt>().map_err(to_value_error)?;
+    match fsym_ntheory::mod_inverse(&a_big, &m_big) {
+        Some(inv) => Ok(inv.to_string()),
+        None => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "inverse of {a_str} mod {m_str} does not exist"
+        ))),
+    }
+}
+
+/// Chinese Remainder Theorem: solves x = r_i (mod m_i).
+#[pyfunction]
+fn crt_fn(moduli: Vec<String>, remainders: Vec<String>) -> PyResult<Option<(String, String)>> {
+    let mut r_bigs = Vec::with_capacity(remainders.len());
+    for r in remainders {
+        r_bigs.push(r.trim().parse::<BigInt>().map_err(to_value_error)?);
+    }
+    let mut m_bigs = Vec::with_capacity(moduli.len());
+    let mut total_mod = BigInt::from(1);
+    for m in moduli {
+        let m_val = m.trim().parse::<BigInt>().map_err(to_value_error)?;
+        total_mod = &total_mod * &m_val;
+        m_bigs.push(m_val);
+    }
+    match fsym_ntheory::crt(&r_bigs, &m_bigs) {
+        Ok(sol) => Ok(Some((sol.to_string(), total_mod.to_string()))),
+        Err(_) => Ok(None),
+    }
+}
+
+mod algebraic_roots;
+pub mod assumptions;
+pub mod binding;
+pub mod callbacks;
+mod exact_integral;
+pub mod expr;
+mod finite_field;
+mod finite_field_groebner;
+mod finite_field_ideal;
+mod finite_field_multivariate;
+mod finite_field_polynomial;
+mod forward_mellin;
+mod fourier;
+pub mod geometry;
+mod ideal_operations;
+pub mod logic;
+pub mod matrix;
+pub mod ntheory;
+pub mod numeric;
+mod numeric_budget;
+pub mod objective;
+mod ode;
+mod ode_system;
+mod pde;
+mod polynomial_laplace;
+mod polynomial_relations;
+mod polynomial_systems;
+mod quadrature;
+mod quotient_algebra;
+mod rational_cancel;
+mod rational_laplace;
+mod rational_mellin;
+mod real_inequality;
+mod recursive_division;
+pub mod sets;
+mod square_free;
+pub mod tensor;
+pub use assumptions::*;
+pub use callbacks::*;
+pub use expr::*;
+pub use geometry::*;
+pub use logic::*;
+pub use matrix::*;
+pub use sets::*;
+pub use tensor::*;
+
+/// Numeric evaluation of an expression string.
+#[pyfunction]
+fn evalf_expr(src: &str) -> PyResult<f64> {
+    parse_expr(src)?.evalf().map_err(to_value_error)
+}
+
+/// Native FrankenSymPy module.
+#[pymodule]
+fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    let _ = callbacks::init_primary_interpreter(m.py())?;
+    m.add_class::<PyExpr>()?;
+    m.add_class::<PySymbol>()?;
+    m.add_class::<binding::PySymbolBinding>()?;
+    numeric_budget::register(m)?;
+    ode::register(m)?;
+    finite_field_polynomial::register(m)?;
+    finite_field_multivariate::register(m)?;
+    finite_field_groebner::register(m)?;
+    finite_field_ideal::register(m)?;
+    m.add_function(wrap_pyfunction!(fourier::fourier_l1_native, m)?)?;
+    m.add_function(wrap_pyfunction!(fourier::inverse_fourier_l1_native, m)?)?;
+    m.add_class::<numeric::PyCompiledFunction>()?;
+    m.add_class::<numeric::PySourceResidualSystem>()?;
+    m.add_class::<numeric::PyVerifiedResidualSystem>()?;
+    m.add_class::<objective::PySourceObjective>()?;
+    m.add_class::<objective::PyVerifiedObjective>()?;
+    m.add_class::<objective::PyNumericMinimizationProposal>()?;
+    m.add_class::<objective::PyObjectiveEnclosure>()?;
+    m.add_class::<objective::PyStationaryPointReceipt>()?;
+    m.add_class::<objective::PyBoxExtremumReceipt>()?;
+    m.add_class::<objective::PyBoxOptimizationReceipt>()?;
+    m.add_class::<numeric::PyResidualJacobianEnclosure>()?;
+    m.add_class::<numeric::PyRootBoxReceipt>()?;
+    m.add_class::<numeric::PyRootIsolationReceipt>()?;
+    m.add_class::<numeric::PyParametricRootBoxReceipt>()?;
+    m.add_class::<numeric::PyParametricRootCoverReceipt>()?;
+    m.add_class::<numeric::PyParametricSensitivityReceipt>()?;
+    m.add_class::<quadrature::PyIntegralEnclosureReceipt>()?;
+    m.add_class::<exact_integral::PyExactRationalIntegralReceipt>()?;
+    m.add_class::<callbacks::PySupervisedCallbackSession>()?;
+    m.add_function(wrap_pyfunction!(callbacks::check_interpreter_support, m)?)?;
+    m.add_class::<PyInteger>()?;
+    m.add_class::<PyRational>()?;
+    m.add_class::<PyAdd>()?;
+    m.add_class::<PyMul>()?;
+    m.add_class::<PyPow>()?;
+    m.add_class::<PyDerivative>()?;
+    m.add_class::<PyMatrix>()?;
+    m.add_class::<PySparseMatrix>()?;
+    m.add_class::<PyBoolExpr>()?;
+    m.add_class::<PyPoint2D>()?;
+    m.add_class::<PyPoint3D>()?;
+    m.add_class::<PySegment2D>()?;
+    m.add_class::<PySegment3D>()?;
+    m.add_class::<PyLine2D>()?;
+    m.add_class::<PyLine3D>()?;
+    m.add_class::<PyRay2D>()?;
+    m.add_class::<PyRay3D>()?;
+    m.add_class::<PyCircle>()?;
+    m.add_class::<PySphere>()?;
+    m.add_class::<PyTriangle2D>()?;
+    m.add_class::<PyPolygon2D>()?;
+    m.add_class::<PyPlane3D>()?;
+    m.add_class::<PySymSet>()?;
+    m.add_class::<PyTensorIndex>()?;
+    m.add_class::<PyTensor>()?;
+    m.add_class::<PyMetric>()?;
+    m.add_class::<PyAssumptionsContext>()?;
+    m.add_function(wrap_pyfunction!(ask_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(inherent_facts_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(predicate_closure, m)?)?;
+    m.add_function(wrap_pyfunction!(predicate_contradictions, m)?)?;
+    m.add_function(wrap_pyfunction!(py_symbol, m)?)?;
+    m.add_function(wrap_pyfunction!(py_integer_from_python, m)?)?;
+    m.add_function(wrap_pyfunction!(py_rational_from_python, m)?)?;
+    m.add_function(wrap_pyfunction!(py_add, m)?)?;
+    m.add_function(wrap_pyfunction!(py_simplify_no_trig, m)?)?;
+    m.add_function(wrap_pyfunction!(py_simplify_powsimp, m)?)?;
+    m.add_function(wrap_pyfunction!(py_simplify_trig_only, m)?)?;
+    m.add_function(wrap_pyfunction!(py_mul, m)?)?;
+    m.add_function(wrap_pyfunction!(py_pow, m)?)?;
+    m.add_function(wrap_pyfunction!(py_function, m)?)?;
+    m.add_function(wrap_pyfunction!(py_abs, m)?)?;
+    m.add_function(wrap_pyfunction!(py_eval_function, m)?)?;
+    m.add_function(wrap_pyfunction!(py_sin, m)?)?;
+    m.add_function(wrap_pyfunction!(py_cos, m)?)?;
+    m.add_function(wrap_pyfunction!(py_tan, m)?)?;
+    m.add_function(wrap_pyfunction!(py_asin, m)?)?;
+    m.add_function(wrap_pyfunction!(py_atan, m)?)?;
+    m.add_function(wrap_pyfunction!(py_sinh, m)?)?;
+    m.add_function(wrap_pyfunction!(py_cosh, m)?)?;
+    m.add_function(wrap_pyfunction!(py_tanh, m)?)?;
+    m.add_function(wrap_pyfunction!(py_floor, m)?)?;
+    m.add_function(wrap_pyfunction!(py_ceiling, m)?)?;
+    m.add_function(wrap_pyfunction!(py_factorial, m)?)?;
+    m.add_function(wrap_pyfunction!(py_gamma, m)?)?;
+    m.add_function(wrap_pyfunction!(py_fibonacci, m)?)?;
+    m.add_function(wrap_pyfunction!(py_cot, m)?)?;
+    m.add_function(wrap_pyfunction!(py_sec, m)?)?;
+    m.add_function(wrap_pyfunction!(py_csc, m)?)?;
+    m.add_function(wrap_pyfunction!(py_acos, m)?)?;
+    m.add_function(wrap_pyfunction!(py_acot, m)?)?;
+    m.add_function(wrap_pyfunction!(py_asec, m)?)?;
+    m.add_function(wrap_pyfunction!(py_acsc, m)?)?;
+    m.add_function(wrap_pyfunction!(py_coth, m)?)?;
+    m.add_function(wrap_pyfunction!(py_sech, m)?)?;
+    m.add_function(wrap_pyfunction!(py_csch, m)?)?;
+    m.add_function(wrap_pyfunction!(py_asinh, m)?)?;
+    m.add_function(wrap_pyfunction!(py_acosh, m)?)?;
+    m.add_function(wrap_pyfunction!(py_atanh, m)?)?;
+    m.add_function(wrap_pyfunction!(py_acoth, m)?)?;
+    m.add_function(wrap_pyfunction!(py_asech, m)?)?;
+    m.add_function(wrap_pyfunction!(py_acsch, m)?)?;
+    m.add_function(wrap_pyfunction!(py_sinc, m)?)?;
+    m.add_function(wrap_pyfunction!(py_erf, m)?)?;
+    m.add_function(wrap_pyfunction!(py_erfc, m)?)?;
+    m.add_function(wrap_pyfunction!(py_sign, m)?)?;
+    m.add_function(wrap_pyfunction!(py_binomial, m)?)?;
+    m.add_function(wrap_pyfunction!(py_lucas, m)?)?;
+    m.add_function(wrap_pyfunction!(py_harmonic, m)?)?;
+    m.add_function(wrap_pyfunction!(py_catalan, m)?)?;
+    m.add_function(wrap_pyfunction!(py_bernoulli, m)?)?;
+    m.add_function(wrap_pyfunction!(py_bell, m)?)?;
+    m.add_function(wrap_pyfunction!(py_subfactorial, m)?)?;
+    m.add_function(wrap_pyfunction!(py_zeta, m)?)?;
+    m.add_function(wrap_pyfunction!(py_exp, m)?)?;
+    m.add_function(wrap_pyfunction!(py_log, m)?)?;
+    m.add_function(wrap_pyfunction!(py_derivative, m)?)?;
+    m.add_function(wrap_pyfunction!(version, m)?)?;
+    m.add_function(wrap_pyfunction!(symbol, m)?)?;
+    m.add_function(wrap_pyfunction!(is_prime, m)?)?;
+    m.add_function(wrap_pyfunction!(factorize, m)?)?;
+    m.add_function(wrap_pyfunction!(euler_totient, m)?)?;
+    m.add_function(wrap_pyfunction!(diff_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(verify_diff_receipt_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(integrate_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(integrate_definite_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(laplace_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        polynomial_laplace::polynomial_laplace_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        rational_laplace::inverse_rational_laplace_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        rational_mellin::inverse_rational_mellin_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        forward_mellin::mellin_transform_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(fourier_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(limit_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(series_expansion_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(summation_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(solve_inequality_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(complex_value_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(solve_polynomial_system_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(evalf_decimal_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(product_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(taylor_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(solve_linear_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(solve_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(dsolve_linear_first_order_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(dsolve_const_coeff_second_order_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(dsolve_cauchy_euler_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        dsolve_const_coeff_second_order_nonhomogeneous_expr,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(dsolve_separable_linear_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        verify_linear_first_order_solution_expr,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        verify_const_coeff_second_order_solution_expr,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(verify_cauchy_euler_solution_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(solve_poly_system_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_coeffs_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_degree_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_multivariate_degree_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_leading_coeff_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_monic_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_div_rem_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_resultant_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_discriminant_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_gcd_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_gcdex_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_lcm_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_compose_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_shift_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_sqf_list_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_factor_list_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        finite_field::prime_field_source_preflight_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        finite_field::prime_field_source_admit_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        finite_field::prime_field_factor_source_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(poly_factor_multivariate_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_roots_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(groebner_basis_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_multivariate_gcd_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_multivariate_lcm_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_multivariate_div_rem_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(integrate_native, m)?)?;
+    m.add_function(wrap_pyfunction!(integrate_definite_native, m)?)?;
+    m.add_function(wrap_pyfunction!(limit_native, m)?)?;
+    m.add_function(wrap_pyfunction!(series_expansion_native, m)?)?;
+    m.add_function(wrap_pyfunction!(summation_native, m)?)?;
+    m.add_function(wrap_pyfunction!(product_native, m)?)?;
+    m.add_function(wrap_pyfunction!(complex_value_native, m)?)?;
+    m.add_function(wrap_pyfunction!(evalf_decimal_native, m)?)?;
+    m.add_function(wrap_pyfunction!(solve_inequality_native, m)?)?;
+    m.add_function(wrap_pyfunction!(solve_native, m)?)?;
+    m.add_function(wrap_pyfunction!(exact_ode_potential_native, m)?)?;
+    m.add_function(wrap_pyfunction!(verify_exact_ode_potential_native, m)?)?;
+    m.add_function(wrap_pyfunction!(pde::linear_first_order_pde_native, m)?)?;
+    m.add_function(wrap_pyfunction!(pde::pde_source_preflight_native, m)?)?;
+    m.add_function(wrap_pyfunction!(pde::pde_source_arguments_native, m)?)?;
+    m.add_function(wrap_pyfunction!(ode_system::linear_ode_system_native, m)?)?;
+    m.add_function(wrap_pyfunction!(ode_system::general_ode_system_native, m)?)?;
+    m.add_function(wrap_pyfunction!(ode_system::forced_ode_system_native, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        ode_system::polynomial_ode_system_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(solve_polynomial_system_native, m)?)?;
+    m.add_function(wrap_pyfunction!(polynomial_affine_matrix_native, m)?)?;
+    m.add_class::<polynomial_systems::PyPolynomialSystemResult>()?;
+    m.add_function(wrap_pyfunction!(
+        polynomial_systems::polynomial_system_solutions_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(poly_coeffs_native, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_degree_native, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_multivariate_degree_native, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_leading_coeff_native, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_monic_native, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_div_rem_native, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_resultant_native, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_discriminant_native, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_gcd_native, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_lcm_native, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_gcdex_native, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_compose_native, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_shift_native, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_sqf_list_native, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        square_free::poly_multivariate_sqf_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        rational_cancel::rational_cancel_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        recursive_division::poly_recursive_div_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        recursive_division::poly_recursive_sources_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        rational_cancel::rational_cancel_candidate_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        rational_cancel::rational_cancel_source_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        rational_cancel::rational_cancel_arguments_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(poly_factor_list_native, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_factor_multivariate_native, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_roots_native, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        algebraic_roots::real_root_coefficients_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        algebraic_roots::solve_real_rational_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        real_inequality::solve_real_rational_inequality_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        real_inequality::real_constraint_source_preflight_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        real_inequality::solve_real_rational_constraints_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(quadrature::certified_integral_native, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        exact_integral::exact_rational_integral_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        algebraic_roots::real_roots_isolate_native,
+        m
+    )?)?;
+    m.add_class::<algebraic_roots::PyAlgebraicValue>()?;
+    m.add_class::<algebraic_roots::PyAlgebraicExpressionValue>()?;
+    m.add_function(wrap_pyfunction!(
+        algebraic_roots::evaluate_real_algebraic_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        algebraic_roots::evaluate_real_algebraic_expression_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        algebraic_roots::compare_real_roots_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        algebraic_roots::indexed_real_roots_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        algebraic_roots::real_root_decimal_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(groebner_basis_native, m)?)?;
+    m.add_function(wrap_pyfunction!(groebner_is_zero_dimensional_native, m)?)?;
+    m.add_function(wrap_pyfunction!(groebner_fglm_native, m)?)?;
+    m.add_function(wrap_pyfunction!(groebner_reduce_native, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        ideal_operations::ideal_source_preflight_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        ideal_operations::ideal_source_arguments_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        ideal_operations::ideal_eliminate_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        ideal_operations::ideal_intersection_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        ideal_operations::ideal_quotient_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        ideal_operations::ideal_saturation_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        polynomial_relations::polynomial_syzygies_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        polynomial_relations::ideal_inverse_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        quotient_algebra::quotient_multiplication_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        quotient_algebra::quotient_minimal_polynomial_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(poly_multivariate_gcd_native, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_multivariate_lcm_native, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_multivariate_div_rem_native, m)?)?;
+    m.add_function(wrap_pyfunction!(mobius_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(divisor_count_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(divisor_sum_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(jacobi_symbol_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(legendre_symbol_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(ntheory::modular_square_roots_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(ntheory::modular_square_root_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(ntheory::is_quadratic_residue_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(is_square_free_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(prime_omega_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(prime_big_omega_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(is_perfect_number_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(carmichael_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(is_primitive_root_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(integer_nth_root_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(mod_inverse_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(crt_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(evalf_expr, m)?)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::expr::{bigint_to_python_int, exact_python_integer};
+    use fsym_core::BigInt;
+    use pyo3::types::PyInt;
+
+    #[test]
+    fn test_py_expr_structural_args_and_properties() {
+        let x = py_symbol("x", None).unwrap();
+        let two = py_integer(2);
+        let expr = x.__mul__(&two).unwrap();
+
+        assert_eq!(expr.func_name(), "Mul");
+        assert_eq!(expr.raw_args().len(), 2);
+        assert!(!expr.is_integer());
+        assert!(!expr.is_symbol());
+        assert!(expr.is_mul());
+        assert_eq!(expr.free_symbols(), vec!["x".to_string()]);
+
+        let x_sym = py_symbol("x", None).unwrap();
+        assert!(x_sym.is_symbol());
+        assert_eq!(x_sym.func_name(), "Symbol");
+
+        // Dedicated classes
+        let sym_cls = PySymbol::new("y");
+        assert_eq!(sym_cls.name(), "y");
+        let int_cls = PyInteger::new(42);
+        assert_eq!(int_cls.q(), 1);
+        let rat_cls = PyRational::new(3, 4).unwrap();
+        Python::initialize();
+        Python::attach(|py| {
+            assert_eq!(int_cls.p(py).unwrap().extract::<i64>().unwrap(), 42);
+            assert_eq!(rat_cls.p(py).unwrap().extract::<i64>().unwrap(), 3);
+            assert_eq!(rat_cls.q(py).unwrap().extract::<i64>().unwrap(), 4);
+        });
+
+        // evaluate=False held forms
+        let held_add = PyAdd::new(vec![x.clone(), x.clone()], false);
+        assert_eq!(held_add.as_expr().raw_args().len(), 2);
+        assert_eq!(held_add.as_expr().func_name(), "Add");
+
+        // Evaluated n-ary constructors use identities only for empty input.
+        let evaluated_add = PyAdd::new(vec![x.clone(), two.clone()], true);
+        // Canonical args order: exact numbers precede symbols
+        // (fra-add-args-canonical-order-o1i).
+        assert_eq!(
+            evaluated_add.as_expr().raw_args(),
+            vec![two.clone(), x.clone()]
+        );
+        assert_eq!(PyAdd::new(Vec::new(), true).as_expr(), py_integer(0));
+        let evaluated_mul = PyMul::new(vec![x.clone(), two.clone()], true);
+        assert_eq!(
+            evaluated_mul.as_expr().raw_args(),
+            vec![two.clone(), x.clone()]
+        );
+        assert_eq!(PyMul::new(Vec::new(), true).as_expr(), py_integer(1));
+    }
+
+    #[test]
+    fn python_integer_bridge_preserves_arbitrary_precision_and_preflights_size() {
+        Python::initialize();
+        Python::attach(|py| {
+            let int_type = py.get_type::<PyInt>();
+            let two_to_100 = int_type
+                .call1(("1267650600228229401496703205376",))
+                .unwrap();
+            let three = PyInt::new(py, 3);
+
+            let integer = py_integer_from_python(&two_to_100).unwrap();
+            assert_eq!(integer.__str__(), "1267650600228229401496703205376");
+
+            let rational = py_rational_from_python(&two_to_100, &three).unwrap();
+            assert_eq!(rational.__str__(), "1267650600228229401496703205376/3");
+
+            // This exceeds CPython's default integer-to-decimal-string digit limit. The bridge
+            // must use bounded binary transit rather than depending on that interpreter setting.
+            let beyond_decimal_limit = PyInt::new(py, 1)
+                .call_method1("__lshift__", (20_000,))
+                .unwrap();
+            let bridged = py_integer_from_python(&beyond_decimal_limit).unwrap();
+            assert!(matches!(
+                bridged.inner,
+                Expr::Integer(ref value) if value.bits() == 20_001
+            ));
+
+            let oversized = PyInt::new(py, 1)
+                .call_method1("__lshift__", (MAX_PYTHON_INTEGER_BITS + 1,))
+                .unwrap();
+            let error = py_integer_from_python(&oversized).unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("exceeds the Python integer bridge limit")
+            );
+
+            for expected in [
+                -(1_i128 << 100),
+                -129,
+                -128,
+                -127,
+                -1,
+                0,
+                1,
+                127,
+                128,
+                129,
+                1_i128 << 100,
+            ] {
+                let native = BigInt::from_signed_bytes_be(&expected.to_be_bytes());
+                let python = bigint_to_python_int(&native, py).unwrap();
+                assert!(python.is_exact_instance(&int_type));
+                assert_eq!(python.extract::<i128>().unwrap(), expected);
+                assert_eq!(exact_python_integer(&python, "round_trip").unwrap(), native);
+            }
+        });
+    }
+
+    #[test]
+    fn native_numeric_getters_do_not_launder_normalization_overflow() {
+        Python::initialize();
+        Python::attach(|py| {
+            let integer = PyInteger {
+                inner: PyExpr::from_expr(Expr::Integer(BigInt::from(i64::MAX) + BigInt::from(1))),
+            };
+            assert_eq!(
+                integer.p(py).unwrap().str().unwrap().to_str().unwrap(),
+                "9223372036854775808"
+            );
+
+            let wide_integer = PyInteger {
+                inner: PyExpr::from_expr(Expr::Integer(BigInt::from(1) << 20_000u32)),
+            };
+            assert_eq!(
+                wide_integer
+                    .p(py)
+                    .unwrap()
+                    .call_method0("bit_length")
+                    .unwrap()
+                    .extract::<usize>()
+                    .unwrap(),
+                20_001
+            );
+
+            let normalized_numerator = PyRational::new(i64::MIN, -1).unwrap();
+            assert_eq!(
+                normalized_numerator
+                    .p(py)
+                    .unwrap()
+                    .str()
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                "9223372036854775808"
+            );
+
+            let normalized_denominator = PyRational::new(-1, i64::MIN).unwrap();
+            assert_eq!(
+                normalized_denominator
+                    .q(py)
+                    .unwrap()
+                    .str()
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                "9223372036854775808"
+            );
+        });
+    }
+
+    #[test]
+    fn test_py_expr_differentiation_and_latex() {
+        // d/dx (x^3) = 3*x^2
+        let x = py_symbol("x", None).unwrap();
+        let three = py_integer(3);
+        let pow_expr = py_pow(x, three);
+
+        let d = Python::attach(|py| {
+            let binding = Bound::new(
+                py,
+                crate::binding::PySymbolBinding::new("x".to_string(), None).unwrap(),
+            )
+            .unwrap()
+            .into_any();
+            pow_expr.diff(&binding, vec![]).unwrap()
+        });
+        assert_eq!(d.__str__(), "3*x**2");
+        assert!(pow_expr._repr_latex_().unwrap().contains("x^{3}"));
+        assert_eq!(pow_expr.pretty().unwrap(), "x³");
+        assert_eq!(py_sin(py_integer(0)).__str__(), "0");
+        assert_eq!(py_cos(py_integer(0)).__str__(), "1");
+        assert_eq!(py_exp(py_integer(0)).__str__(), "1");
+        assert_eq!(py_log(py_integer(1)).__str__(), "0");
+        assert_eq!(py_sec(py_integer(0)).__str__(), "1");
+        assert_eq!(py_sech(py_integer(0)).__str__(), "1");
+        assert_eq!(py_erf(py_integer(0)).__str__(), "0");
+        assert_eq!(py_erfc(py_integer(0)).__str__(), "1");
+        assert_eq!(py_binomial(py_integer(5), py_integer(2)).__str__(), "10");
+        assert_eq!(py_lucas(py_integer(4)).__str__(), "7");
+        assert_eq!(py_catalan(py_integer(3)).__str__(), "5");
+        assert_eq!(py_subfactorial(py_integer(4)).__str__(), "9");
+    }
+
+    #[test]
+    fn test_py_expr_substitution() {
+        // x + 5 where x -> 10
+        let x = py_symbol("x", None).unwrap();
+        let five = py_integer(5);
+        let expr = x.__add__(&five).unwrap();
+
+        let ten = py_integer(10);
+        let res = expr.subs(&x, &ten).unwrap();
+        assert_eq!(res.__str__(), "15");
+    }
+
+    #[test]
+    fn test_py_definite_integral_and_laplace() {
+        // \int_0^1 2*x dx = 1
+        let def_int = integrate_definite_expr("2*x", "x", "0", "1", Vec::new()).unwrap();
+        assert_eq!(def_int, "1");
+
+        // L{1}(s) = 1/s
+        let lap = laplace_expr("1", "t", "s").unwrap();
+        assert!(
+            lap.contains("s**-1")
+                || lap.contains("s^(-1)")
+                || lap.contains("s**(-1)")
+                || lap == "1/s"
+        );
+    }
+
+    #[test]
+    fn test_py_solvers_and_ntheory() {
+        // dy/dx + 0*y = 2*x -> y = x^2 + C1
+        let ode = dsolve_linear_first_order_expr("0", "2*x", "x").unwrap();
+        assert!(ode.contains("x^2") || ode.contains("x**2") || ode.contains("C1"));
+
+        // Mobius and divisors
+        assert_eq!(mobius_fn(1).unwrap(), 1);
+        assert_eq!(mobius_fn(6).unwrap(), 1);
+        assert_eq!(mobius_fn(4).unwrap(), 0);
+        assert_eq!(divisor_count_fn(12).unwrap(), 6);
+        assert_eq!(divisor_sum_fn(6, 1).unwrap(), 12);
+        assert_eq!(jacobi_symbol_fn(2, 7).unwrap(), 1);
+        assert_eq!(jacobi_symbol_fn(3, 9).unwrap(), 0);
+        Python::initialize();
+        assert_eq!(
+            jacobi_symbol_fn(1, 2).unwrap_err().to_string(),
+            "ValueError: n should be an odd positive integer"
+        );
+    }
+
+    #[test]
+    fn test_py_matrix_operations() {
+        let eye2 = PyMatrix::eye(2).unwrap();
+        assert_eq!(eye2.shape(), (2, 2));
+        assert!(eye2.is_square());
+        assert!(eye2.is_symmetric());
+        assert!(eye2.is_diagonal());
+        assert_eq!(eye2.trace().unwrap().__str__(), "2");
+        assert_eq!(eye2.det().unwrap().__str__(), "1");
+
+        let m = PyMatrix::new(
+            2,
+            2,
+            vec![
+                PyExpr::from_expr(fsym_core::Expr::from_i64(1)),
+                PyExpr::from_expr(fsym_core::Expr::from_i64(2)),
+                PyExpr::from_expr(fsym_core::Expr::from_i64(3)),
+                PyExpr::from_expr(fsym_core::Expr::from_i64(4)),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(m.det().unwrap().__str__(), "-2");
+        assert_eq!(m.trace().unwrap().__str__(), "5");
+        let inv = m.inv().unwrap();
+        assert_eq!(inv.shape(), (2, 2));
+        let prod = m.__matmul__(&inv).unwrap();
+        assert_eq!(prod.flat()[0].__str__(), "1");
+        assert_eq!(prod.flat()[1].__str__(), "0");
+        assert_eq!(prod.flat()[2].__str__(), "0");
+        assert_eq!(prod.flat()[3].__str__(), "1");
+
+        let neg = m.__neg__().unwrap();
+        assert_eq!(neg.flat()[0].__str__(), "-1");
+        assert_eq!(neg.flat()[3].__str__(), "-4");
+
+        Python::initialize();
+        Python::attach(|py| {
+            let m_bound = Bound::new(py, m.clone()).unwrap();
+            let eq_res = m
+                .__richcmp__(m_bound.as_any(), pyo3::basic::CompareOp::Eq)
+                .unwrap();
+            assert!(eq_res);
+
+            let two = PyInt::new(py, 2);
+            let scaled = m.__mul__(two.as_any()).unwrap();
+            assert_eq!(scaled.flat()[0].__str__(), "2");
+
+            let r_scaled = m.__rmul__(two.as_any()).unwrap();
+            assert_eq!(r_scaled.flat()[0].__str__(), "2");
+
+            let div = m.__truediv__(two.as_any()).unwrap();
+            assert_eq!(div.flat()[0].__str__(), "1/2");
+            assert_eq!(div.flat()[1].__str__(), "1");
+        });
+
+        // Test to_sparse conversion and PySparseMatrix
+        let sp = m.to_sparse().unwrap();
+        assert_eq!(sp.shape(), (2, 2));
+        assert_eq!(sp.nnz(), 4);
+        assert_eq!(sp.__len__(), 4);
+        let dense_roundtrip = sp.to_dense().unwrap();
+        assert_eq!(dense_roundtrip.flat()[0].__str__(), "1");
+        assert_eq!(dense_roundtrip.flat()[3].__str__(), "4");
+
+        let sp_eye = PySparseMatrix::eye(3).unwrap();
+        assert_eq!(sp_eye.shape(), (3, 3));
+        assert_eq!(sp_eye.nnz(), 3);
+        assert_eq!(sp_eye.trace().unwrap().__str__(), "3");
+
+        // Test Jacobian
+        let x2 = PyExpr::from_expr(fsym_core::Expr::pow(
+            fsym_core::Expr::symbol("x"),
+            fsym_core::Expr::from_i64(2),
+        ));
+        let xy = PyExpr::from_expr(fsym_core::Expr::Mul(vec![
+            fsym_core::Expr::symbol("x"),
+            fsym_core::Expr::symbol("y"),
+        ]));
+        let j = PyMatrix::jacobian(vec![x2, xy], vec!["x".to_string(), "y".to_string()]).unwrap();
+        assert_eq!(j.shape(), (2, 2));
+        assert_eq!(j.flat()[0].__str__(), "2*x");
+        assert_eq!(j.flat()[1].__str__(), "0");
+        assert_eq!(j.flat()[2].__str__(), "y");
+        assert_eq!(j.flat()[3].__str__(), "x");
+    }
+
+    #[test]
+    fn test_py_bool_expr() {
+        let x = PyBoolExpr::bool_var("x");
+        let y = PyBoolExpr::bool_var("y");
+        let not_x = PyBoolExpr::bool_not(&x);
+        let and_expr = PyBoolExpr::bool_and(vec![x.clone(), y.clone()]);
+        let or_expr = PyBoolExpr::bool_or(vec![x.clone(), not_x.clone()]);
+
+        assert_eq!(and_expr.kind(), "And");
+        assert_eq!(and_expr.args().len(), 2);
+        assert_eq!(x.var_name(), Some("x".to_string()));
+
+        // Tautology: x | ~x simplifies to true
+        let simplified = or_expr.simplify();
+        assert_eq!(simplified.const_value(), Some(true));
+
+        // Satisfiability: x & y is satisfiable
+        assert!(and_expr.is_satisfiable().unwrap());
+        let model = and_expr.satisfiable().unwrap().unwrap();
+        assert_eq!(model.get("x"), Some(&true));
+        assert_eq!(model.get("y"), Some(&true));
+
+        // Contradiction: x & ~x
+        let contra = PyBoolExpr::bool_and(vec![x.clone(), not_x.clone()]);
+        assert!(!contra.is_satisfiable().unwrap());
+        assert_eq!(contra.satisfiable().unwrap(), None);
+
+        // CNF and DNF
+        let implies = PyBoolExpr::bool_implies(&x, &y);
+        let cnf = implies.to_cnf().unwrap();
+        assert!(cnf.is_satisfiable().unwrap());
+    }
+
+    #[test]
+    fn test_py_geometry() {
+        let p1 = PyPoint2D::new(py_integer(0), py_integer(0));
+        let p2 = PyPoint2D::new(py_integer(3), py_integer(4));
+        assert_eq!(p1.distance_squared(&p2).to_string(), "25");
+
+        let mid = p1.midpoint(&p2);
+        assert_eq!(mid.x().to_string(), "3/2");
+        assert_eq!(mid.y().to_string(), "2");
+
+        let seg = PySegment2D::new(p1.clone(), p2.clone());
+        assert_eq!(seg.length_squared().to_string(), "25");
+
+        let p3 = PyPoint2D::new(py_integer(3), py_integer(0));
+        let tri = PyTriangle2D::new(p1.clone(), p3.clone(), p2.clone());
+        assert_eq!(tri.is_right(), Some(true));
+        assert_eq!(tri.double_signed_area().to_string(), "12");
+
+        let circle = PyCircle::new(p1.clone(), py_integer(5)).unwrap();
+        assert_eq!(circle.area().to_string(), "25*pi");
+        assert_eq!(circle.circumference().to_string(), "10*pi");
+
+        let poly = PyPolygon2D::new(vec![
+            PyPoint2D::new(py_integer(0), py_integer(0)),
+            PyPoint2D::new(py_integer(4), py_integer(0)),
+            PyPoint2D::new(py_integer(4), py_integer(3)),
+            PyPoint2D::new(py_integer(0), py_integer(3)),
+        ])
+        .unwrap();
+        assert_eq!(poly.double_signed_area().to_string(), "24");
+        assert_eq!(poly.is_convex(), Some(true));
+
+        // 3D, rays, spheres, planes
+        let p3d1 = PyPoint3D::new(py_integer(1), py_integer(2), py_integer(3));
+        let p3d2 = PyPoint3D::new(py_integer(4), py_integer(6), py_integer(3));
+        assert_eq!(p3d1.distance_squared(&p3d2).to_string(), "25");
+
+        let seg3d = PySegment3D::new(p3d1.clone(), p3d2.clone());
+        assert_eq!(seg3d.length_squared().to_string(), "25");
+
+        let sphere = PySphere::new(p3d1.clone(), py_integer(3)).unwrap();
+        assert_eq!(sphere.surface_area().to_string(), "36*pi");
+        assert_eq!(sphere.volume().to_string(), "36*pi");
+
+        let plane = PyPlane3D::new(
+            p3d1.clone(),
+            PyPoint3D::new(py_integer(0), py_integer(0), py_integer(1)),
+        )
+        .unwrap();
+        assert_eq!(plane.eval_at_point(&p3d1).to_string(), "0");
+    }
+
+    #[test]
+    fn test_py_sets() {
+        let empty = PySymSet::empty();
+        assert_eq!(empty.kind(), "EmptySet");
+        assert!(empty.is_empty_set().unwrap());
+
+        let univ = PySymSet::universal();
+        assert_eq!(univ.kind(), "UniversalSet");
+        assert!(!univ.is_empty_set().unwrap());
+
+        let iv = PySymSet::interval(py_integer(0), py_integer(5), false, false).unwrap();
+        assert_eq!(iv.kind(), "Interval");
+        assert_eq!(iv.start().unwrap().to_string(), "0");
+        assert_eq!(iv.end().unwrap().to_string(), "5");
+        assert!(!iv.left_open().unwrap());
+        assert!(!iv.right_open().unwrap());
+        assert_eq!(iv.measure().unwrap().to_string(), "5");
+        assert!(iv.contains(&py_integer(3)).unwrap());
+        assert!(!iv.contains(&py_integer(7)).unwrap());
+
+        let finite = PySymSet::finite(vec![py_integer(1), py_integer(2), py_integer(3)]);
+        assert_eq!(finite.kind(), "FiniteSet");
+        assert!(finite.contains(&py_integer(2)).unwrap());
+        assert!(!finite.contains(&py_integer(4)).unwrap());
+
+        // {1, 2, 3} lies inside [0, 5]: the union is the interval itself.
+        let u = iv.union(&finite);
+        assert_eq!(u.kind(), "Interval");
+        let outside = PySymSet::finite(vec![py_integer(7)]);
+        assert_eq!(iv.union(&outside).kind(), "Union");
+
+        let inter = iv.intersection(&finite);
+        assert!(inter.contains(&py_integer(2)).unwrap());
+    }
+
+    #[test]
+    fn test_ode_extended_and_poly_system() {
+        // Nonhomogeneous ODE: y'' - 3*y' + 2*y = 4
+        let ode_nonhom =
+            dsolve_const_coeff_second_order_nonhomogeneous_expr(1, -3, 2, "4", "x").unwrap();
+        assert!(ode_nonhom.contains("C1") && ode_nonhom.contains("C2"));
+
+        // Separable ODE: y' = 2*x*y
+        let ode_sep = dsolve_separable_linear_expr("2*x", "x").unwrap();
+        assert!(ode_sep.contains("C1"));
+
+        // 2-variable poly system: x + y - 5 = 0, x - y - 1 = 0
+        let sols = solve_poly_system_expr(
+            vec!["x + y - 5".to_string(), "x - y - 1".to_string()],
+            "x",
+            "y",
+        )
+        .unwrap();
+        assert_eq!(sols, vec![("3".to_string(), "2".to_string())]);
+    }
+
+    #[test]
+    fn test_poly_bindings() {
+        // x^2 - 4
+        let coeffs = poly_coeffs_expr("x**2 - 4", "x").unwrap();
+        assert_eq!(coeffs, vec!["1", "0", "-4"]);
+
+        let deg = poly_degree_expr("x**2 - 4", "x").unwrap();
+        assert_eq!(deg, Some(2));
+
+        let lc = poly_leading_coeff_expr("3*x**2 - 4", "x").unwrap();
+        assert_eq!(lc, "3");
+
+        let monic = poly_monic_expr("2*x**2 - 8", "x").unwrap();
+        assert_eq!(parse(&monic).unwrap(), parse("x**2 - 4").unwrap());
+
+        let (q, r) = poly_div_rem_expr("x**2 - 1", "x - 1", "x").unwrap();
+        assert_eq!(parse(&q).unwrap(), parse("x + 1").unwrap());
+        assert_eq!(r, "0");
+
+        let disc = poly_discriminant_expr("x**2 - 4", "x").unwrap();
+        assert_eq!(disc, "16");
+
+        let res = poly_resultant_expr("x - 2", "x - 3", "x").unwrap();
+        assert_eq!(res, "-1");
+
+        let gcd_res = poly_gcd_expr("x**2 - 1", "x - 1", "x").unwrap();
+        assert_eq!(parse(&gcd_res).unwrap(), parse("x - 1").unwrap());
+
+        let lcm_res = poly_lcm_expr("x - 1", "x + 1", "x").unwrap();
+        assert_eq!(parse(&lcm_res).unwrap(), parse("x**2 - 1").unwrap());
+
+        let (scale, factors) = poly_sqf_list_expr("(x - 1)**2 * (x + 2)", "x").unwrap();
+        assert_eq!(scale, "1");
+        let factor_exprs: Vec<(Expr, usize)> = factors
+            .into_iter()
+            .map(|(s, m)| (parse(&s).unwrap(), m))
+            .collect();
+        assert!(factor_exprs.contains(&(parse("x - 1").unwrap(), 2)));
+        assert!(factor_exprs.contains(&(parse("x + 2").unwrap(), 1)));
+
+        let gb = groebner_basis_expr(
+            vec!["x*y - 2*y".to_string(), "2*y**2 - x**2".to_string()],
+            vec!["x".to_string(), "y".to_string()],
+            "lex",
+        )
+        .unwrap();
+        assert!(!gb.is_empty());
+
+        // Factor list: (x - 2) * (x + 2)
+        let (scale, factors) = poly_factor_list_expr("x**2 - 4", "x").unwrap();
+        assert_eq!(scale, "1");
+        assert_eq!(factors.len(), 2);
+
+        // Roots: x^2 - 4 => roots 2, -2 with mult 1
+        let roots = poly_roots_expr("x**2 - 4", "x").unwrap();
+        assert_eq!(roots.len(), 2);
+        let root_vals: Vec<String> = roots.into_iter().map(|(r, _)| r).collect();
+        assert!(root_vals.contains(&"2".to_string()));
+        assert!(root_vals.contains(&"-2".to_string()));
+    }
+
+    #[test]
+    fn test_tensor_bindings() {
+        let mu = PyTensorIndex::upper("mu");
+        assert!(mu.is_up());
+        assert_eq!(mu.name(), "mu");
+        let mu_low = mu.flip();
+        assert!(!mu_low.is_up());
+
+        let eta = PyMetric::minkowski_4d("eta");
+        assert_eq!(eta.dimension(), 4);
+        assert_eq!(eta.matrix().len(), 16);
+
+        let v = PyTensor::new(
+            "v",
+            4,
+            vec![PyTensorIndex::upper("mu")],
+            Some(vec![
+                PyExpr::from_expr(Expr::from_i64(3)),
+                PyExpr::from_expr(Expr::from_i64(0)),
+                PyExpr::from_expr(Expr::from_i64(0)),
+                PyExpr::from_expr(Expr::from_i64(4)),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(v.rank(), 1);
+
+        let v_low = eta.lower_vector(&v).unwrap();
+        assert_eq!(v_low.rank(), 1);
+        assert!(!v_low.indices()[0].is_up());
+
+        let norm_sq = eta.norm_squared(&v).unwrap();
+        // -3^2 + 0 + 0 + 4^2 = -9 + 16 = 7
+        assert_eq!(norm_sq.inner, Expr::from_i64(7));
+    }
+
+    #[test]
+    fn test_assumptions_bindings() {
+        let x_expr = PyExpr::from_expr(Expr::Sym(Symbol::new("x")));
+        let five_expr = PyExpr::from_expr(Expr::from_i64(5));
+
+        // Inherent facts on number 5: positive, integer, real, odd, etc.
+        let facts = inherent_facts_expr(&five_expr);
+        assert!(facts.contains(&"positive".to_string()));
+        assert!(facts.contains(&"integer".to_string()));
+        assert!(facts.contains(&"odd".to_string()));
+
+        // Inherent ask on 5
+        let is_pos = ask_expr(&five_expr, "positive", None).unwrap();
+        assert_eq!(is_pos, Some(true));
+        let is_neg = ask_expr(&five_expr, "negative", None).unwrap();
+        assert_eq!(is_neg, Some(false));
+
+        // Query on symbol x with positive assumption:
+        // positive => real (entailed true)
+        let is_real = ask_expr(
+            &x_expr,
+            "real",
+            Some(vec![("x".to_string(), "positive".to_string())]),
+        )
+        .unwrap();
+        assert_eq!(is_real, Some(true));
+
+        // positive => negative (contradicted false)
+        let is_neg = ask_expr(
+            &x_expr,
+            "negative",
+            Some(vec![("x".to_string(), "positive".to_string())]),
+        )
+        .unwrap();
+        assert_eq!(is_neg, Some(false));
+
+        // positive => integer (unknown None)
+        let is_int = ask_expr(
+            &x_expr,
+            "integer",
+            Some(vec![("x".to_string(), "positive".to_string())]),
+        )
+        .unwrap();
+        assert_eq!(is_int, None);
+
+        // AssumptionsContext
+        let mut ctx = PyAssumptionsContext::new();
+        ctx.assume("x", "positive").unwrap();
+        assert_eq!(ctx.is_true(&x_expr, "real").unwrap(), Some(true));
+        assert_eq!(ctx.is_true(&x_expr, "negative").unwrap(), Some(false));
+        assert_eq!(ctx.is_true(&x_expr, "integer").unwrap(), None);
+        assert_eq!(ctx.query(&x_expr, "real").unwrap(), "True");
+        assert_eq!(ctx.query(&x_expr, "negative").unwrap(), "False");
+        assert_eq!(ctx.query(&x_expr, "integer").unwrap(), "Unknown");
+
+        // Closure and contradictions
+        let closure = predicate_closure("positive").unwrap();
+        assert!(closure.contains(&"real".to_string()));
+        assert!(closure.contains(&"complex".to_string()));
+
+        let contras = predicate_contradictions("positive").unwrap();
+        assert!(contras.contains(&"negative".to_string()));
+        assert!(contras.contains(&"zero".to_string()));
+    }
+
+    #[test]
+    fn test_structured_native_entrypoints_preserve_symbol_identity() {
+        Python::initialize();
+        Python::attach(|py| {
+            let x_pos_binding = crate::binding::PySymbolBinding::new(
+                "x".to_string(),
+                Some(vec![("positive".to_string(), "True".to_string())]),
+            )
+            .unwrap();
+            let a_pos_binding = crate::binding::PySymbolBinding::new(
+                "a".to_string(),
+                Some(vec![("positive".to_string(), "True".to_string())]),
+            )
+            .unwrap();
+            let x_pos = PyExpr::from_expr(Expr::Sym(x_pos_binding.to_symbol()));
+            let a_pos = PyExpr::from_expr(Expr::Sym(a_pos_binding.to_symbol()));
+
+            // Integrate a_pos * x_pos dx -> (1/2) * a_pos * x_pos^2, keeping both SymbolIdentities!
+            let integrand = a_pos.__mul__(&x_pos).unwrap();
+            let x_bound = Bound::new(py, x_pos_binding.clone()).unwrap().into_any();
+            let a_bound = Bound::new(py, a_pos_binding.clone()).unwrap().into_any();
+            let anti = integrate_native(
+                &integrand,
+                &x_bound,
+                vec![
+                    (x_bound.clone(), vec!["positive".to_string()]),
+                    (a_bound.clone(), vec!["positive".to_string()]),
+                ],
+            )
+            .unwrap();
+            let free = anti.inner.free_symbols();
+            assert!(free.contains(&x_pos_binding.to_symbol()));
+            assert!(free.contains(&a_pos_binding.to_symbol()));
+            assert!(!free.contains(&Symbol::new("x")));
+            assert!(!free.contains(&Symbol::new("a")));
+
+            // Solve x_pos^2 - 4 == 0 for x_pos
+            let quad = py_pow(x_pos.clone(), py_integer(2))
+                .__sub__(&py_integer(4))
+                .unwrap();
+            let roots = solve_native(&quad, &x_bound).unwrap();
+            assert_eq!(roots, vec![py_integer(-2), py_integer(2)]);
+
+            // Factor x_pos^2 - 4 in x_pos preserves x_pos identity on factors
+            let (scale, factors) = poly_factor_list_native(&quad, &x_bound).unwrap();
+            assert_eq!(scale, py_integer(1));
+            assert_eq!(factors.len(), 2);
+            for (fac, mult) in &factors {
+                assert_eq!(*mult, 1);
+                assert_eq!(fac.inner.free_symbols(), vec![x_pos_binding.to_symbol()]);
+            }
+        });
+    }
+
+    #[test]
+    fn test_supervised_callback_session_contract() {
+        Python::initialize();
+        Python::attach(|py| {
+            let session =
+                crate::callbacks::PySupervisedCallbackSession::new(py, 4, 8, 100, 32, 32, 2000)
+                    .unwrap();
+            session.verify_ownership(py).unwrap();
+
+            // Monotonic nested step budget charging
+            assert_eq!(session.charge_nested_steps(py, 40).unwrap(), 40);
+            assert_eq!(session.charge_nested_steps(py, 50).unwrap(), 90);
+            assert!(session.charge_nested_steps(py, 20).is_err());
+
+            // Input bound refusal before callback invocation
+            let builtins = py.import("builtins").unwrap();
+            let abs_fn = builtins.getattr("abs").unwrap();
+            let args = pyo3::types::PyTuple::new(py, [-7i64]).unwrap();
+            let bounded =
+                crate::callbacks::PySupervisedCallbackSession::new(py, 4, 8, 100, 5, 5, 2000)
+                    .unwrap();
+            assert!(
+                bounded
+                    .invoke_once(py, "eval", "Custom", "(-7,)", 10, &abs_fn, &args, None)
+                    .is_err()
+            );
+            assert_eq!(bounded.invocations(), 0);
+
+            // Exactly-once execution and cached hit
+            let res1 = bounded
+                .invoke_once(py, "eval", "Custom", "(-7,)", 2, &abs_fn, &args, None)
+                .unwrap();
+            assert_eq!(res1.bind(py).extract::<i64>().unwrap(), 7);
+            assert_eq!(bounded.invocations(), 1);
+            let res2 = bounded
+                .invoke_once(py, "eval", "Custom", "(-7,)", 2, &abs_fn, &args, None)
+                .unwrap();
+            assert_eq!(res2.bind(py).extract::<i64>().unwrap(), 7);
+            assert_eq!(bounded.invocations(), 1);
+            assert_eq!(bounded.cached_effect_count(), 1);
+        });
+    }
+}

@@ -1,0 +1,46 @@
+{
+  "commands": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "fsym-solvers",
+        "--test",
+        "real_equation",
+        "--test",
+        "real_inequality",
+        "--test",
+        "real_constraints"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 483.58273151200046,
+      "log": "/workspace/scratch/aac5c0ea4661/validation/logs/native-three-regressions.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "fsym-solvers",
+        "--lib",
+        "reference_composition_rejects_maps_masks_sources_and_formula_mutants"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 15.53303479799979,
+      "log": "/workspace/scratch/aac5c0ea4661/validation/logs/native-private-composition-mutants.log"
+    }
+  ],
+  "rustflags": "-Zunstable-options --jobs-backend=1 --jobs-frontend=1 -Cdebuginfo=0 -Ccodegen-units=256",
+  "cargo_target_dir": "/workspace/scratch/aac5c0ea4661/validation/session-component/target",
+  "source_hashes_unchanged": true,
+  "harness_hashes_unchanged": true,
+  "source_hash_count": 680,
+  "max_rss_kib": 474056,
+  "source_substitutions": [],
+  "scope": "Actual production fsym-solvers Cargo package and selected integration/private unit tests; source snapshot is a recorded superset of native inputs"
+}

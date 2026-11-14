@@ -1,0 +1,9 @@
+[package]
+name="fsym-budget-source-component"
+version="0.1.0"
+edition="2024"
+[lib]
+name="fsym_runtime"
+path="lib.rs"
+[dependencies]
+fsym-budget={path="/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-budget"}

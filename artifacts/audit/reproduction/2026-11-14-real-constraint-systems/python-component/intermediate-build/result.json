@@ -1,0 +1,27 @@
+{
+  "command": {
+    "name": "python-corrected-build",
+    "command": [
+      "cargo",
+      "build",
+      "--offline",
+      "--locked",
+      "--lib",
+      "--features",
+      "extension-module"
+    ],
+    "returncode": 0,
+    "elapsed_seconds": 30.048928354000054,
+    "log": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-corrected-build.log"
+  },
+  "rustflags": "-Zunstable-options --jobs-backend=1 --jobs-frontend=1 -Cdebuginfo=0 -Ccodegen-units=256",
+  "source_hashes_unchanged": true,
+  "harness_hashes_unchanged": true,
+  "source_hash_count": 942,
+  "harness_hash_count": 48,
+  "repository_head": "6a5505089aae516b76a3690f548694e4da217e1a",
+  "source_snapshot_includes_uncommitted_reviewed_bridge_corrections": true,
+  "max_rss_kib": 745580,
+  "binary_sha256": "fc98e2b632c417ffc46561d53ca7dbaa77d97ed363b353bc76270d9efbe5353e",
+  "binary_path": "/workspace/scratch/aac5c0ea4661/validation/session-component/target/debug/libfsym_python.so"
+}

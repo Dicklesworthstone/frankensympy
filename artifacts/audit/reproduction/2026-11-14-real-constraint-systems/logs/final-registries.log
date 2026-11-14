@@ -1,0 +1,50 @@
++ python3 -m py_compile /workspace/scratch/aac5c0ea4661/frankensympy/tools/audit_donor_sources.py /workspace/scratch/aac5c0ea4661/frankensympy/tools/check_formal_projection.py /workspace/scratch/aac5c0ea4661/frankensympy/tools/gate_review_battery.py /workspace/scratch/aac5c0ea4661/frankensympy/tools/registry_audit_lib.py /workspace/scratch/aac5c0ea4661/frankensympy/tools/test_branch_policy_independent_review.py /workspace/scratch/aac5c0ea4661/frankensympy/tools/test_numeric_roots.py /workspace/scratch/aac5c0ea4661/frankensympy/tools/test_remote_main.py /workspace/scratch/aac5c0ea4661/frankensympy/tools/validate_planning.py /workspace/scratch/aac5c0ea4661/frankensympy/tools/verify_cross_cutting.py /workspace/scratch/aac5c0ea4661/frankensympy/tools/verify_dependency_and_safety.py /workspace/scratch/aac5c0ea4661/frankensympy/tools/verify_performance_kernels.py /workspace/scratch/aac5c0ea4661/frankensympy/tools/verify_registry_bundle.py /workspace/scratch/aac5c0ea4661/frankensympy/tools/verify_remote_main.py
++ python3 -m unittest discover -s /workspace/scratch/aac5c0ea4661/frankensympy/tools -p test_*.py
+.........................
+----------------------------------------------------------------------
+Ran 25 tests in 0.083s
+
+OK
++ python3 -m unittest discover -s /workspace/scratch/aac5c0ea4661/frankensympy/tools/conformance-lab -p test_*.py
+......EsE.s.........................................................FAIL: moving-head lane cannot certify; refuse --certify
+.s...................ssss.............s....sss..ss.......
+======================================================================
+ERROR: test_broken_candidate_emits_candidate_side_and_wrong_identity (test_candidate_protocol.CandidateProtocolTests.test_broken_candidate_emits_candidate_side_and_wrong_identity)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/scratch/aac5c0ea4661/frankensympy/tools/conformance-lab/test_candidate_protocol.py", line 44, in test_broken_candidate_emits_candidate_side_and_wrong_identity
+    envelopes = capture_candidate_file(
+                ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/aac5c0ea4661/frankensympy/tools/conformance-lab/capture.py", line 625, in capture_candidate_file
+    return parse_capture_output(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/aac5c0ea4661/frankensympy/tools/conformance-lab/capture.py", line 548, in parse_capture_output
+    validate_envelope(
+  File "/workspace/scratch/aac5c0ea4661/frankensympy/tools/conformance-lab/capture.py", line 461, in validate_envelope
+    validate_environment(
+  File "/workspace/scratch/aac5c0ea4661/frankensympy/tools/conformance-lab/capture.py", line 416, in validate_environment
+    raise ValueError(
+ValueError: Python version mismatch: required='3.14' actual='3.12.14'
+
+======================================================================
+ERROR: test_construction_only_rejects_broken_candidate_against_oracle_goldens (test_candidate_protocol.CandidateProtocolTests.test_construction_only_rejects_broken_candidate_against_oracle_goldens)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/scratch/aac5c0ea4661/frankensympy/tools/conformance-lab/test_candidate_protocol.py", line 64, in test_construction_only_rejects_broken_candidate_against_oracle_goldens
+    candidate = capture_candidate_file(
+                ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/aac5c0ea4661/frankensympy/tools/conformance-lab/capture.py", line 625, in capture_candidate_file
+    return parse_capture_output(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/aac5c0ea4661/frankensympy/tools/conformance-lab/capture.py", line 548, in parse_capture_output
+    validate_envelope(
+  File "/workspace/scratch/aac5c0ea4661/frankensympy/tools/conformance-lab/capture.py", line 461, in validate_envelope
+    validate_environment(
+  File "/workspace/scratch/aac5c0ea4661/frankensympy/tools/conformance-lab/capture.py", line 416, in validate_environment
+    raise ValueError(
+ValueError: Python version mismatch: required='3.14' actual='3.12.14'
+
+----------------------------------------------------------------------
+Ran 125 tests in 0.750s
+
+FAILED (errors=2, skipped=13)

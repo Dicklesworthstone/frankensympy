@@ -1,0 +1,40 @@
+    Checking fsym-budget v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-budget)
+    Checking fsym-bigint v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-bigint)
+    Checking fsym-modular v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-modular)
+    Checking serde_json v1.0.151
+    Checking fsym-rational v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-rational)
+    Checking fsym-id v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-id)
+    Checking fsym-outcome v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-outcome)
+    Checking fsym-core v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-core)
+    Checking fsym-assumptions v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-assumptions)
+    Checking fsym-proof-kernel v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-proof-kernel)
+    Checking getrandom v0.3.4
+    Checking rand_core v0.9.5
+    Checking fsym-evidence v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-evidence)
+    Checking linux-raw-sys v0.12.1
+    Checking bitflags v2.13.1
+    Checking rustix v1.1.4
+    Checking fsym-polys v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-polys)
+    Checking zerocopy v0.8.56
+    Checking getrandom v0.4.3
+    Checking once_cell v1.21.4
+    Checking fastrand v2.5.0
+    Checking tempfile v3.27.0
+    Checking ppv-lite86 v0.2.21
+    Checking fsym-simplify v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-simplify)
+    Checking wait-timeout v0.2.1
+    Checking fnv v1.0.7
+    Checking bit-vec v0.8.0
+    Checking quick-error v1.2.3
+    Checking rusty-fork v0.3.1
+    Checking bit-set v0.8.0
+    Checking fsym-calculus v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus)
+    Checking rand_chacha v0.9.0
+    Checking rand v0.9.5
+    Checking rand_xorshift v0.4.0
+    Checking fsym-sets v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-sets)
+    Checking unarray v0.1.4
+    Checking regex-syntax v0.8.11
+    Checking proptest v1.11.0
+    Checking fsym-solvers v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-solvers)
+    Finished `dev` profile [unoptimized] target(s) in 29.24s

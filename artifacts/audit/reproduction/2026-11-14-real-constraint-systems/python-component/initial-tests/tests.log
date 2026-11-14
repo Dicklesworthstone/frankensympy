@@ -1,0 +1,2100 @@
+FFFFFFFF.FFFF.F................F.......                                  [100%]
+=================================== FAILURES ===================================
+_ test_common_algebraic_partition_decides_empty_intersections_without_approximation _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2d6e8c07a0>
+
+    def test_common_algebraic_partition_decides_empty_intersections_without_approximation(monkeypatch):
+        monkeypatch.setattr(s, "_numeric_poly_roots", _forbid)
+        monkeypatch.setattr(s.CRootOf, "evalf", _forbid)
+        monkeypatch.setattr(_native, "solve_inequality_native", _forbid)
+        x = s.Symbol("constraint_empty_x")
+        for relations in (
+            [s.Le(x*x, 2, evaluate=False), s.Ge(x*x, 3, evaluate=False)],
+            [s.Le(x**4-x-1, 0, evaluate=False), s.Ge(x, 2, evaluate=False)],
+            [s.Eq(x**5-x+1, 0, evaluate=False), s.Gt(x, 0, evaluate=False)],
+        ):
+>           assert s.reduce_inequalities(relations, x) is s.S.false
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+../../frankensympy/python/tests/test_real_constraint_systems.py:33: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../frankensympy/python/sympy/__init__.py:2189: in reduce_inequalities
+    checked = _solve_rational_constraints(rels, symbols, conjunction_false)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+relations = [constraint_empty_x**4 - constraint_empty_x - 1 <= 0, constraint_empty_x >= 2]
+symbols = constraint_empty_x, conjunction_false = False
+
+    def _solve_rational_constraints(relations, symbols, conjunction_false=False):
+        """Return a complete relational result, or None for another grammar.
+    
+        All original sides and typed symbol owners are captured before inference,
+        subtraction, or Boolean identities. The shared native partition decides
+        intersections without asking the generic set normalizer to order CRootOfs.
+        """
+        from ._piecewise_real import _Capture
+    
+        _constraint_owners_unchanged()
+    
+        class Capture(_Capture):
+            def touch(self, depth):
+                self.nodes += 1
+                if self.nodes > 65536 or depth > 64:
+                    raise ValueError("real constraint resource limit: source nodes/depth")
+    
+            def basic(self, value):
+                retained = super().basic(value)
+                kind = type(value)
+                if kind in (Integer, Rational, Zero, One, NegativeOne, Half, Add, Mul, Pow):
+                    native = _native_expr(value)
+                    valid = ((kind in (Integer, Zero, One, NegativeOne) and native.is_integer)
+                             or (kind in (Rational, Half) and (native.is_integer or native.is_rational))
+                             or kind is Add and native.is_add or kind is Mul and native.is_mul
+                             or kind is Pow and native.is_pow)
+                    if not valid:
+                        raise ValueError("real constraint scalar owner does not match its native source")
+                    fixed = {Zero: (0, 1), One: (1, 1), NegativeOne: (-1, 1), Half: (1, 2)}.get(kind)
+                    if fixed is not None and native != _native.py_rational(*fixed):
+                        raise ValueError("real constraint constant owner does not match its native value")
+                return retained
+    
+            def symbol(self, value):
+                super().symbol(value)
+                native = _native_expr(value)
+                if (not native.is_symbol or _surface_binding_key(native.symbol_binding)
+                        != _surface_binding_key(_symbol_binding(value))):
+                    raise ValueError("real constraint symbol has inconsistent typed assumptions")
+    
+        if len(relations) > 32:
+            raise NotImplementedError("real constraint resource limit: at most 32 relations")
+        capture = Capture()
+        operations = []
+        owners = ((Eq, "=="), (Ne, "!="), (Lt, "<"), (Le, "<="), (Gt, ">"), (Ge, ">="))
+        variable = symbols
+        if type(symbols) in (list, tuple, set):
+            if len(symbols) != 1:
+                raise NotImplementedError("only univariate inequalities are supported")
+            variable = next(iter(symbols))
+        if variable is not None:
+            if type(variable) not in (Symbol, Dummy):
+                raise TypeError("real constraints require an exact symbol")
+            _native.real_constraint_source_preflight_native(_native_expr(variable))
+            capture.symbol(variable)
+        try:
+            sides = []
+            for relation in relations:
+                operation = next((op for owner, op in owners if type(relation) is owner), None)
+                if operation is None:
+                    raise NotImplementedError("real constraints require exact relational owners")
+                left, right = capture.sides(relation)
+                operations.append(operation)
+                sides.extend((left, right))
+            # Borrow every original payload before Python accessors can clone its
+            # children; unsupported first sources cannot hide later size failures.
+            grammar = True
+            for side in sides:
+                grammar &= _native.real_constraint_source_preflight_native(_native_expr(side))
+            for side in sides:
+                capture.scalar(side, 0)
+            capture.unchanged()
+            inferred_constant = symbols is None and not capture.symbols
+            if not grammar:
+                # Unsupported closed built-ins keep their existing scalar route.
+                # In particular, internal Piecewise guard tags must not become
+                # extra variables during rational-system variable inference.
+                for value, slot, children in capture.stamps:
+                    if slot.__name__ not in ("_args", "_struct_args", "_surface_args") or type(children) is not tuple:
+                        continue
+                    operator = next((op for owner, op in ((Add, "add"), (Mul, "mul"), (Pow, "pow"))
+                                    if type(value) is owner), None)
+                    if operator is not None:
+                        native = _native_expr(value)
+                        if _native.real_constraint_source_preflight_native(native):
+                            _native.ideal_source_arguments_native(native, operator,
+                                                                 [_native_expr(child) for child in children])
+                capture.unchanged()
+                return None
+            variable, frozen, supported = capture.freeze(variable)
+            if not supported:
+                return None
+            _constraint_owners_unchanged()
+            sources = [Add(frozen[index], Mul(-1, frozen[index + 1], evaluate=False), evaluate=False)
+                       for index in range(0, len(frozen), 2)]
+            capture.unchanged()
+            checked = _native.solve_real_rational_constraints_native(
+                [_native_expr(source) for source in sources], _symbol_binding(variable),
+                operations, conjunction_false,
+            )
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if checked is None:
+                raise NotImplementedError("admitted real constraints could not be completed")
+            result = _lift_constraint_chart(checked, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if inferred_constant:
+                from ..logic.boolalg import false, true
+                if type(result) not in (EmptySet, Reals):
+                    raise ValueError("constant real constraints produced variable boundaries")
+                return false if type(result) is EmptySet else true
+            from .. import _set_as_relational
+            relational = _set_as_relational(result, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            return relational
+        except (ValueError, OverflowError) as exc:
+>           raise NotImplementedError("exact rational constraints could not be completed: %s" % exc) from None
+E           NotImplementedError: exact rational constraints could not be completed: real constraint constant owner does not match its native value
+
+../../frankensympy/python/sympy/solvers/inequalities.py:195: NotImplementedError
+_ test_common_partition_removes_foreign_algebraic_bounds_instead_of_retaining_intersections _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2d6e8b3290>
+
+    def test_common_partition_removes_foreign_algebraic_bounds_instead_of_retaining_intersections(monkeypatch):
+        monkeypatch.setattr(s.CRootOf, "evalf", _forbid)
+        x = s.Symbol("constraint_quartic_x")
+        polynomial = x**4-x-1
+        upper = s.CRootOf(polynomial, 1)
+>       result = s.reduce_inequalities([
+            s.Le(polynomial, 0, evaluate=False), s.Ge(x, 0, evaluate=False),
+        ], x)
+
+../../frankensympy/python/tests/test_real_constraint_systems.py:41: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../frankensympy/python/sympy/__init__.py:2189: in reduce_inequalities
+    checked = _solve_rational_constraints(rels, symbols, conjunction_false)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+relations = [constraint_quartic_x**4 - constraint_quartic_x - 1 <= 0, constraint_quartic_x >= 0]
+symbols = constraint_quartic_x, conjunction_false = False
+
+    def _solve_rational_constraints(relations, symbols, conjunction_false=False):
+        """Return a complete relational result, or None for another grammar.
+    
+        All original sides and typed symbol owners are captured before inference,
+        subtraction, or Boolean identities. The shared native partition decides
+        intersections without asking the generic set normalizer to order CRootOfs.
+        """
+        from ._piecewise_real import _Capture
+    
+        _constraint_owners_unchanged()
+    
+        class Capture(_Capture):
+            def touch(self, depth):
+                self.nodes += 1
+                if self.nodes > 65536 or depth > 64:
+                    raise ValueError("real constraint resource limit: source nodes/depth")
+    
+            def basic(self, value):
+                retained = super().basic(value)
+                kind = type(value)
+                if kind in (Integer, Rational, Zero, One, NegativeOne, Half, Add, Mul, Pow):
+                    native = _native_expr(value)
+                    valid = ((kind in (Integer, Zero, One, NegativeOne) and native.is_integer)
+                             or (kind in (Rational, Half) and (native.is_integer or native.is_rational))
+                             or kind is Add and native.is_add or kind is Mul and native.is_mul
+                             or kind is Pow and native.is_pow)
+                    if not valid:
+                        raise ValueError("real constraint scalar owner does not match its native source")
+                    fixed = {Zero: (0, 1), One: (1, 1), NegativeOne: (-1, 1), Half: (1, 2)}.get(kind)
+                    if fixed is not None and native != _native.py_rational(*fixed):
+                        raise ValueError("real constraint constant owner does not match its native value")
+                return retained
+    
+            def symbol(self, value):
+                super().symbol(value)
+                native = _native_expr(value)
+                if (not native.is_symbol or _surface_binding_key(native.symbol_binding)
+                        != _surface_binding_key(_symbol_binding(value))):
+                    raise ValueError("real constraint symbol has inconsistent typed assumptions")
+    
+        if len(relations) > 32:
+            raise NotImplementedError("real constraint resource limit: at most 32 relations")
+        capture = Capture()
+        operations = []
+        owners = ((Eq, "=="), (Ne, "!="), (Lt, "<"), (Le, "<="), (Gt, ">"), (Ge, ">="))
+        variable = symbols
+        if type(symbols) in (list, tuple, set):
+            if len(symbols) != 1:
+                raise NotImplementedError("only univariate inequalities are supported")
+            variable = next(iter(symbols))
+        if variable is not None:
+            if type(variable) not in (Symbol, Dummy):
+                raise TypeError("real constraints require an exact symbol")
+            _native.real_constraint_source_preflight_native(_native_expr(variable))
+            capture.symbol(variable)
+        try:
+            sides = []
+            for relation in relations:
+                operation = next((op for owner, op in owners if type(relation) is owner), None)
+                if operation is None:
+                    raise NotImplementedError("real constraints require exact relational owners")
+                left, right = capture.sides(relation)
+                operations.append(operation)
+                sides.extend((left, right))
+            # Borrow every original payload before Python accessors can clone its
+            # children; unsupported first sources cannot hide later size failures.
+            grammar = True
+            for side in sides:
+                grammar &= _native.real_constraint_source_preflight_native(_native_expr(side))
+            for side in sides:
+                capture.scalar(side, 0)
+            capture.unchanged()
+            inferred_constant = symbols is None and not capture.symbols
+            if not grammar:
+                # Unsupported closed built-ins keep their existing scalar route.
+                # In particular, internal Piecewise guard tags must not become
+                # extra variables during rational-system variable inference.
+                for value, slot, children in capture.stamps:
+                    if slot.__name__ not in ("_args", "_struct_args", "_surface_args") or type(children) is not tuple:
+                        continue
+                    operator = next((op for owner, op in ((Add, "add"), (Mul, "mul"), (Pow, "pow"))
+                                    if type(value) is owner), None)
+                    if operator is not None:
+                        native = _native_expr(value)
+                        if _native.real_constraint_source_preflight_native(native):
+                            _native.ideal_source_arguments_native(native, operator,
+                                                                 [_native_expr(child) for child in children])
+                capture.unchanged()
+                return None
+            variable, frozen, supported = capture.freeze(variable)
+            if not supported:
+                return None
+            _constraint_owners_unchanged()
+            sources = [Add(frozen[index], Mul(-1, frozen[index + 1], evaluate=False), evaluate=False)
+                       for index in range(0, len(frozen), 2)]
+            capture.unchanged()
+            checked = _native.solve_real_rational_constraints_native(
+                [_native_expr(source) for source in sources], _symbol_binding(variable),
+                operations, conjunction_false,
+            )
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if checked is None:
+                raise NotImplementedError("admitted real constraints could not be completed")
+            result = _lift_constraint_chart(checked, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if inferred_constant:
+                from ..logic.boolalg import false, true
+                if type(result) not in (EmptySet, Reals):
+                    raise ValueError("constant real constraints produced variable boundaries")
+                return false if type(result) is EmptySet else true
+            from .. import _set_as_relational
+            relational = _set_as_relational(result, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            return relational
+        except (ValueError, OverflowError) as exc:
+>           raise NotImplementedError("exact rational constraints could not be completed: %s" % exc) from None
+E           NotImplementedError: exact rational constraints could not be completed: real constraint constant owner does not match its native value
+
+../../frankensympy/python/sympy/solvers/inequalities.py:195: NotImplementedError
+____ test_equalities_and_disequalities_filter_complete_algebraic_point_sets ____
+
+    def test_equalities_and_disequalities_filter_complete_algebraic_point_sets():
+        x = s.Symbol("constraint_equality_x")
+        polynomial = x**4-x-1
+        upper = s.CRootOf(polynomial, 1)
+>       assert s.reduce_inequalities([
+            s.Eq(polynomial, 0, evaluate=False), s.Ge(x, 0, evaluate=False),
+        ], x) == s.Eq(x, upper, evaluate=False)
+
+../../frankensympy/python/tests/test_real_constraint_systems.py:55: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../frankensympy/python/sympy/__init__.py:2189: in reduce_inequalities
+    checked = _solve_rational_constraints(rels, symbols, conjunction_false)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+relations = [Eq(constraint_equality_x**4 - constraint_equality_x - 1, 0), constraint_equality_x >= 0]
+symbols = constraint_equality_x, conjunction_false = False
+
+    def _solve_rational_constraints(relations, symbols, conjunction_false=False):
+        """Return a complete relational result, or None for another grammar.
+    
+        All original sides and typed symbol owners are captured before inference,
+        subtraction, or Boolean identities. The shared native partition decides
+        intersections without asking the generic set normalizer to order CRootOfs.
+        """
+        from ._piecewise_real import _Capture
+    
+        _constraint_owners_unchanged()
+    
+        class Capture(_Capture):
+            def touch(self, depth):
+                self.nodes += 1
+                if self.nodes > 65536 or depth > 64:
+                    raise ValueError("real constraint resource limit: source nodes/depth")
+    
+            def basic(self, value):
+                retained = super().basic(value)
+                kind = type(value)
+                if kind in (Integer, Rational, Zero, One, NegativeOne, Half, Add, Mul, Pow):
+                    native = _native_expr(value)
+                    valid = ((kind in (Integer, Zero, One, NegativeOne) and native.is_integer)
+                             or (kind in (Rational, Half) and (native.is_integer or native.is_rational))
+                             or kind is Add and native.is_add or kind is Mul and native.is_mul
+                             or kind is Pow and native.is_pow)
+                    if not valid:
+                        raise ValueError("real constraint scalar owner does not match its native source")
+                    fixed = {Zero: (0, 1), One: (1, 1), NegativeOne: (-1, 1), Half: (1, 2)}.get(kind)
+                    if fixed is not None and native != _native.py_rational(*fixed):
+                        raise ValueError("real constraint constant owner does not match its native value")
+                return retained
+    
+            def symbol(self, value):
+                super().symbol(value)
+                native = _native_expr(value)
+                if (not native.is_symbol or _surface_binding_key(native.symbol_binding)
+                        != _surface_binding_key(_symbol_binding(value))):
+                    raise ValueError("real constraint symbol has inconsistent typed assumptions")
+    
+        if len(relations) > 32:
+            raise NotImplementedError("real constraint resource limit: at most 32 relations")
+        capture = Capture()
+        operations = []
+        owners = ((Eq, "=="), (Ne, "!="), (Lt, "<"), (Le, "<="), (Gt, ">"), (Ge, ">="))
+        variable = symbols
+        if type(symbols) in (list, tuple, set):
+            if len(symbols) != 1:
+                raise NotImplementedError("only univariate inequalities are supported")
+            variable = next(iter(symbols))
+        if variable is not None:
+            if type(variable) not in (Symbol, Dummy):
+                raise TypeError("real constraints require an exact symbol")
+            _native.real_constraint_source_preflight_native(_native_expr(variable))
+            capture.symbol(variable)
+        try:
+            sides = []
+            for relation in relations:
+                operation = next((op for owner, op in owners if type(relation) is owner), None)
+                if operation is None:
+                    raise NotImplementedError("real constraints require exact relational owners")
+                left, right = capture.sides(relation)
+                operations.append(operation)
+                sides.extend((left, right))
+            # Borrow every original payload before Python accessors can clone its
+            # children; unsupported first sources cannot hide later size failures.
+            grammar = True
+            for side in sides:
+                grammar &= _native.real_constraint_source_preflight_native(_native_expr(side))
+            for side in sides:
+                capture.scalar(side, 0)
+            capture.unchanged()
+            inferred_constant = symbols is None and not capture.symbols
+            if not grammar:
+                # Unsupported closed built-ins keep their existing scalar route.
+                # In particular, internal Piecewise guard tags must not become
+                # extra variables during rational-system variable inference.
+                for value, slot, children in capture.stamps:
+                    if slot.__name__ not in ("_args", "_struct_args", "_surface_args") or type(children) is not tuple:
+                        continue
+                    operator = next((op for owner, op in ((Add, "add"), (Mul, "mul"), (Pow, "pow"))
+                                    if type(value) is owner), None)
+                    if operator is not None:
+                        native = _native_expr(value)
+                        if _native.real_constraint_source_preflight_native(native):
+                            _native.ideal_source_arguments_native(native, operator,
+                                                                 [_native_expr(child) for child in children])
+                capture.unchanged()
+                return None
+            variable, frozen, supported = capture.freeze(variable)
+            if not supported:
+                return None
+            _constraint_owners_unchanged()
+            sources = [Add(frozen[index], Mul(-1, frozen[index + 1], evaluate=False), evaluate=False)
+                       for index in range(0, len(frozen), 2)]
+            capture.unchanged()
+            checked = _native.solve_real_rational_constraints_native(
+                [_native_expr(source) for source in sources], _symbol_binding(variable),
+                operations, conjunction_false,
+            )
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if checked is None:
+                raise NotImplementedError("admitted real constraints could not be completed")
+            result = _lift_constraint_chart(checked, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if inferred_constant:
+                from ..logic.boolalg import false, true
+                if type(result) not in (EmptySet, Reals):
+                    raise ValueError("constant real constraints produced variable boundaries")
+                return false if type(result) is EmptySet else true
+            from .. import _set_as_relational
+            relational = _set_as_relational(result, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            return relational
+        except (ValueError, OverflowError) as exc:
+>           raise NotImplementedError("exact rational constraints could not be completed: %s" % exc) from None
+E           NotImplementedError: exact rational constraints could not be completed: real constraint constant owner does not match its native value
+
+../../frankensympy/python/sympy/solvers/inequalities.py:195: NotImplementedError
+_______ test_disequality_keeps_cancelled_and_held_original_domain_holes ________
+
+    def test_disequality_keeps_cancelled_and_held_original_domain_holes():
+        x = s.Symbol("constraint_holes_x")
+        reciprocal = s.Pow(x, -1, evaluate=False)
+        held_one = s.Mul(x, reciprocal, evaluate=False)
+        held_zero = s.Add(held_one, -1, evaluate=False)
+>       assert s.reduce_inequalities(s.Ne(held_zero, 0, evaluate=False), x) is s.S.false
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+../../frankensympy/python/tests/test_real_constraint_systems.py:72: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../frankensympy/python/sympy/__init__.py:2189: in reduce_inequalities
+    checked = _solve_rational_constraints(rels, symbols, conjunction_false)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+relations = [Ne(-1 + constraint_holes_x*1/constraint_holes_x, 0)]
+symbols = constraint_holes_x, conjunction_false = False
+
+    def _solve_rational_constraints(relations, symbols, conjunction_false=False):
+        """Return a complete relational result, or None for another grammar.
+    
+        All original sides and typed symbol owners are captured before inference,
+        subtraction, or Boolean identities. The shared native partition decides
+        intersections without asking the generic set normalizer to order CRootOfs.
+        """
+        from ._piecewise_real import _Capture
+    
+        _constraint_owners_unchanged()
+    
+        class Capture(_Capture):
+            def touch(self, depth):
+                self.nodes += 1
+                if self.nodes > 65536 or depth > 64:
+                    raise ValueError("real constraint resource limit: source nodes/depth")
+    
+            def basic(self, value):
+                retained = super().basic(value)
+                kind = type(value)
+                if kind in (Integer, Rational, Zero, One, NegativeOne, Half, Add, Mul, Pow):
+                    native = _native_expr(value)
+                    valid = ((kind in (Integer, Zero, One, NegativeOne) and native.is_integer)
+                             or (kind in (Rational, Half) and (native.is_integer or native.is_rational))
+                             or kind is Add and native.is_add or kind is Mul and native.is_mul
+                             or kind is Pow and native.is_pow)
+                    if not valid:
+                        raise ValueError("real constraint scalar owner does not match its native source")
+                    fixed = {Zero: (0, 1), One: (1, 1), NegativeOne: (-1, 1), Half: (1, 2)}.get(kind)
+                    if fixed is not None and native != _native.py_rational(*fixed):
+                        raise ValueError("real constraint constant owner does not match its native value")
+                return retained
+    
+            def symbol(self, value):
+                super().symbol(value)
+                native = _native_expr(value)
+                if (not native.is_symbol or _surface_binding_key(native.symbol_binding)
+                        != _surface_binding_key(_symbol_binding(value))):
+                    raise ValueError("real constraint symbol has inconsistent typed assumptions")
+    
+        if len(relations) > 32:
+            raise NotImplementedError("real constraint resource limit: at most 32 relations")
+        capture = Capture()
+        operations = []
+        owners = ((Eq, "=="), (Ne, "!="), (Lt, "<"), (Le, "<="), (Gt, ">"), (Ge, ">="))
+        variable = symbols
+        if type(symbols) in (list, tuple, set):
+            if len(symbols) != 1:
+                raise NotImplementedError("only univariate inequalities are supported")
+            variable = next(iter(symbols))
+        if variable is not None:
+            if type(variable) not in (Symbol, Dummy):
+                raise TypeError("real constraints require an exact symbol")
+            _native.real_constraint_source_preflight_native(_native_expr(variable))
+            capture.symbol(variable)
+        try:
+            sides = []
+            for relation in relations:
+                operation = next((op for owner, op in owners if type(relation) is owner), None)
+                if operation is None:
+                    raise NotImplementedError("real constraints require exact relational owners")
+                left, right = capture.sides(relation)
+                operations.append(operation)
+                sides.extend((left, right))
+            # Borrow every original payload before Python accessors can clone its
+            # children; unsupported first sources cannot hide later size failures.
+            grammar = True
+            for side in sides:
+                grammar &= _native.real_constraint_source_preflight_native(_native_expr(side))
+            for side in sides:
+                capture.scalar(side, 0)
+            capture.unchanged()
+            inferred_constant = symbols is None and not capture.symbols
+            if not grammar:
+                # Unsupported closed built-ins keep their existing scalar route.
+                # In particular, internal Piecewise guard tags must not become
+                # extra variables during rational-system variable inference.
+                for value, slot, children in capture.stamps:
+                    if slot.__name__ not in ("_args", "_struct_args", "_surface_args") or type(children) is not tuple:
+                        continue
+                    operator = next((op for owner, op in ((Add, "add"), (Mul, "mul"), (Pow, "pow"))
+                                    if type(value) is owner), None)
+                    if operator is not None:
+                        native = _native_expr(value)
+                        if _native.real_constraint_source_preflight_native(native):
+                            _native.ideal_source_arguments_native(native, operator,
+                                                                 [_native_expr(child) for child in children])
+                capture.unchanged()
+                return None
+            variable, frozen, supported = capture.freeze(variable)
+            if not supported:
+                return None
+            _constraint_owners_unchanged()
+            sources = [Add(frozen[index], Mul(-1, frozen[index + 1], evaluate=False), evaluate=False)
+                       for index in range(0, len(frozen), 2)]
+            capture.unchanged()
+            checked = _native.solve_real_rational_constraints_native(
+                [_native_expr(source) for source in sources], _symbol_binding(variable),
+                operations, conjunction_false,
+            )
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if checked is None:
+                raise NotImplementedError("admitted real constraints could not be completed")
+            result = _lift_constraint_chart(checked, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if inferred_constant:
+                from ..logic.boolalg import false, true
+                if type(result) not in (EmptySet, Reals):
+                    raise ValueError("constant real constraints produced variable boundaries")
+                return false if type(result) is EmptySet else true
+            from .. import _set_as_relational
+            relational = _set_as_relational(result, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            return relational
+        except (ValueError, OverflowError) as exc:
+>           raise NotImplementedError("exact rational constraints could not be completed: %s" % exc) from None
+E           NotImplementedError: exact rational constraints could not be completed: real constraint constant owner does not match its native value
+
+../../frankensympy/python/sympy/solvers/inequalities.py:195: NotImplementedError
+_____ test_held_relational_sides_preserve_their_domains_before_subtraction _____
+
+    def test_held_relational_sides_preserve_their_domains_before_subtraction():
+        x = s.Symbol("constraint_sides_x")
+        reciprocal = s.Pow(x-1, -1, evaluate=False)
+>       result = s.reduce_inequalities([
+            s.Eq(reciprocal, reciprocal, evaluate=False), s.Ge(x, 1, evaluate=False),
+        ], x)
+
+../../frankensympy/python/tests/test_real_constraint_systems.py:89: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../frankensympy/python/sympy/__init__.py:2189: in reduce_inequalities
+    checked = _solve_rational_constraints(rels, symbols, conjunction_false)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+relations = [Eq(1/(constraint_sides_x - 1), 1/(constraint_sides_x - 1)), constraint_sides_x >= 1]
+symbols = constraint_sides_x, conjunction_false = False
+
+    def _solve_rational_constraints(relations, symbols, conjunction_false=False):
+        """Return a complete relational result, or None for another grammar.
+    
+        All original sides and typed symbol owners are captured before inference,
+        subtraction, or Boolean identities. The shared native partition decides
+        intersections without asking the generic set normalizer to order CRootOfs.
+        """
+        from ._piecewise_real import _Capture
+    
+        _constraint_owners_unchanged()
+    
+        class Capture(_Capture):
+            def touch(self, depth):
+                self.nodes += 1
+                if self.nodes > 65536 or depth > 64:
+                    raise ValueError("real constraint resource limit: source nodes/depth")
+    
+            def basic(self, value):
+                retained = super().basic(value)
+                kind = type(value)
+                if kind in (Integer, Rational, Zero, One, NegativeOne, Half, Add, Mul, Pow):
+                    native = _native_expr(value)
+                    valid = ((kind in (Integer, Zero, One, NegativeOne) and native.is_integer)
+                             or (kind in (Rational, Half) and (native.is_integer or native.is_rational))
+                             or kind is Add and native.is_add or kind is Mul and native.is_mul
+                             or kind is Pow and native.is_pow)
+                    if not valid:
+                        raise ValueError("real constraint scalar owner does not match its native source")
+                    fixed = {Zero: (0, 1), One: (1, 1), NegativeOne: (-1, 1), Half: (1, 2)}.get(kind)
+                    if fixed is not None and native != _native.py_rational(*fixed):
+                        raise ValueError("real constraint constant owner does not match its native value")
+                return retained
+    
+            def symbol(self, value):
+                super().symbol(value)
+                native = _native_expr(value)
+                if (not native.is_symbol or _surface_binding_key(native.symbol_binding)
+                        != _surface_binding_key(_symbol_binding(value))):
+                    raise ValueError("real constraint symbol has inconsistent typed assumptions")
+    
+        if len(relations) > 32:
+            raise NotImplementedError("real constraint resource limit: at most 32 relations")
+        capture = Capture()
+        operations = []
+        owners = ((Eq, "=="), (Ne, "!="), (Lt, "<"), (Le, "<="), (Gt, ">"), (Ge, ">="))
+        variable = symbols
+        if type(symbols) in (list, tuple, set):
+            if len(symbols) != 1:
+                raise NotImplementedError("only univariate inequalities are supported")
+            variable = next(iter(symbols))
+        if variable is not None:
+            if type(variable) not in (Symbol, Dummy):
+                raise TypeError("real constraints require an exact symbol")
+            _native.real_constraint_source_preflight_native(_native_expr(variable))
+            capture.symbol(variable)
+        try:
+            sides = []
+            for relation in relations:
+                operation = next((op for owner, op in owners if type(relation) is owner), None)
+                if operation is None:
+                    raise NotImplementedError("real constraints require exact relational owners")
+                left, right = capture.sides(relation)
+                operations.append(operation)
+                sides.extend((left, right))
+            # Borrow every original payload before Python accessors can clone its
+            # children; unsupported first sources cannot hide later size failures.
+            grammar = True
+            for side in sides:
+                grammar &= _native.real_constraint_source_preflight_native(_native_expr(side))
+            for side in sides:
+                capture.scalar(side, 0)
+            capture.unchanged()
+            inferred_constant = symbols is None and not capture.symbols
+            if not grammar:
+                # Unsupported closed built-ins keep their existing scalar route.
+                # In particular, internal Piecewise guard tags must not become
+                # extra variables during rational-system variable inference.
+                for value, slot, children in capture.stamps:
+                    if slot.__name__ not in ("_args", "_struct_args", "_surface_args") or type(children) is not tuple:
+                        continue
+                    operator = next((op for owner, op in ((Add, "add"), (Mul, "mul"), (Pow, "pow"))
+                                    if type(value) is owner), None)
+                    if operator is not None:
+                        native = _native_expr(value)
+                        if _native.real_constraint_source_preflight_native(native):
+                            _native.ideal_source_arguments_native(native, operator,
+                                                                 [_native_expr(child) for child in children])
+                capture.unchanged()
+                return None
+            variable, frozen, supported = capture.freeze(variable)
+            if not supported:
+                return None
+            _constraint_owners_unchanged()
+            sources = [Add(frozen[index], Mul(-1, frozen[index + 1], evaluate=False), evaluate=False)
+                       for index in range(0, len(frozen), 2)]
+            capture.unchanged()
+            checked = _native.solve_real_rational_constraints_native(
+                [_native_expr(source) for source in sources], _symbol_binding(variable),
+                operations, conjunction_false,
+            )
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if checked is None:
+                raise NotImplementedError("admitted real constraints could not be completed")
+            result = _lift_constraint_chart(checked, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if inferred_constant:
+                from ..logic.boolalg import false, true
+                if type(result) not in (EmptySet, Reals):
+                    raise ValueError("constant real constraints produced variable boundaries")
+                return false if type(result) is EmptySet else true
+            from .. import _set_as_relational
+            relational = _set_as_relational(result, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            return relational
+        except (ValueError, OverflowError) as exc:
+>           raise NotImplementedError("exact rational constraints could not be completed: %s" % exc) from None
+E           NotImplementedError: exact rational constraints could not be completed: real constraint constant owner does not match its native value
+
+../../frankensympy/python/sympy/solvers/inequalities.py:195: NotImplementedError
+________ test_true_cells_join_across_an_unused_internal_critical_point _________
+
+    def test_true_cells_join_across_an_unused_internal_critical_point():
+        x = s.Symbol("constraint_join_x")
+>       result = s.reduce_inequalities([
+            s.Le(x*x-2, 0, evaluate=False), s.Ge(x*x, 0, evaluate=False),
+        ], x)
+
+../../frankensympy/python/tests/test_real_constraint_systems.py:101: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../frankensympy/python/sympy/__init__.py:2189: in reduce_inequalities
+    checked = _solve_rational_constraints(rels, symbols, conjunction_false)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+relations = [constraint_join_x**2 - 2 <= 0, constraint_join_x**2 >= 0]
+symbols = constraint_join_x, conjunction_false = False
+
+    def _solve_rational_constraints(relations, symbols, conjunction_false=False):
+        """Return a complete relational result, or None for another grammar.
+    
+        All original sides and typed symbol owners are captured before inference,
+        subtraction, or Boolean identities. The shared native partition decides
+        intersections without asking the generic set normalizer to order CRootOfs.
+        """
+        from ._piecewise_real import _Capture
+    
+        _constraint_owners_unchanged()
+    
+        class Capture(_Capture):
+            def touch(self, depth):
+                self.nodes += 1
+                if self.nodes > 65536 or depth > 64:
+                    raise ValueError("real constraint resource limit: source nodes/depth")
+    
+            def basic(self, value):
+                retained = super().basic(value)
+                kind = type(value)
+                if kind in (Integer, Rational, Zero, One, NegativeOne, Half, Add, Mul, Pow):
+                    native = _native_expr(value)
+                    valid = ((kind in (Integer, Zero, One, NegativeOne) and native.is_integer)
+                             or (kind in (Rational, Half) and (native.is_integer or native.is_rational))
+                             or kind is Add and native.is_add or kind is Mul and native.is_mul
+                             or kind is Pow and native.is_pow)
+                    if not valid:
+                        raise ValueError("real constraint scalar owner does not match its native source")
+                    fixed = {Zero: (0, 1), One: (1, 1), NegativeOne: (-1, 1), Half: (1, 2)}.get(kind)
+                    if fixed is not None and native != _native.py_rational(*fixed):
+                        raise ValueError("real constraint constant owner does not match its native value")
+                return retained
+    
+            def symbol(self, value):
+                super().symbol(value)
+                native = _native_expr(value)
+                if (not native.is_symbol or _surface_binding_key(native.symbol_binding)
+                        != _surface_binding_key(_symbol_binding(value))):
+                    raise ValueError("real constraint symbol has inconsistent typed assumptions")
+    
+        if len(relations) > 32:
+            raise NotImplementedError("real constraint resource limit: at most 32 relations")
+        capture = Capture()
+        operations = []
+        owners = ((Eq, "=="), (Ne, "!="), (Lt, "<"), (Le, "<="), (Gt, ">"), (Ge, ">="))
+        variable = symbols
+        if type(symbols) in (list, tuple, set):
+            if len(symbols) != 1:
+                raise NotImplementedError("only univariate inequalities are supported")
+            variable = next(iter(symbols))
+        if variable is not None:
+            if type(variable) not in (Symbol, Dummy):
+                raise TypeError("real constraints require an exact symbol")
+            _native.real_constraint_source_preflight_native(_native_expr(variable))
+            capture.symbol(variable)
+        try:
+            sides = []
+            for relation in relations:
+                operation = next((op for owner, op in owners if type(relation) is owner), None)
+                if operation is None:
+                    raise NotImplementedError("real constraints require exact relational owners")
+                left, right = capture.sides(relation)
+                operations.append(operation)
+                sides.extend((left, right))
+            # Borrow every original payload before Python accessors can clone its
+            # children; unsupported first sources cannot hide later size failures.
+            grammar = True
+            for side in sides:
+                grammar &= _native.real_constraint_source_preflight_native(_native_expr(side))
+            for side in sides:
+                capture.scalar(side, 0)
+            capture.unchanged()
+            inferred_constant = symbols is None and not capture.symbols
+            if not grammar:
+                # Unsupported closed built-ins keep their existing scalar route.
+                # In particular, internal Piecewise guard tags must not become
+                # extra variables during rational-system variable inference.
+                for value, slot, children in capture.stamps:
+                    if slot.__name__ not in ("_args", "_struct_args", "_surface_args") or type(children) is not tuple:
+                        continue
+                    operator = next((op for owner, op in ((Add, "add"), (Mul, "mul"), (Pow, "pow"))
+                                    if type(value) is owner), None)
+                    if operator is not None:
+                        native = _native_expr(value)
+                        if _native.real_constraint_source_preflight_native(native):
+                            _native.ideal_source_arguments_native(native, operator,
+                                                                 [_native_expr(child) for child in children])
+                capture.unchanged()
+                return None
+            variable, frozen, supported = capture.freeze(variable)
+            if not supported:
+                return None
+            _constraint_owners_unchanged()
+            sources = [Add(frozen[index], Mul(-1, frozen[index + 1], evaluate=False), evaluate=False)
+                       for index in range(0, len(frozen), 2)]
+            capture.unchanged()
+            checked = _native.solve_real_rational_constraints_native(
+                [_native_expr(source) for source in sources], _symbol_binding(variable),
+                operations, conjunction_false,
+            )
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if checked is None:
+                raise NotImplementedError("admitted real constraints could not be completed")
+            result = _lift_constraint_chart(checked, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if inferred_constant:
+                from ..logic.boolalg import false, true
+                if type(result) not in (EmptySet, Reals):
+                    raise ValueError("constant real constraints produced variable boundaries")
+                return false if type(result) is EmptySet else true
+            from .. import _set_as_relational
+            relational = _set_as_relational(result, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            return relational
+        except (ValueError, OverflowError) as exc:
+>           raise NotImplementedError("exact rational constraints could not be completed: %s" % exc) from None
+E           NotImplementedError: exact rational constraints could not be completed: real constraint constant owner does not match its native value
+
+../../frankensympy/python/sympy/solvers/inequalities.py:195: NotImplementedError
+_____ test_constant_relation_proofs_do_not_leak_an_inferred_dummy_variable _____
+
+    def test_constant_relation_proofs_do_not_leak_an_inferred_dummy_variable():
+        for relation in (s.Eq(1, 1, evaluate=False), s.Ne(1, 0, evaluate=False),
+                         s.Gt(1, 0, evaluate=False)):
+>           assert s.reduce_inequalities([relation]) is s.S.true
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+../../frankensympy/python/tests/test_real_constraint_systems.py:113: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../frankensympy/python/sympy/__init__.py:2189: in reduce_inequalities
+    checked = _solve_rational_constraints(rels, symbols, conjunction_false)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+relations = [Eq(1, 1)], symbols = None, conjunction_false = False
+
+    def _solve_rational_constraints(relations, symbols, conjunction_false=False):
+        """Return a complete relational result, or None for another grammar.
+    
+        All original sides and typed symbol owners are captured before inference,
+        subtraction, or Boolean identities. The shared native partition decides
+        intersections without asking the generic set normalizer to order CRootOfs.
+        """
+        from ._piecewise_real import _Capture
+    
+        _constraint_owners_unchanged()
+    
+        class Capture(_Capture):
+            def touch(self, depth):
+                self.nodes += 1
+                if self.nodes > 65536 or depth > 64:
+                    raise ValueError("real constraint resource limit: source nodes/depth")
+    
+            def basic(self, value):
+                retained = super().basic(value)
+                kind = type(value)
+                if kind in (Integer, Rational, Zero, One, NegativeOne, Half, Add, Mul, Pow):
+                    native = _native_expr(value)
+                    valid = ((kind in (Integer, Zero, One, NegativeOne) and native.is_integer)
+                             or (kind in (Rational, Half) and (native.is_integer or native.is_rational))
+                             or kind is Add and native.is_add or kind is Mul and native.is_mul
+                             or kind is Pow and native.is_pow)
+                    if not valid:
+                        raise ValueError("real constraint scalar owner does not match its native source")
+                    fixed = {Zero: (0, 1), One: (1, 1), NegativeOne: (-1, 1), Half: (1, 2)}.get(kind)
+                    if fixed is not None and native != _native.py_rational(*fixed):
+                        raise ValueError("real constraint constant owner does not match its native value")
+                return retained
+    
+            def symbol(self, value):
+                super().symbol(value)
+                native = _native_expr(value)
+                if (not native.is_symbol or _surface_binding_key(native.symbol_binding)
+                        != _surface_binding_key(_symbol_binding(value))):
+                    raise ValueError("real constraint symbol has inconsistent typed assumptions")
+    
+        if len(relations) > 32:
+            raise NotImplementedError("real constraint resource limit: at most 32 relations")
+        capture = Capture()
+        operations = []
+        owners = ((Eq, "=="), (Ne, "!="), (Lt, "<"), (Le, "<="), (Gt, ">"), (Ge, ">="))
+        variable = symbols
+        if type(symbols) in (list, tuple, set):
+            if len(symbols) != 1:
+                raise NotImplementedError("only univariate inequalities are supported")
+            variable = next(iter(symbols))
+        if variable is not None:
+            if type(variable) not in (Symbol, Dummy):
+                raise TypeError("real constraints require an exact symbol")
+            _native.real_constraint_source_preflight_native(_native_expr(variable))
+            capture.symbol(variable)
+        try:
+            sides = []
+            for relation in relations:
+                operation = next((op for owner, op in owners if type(relation) is owner), None)
+                if operation is None:
+                    raise NotImplementedError("real constraints require exact relational owners")
+                left, right = capture.sides(relation)
+                operations.append(operation)
+                sides.extend((left, right))
+            # Borrow every original payload before Python accessors can clone its
+            # children; unsupported first sources cannot hide later size failures.
+            grammar = True
+            for side in sides:
+                grammar &= _native.real_constraint_source_preflight_native(_native_expr(side))
+            for side in sides:
+                capture.scalar(side, 0)
+            capture.unchanged()
+            inferred_constant = symbols is None and not capture.symbols
+            if not grammar:
+                # Unsupported closed built-ins keep their existing scalar route.
+                # In particular, internal Piecewise guard tags must not become
+                # extra variables during rational-system variable inference.
+                for value, slot, children in capture.stamps:
+                    if slot.__name__ not in ("_args", "_struct_args", "_surface_args") or type(children) is not tuple:
+                        continue
+                    operator = next((op for owner, op in ((Add, "add"), (Mul, "mul"), (Pow, "pow"))
+                                    if type(value) is owner), None)
+                    if operator is not None:
+                        native = _native_expr(value)
+                        if _native.real_constraint_source_preflight_native(native):
+                            _native.ideal_source_arguments_native(native, operator,
+                                                                 [_native_expr(child) for child in children])
+                capture.unchanged()
+                return None
+            variable, frozen, supported = capture.freeze(variable)
+            if not supported:
+                return None
+            _constraint_owners_unchanged()
+            sources = [Add(frozen[index], Mul(-1, frozen[index + 1], evaluate=False), evaluate=False)
+                       for index in range(0, len(frozen), 2)]
+            capture.unchanged()
+            checked = _native.solve_real_rational_constraints_native(
+                [_native_expr(source) for source in sources], _symbol_binding(variable),
+                operations, conjunction_false,
+            )
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if checked is None:
+                raise NotImplementedError("admitted real constraints could not be completed")
+            result = _lift_constraint_chart(checked, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if inferred_constant:
+                from ..logic.boolalg import false, true
+                if type(result) not in (EmptySet, Reals):
+                    raise ValueError("constant real constraints produced variable boundaries")
+                return false if type(result) is EmptySet else true
+            from .. import _set_as_relational
+            relational = _set_as_relational(result, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            return relational
+        except (ValueError, OverflowError) as exc:
+>           raise NotImplementedError("exact rational constraints could not be completed: %s" % exc) from None
+E           NotImplementedError: exact rational constraints could not be completed: real constraint constant owner does not match its native value
+
+../../frankensympy/python/sympy/solvers/inequalities.py:195: NotImplementedError
+___ test_boolean_constants_never_hide_source_limits_or_unsupported_relations ___
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2d6e998830>
+
+    def test_boolean_constants_never_hide_source_limits_or_unsupported_relations(monkeypatch):
+        x = s.Symbol("constraint_constants_x")
+        calls = []
+        original = _native.solve_real_rational_constraints_native
+    
+        def checked(sources, variable, operations, conjunction_false=False):
+            calls.append((len(sources), conjunction_false))
+            return original(sources, variable, operations, conjunction_false)
+    
+        monkeypatch.setattr(_native, "solve_real_rational_constraints_native", checked)
+>       assert s.reduce_inequalities([s.S.false, s.Ge(x, 0, evaluate=False)], x) is s.S.false
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+../../frankensympy/python/tests/test_real_constraint_systems.py:131: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../frankensympy/python/sympy/__init__.py:2189: in reduce_inequalities
+    checked = _solve_rational_constraints(rels, symbols, conjunction_false)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+relations = [constraint_constants_x >= 0], symbols = constraint_constants_x
+conjunction_false = True
+
+    def _solve_rational_constraints(relations, symbols, conjunction_false=False):
+        """Return a complete relational result, or None for another grammar.
+    
+        All original sides and typed symbol owners are captured before inference,
+        subtraction, or Boolean identities. The shared native partition decides
+        intersections without asking the generic set normalizer to order CRootOfs.
+        """
+        from ._piecewise_real import _Capture
+    
+        _constraint_owners_unchanged()
+    
+        class Capture(_Capture):
+            def touch(self, depth):
+                self.nodes += 1
+                if self.nodes > 65536 or depth > 64:
+                    raise ValueError("real constraint resource limit: source nodes/depth")
+    
+            def basic(self, value):
+                retained = super().basic(value)
+                kind = type(value)
+                if kind in (Integer, Rational, Zero, One, NegativeOne, Half, Add, Mul, Pow):
+                    native = _native_expr(value)
+                    valid = ((kind in (Integer, Zero, One, NegativeOne) and native.is_integer)
+                             or (kind in (Rational, Half) and (native.is_integer or native.is_rational))
+                             or kind is Add and native.is_add or kind is Mul and native.is_mul
+                             or kind is Pow and native.is_pow)
+                    if not valid:
+                        raise ValueError("real constraint scalar owner does not match its native source")
+                    fixed = {Zero: (0, 1), One: (1, 1), NegativeOne: (-1, 1), Half: (1, 2)}.get(kind)
+                    if fixed is not None and native != _native.py_rational(*fixed):
+                        raise ValueError("real constraint constant owner does not match its native value")
+                return retained
+    
+            def symbol(self, value):
+                super().symbol(value)
+                native = _native_expr(value)
+                if (not native.is_symbol or _surface_binding_key(native.symbol_binding)
+                        != _surface_binding_key(_symbol_binding(value))):
+                    raise ValueError("real constraint symbol has inconsistent typed assumptions")
+    
+        if len(relations) > 32:
+            raise NotImplementedError("real constraint resource limit: at most 32 relations")
+        capture = Capture()
+        operations = []
+        owners = ((Eq, "=="), (Ne, "!="), (Lt, "<"), (Le, "<="), (Gt, ">"), (Ge, ">="))
+        variable = symbols
+        if type(symbols) in (list, tuple, set):
+            if len(symbols) != 1:
+                raise NotImplementedError("only univariate inequalities are supported")
+            variable = next(iter(symbols))
+        if variable is not None:
+            if type(variable) not in (Symbol, Dummy):
+                raise TypeError("real constraints require an exact symbol")
+            _native.real_constraint_source_preflight_native(_native_expr(variable))
+            capture.symbol(variable)
+        try:
+            sides = []
+            for relation in relations:
+                operation = next((op for owner, op in owners if type(relation) is owner), None)
+                if operation is None:
+                    raise NotImplementedError("real constraints require exact relational owners")
+                left, right = capture.sides(relation)
+                operations.append(operation)
+                sides.extend((left, right))
+            # Borrow every original payload before Python accessors can clone its
+            # children; unsupported first sources cannot hide later size failures.
+            grammar = True
+            for side in sides:
+                grammar &= _native.real_constraint_source_preflight_native(_native_expr(side))
+            for side in sides:
+                capture.scalar(side, 0)
+            capture.unchanged()
+            inferred_constant = symbols is None and not capture.symbols
+            if not grammar:
+                # Unsupported closed built-ins keep their existing scalar route.
+                # In particular, internal Piecewise guard tags must not become
+                # extra variables during rational-system variable inference.
+                for value, slot, children in capture.stamps:
+                    if slot.__name__ not in ("_args", "_struct_args", "_surface_args") or type(children) is not tuple:
+                        continue
+                    operator = next((op for owner, op in ((Add, "add"), (Mul, "mul"), (Pow, "pow"))
+                                    if type(value) is owner), None)
+                    if operator is not None:
+                        native = _native_expr(value)
+                        if _native.real_constraint_source_preflight_native(native):
+                            _native.ideal_source_arguments_native(native, operator,
+                                                                 [_native_expr(child) for child in children])
+                capture.unchanged()
+                return None
+            variable, frozen, supported = capture.freeze(variable)
+            if not supported:
+                return None
+            _constraint_owners_unchanged()
+            sources = [Add(frozen[index], Mul(-1, frozen[index + 1], evaluate=False), evaluate=False)
+                       for index in range(0, len(frozen), 2)]
+            capture.unchanged()
+            checked = _native.solve_real_rational_constraints_native(
+                [_native_expr(source) for source in sources], _symbol_binding(variable),
+                operations, conjunction_false,
+            )
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if checked is None:
+                raise NotImplementedError("admitted real constraints could not be completed")
+            result = _lift_constraint_chart(checked, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if inferred_constant:
+                from ..logic.boolalg import false, true
+                if type(result) not in (EmptySet, Reals):
+                    raise ValueError("constant real constraints produced variable boundaries")
+                return false if type(result) is EmptySet else true
+            from .. import _set_as_relational
+            relational = _set_as_relational(result, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            return relational
+        except (ValueError, OverflowError) as exc:
+>           raise NotImplementedError("exact rational constraints could not be completed: %s" % exc) from None
+E           NotImplementedError: exact rational constraints could not be completed: real constraint constant owner does not match its native value
+
+../../frankensympy/python/sympy/solvers/inequalities.py:195: NotImplementedError
+_ test_typed_symbol_identity_dummy_inference_and_plain_symbol_collision_are_retained _
+
+    def test_typed_symbol_identity_dummy_inference_and_plain_symbol_collision_are_retained():
+        x = s.Dummy("constraint_dummy", positive=True)
+>       result = s.reduce_inequalities([s.Le(x*x, 4, evaluate=False), s.Ge(x, 0, evaluate=False)])
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+../../frankensympy/python/tests/test_real_constraint_systems.py:173: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../frankensympy/python/sympy/__init__.py:2189: in reduce_inequalities
+    checked = _solve_rational_constraints(rels, symbols, conjunction_false)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+relations = [_constraint_dummy**2 <= 4, _constraint_dummy >= 0], symbols = None
+conjunction_false = False
+
+    def _solve_rational_constraints(relations, symbols, conjunction_false=False):
+        """Return a complete relational result, or None for another grammar.
+    
+        All original sides and typed symbol owners are captured before inference,
+        subtraction, or Boolean identities. The shared native partition decides
+        intersections without asking the generic set normalizer to order CRootOfs.
+        """
+        from ._piecewise_real import _Capture
+    
+        _constraint_owners_unchanged()
+    
+        class Capture(_Capture):
+            def touch(self, depth):
+                self.nodes += 1
+                if self.nodes > 65536 or depth > 64:
+                    raise ValueError("real constraint resource limit: source nodes/depth")
+    
+            def basic(self, value):
+                retained = super().basic(value)
+                kind = type(value)
+                if kind in (Integer, Rational, Zero, One, NegativeOne, Half, Add, Mul, Pow):
+                    native = _native_expr(value)
+                    valid = ((kind in (Integer, Zero, One, NegativeOne) and native.is_integer)
+                             or (kind in (Rational, Half) and (native.is_integer or native.is_rational))
+                             or kind is Add and native.is_add or kind is Mul and native.is_mul
+                             or kind is Pow and native.is_pow)
+                    if not valid:
+                        raise ValueError("real constraint scalar owner does not match its native source")
+                    fixed = {Zero: (0, 1), One: (1, 1), NegativeOne: (-1, 1), Half: (1, 2)}.get(kind)
+                    if fixed is not None and native != _native.py_rational(*fixed):
+                        raise ValueError("real constraint constant owner does not match its native value")
+                return retained
+    
+            def symbol(self, value):
+                super().symbol(value)
+                native = _native_expr(value)
+                if (not native.is_symbol or _surface_binding_key(native.symbol_binding)
+                        != _surface_binding_key(_symbol_binding(value))):
+                    raise ValueError("real constraint symbol has inconsistent typed assumptions")
+    
+        if len(relations) > 32:
+            raise NotImplementedError("real constraint resource limit: at most 32 relations")
+        capture = Capture()
+        operations = []
+        owners = ((Eq, "=="), (Ne, "!="), (Lt, "<"), (Le, "<="), (Gt, ">"), (Ge, ">="))
+        variable = symbols
+        if type(symbols) in (list, tuple, set):
+            if len(symbols) != 1:
+                raise NotImplementedError("only univariate inequalities are supported")
+            variable = next(iter(symbols))
+        if variable is not None:
+            if type(variable) not in (Symbol, Dummy):
+                raise TypeError("real constraints require an exact symbol")
+            _native.real_constraint_source_preflight_native(_native_expr(variable))
+            capture.symbol(variable)
+        try:
+            sides = []
+            for relation in relations:
+                operation = next((op for owner, op in owners if type(relation) is owner), None)
+                if operation is None:
+                    raise NotImplementedError("real constraints require exact relational owners")
+                left, right = capture.sides(relation)
+                operations.append(operation)
+                sides.extend((left, right))
+            # Borrow every original payload before Python accessors can clone its
+            # children; unsupported first sources cannot hide later size failures.
+            grammar = True
+            for side in sides:
+                grammar &= _native.real_constraint_source_preflight_native(_native_expr(side))
+            for side in sides:
+                capture.scalar(side, 0)
+            capture.unchanged()
+            inferred_constant = symbols is None and not capture.symbols
+            if not grammar:
+                # Unsupported closed built-ins keep their existing scalar route.
+                # In particular, internal Piecewise guard tags must not become
+                # extra variables during rational-system variable inference.
+                for value, slot, children in capture.stamps:
+                    if slot.__name__ not in ("_args", "_struct_args", "_surface_args") or type(children) is not tuple:
+                        continue
+                    operator = next((op for owner, op in ((Add, "add"), (Mul, "mul"), (Pow, "pow"))
+                                    if type(value) is owner), None)
+                    if operator is not None:
+                        native = _native_expr(value)
+                        if _native.real_constraint_source_preflight_native(native):
+                            _native.ideal_source_arguments_native(native, operator,
+                                                                 [_native_expr(child) for child in children])
+                capture.unchanged()
+                return None
+            variable, frozen, supported = capture.freeze(variable)
+            if not supported:
+                return None
+            _constraint_owners_unchanged()
+            sources = [Add(frozen[index], Mul(-1, frozen[index + 1], evaluate=False), evaluate=False)
+                       for index in range(0, len(frozen), 2)]
+            capture.unchanged()
+            checked = _native.solve_real_rational_constraints_native(
+                [_native_expr(source) for source in sources], _symbol_binding(variable),
+                operations, conjunction_false,
+            )
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if checked is None:
+                raise NotImplementedError("admitted real constraints could not be completed")
+            result = _lift_constraint_chart(checked, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if inferred_constant:
+                from ..logic.boolalg import false, true
+                if type(result) not in (EmptySet, Reals):
+                    raise ValueError("constant real constraints produced variable boundaries")
+                return false if type(result) is EmptySet else true
+            from .. import _set_as_relational
+            relational = _set_as_relational(result, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            return relational
+        except (ValueError, OverflowError) as exc:
+>           raise NotImplementedError("exact rational constraints could not be completed: %s" % exc) from None
+E           NotImplementedError: exact rational constraints could not be completed: real constraint constant owner does not match its native value
+
+../../frankensympy/python/sympy/solvers/inequalities.py:195: NotImplementedError
+___ test_recognized_native_refusal_and_corrupted_root_order_cannot_fall_back ___
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2d6e8bdc40>
+
+    def test_recognized_native_refusal_and_corrupted_root_order_cannot_fall_back(monkeypatch):
+        x = s.Symbol("constraint_refusal_x")
+        relation = s.Le(x**4-x-1, 0, evaluate=False)
+        monkeypatch.setattr(_native, "solve_inequality_native", _forbid)
+        with monkeypatch.context() as patch:
+            patch.setattr(_native, "solve_real_rational_constraints_native", lambda *args: None)
+            with pytest.raises(NotImplementedError, match="admitted real constraints"):
+>               s.reduce_inequalities([relation], x)
+
+../../frankensympy/python/tests/test_real_constraint_systems.py:194: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../frankensympy/python/sympy/__init__.py:2189: in reduce_inequalities
+    checked = _solve_rational_constraints(rels, symbols, conjunction_false)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+relations = [constraint_refusal_x**4 - constraint_refusal_x - 1 <= 0]
+symbols = constraint_refusal_x, conjunction_false = False
+
+    def _solve_rational_constraints(relations, symbols, conjunction_false=False):
+        """Return a complete relational result, or None for another grammar.
+    
+        All original sides and typed symbol owners are captured before inference,
+        subtraction, or Boolean identities. The shared native partition decides
+        intersections without asking the generic set normalizer to order CRootOfs.
+        """
+        from ._piecewise_real import _Capture
+    
+        _constraint_owners_unchanged()
+    
+        class Capture(_Capture):
+            def touch(self, depth):
+                self.nodes += 1
+                if self.nodes > 65536 or depth > 64:
+                    raise ValueError("real constraint resource limit: source nodes/depth")
+    
+            def basic(self, value):
+                retained = super().basic(value)
+                kind = type(value)
+                if kind in (Integer, Rational, Zero, One, NegativeOne, Half, Add, Mul, Pow):
+                    native = _native_expr(value)
+                    valid = ((kind in (Integer, Zero, One, NegativeOne) and native.is_integer)
+                             or (kind in (Rational, Half) and (native.is_integer or native.is_rational))
+                             or kind is Add and native.is_add or kind is Mul and native.is_mul
+                             or kind is Pow and native.is_pow)
+                    if not valid:
+                        raise ValueError("real constraint scalar owner does not match its native source")
+                    fixed = {Zero: (0, 1), One: (1, 1), NegativeOne: (-1, 1), Half: (1, 2)}.get(kind)
+                    if fixed is not None and native != _native.py_rational(*fixed):
+                        raise ValueError("real constraint constant owner does not match its native value")
+                return retained
+    
+            def symbol(self, value):
+                super().symbol(value)
+                native = _native_expr(value)
+                if (not native.is_symbol or _surface_binding_key(native.symbol_binding)
+                        != _surface_binding_key(_symbol_binding(value))):
+                    raise ValueError("real constraint symbol has inconsistent typed assumptions")
+    
+        if len(relations) > 32:
+            raise NotImplementedError("real constraint resource limit: at most 32 relations")
+        capture = Capture()
+        operations = []
+        owners = ((Eq, "=="), (Ne, "!="), (Lt, "<"), (Le, "<="), (Gt, ">"), (Ge, ">="))
+        variable = symbols
+        if type(symbols) in (list, tuple, set):
+            if len(symbols) != 1:
+                raise NotImplementedError("only univariate inequalities are supported")
+            variable = next(iter(symbols))
+        if variable is not None:
+            if type(variable) not in (Symbol, Dummy):
+                raise TypeError("real constraints require an exact symbol")
+            _native.real_constraint_source_preflight_native(_native_expr(variable))
+            capture.symbol(variable)
+        try:
+            sides = []
+            for relation in relations:
+                operation = next((op for owner, op in owners if type(relation) is owner), None)
+                if operation is None:
+                    raise NotImplementedError("real constraints require exact relational owners")
+                left, right = capture.sides(relation)
+                operations.append(operation)
+                sides.extend((left, right))
+            # Borrow every original payload before Python accessors can clone its
+            # children; unsupported first sources cannot hide later size failures.
+            grammar = True
+            for side in sides:
+                grammar &= _native.real_constraint_source_preflight_native(_native_expr(side))
+            for side in sides:
+                capture.scalar(side, 0)
+            capture.unchanged()
+            inferred_constant = symbols is None and not capture.symbols
+            if not grammar:
+                # Unsupported closed built-ins keep their existing scalar route.
+                # In particular, internal Piecewise guard tags must not become
+                # extra variables during rational-system variable inference.
+                for value, slot, children in capture.stamps:
+                    if slot.__name__ not in ("_args", "_struct_args", "_surface_args") or type(children) is not tuple:
+                        continue
+                    operator = next((op for owner, op in ((Add, "add"), (Mul, "mul"), (Pow, "pow"))
+                                    if type(value) is owner), None)
+                    if operator is not None:
+                        native = _native_expr(value)
+                        if _native.real_constraint_source_preflight_native(native):
+                            _native.ideal_source_arguments_native(native, operator,
+                                                                 [_native_expr(child) for child in children])
+                capture.unchanged()
+                return None
+            variable, frozen, supported = capture.freeze(variable)
+            if not supported:
+                return None
+            _constraint_owners_unchanged()
+            sources = [Add(frozen[index], Mul(-1, frozen[index + 1], evaluate=False), evaluate=False)
+                       for index in range(0, len(frozen), 2)]
+            capture.unchanged()
+            checked = _native.solve_real_rational_constraints_native(
+                [_native_expr(source) for source in sources], _symbol_binding(variable),
+                operations, conjunction_false,
+            )
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if checked is None:
+                raise NotImplementedError("admitted real constraints could not be completed")
+            result = _lift_constraint_chart(checked, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if inferred_constant:
+                from ..logic.boolalg import false, true
+                if type(result) not in (EmptySet, Reals):
+                    raise ValueError("constant real constraints produced variable boundaries")
+                return false if type(result) is EmptySet else true
+            from .. import _set_as_relational
+            relational = _set_as_relational(result, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            return relational
+        except (ValueError, OverflowError) as exc:
+>           raise NotImplementedError("exact rational constraints could not be completed: %s" % exc) from None
+E           NotImplementedError: exact rational constraints could not be completed: real constraint constant owner does not match its native value
+
+../../frankensympy/python/sympy/solvers/inequalities.py:195: NotImplementedError
+
+During handling of the above exception, another exception occurred:
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2d6e8bdc40>
+
+    def test_recognized_native_refusal_and_corrupted_root_order_cannot_fall_back(monkeypatch):
+        x = s.Symbol("constraint_refusal_x")
+        relation = s.Le(x**4-x-1, 0, evaluate=False)
+        monkeypatch.setattr(_native, "solve_inequality_native", _forbid)
+        with monkeypatch.context() as patch:
+            patch.setattr(_native, "solve_real_rational_constraints_native", lambda *args: None)
+>           with pytest.raises(NotImplementedError, match="admitted real constraints"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           AssertionError: Regex pattern did not match.
+E            Regex: 'admitted real constraints'
+E            Input: 'exact rational constraints could not be completed: real constraint constant owner does not match its native value'
+
+../../frankensympy/python/tests/test_real_constraint_systems.py:193: AssertionError
+____ test_source_mutation_during_native_work_is_detected_before_publication ____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2d6e68d4c0>
+
+    def test_source_mutation_during_native_work_is_detected_before_publication(monkeypatch):
+        x = s.Symbol("constraint_mutation_x")
+        source = s.Add(x, 1, evaluate=False)
+        relation = s.Ge(source, 0, evaluate=False)
+        original = _native.solve_real_rational_constraints_native
+    
+        def mutate(*args, **kwargs):
+            result = original(*args, **kwargs)
+            s.Add.__dict__["_args"].__set__(source, (x, s.Integer(2)))
+            return result
+    
+        monkeypatch.setattr(_native, "solve_real_rational_constraints_native", mutate)
+        with pytest.raises(RuntimeError, match="mutated"):
+>           s.reduce_inequalities([relation], x)
+
+../../frankensympy/python/tests/test_real_constraint_systems.py:219: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../frankensympy/python/sympy/__init__.py:2189: in reduce_inequalities
+    checked = _solve_rational_constraints(rels, symbols, conjunction_false)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+relations = [constraint_mutation_x + 1 >= 0], symbols = constraint_mutation_x
+conjunction_false = False
+
+    def _solve_rational_constraints(relations, symbols, conjunction_false=False):
+        """Return a complete relational result, or None for another grammar.
+    
+        All original sides and typed symbol owners are captured before inference,
+        subtraction, or Boolean identities. The shared native partition decides
+        intersections without asking the generic set normalizer to order CRootOfs.
+        """
+        from ._piecewise_real import _Capture
+    
+        _constraint_owners_unchanged()
+    
+        class Capture(_Capture):
+            def touch(self, depth):
+                self.nodes += 1
+                if self.nodes > 65536 or depth > 64:
+                    raise ValueError("real constraint resource limit: source nodes/depth")
+    
+            def basic(self, value):
+                retained = super().basic(value)
+                kind = type(value)
+                if kind in (Integer, Rational, Zero, One, NegativeOne, Half, Add, Mul, Pow):
+                    native = _native_expr(value)
+                    valid = ((kind in (Integer, Zero, One, NegativeOne) and native.is_integer)
+                             or (kind in (Rational, Half) and (native.is_integer or native.is_rational))
+                             or kind is Add and native.is_add or kind is Mul and native.is_mul
+                             or kind is Pow and native.is_pow)
+                    if not valid:
+                        raise ValueError("real constraint scalar owner does not match its native source")
+                    fixed = {Zero: (0, 1), One: (1, 1), NegativeOne: (-1, 1), Half: (1, 2)}.get(kind)
+                    if fixed is not None and native != _native.py_rational(*fixed):
+                        raise ValueError("real constraint constant owner does not match its native value")
+                return retained
+    
+            def symbol(self, value):
+                super().symbol(value)
+                native = _native_expr(value)
+                if (not native.is_symbol or _surface_binding_key(native.symbol_binding)
+                        != _surface_binding_key(_symbol_binding(value))):
+                    raise ValueError("real constraint symbol has inconsistent typed assumptions")
+    
+        if len(relations) > 32:
+            raise NotImplementedError("real constraint resource limit: at most 32 relations")
+        capture = Capture()
+        operations = []
+        owners = ((Eq, "=="), (Ne, "!="), (Lt, "<"), (Le, "<="), (Gt, ">"), (Ge, ">="))
+        variable = symbols
+        if type(symbols) in (list, tuple, set):
+            if len(symbols) != 1:
+                raise NotImplementedError("only univariate inequalities are supported")
+            variable = next(iter(symbols))
+        if variable is not None:
+            if type(variable) not in (Symbol, Dummy):
+                raise TypeError("real constraints require an exact symbol")
+            _native.real_constraint_source_preflight_native(_native_expr(variable))
+            capture.symbol(variable)
+        try:
+            sides = []
+            for relation in relations:
+                operation = next((op for owner, op in owners if type(relation) is owner), None)
+                if operation is None:
+                    raise NotImplementedError("real constraints require exact relational owners")
+                left, right = capture.sides(relation)
+                operations.append(operation)
+                sides.extend((left, right))
+            # Borrow every original payload before Python accessors can clone its
+            # children; unsupported first sources cannot hide later size failures.
+            grammar = True
+            for side in sides:
+                grammar &= _native.real_constraint_source_preflight_native(_native_expr(side))
+            for side in sides:
+                capture.scalar(side, 0)
+            capture.unchanged()
+            inferred_constant = symbols is None and not capture.symbols
+            if not grammar:
+                # Unsupported closed built-ins keep their existing scalar route.
+                # In particular, internal Piecewise guard tags must not become
+                # extra variables during rational-system variable inference.
+                for value, slot, children in capture.stamps:
+                    if slot.__name__ not in ("_args", "_struct_args", "_surface_args") or type(children) is not tuple:
+                        continue
+                    operator = next((op for owner, op in ((Add, "add"), (Mul, "mul"), (Pow, "pow"))
+                                    if type(value) is owner), None)
+                    if operator is not None:
+                        native = _native_expr(value)
+                        if _native.real_constraint_source_preflight_native(native):
+                            _native.ideal_source_arguments_native(native, operator,
+                                                                 [_native_expr(child) for child in children])
+                capture.unchanged()
+                return None
+            variable, frozen, supported = capture.freeze(variable)
+            if not supported:
+                return None
+            _constraint_owners_unchanged()
+            sources = [Add(frozen[index], Mul(-1, frozen[index + 1], evaluate=False), evaluate=False)
+                       for index in range(0, len(frozen), 2)]
+            capture.unchanged()
+            checked = _native.solve_real_rational_constraints_native(
+                [_native_expr(source) for source in sources], _symbol_binding(variable),
+                operations, conjunction_false,
+            )
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if checked is None:
+                raise NotImplementedError("admitted real constraints could not be completed")
+            result = _lift_constraint_chart(checked, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if inferred_constant:
+                from ..logic.boolalg import false, true
+                if type(result) not in (EmptySet, Reals):
+                    raise ValueError("constant real constraints produced variable boundaries")
+                return false if type(result) is EmptySet else true
+            from .. import _set_as_relational
+            relational = _set_as_relational(result, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            return relational
+        except (ValueError, OverflowError) as exc:
+>           raise NotImplementedError("exact rational constraints could not be completed: %s" % exc) from None
+E           NotImplementedError: exact rational constraints could not be completed: real constraint constant owner does not match its native value
+
+../../frankensympy/python/sympy/solvers/inequalities.py:195: NotImplementedError
+
+During handling of the above exception, another exception occurred:
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2d6e68d4c0>
+
+    def test_source_mutation_during_native_work_is_detected_before_publication(monkeypatch):
+        x = s.Symbol("constraint_mutation_x")
+        source = s.Add(x, 1, evaluate=False)
+        relation = s.Ge(source, 0, evaluate=False)
+        original = _native.solve_real_rational_constraints_native
+    
+        def mutate(*args, **kwargs):
+            result = original(*args, **kwargs)
+            s.Add.__dict__["_args"].__set__(source, (x, s.Integer(2)))
+            return result
+    
+        monkeypatch.setattr(_native, "solve_real_rational_constraints_native", mutate)
+>       with pytest.raises(RuntimeError, match="mutated"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E        Regex: 'mutated'
+E        Input: 'exact rational constraints could not be completed: real constraint constant owner does not match its native value'
+
+../../frankensympy/python/tests/test_real_constraint_systems.py:218: AssertionError
+____ test_final_relational_publication_rechecks_sources_and_builtin_owners _____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2d6e68af30>
+
+    def test_final_relational_publication_rechecks_sources_and_builtin_owners(monkeypatch):
+        x = s.Symbol("constraint_publication_x")
+        source = s.Add(x, 1, evaluate=False)
+        relation = s.Ge(source, 0, evaluate=False)
+        original = s._set_as_relational
+    
+        def mutate(*args, **kwargs):
+            result = original(*args, **kwargs)
+            s.Add.__dict__["_args"].__set__(source, (x, s.Integer(2)))
+            return result
+    
+        with monkeypatch.context() as patch:
+            patch.setattr(s, "_set_as_relational", mutate)
+            with pytest.raises(RuntimeError, match="mutated"):
+>               s.reduce_inequalities([relation], x)
+
+../../frankensympy/python/tests/test_real_constraint_systems.py:236: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../frankensympy/python/sympy/__init__.py:2189: in reduce_inequalities
+    checked = _solve_rational_constraints(rels, symbols, conjunction_false)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+relations = [constraint_publication_x + 1 >= 0]
+symbols = constraint_publication_x, conjunction_false = False
+
+    def _solve_rational_constraints(relations, symbols, conjunction_false=False):
+        """Return a complete relational result, or None for another grammar.
+    
+        All original sides and typed symbol owners are captured before inference,
+        subtraction, or Boolean identities. The shared native partition decides
+        intersections without asking the generic set normalizer to order CRootOfs.
+        """
+        from ._piecewise_real import _Capture
+    
+        _constraint_owners_unchanged()
+    
+        class Capture(_Capture):
+            def touch(self, depth):
+                self.nodes += 1
+                if self.nodes > 65536 or depth > 64:
+                    raise ValueError("real constraint resource limit: source nodes/depth")
+    
+            def basic(self, value):
+                retained = super().basic(value)
+                kind = type(value)
+                if kind in (Integer, Rational, Zero, One, NegativeOne, Half, Add, Mul, Pow):
+                    native = _native_expr(value)
+                    valid = ((kind in (Integer, Zero, One, NegativeOne) and native.is_integer)
+                             or (kind in (Rational, Half) and (native.is_integer or native.is_rational))
+                             or kind is Add and native.is_add or kind is Mul and native.is_mul
+                             or kind is Pow and native.is_pow)
+                    if not valid:
+                        raise ValueError("real constraint scalar owner does not match its native source")
+                    fixed = {Zero: (0, 1), One: (1, 1), NegativeOne: (-1, 1), Half: (1, 2)}.get(kind)
+                    if fixed is not None and native != _native.py_rational(*fixed):
+                        raise ValueError("real constraint constant owner does not match its native value")
+                return retained
+    
+            def symbol(self, value):
+                super().symbol(value)
+                native = _native_expr(value)
+                if (not native.is_symbol or _surface_binding_key(native.symbol_binding)
+                        != _surface_binding_key(_symbol_binding(value))):
+                    raise ValueError("real constraint symbol has inconsistent typed assumptions")
+    
+        if len(relations) > 32:
+            raise NotImplementedError("real constraint resource limit: at most 32 relations")
+        capture = Capture()
+        operations = []
+        owners = ((Eq, "=="), (Ne, "!="), (Lt, "<"), (Le, "<="), (Gt, ">"), (Ge, ">="))
+        variable = symbols
+        if type(symbols) in (list, tuple, set):
+            if len(symbols) != 1:
+                raise NotImplementedError("only univariate inequalities are supported")
+            variable = next(iter(symbols))
+        if variable is not None:
+            if type(variable) not in (Symbol, Dummy):
+                raise TypeError("real constraints require an exact symbol")
+            _native.real_constraint_source_preflight_native(_native_expr(variable))
+            capture.symbol(variable)
+        try:
+            sides = []
+            for relation in relations:
+                operation = next((op for owner, op in owners if type(relation) is owner), None)
+                if operation is None:
+                    raise NotImplementedError("real constraints require exact relational owners")
+                left, right = capture.sides(relation)
+                operations.append(operation)
+                sides.extend((left, right))
+            # Borrow every original payload before Python accessors can clone its
+            # children; unsupported first sources cannot hide later size failures.
+            grammar = True
+            for side in sides:
+                grammar &= _native.real_constraint_source_preflight_native(_native_expr(side))
+            for side in sides:
+                capture.scalar(side, 0)
+            capture.unchanged()
+            inferred_constant = symbols is None and not capture.symbols
+            if not grammar:
+                # Unsupported closed built-ins keep their existing scalar route.
+                # In particular, internal Piecewise guard tags must not become
+                # extra variables during rational-system variable inference.
+                for value, slot, children in capture.stamps:
+                    if slot.__name__ not in ("_args", "_struct_args", "_surface_args") or type(children) is not tuple:
+                        continue
+                    operator = next((op for owner, op in ((Add, "add"), (Mul, "mul"), (Pow, "pow"))
+                                    if type(value) is owner), None)
+                    if operator is not None:
+                        native = _native_expr(value)
+                        if _native.real_constraint_source_preflight_native(native):
+                            _native.ideal_source_arguments_native(native, operator,
+                                                                 [_native_expr(child) for child in children])
+                capture.unchanged()
+                return None
+            variable, frozen, supported = capture.freeze(variable)
+            if not supported:
+                return None
+            _constraint_owners_unchanged()
+            sources = [Add(frozen[index], Mul(-1, frozen[index + 1], evaluate=False), evaluate=False)
+                       for index in range(0, len(frozen), 2)]
+            capture.unchanged()
+            checked = _native.solve_real_rational_constraints_native(
+                [_native_expr(source) for source in sources], _symbol_binding(variable),
+                operations, conjunction_false,
+            )
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if checked is None:
+                raise NotImplementedError("admitted real constraints could not be completed")
+            result = _lift_constraint_chart(checked, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if inferred_constant:
+                from ..logic.boolalg import false, true
+                if type(result) not in (EmptySet, Reals):
+                    raise ValueError("constant real constraints produced variable boundaries")
+                return false if type(result) is EmptySet else true
+            from .. import _set_as_relational
+            relational = _set_as_relational(result, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            return relational
+        except (ValueError, OverflowError) as exc:
+>           raise NotImplementedError("exact rational constraints could not be completed: %s" % exc) from None
+E           NotImplementedError: exact rational constraints could not be completed: real constraint constant owner does not match its native value
+
+../../frankensympy/python/sympy/solvers/inequalities.py:195: NotImplementedError
+
+During handling of the above exception, another exception occurred:
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2d6e68af30>
+
+    def test_final_relational_publication_rechecks_sources_and_builtin_owners(monkeypatch):
+        x = s.Symbol("constraint_publication_x")
+        source = s.Add(x, 1, evaluate=False)
+        relation = s.Ge(source, 0, evaluate=False)
+        original = s._set_as_relational
+    
+        def mutate(*args, **kwargs):
+            result = original(*args, **kwargs)
+            s.Add.__dict__["_args"].__set__(source, (x, s.Integer(2)))
+            return result
+    
+        with monkeypatch.context() as patch:
+            patch.setattr(s, "_set_as_relational", mutate)
+>           with pytest.raises(RuntimeError, match="mutated"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           AssertionError: Regex pattern did not match.
+E            Regex: 'mutated'
+E            Input: 'exact rational constraints could not be completed: real constraint constant owner does not match its native value'
+
+../../frankensympy/python/tests/test_real_constraint_systems.py:235: AssertionError
+_ test_existing_closed_elementary_and_piecewise_equation_fallbacks_remain_available _
+
+    def test_existing_closed_elementary_and_piecewise_equation_fallbacks_remain_available():
+        x = s.Symbol("constraint_fallback_x")
+>       elementary = s.reduce_inequalities([s.Ge(s.Abs(x), 1, evaluate=False)], x)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+../../frankensympy/python/tests/test_real_constraint_systems.py:262: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../frankensympy/python/sympy/__init__.py:2189: in reduce_inequalities
+    checked = _solve_rational_constraints(rels, symbols, conjunction_false)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+relations = [Abs(constraint_fallback_x) >= 1], symbols = constraint_fallback_x
+conjunction_false = False
+
+    def _solve_rational_constraints(relations, symbols, conjunction_false=False):
+        """Return a complete relational result, or None for another grammar.
+    
+        All original sides and typed symbol owners are captured before inference,
+        subtraction, or Boolean identities. The shared native partition decides
+        intersections without asking the generic set normalizer to order CRootOfs.
+        """
+        from ._piecewise_real import _Capture
+    
+        _constraint_owners_unchanged()
+    
+        class Capture(_Capture):
+            def touch(self, depth):
+                self.nodes += 1
+                if self.nodes > 65536 or depth > 64:
+                    raise ValueError("real constraint resource limit: source nodes/depth")
+    
+            def basic(self, value):
+                retained = super().basic(value)
+                kind = type(value)
+                if kind in (Integer, Rational, Zero, One, NegativeOne, Half, Add, Mul, Pow):
+                    native = _native_expr(value)
+                    valid = ((kind in (Integer, Zero, One, NegativeOne) and native.is_integer)
+                             or (kind in (Rational, Half) and (native.is_integer or native.is_rational))
+                             or kind is Add and native.is_add or kind is Mul and native.is_mul
+                             or kind is Pow and native.is_pow)
+                    if not valid:
+                        raise ValueError("real constraint scalar owner does not match its native source")
+                    fixed = {Zero: (0, 1), One: (1, 1), NegativeOne: (-1, 1), Half: (1, 2)}.get(kind)
+                    if fixed is not None and native != _native.py_rational(*fixed):
+                        raise ValueError("real constraint constant owner does not match its native value")
+                return retained
+    
+            def symbol(self, value):
+                super().symbol(value)
+                native = _native_expr(value)
+                if (not native.is_symbol or _surface_binding_key(native.symbol_binding)
+                        != _surface_binding_key(_symbol_binding(value))):
+                    raise ValueError("real constraint symbol has inconsistent typed assumptions")
+    
+        if len(relations) > 32:
+            raise NotImplementedError("real constraint resource limit: at most 32 relations")
+        capture = Capture()
+        operations = []
+        owners = ((Eq, "=="), (Ne, "!="), (Lt, "<"), (Le, "<="), (Gt, ">"), (Ge, ">="))
+        variable = symbols
+        if type(symbols) in (list, tuple, set):
+            if len(symbols) != 1:
+                raise NotImplementedError("only univariate inequalities are supported")
+            variable = next(iter(symbols))
+        if variable is not None:
+            if type(variable) not in (Symbol, Dummy):
+                raise TypeError("real constraints require an exact symbol")
+            _native.real_constraint_source_preflight_native(_native_expr(variable))
+            capture.symbol(variable)
+        try:
+            sides = []
+            for relation in relations:
+                operation = next((op for owner, op in owners if type(relation) is owner), None)
+                if operation is None:
+                    raise NotImplementedError("real constraints require exact relational owners")
+                left, right = capture.sides(relation)
+                operations.append(operation)
+                sides.extend((left, right))
+            # Borrow every original payload before Python accessors can clone its
+            # children; unsupported first sources cannot hide later size failures.
+            grammar = True
+            for side in sides:
+                grammar &= _native.real_constraint_source_preflight_native(_native_expr(side))
+            for side in sides:
+                capture.scalar(side, 0)
+            capture.unchanged()
+            inferred_constant = symbols is None and not capture.symbols
+            if not grammar:
+                # Unsupported closed built-ins keep their existing scalar route.
+                # In particular, internal Piecewise guard tags must not become
+                # extra variables during rational-system variable inference.
+                for value, slot, children in capture.stamps:
+                    if slot.__name__ not in ("_args", "_struct_args", "_surface_args") or type(children) is not tuple:
+                        continue
+                    operator = next((op for owner, op in ((Add, "add"), (Mul, "mul"), (Pow, "pow"))
+                                    if type(value) is owner), None)
+                    if operator is not None:
+                        native = _native_expr(value)
+                        if _native.real_constraint_source_preflight_native(native):
+                            _native.ideal_source_arguments_native(native, operator,
+                                                                 [_native_expr(child) for child in children])
+                capture.unchanged()
+                return None
+            variable, frozen, supported = capture.freeze(variable)
+            if not supported:
+                return None
+            _constraint_owners_unchanged()
+            sources = [Add(frozen[index], Mul(-1, frozen[index + 1], evaluate=False), evaluate=False)
+                       for index in range(0, len(frozen), 2)]
+            capture.unchanged()
+            checked = _native.solve_real_rational_constraints_native(
+                [_native_expr(source) for source in sources], _symbol_binding(variable),
+                operations, conjunction_false,
+            )
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if checked is None:
+                raise NotImplementedError("admitted real constraints could not be completed")
+            result = _lift_constraint_chart(checked, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if inferred_constant:
+                from ..logic.boolalg import false, true
+                if type(result) not in (EmptySet, Reals):
+                    raise ValueError("constant real constraints produced variable boundaries")
+                return false if type(result) is EmptySet else true
+            from .. import _set_as_relational
+            relational = _set_as_relational(result, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            return relational
+        except (ValueError, OverflowError) as exc:
+>           raise NotImplementedError("exact rational constraints could not be completed: %s" % exc) from None
+E           NotImplementedError: exact rational constraints could not be completed: real constraint constant owner does not match its native value
+
+../../frankensympy/python/sympy/solvers/inequalities.py:195: NotImplementedError
+_ test_algebraic_interval_intersections_preserve_all_constraints_as_conjunctions _
+
+    def test_algebraic_interval_intersections_preserve_all_constraints_as_conjunctions():
+        x = s.Symbol("inequality_intersection_x")
+        polynomial = x**4-x-1
+        lo, hi = s.CRootOf(polynomial, 0), s.CRootOf(polynomial, 1)
+>       result = s.reduce_inequalities([
+            s.Le(polynomial, 0, evaluate=False), s.Ge(x, 0, evaluate=False),
+        ], x)
+
+../../frankensympy/python/tests/test_real_rational_inequalities.py:175: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../frankensympy/python/sympy/__init__.py:2189: in reduce_inequalities
+    checked = _solve_rational_constraints(rels, symbols, conjunction_false)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+relations = [inequality_intersection_x**4 - inequality_intersection_x - 1 <= 0, inequality_intersection_x >= 0]
+symbols = inequality_intersection_x, conjunction_false = False
+
+    def _solve_rational_constraints(relations, symbols, conjunction_false=False):
+        """Return a complete relational result, or None for another grammar.
+    
+        All original sides and typed symbol owners are captured before inference,
+        subtraction, or Boolean identities. The shared native partition decides
+        intersections without asking the generic set normalizer to order CRootOfs.
+        """
+        from ._piecewise_real import _Capture
+    
+        _constraint_owners_unchanged()
+    
+        class Capture(_Capture):
+            def touch(self, depth):
+                self.nodes += 1
+                if self.nodes > 65536 or depth > 64:
+                    raise ValueError("real constraint resource limit: source nodes/depth")
+    
+            def basic(self, value):
+                retained = super().basic(value)
+                kind = type(value)
+                if kind in (Integer, Rational, Zero, One, NegativeOne, Half, Add, Mul, Pow):
+                    native = _native_expr(value)
+                    valid = ((kind in (Integer, Zero, One, NegativeOne) and native.is_integer)
+                             or (kind in (Rational, Half) and (native.is_integer or native.is_rational))
+                             or kind is Add and native.is_add or kind is Mul and native.is_mul
+                             or kind is Pow and native.is_pow)
+                    if not valid:
+                        raise ValueError("real constraint scalar owner does not match its native source")
+                    fixed = {Zero: (0, 1), One: (1, 1), NegativeOne: (-1, 1), Half: (1, 2)}.get(kind)
+                    if fixed is not None and native != _native.py_rational(*fixed):
+                        raise ValueError("real constraint constant owner does not match its native value")
+                return retained
+    
+            def symbol(self, value):
+                super().symbol(value)
+                native = _native_expr(value)
+                if (not native.is_symbol or _surface_binding_key(native.symbol_binding)
+                        != _surface_binding_key(_symbol_binding(value))):
+                    raise ValueError("real constraint symbol has inconsistent typed assumptions")
+    
+        if len(relations) > 32:
+            raise NotImplementedError("real constraint resource limit: at most 32 relations")
+        capture = Capture()
+        operations = []
+        owners = ((Eq, "=="), (Ne, "!="), (Lt, "<"), (Le, "<="), (Gt, ">"), (Ge, ">="))
+        variable = symbols
+        if type(symbols) in (list, tuple, set):
+            if len(symbols) != 1:
+                raise NotImplementedError("only univariate inequalities are supported")
+            variable = next(iter(symbols))
+        if variable is not None:
+            if type(variable) not in (Symbol, Dummy):
+                raise TypeError("real constraints require an exact symbol")
+            _native.real_constraint_source_preflight_native(_native_expr(variable))
+            capture.symbol(variable)
+        try:
+            sides = []
+            for relation in relations:
+                operation = next((op for owner, op in owners if type(relation) is owner), None)
+                if operation is None:
+                    raise NotImplementedError("real constraints require exact relational owners")
+                left, right = capture.sides(relation)
+                operations.append(operation)
+                sides.extend((left, right))
+            # Borrow every original payload before Python accessors can clone its
+            # children; unsupported first sources cannot hide later size failures.
+            grammar = True
+            for side in sides:
+                grammar &= _native.real_constraint_source_preflight_native(_native_expr(side))
+            for side in sides:
+                capture.scalar(side, 0)
+            capture.unchanged()
+            inferred_constant = symbols is None and not capture.symbols
+            if not grammar:
+                # Unsupported closed built-ins keep their existing scalar route.
+                # In particular, internal Piecewise guard tags must not become
+                # extra variables during rational-system variable inference.
+                for value, slot, children in capture.stamps:
+                    if slot.__name__ not in ("_args", "_struct_args", "_surface_args") or type(children) is not tuple:
+                        continue
+                    operator = next((op for owner, op in ((Add, "add"), (Mul, "mul"), (Pow, "pow"))
+                                    if type(value) is owner), None)
+                    if operator is not None:
+                        native = _native_expr(value)
+                        if _native.real_constraint_source_preflight_native(native):
+                            _native.ideal_source_arguments_native(native, operator,
+                                                                 [_native_expr(child) for child in children])
+                capture.unchanged()
+                return None
+            variable, frozen, supported = capture.freeze(variable)
+            if not supported:
+                return None
+            _constraint_owners_unchanged()
+            sources = [Add(frozen[index], Mul(-1, frozen[index + 1], evaluate=False), evaluate=False)
+                       for index in range(0, len(frozen), 2)]
+            capture.unchanged()
+            checked = _native.solve_real_rational_constraints_native(
+                [_native_expr(source) for source in sources], _symbol_binding(variable),
+                operations, conjunction_false,
+            )
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if checked is None:
+                raise NotImplementedError("admitted real constraints could not be completed")
+            result = _lift_constraint_chart(checked, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            if inferred_constant:
+                from ..logic.boolalg import false, true
+                if type(result) not in (EmptySet, Reals):
+                    raise ValueError("constant real constraints produced variable boundaries")
+                return false if type(result) is EmptySet else true
+            from .. import _set_as_relational
+            relational = _set_as_relational(result, variable)
+            capture.unchanged()
+            _constraint_owners_unchanged()
+            return relational
+        except (ValueError, OverflowError) as exc:
+>           raise NotImplementedError("exact rational constraints could not be completed: %s" % exc) from None
+E           NotImplementedError: exact rational constraints could not be completed: real constraint constant owner does not match its native value
+
+../../frankensympy/python/sympy/solvers/inequalities.py:195: NotImplementedError
+=========================== short test summary info ============================
+FAILED ../../frankensympy/python/tests/test_real_constraint_systems.py::test_common_algebraic_partition_decides_empty_intersections_without_approximation
+FAILED ../../frankensympy/python/tests/test_real_constraint_systems.py::test_common_partition_removes_foreign_algebraic_bounds_instead_of_retaining_intersections
+FAILED ../../frankensympy/python/tests/test_real_constraint_systems.py::test_equalities_and_disequalities_filter_complete_algebraic_point_sets
+FAILED ../../frankensympy/python/tests/test_real_constraint_systems.py::test_disequality_keeps_cancelled_and_held_original_domain_holes
+FAILED ../../frankensympy/python/tests/test_real_constraint_systems.py::test_held_relational_sides_preserve_their_domains_before_subtraction
+FAILED ../../frankensympy/python/tests/test_real_constraint_systems.py::test_true_cells_join_across_an_unused_internal_critical_point
+FAILED ../../frankensympy/python/tests/test_real_constraint_systems.py::test_constant_relation_proofs_do_not_leak_an_inferred_dummy_variable
+FAILED ../../frankensympy/python/tests/test_real_constraint_systems.py::test_boolean_constants_never_hide_source_limits_or_unsupported_relations
+FAILED ../../frankensympy/python/tests/test_real_constraint_systems.py::test_typed_symbol_identity_dummy_inference_and_plain_symbol_collision_are_retained
+FAILED ../../frankensympy/python/tests/test_real_constraint_systems.py::test_recognized_native_refusal_and_corrupted_root_order_cannot_fall_back
+FAILED ../../frankensympy/python/tests/test_real_constraint_systems.py::test_source_mutation_during_native_work_is_detected_before_publication
+FAILED ../../frankensympy/python/tests/test_real_constraint_systems.py::test_final_relational_publication_rechecks_sources_and_builtin_owners
+FAILED ../../frankensympy/python/tests/test_real_constraint_systems.py::test_existing_closed_elementary_and_piecewise_equation_fallbacks_remain_available
+FAILED ../../frankensympy/python/tests/test_real_rational_inequalities.py::test_algebraic_interval_intersections_preserve_all_constraints_as_conjunctions
+14 failed, 25 passed in 5.05s

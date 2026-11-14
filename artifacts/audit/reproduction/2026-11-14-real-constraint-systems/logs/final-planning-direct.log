@@ -1,0 +1,12 @@
+claims-linter self-test passed (false claims rejected, control accepted)
+planning integrity validation passed
+  required artifacts: 24
+  Markdown files: 106
+  checked relative links: 157
+  compatibility profiles: 2
+  evidence classes: 7
+  workstreams: 24
+  milestones: 9
+  claims: 27
+  present-tense claims currently permitted: 1
+  topological order: WS00 -> WS01 -> WS02 -> WS03 -> WS04 -> WS05 -> WS06 -> WS07 -> WS08 -> WS11 -> WS13 -> WS09 -> WS10 -> WS14 -> WS15 -> WS12 -> WS17 -> WS16 -> WS18 -> WS19 -> WS20 -> WS21 -> WS22 -> WS23

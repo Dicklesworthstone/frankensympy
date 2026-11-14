@@ -1,0 +1,2818 @@
+"""Experimental FrankenSymPy compatibility slice.
+
+Only the names exported here are wired to native behavior. Unsupported SymPy
+operations fail explicitly; upstream SymPy is never used as a fallback.
+"""
+
+from __future__ import annotations
+
+from .core import (
+    Abs,
+    Add,
+    Application,
+    AppliedUndef,
+    Atom,
+    AtomicExpr,
+    Basic,
+    ComplexInfinity,
+    Derivative,
+    Dummy,
+    Eq,
+    Equality,
+    Expr,
+    Float,
+    Function,
+    FunctionClass,
+    Ge,
+    Gt,
+    Integer,
+    Le,
+    Lt,
+    Mul,
+    Ne,
+    N,
+    Number,
+    Pow,
+    Rational,
+    S,
+    Symbol,
+    Tuple,
+    UndefinedFunction,
+    _native,
+    _native_expr,
+    _native_symbol_key,
+    _symbol_binding,
+    _symbol_facts,
+    _typed_symbol_facts,
+    _lift_native_result,
+    _parse_result,
+    _require_symbol,
+    _wrap,
+    diff,
+    expand,
+    pretty,
+    simplify,
+    sqrt,
+    symbols,
+    sympify,
+    SympifyError,
+)
+from .printing import latex, pprint, pprint_use_unicode, pretty, pretty_print, srepr
+from .core import nan as _core_nan, zoo as _core_zoo
+from .matrices import (
+    DenseMatrix,
+    GramSchmidt,
+    ImmutableDenseMatrix,
+    ImmutableMatrix,
+    ImmutableSparseMatrix,
+    Matrix,
+    MatrixBase,
+    MutableDenseMatrix,
+    MutableSparseMatrix,
+    SparseMatrix,
+    casoratian,
+    cholesky,
+    det,
+    diag,
+    eye,
+    hadamard_product,
+    hstack,
+    jacobian,
+    jordan_block,
+    jordan_cell,
+    kronecker_product,
+    matrix_multiply_elementwise,
+    ones,
+    pinv,
+    randMatrix,
+    rank,
+    shape,
+    trace,
+    vstack,
+    wronskian,
+    zeros,
+)
+
+__version__ = _native.version()
+
+# These are native constant nodes, not ordinary symbols with suggestive names.
+pi = Expr("pi")
+E = Expr("E")
+I = Expr("I")
+oo = Expr("oo")
+zoo = _core_zoo  # the ComplexInfinity singleton, not a plain Expr (finding 9)
+nan = _core_nan
+EulerGamma = Expr("EulerGamma")
+Catalan = Expr("Catalan")
+GoldenRatio = Expr("GoldenRatio")
+
+
+def integrate(expression, *variables):
+    """Integrate univariate, definite, or iterated multivariate expressions.
+
+    Accepted forms are ``integrate(expr, x)``, ``integrate(expr, (x, point))``,
+    ``integrate(expr, (x, a, b))``,
+    multivariate ``integrate(expr, x, y)``, and the legacy spelling ``integrate(expr, x, a, b)``.
+    """
+    if not variables:
+        if hasattr(expression, "doit") and type(expression).__name__ == "Integral":
+            return expression.doit()
+        raise TypeError("integrate requires at least one variable or integration tuple")
+
+    if len(variables) == 3 and not any(isinstance(v, (tuple, list)) for v in variables):
+        variable, lower, upper = variables
+        return integrate(expression, (variable, lower, upper))
+
+    if len(variables) > 1:
+        cur = expression
+        for v in variables:
+            cur = integrate(cur, v)
+        return cur
+
+    spec = variables[0]
+    from .integrals import Integral
+    if isinstance(spec, (tuple, list)):
+        if len(spec) == 1:
+            return integrate(expression, spec[0])
+        if len(spec) == 2:
+            return Integral(expression, spec).doit()
+        if len(spec) != 3:
+            raise ValueError("integration tuple must be (variable,), (variable, point), or (variable, lower, upper)")
+        variable, lower, upper = spec
+        symbol = _require_symbol(variable)
+        from .functions.elementary.piecewise import Piecewise
+        if type(expression) is Piecewise:
+            from .integrals._piecewise import integrate_piecewise_rational
+
+            result = integrate_piecewise_rational(expression, symbol, lower, upper)
+            return Integral(expression, (variable, lower, upper)) if result is None else result
+        try:
+            result = _native.integrate_definite_native(
+                _native_expr(expression),
+                _symbol_binding(symbol),
+                _native_expr(lower),
+                _native_expr(upper),
+                _typed_symbol_facts(expression, lower, upper),
+            )
+            return _lift_native_result(result, expression, symbol, lower, upper)
+        except (ValueError, NotImplementedError, TypeError):
+            return Integral(expression, (variable, lower, upper))
+
+    symbol = _require_symbol(spec)
+    from .functions.elementary.piecewise import Piecewise
+    if type(expression) is Piecewise:
+        from .integrals._piecewise_primitive import integrate_piecewise_polynomial
+
+        result = integrate_piecewise_polynomial(expression, symbol)
+        return Integral(expression, symbol) if result is None else result
+    special = _integrate_symbolic_power(expression, symbol)
+    if special is not None:
+        return special
+    try:
+        result = _native.integrate_native(
+            _native_expr(expression),
+            _symbol_binding(symbol),
+            _typed_symbol_facts(expression, symbol),
+        )
+        return _lift_native_result(result, expression, symbol)
+    except (ValueError, NotImplementedError, TypeError):
+        return Integral(expression, symbol)
+
+
+def _integrate_symbolic_power(expression, x):
+    """Terms ``c*x**e`` with a symbolic exponent that may equal -1 integrate
+    to upstream's ``c*Piecewise((x**(e + 1)/(e + 1), Ne(e, -1)),
+    (log(x), True))``; the remaining terms go through the native lane.
+    None when no term has that shape."""
+    from .functions.elementary.piecewise import Piecewise as _Piecewise
+
+    expr = sympify(expression)
+    terms = list(expr.args) if isinstance(expr, Add) else [expr]
+    special, rest = [], []
+    for t in terms:
+        factors = list(t.args) if isinstance(t, Mul) else [t]
+        powers = [f for f in factors if isinstance(f, Pow) and f.args[0] == x
+                  and x not in f.args[1].free_symbols and f.args[1].free_symbols]
+        others = [f for f in factors if f not in powers]
+        if len(powers) == 1 and all(x not in f.free_symbols for f in others):
+            e = powers[0].args[1]
+            if (e + 1).is_zero is False:
+                rest.append(t)
+                continue
+            c = Mul(*others)
+            cond = Ne(e, -1)
+            syms = list(e.free_symbols)
+            if len(syms) == 1 and e != syms[0]:
+                # Upstream states the condition on the symbol itself:
+                # x**(n - 1) -> Ne(n, 0).
+                try:
+                    sol = solve(e + 1, syms[0])
+                    if len(sol) == 1:
+                        cond = Ne(syms[0], sol[0])
+                except Exception:
+                    pass
+            pw = _Piecewise((x ** (e + 1) / (e + 1), cond), (log(x), True))
+            special.append(c * pw)
+        else:
+            rest.append(t)
+    if not special:
+        return None
+    total = Add(*special)
+    if rest:
+        total = integrate(Add(*rest), x) + total
+    return total
+
+
+def _solve_by_rootof(expr, symbol):
+    """Polynomials the radical lanes cannot finish: each irreducible
+    factor is solved by the native lanes when it can be, otherwise its
+    roots are the indexed CRootOf objects (upstream solve(x**5 - x + 1))."""
+    from .polys.polytools import Poly as _Poly
+    from .polys.rootoftools import CRootOf
+
+    try:
+        p = _Poly(expr, symbol)
+        if p._parametric:
+            return None
+        _, factors = p.factor_list()
+    except Exception:
+        return None
+    out = []
+    for fac, _mult in factors:
+        if fac.degree() <= 0:
+            continue
+        try:
+            rs = [
+                _lift_native_result(r, fac.as_expr(), symbol)
+                for r in _native.solve_native(_native_expr(fac.as_expr()), _symbol_binding(symbol))
+            ]
+        except Exception:
+            rs = [CRootOf(fac.as_expr(), symbol, i) for i in range(fac.degree())]
+        for r in rs:
+            if r not in out:
+                out.append(r)
+    return out
+
+
+def _solve_rational_fallback(expr, symbol):
+    """Roots of a rational equation ``N/D = 0`` the native lanes reject:
+    the numerator of ``together(expr)`` is solved and roots that make the
+    denominator vanish are discarded. None when this changes nothing."""
+    from .polys import together as _together
+
+    num, den = fraction(_together(expr))
+    if symbol not in den.free_symbols:
+        return None
+    num = expand(num)
+    if num == expr or symbol not in num.free_symbols:
+        return None
+    try:
+        # The outer scalar solve owns assumption admission for the complete
+        # result. Do not filter twice or lose its check=False convention here.
+        cands = solve(num, symbol, check=False)
+    except (ValueError, NotImplementedError):
+        return None
+    out = []
+    for r in cands:
+        d = expand(den.subs(symbol, r))
+        if d == 0 or simplify(d) == 0:
+            continue
+        out.append(r)
+    return out
+
+
+_NO_FLOATS = object()
+
+
+def _solve_rationalized(expression, symbols, flags):
+    """Upstream solve with Float input: the equations are solved with
+    every Float replaced by its rational value (nsimplify rational=True)
+    and the solutions come back as Floats (nfloat)."""
+    from .simplify.simplify import _real_to_rational
+
+    eqs = expression if isinstance(expression, (list, tuple)) else [expression]
+    eqs = [sympify(e) for e in eqs]
+    if flags.get("rational") is False or not any(
+            isinstance(e, Basic) and e.atoms(Float) for e in eqs):
+        return _NO_FLOATS
+    rat = [_real_to_rational(e) for e in eqs]
+    if not isinstance(expression, (list, tuple)):
+        rat = rat[0]
+    return _nfloat_tree(solve(rat, *symbols, **flags))
+
+
+def _nfloat_tree(obj):
+    if isinstance(obj, list):
+        return [_nfloat_tree(o) for o in obj]
+    if isinstance(obj, tuple):
+        return tuple(_nfloat_tree(o) for o in obj)
+    if isinstance(obj, set):
+        return {_nfloat_tree(o) for o in obj}
+    if isinstance(obj, dict):
+        return {k: _nfloat_tree(v) for k, v in obj.items()}
+    if isinstance(obj, Symbol) or not isinstance(obj, Basic):
+        return obj
+    if isinstance(obj, Rational):
+        return Float(float(obj))
+    v = obj.evalf()
+    if isinstance(v, Rational):
+        return Float(v)
+    return v
+
+
+def _solve_assumption_snapshots(variables):
+    """Capture each requested coordinate before any system solver runs."""
+    from .assumptions._query import typed_symbol
+
+    return tuple(typed_symbol(variable) for variable in variables)
+
+
+def _filter_solve_system_assumptions(solutions, variables, snapshots):
+    """Remove whole solutions that contradict a captured declaration.
+
+    These are compatibility assumption checks, not root-completeness proofs.
+    The signed query boundary preserves unknown facts and the real-domain
+    meaning of nonzero; approximate evaluation never decides admission. One
+    cumulative query budget covers every coordinate of every candidate tuple.
+    """
+    from .assumptions._query import QueryProblem, UnsupportedAssumptions, typed_symbol
+    from .core import _surface_binding_key
+
+    def unchanged(stage):
+        for symbol, (binding, declarations) in zip(variables, snapshots):
+            current_binding, current_declarations = typed_symbol(symbol)
+            if (_surface_binding_key(current_binding) != _surface_binding_key(binding)
+                    or current_declarations != declarations):
+                raise ValueError(f"solve variable assumptions changed during {stage}")
+
+    unchanged("root generation")
+    problem = QueryProblem()
+    admitted = []
+    for solution in solutions:
+        if len(solution) != len(variables):
+            raise ValueError("solve result does not match its requested coordinates")
+        compatible = True
+        for root, (_, declarations) in zip(solution, snapshots):
+            for name, expected in declarations.items():
+                try:
+                    observed = problem.answer(root, name, [{}])
+                except UnsupportedAssumptions:
+                    observed = None
+                if type(observed) is bool and observed is not expected:
+                    compatible = False
+                    break
+            if not compatible:
+                break
+        if compatible:
+            admitted.append(solution)
+    # Recheck even coordinates in rejected rows and empty result sets. A
+    # generator or an assumption query may not silently rebind the request.
+    unchanged("root admission")
+    return admitted
+
+
+def _filter_solve_assumptions(roots, symbol, snapshot):
+    """Apply the same tuple admission to the one-coordinate public shape."""
+    rows = _filter_solve_system_assumptions(
+        [(root,) for root in roots], (symbol,), (snapshot,),
+    )
+    return [row[0] for row in rows]
+
+
+def solve(expression, *symbols, **flags):
+    """Solve the algebraic equation or system of equations ``expression == 0``."""
+    dict_flag = bool(flags.get("dict", False))
+    set_flag = bool(flags.get("set", False))
+
+    floated = _solve_rationalized(expression, symbols, flags)
+    if floated is not _NO_FLOATS:
+        return floated
+
+    ineqs = expression if isinstance(expression, (list, tuple)) else [expression]
+    if ineqs and any(_is_inequality(e) for e in ineqs):
+        return reduce_inequalities(list(ineqs), symbols[0] if len(symbols) == 1 else (list(symbols) or None))
+
+    if len(symbols) == 1 and isinstance(symbols[0], (list, tuple)):
+        var_list = list(symbols[0])
+    elif len(symbols) == 1 and symbols[0] is None:
+        var_list = None
+    elif symbols:
+        var_list = list(symbols)
+    else:
+        var_list = None
+
+    # Numeric constant systems need no root search. Preserve the profile's
+    # distinction between an unconstrained zero system and a contradiction,
+    # including set=True output and the caller's original symbol objects.
+    # Exact-class admission avoids invoking arbitrary Python numeric hooks;
+    # unknown zero status and unsupported variables retain the existing lane.
+    constant_inputs = expression if type(expression) in (list, tuple) else (expression,)
+    numeric_classes = (int, float, Integer, Rational, Float,
+                       type(S.Zero), type(S.One), type(S.NegativeOne), type(S.Half))
+    if all(type(value) in numeric_classes for value in constant_inputs):
+        if var_list is None or (
+            all(type(variable) in (Symbol, Dummy) for variable in var_list)
+            and len(set(var_list)) == len(var_list)
+        ):
+            zero_statuses = [sympify(value).is_zero for value in constant_inputs]
+            if all(status is not None for status in zero_statuses):
+                if all(status is True for status in zero_statuses) and set_flag:
+                    return (var_list or [], set())
+                return []
+
+    if isinstance(expression, (list, tuple)):
+        from .solvers.polysys import solve_poly_system as _sps
+        from .solvers.solvers import linsolve as _linsolve
+
+        if var_list is not None:
+            parsed_var_list = []
+            for s in var_list:
+                if isinstance(s, Symbol):
+                    parsed_var_list.append(s)
+                else:
+                    raise TypeError(f"unsupported solve system signature with variable {s}")
+            var_list = parsed_var_list
+        else:
+            all_syms = set()
+            for eq in expression:
+                if type(eq) is Eq:
+                    eq = eq.lhs - eq.rhs
+                all_syms.update(_wrap(_native_expr(eq)).free_symbols)
+            var_list = sorted(list(all_syms), key=lambda s: s.name)
+
+        if not var_list:
+            raise TypeError("at least one solve variable is required")
+
+        assumption_snapshots = (_solve_assumption_snapshots(var_list)
+                                if flags.get("check", True) else None)
+
+        # Try linear solver first
+        try:
+            lin_sol = _linsolve(expression, *var_list)
+        except (ValueError, TypeError):
+            pass
+        else:
+            # Admission is outside the solver-dispatch exception handler:
+            # an exhausted query or changed declaration is terminal.
+            if lin_sol:
+                sol_tuple = tuple(next(iter(lin_sol)))
+                if assumption_snapshots is not None:
+                    admitted = _filter_solve_system_assumptions(
+                        [sol_tuple], var_list, assumption_snapshots,
+                    )
+                    if not admitted:
+                        return (var_list, set()) if set_flag else []
+                # A free parameter is not an assignment in solve's mapping.
+                sol_dict = {s: v for s, v in zip(var_list, sol_tuple) if s != v}
+                if not sol_dict:
+                    return (var_list, set()) if set_flag else []
+                if dict_flag:
+                    return [sol_dict]
+                if set_flag:
+                    return (var_list, {sol_tuple})
+                return sol_dict
+            else:
+                if assumption_snapshots is not None:
+                    _filter_solve_system_assumptions([], var_list, assumption_snapshots)
+                return (var_list, set()) if set_flag else []
+
+        # Fall back to polynomial system solver
+        # Only an established no-solution result is empty. Unsupported
+        # systems and faults must remain visible to the caller.
+        sols = _sps(expression, *var_list)
+        if assumption_snapshots is not None:
+            sols = _filter_solve_system_assumptions(
+                sols or [], var_list, assumption_snapshots,
+            )
+
+        if not sols:
+            return (var_list, set()) if set_flag else []
+
+        if dict_flag:
+            return [{sym: val for sym, val in zip(var_list, sol)} for sol in sols]
+        if set_flag:
+            return (var_list, set(sols))
+        return sols
+
+    original_expression = expression
+    if type(expression) is Eq:
+        expression = expression.lhs - expression.rhs
+    expr = _wrap(_native_expr(expression))
+
+    if var_list is None:
+        symbols_found = expr.free_symbols
+        if len(symbols_found) == 1:
+            symbol = next(iter(symbols_found))
+        elif len(symbols_found) == 0:
+            return []
+        else:
+            raise TypeError("at least one solve variable is required")
+    elif len(var_list) == 1:
+        symbol = _require_symbol(var_list[0])
+    else:
+        from .solvers.polysys import solve_poly_system as _sps
+        from .solvers.solvers import linsolve as _linsolve
+
+        assumption_snapshots = (_solve_assumption_snapshots(var_list)
+                                if flags.get("check", True) else None)
+        # Preserve held operands and retained Equality sides at the existing
+        # source-admission boundaries. Native wrapping alone loses owners.
+        system_source = original_expression if isinstance(original_expression, Basic) else expr
+        try:
+            lin_sol = _linsolve([system_source], *var_list)
+        except (ValueError, TypeError):
+            pass
+        else:
+            if lin_sol:
+                sol_tuple = tuple(next(iter(lin_sol)))
+                if assumption_snapshots is not None:
+                    admitted = _filter_solve_system_assumptions(
+                        [sol_tuple], var_list, assumption_snapshots,
+                    )
+                    if not admitted:
+                        return (var_list, set()) if set_flag else []
+                sol_dict = {s: v for s, v in zip(var_list, sol_tuple) if s != v}
+                if not sol_dict:
+                    return (var_list, set()) if set_flag else []
+                if dict_flag:
+                    return [sol_dict]
+                if set_flag:
+                    return (var_list, {sol_tuple})
+                return [sol_tuple]
+            if assumption_snapshots is not None:
+                _filter_solve_system_assumptions([], var_list, assumption_snapshots)
+            return (var_list, set()) if set_flag else []
+
+        try:
+            sols = _sps([system_source], *var_list)
+        except NotImplementedError:
+            # Upstream: one equation in several symbols is solved for the
+            # first symbol it contains; the others stay free.
+            target = next((v for v in var_list if v in expr.free_symbols), None)
+            if target is None:
+                if assumption_snapshots is not None:
+                    _filter_solve_system_assumptions([], var_list, assumption_snapshots)
+                return []
+            # This outer request owns admission across all coordinates. Keep
+            # scalar candidate generation unfiltered, including check=False,
+            # and do not turn dict/set output flags into a different shape.
+            scalar_flags = {name: value for name, value in flags.items()
+                            if name not in ("dict", "set")}
+            scalar_flags["check"] = False
+            roots = solve(system_source, target, **scalar_flags)
+            tuples = [tuple(r if v == target else v for v in var_list) for r in roots]
+            if assumption_snapshots is not None:
+                tuples = _filter_solve_system_assumptions(
+                    tuples, var_list, assumption_snapshots,
+                )
+            if dict_flag:
+                target_index = var_list.index(target)
+                return [{target: row[target_index]} for row in tuples]
+            if set_flag:
+                return (var_list, set(tuples))
+            return tuples
+        if assumption_snapshots is not None:
+            sols = _filter_solve_system_assumptions(
+                sols or [], var_list, assumption_snapshots,
+            )
+        if sols is not None:
+            if dict_flag:
+                return [{sym: val for sym, val in zip(var_list, sol)} for sol in sols]
+            if set_flag:
+                return (var_list, set(sols))
+            return sols
+        return []
+
+    if expr == 0 or (not expr.free_symbols):
+        return []
+
+    # Scalar roots must satisfy the solved symbol's declared assumptions.
+    # Capture the typed declaration before generation, and validate it again
+    # at publication. check=False keeps the profile's unfiltered candidates.
+    assumption_snapshot = None
+    if flags.get("check", True):
+        from .assumptions._query import typed_symbol
+
+        assumption_snapshot = typed_symbol(symbol)
+    try:
+        results = _native.solve_native(
+            _native_expr(expr),
+            assumption_snapshot[0] if assumption_snapshot is not None else _symbol_binding(symbol),
+        )
+    except Exception as exc:
+        msg = str(exc)
+        if "No solution found" in msg or "Infinite solutions" in msg:
+            return []
+        roots = _solve_rational_fallback(expr, symbol)
+        if roots is None:
+            roots = _solve_by_rootof(expr, symbol)
+        if roots is None:
+            raise
+    else:
+        roots = [_lift_native_result(r, expr, symbol) for r in results]
+    if assumption_snapshot is not None:
+        roots = _filter_solve_assumptions(roots, symbol, assumption_snapshot)
+    if dict_flag:
+        return [{symbol: r} for r in roots]
+    if set_flag:
+        return ([symbol], {(r,) for r in roots})
+    return roots
+
+
+
+def _solveset_real_rational(expression, symbol, domain):
+    """Complete exact QQ(x) sets; preserve the original tree on refusal.
+
+    Surface admission precedes native conversion so Float payloads, custom
+    classes, symbolic coefficients and noninteger powers cannot acquire an
+    exact rational claim through the compatibility shell.
+    """
+    from .core import Half, NegativeOne, One, Zero
+    exact_numbers = (Integer, Rational, Zero, One, NegativeOne, Half)
+    pending = [(expression, 0)]
+    nodes = 0
+    while pending:
+        node, depth = pending.pop()
+        nodes += 1
+        if nodes > 2048 or depth > 64:
+            from .sets import ConditionSet
+            return ConditionSet(symbol, Eq(expression, 0, evaluate=False), domain)
+        kind = type(node)
+        if kind in exact_numbers:
+            continue
+        if kind in (Symbol, Dummy):
+            if node != symbol:
+                return None
+            continue
+        if kind not in (Add, Mul, Pow):
+            return None
+        children = node.args
+        if kind is Pow and type(children[1]) not in (Integer, Zero, One, NegativeOne):
+            return None
+        if len(children) > 256 or len(pending) + len(children) > 2048:
+            from .sets import ConditionSet
+            return ConditionSet(symbol, Eq(expression, 0, evaluate=False), domain)
+        pending.extend((child, depth + 1) for child in children)
+
+    from .sets import Complement, ConditionSet, FiniteSet
+    try:
+        checked = _native.solve_real_rational_native(
+            _native_expr(expression), _symbol_binding(symbol)
+        )
+        if checked is None:
+            return None
+        complement, polynomial, root_count = checked
+        if root_count == 0:
+            return domain if complement else FiniteSet()
+        # This uses checked real isolation and checked factor association;
+        # the approximate nonreal CRootOf ordering lane is never entered.
+        from .polys.rootoftools import real_roots as _exact_real_roots
+        roots_with_multiplicity = _exact_real_roots(
+            Poly(_wrap(polynomial), symbol), multiple=False
+        )
+        if (len(roots_with_multiplicity) != root_count
+                or any(multiplicity != 1 for _, multiplicity in roots_with_multiplicity)):
+            raise ValueError("real equation root association is incomplete")
+        roots = [root for root, _ in roots_with_multiplicity]
+        finite = FiniteSet(*roots)
+        if len(finite) != root_count:
+            raise ValueError("distinct real roots lost during set construction")
+        if not complement:
+            return finite
+        result = Complement(domain, finite)
+        # Unknown comparisons remain unknown, but each excluded point itself
+        # must remain excluded in the constructed real set.
+        if result == domain or any(result.contains(root) is not False for root in roots):
+            raise ValueError("real domain exclusions cannot be represented")
+        return result
+    except (ValueError, NotImplementedError, OverflowError):
+        return ConditionSet(symbol, Eq(expression, 0, evaluate=False), domain)
+
+
+def solveset(expression, variable=None, domain=None):
+    """Solve an algebraic equation for ``variable`` and return a Set of solutions."""
+    if domain is not None:
+        if isinstance(domain, str):
+            if domain in ("Reals", "RR", "R"):
+                from .sets import Reals
+                domain = Reals
+        if isinstance(domain, type) and issubclass(domain, Set):
+            domain = domain()
+        if not isinstance(domain, Set):
+            raise ValueError(f"{domain} is not a valid domain")
+    from .solvers._piecewise_real import solve_piecewise_real
+    piecewise = solve_piecewise_real(expression, variable, domain)
+    if piecewise is not None:
+        return piecewise
+    # Restricted real domains use the same complete rational root engine as
+    # Reals, retaining original equation holes before ordinary subtraction.
+    # Domain filtering uses checked algebraic order, never floating roots.
+    from .solvers._real_domain import solve_in_real_domain
+    restricted = solve_in_real_domain(expression, variable, domain)
+    if restricted is not None:
+        return restricted
+    if _is_inequality(expression):
+        if variable is None:
+            variable = _inequality_symbol([expression], ())
+        from .sets import Reals as _RealsSet
+        if domain is None:
+            raise ValueError(
+                "Inequalities in the complex domain are not supported. "
+                "Try the real domain by setting domain=S.Reals"
+            )
+        sol = _solve_inequality_set(expression, _require_symbol(variable))
+        if domain == _RealsSet() or isinstance(domain, _RealsSet):
+            return sol
+        from .sets import Intersection as _Intersection
+        return _Intersection(sol, domain)
+    from .sets import Reals as _RealsP
+    over_reals = domain is not None and (domain == _RealsP() or isinstance(domain, _RealsP))
+    original = expression
+    if type(expression) is Eq:
+        if over_reals:
+            # Preserve holes on both sides before subtraction cancels them.
+            original = Add(expression.lhs, Mul(-1, expression.rhs, evaluate=False), evaluate=False)
+        expression = expression.lhs - expression.rhs
+    expr = _wrap(_native_expr(expression))
+    if over_reals and type(original) in (int, float, str):
+        # Keep decimal literals as Float. Only exact built-in types enter
+        # here; arbitrary custom conversion hooks are never evaluated.
+        original = sympify(original)
+    if over_reals and type(original) in (Expr, _native.Expr):
+        original = _wrap(_native_expr(original))
+    if variable is None:
+        symbols = original.free_symbols if over_reals and isinstance(original, Basic) else expr.free_symbols
+        if len(symbols) == 1:
+            symbol = next(iter(symbols))
+        elif len(symbols) == 0:
+            if over_reals:
+                rational_result = _solveset_real_rational(original, Dummy("x"), domain)
+                if rational_result is not None:
+                    return rational_result
+            if expr == 0:
+                if domain is not None and isinstance(domain, Set):
+                    return domain
+                from .sets import UniversalSet
+                return UniversalSet()
+            from .sets import EmptySet
+            return EmptySet()
+        else:
+            raise ValueError("at least one solve variable is required")
+    else:
+        symbol = _require_symbol(variable)
+
+    if over_reals:
+        rational_result = _solveset_real_rational(original, symbol, domain)
+        if rational_result is not None:
+            return rational_result
+
+    if expr == 0:
+        if domain is not None and isinstance(domain, Set):
+            return domain
+        from .sets import UniversalSet
+        return UniversalSet()
+
+    if not expr.free_symbols:
+        from .sets import EmptySet
+        return EmptySet()
+
+    # Periodic equations have infinite solution sets (upstream ImageSet
+    # unions); the native solver lists principal solutions only, which is
+    # solve()'s contract but not solveset's. Refuse rather than truncate.
+    periodic = ("sin", "cos", "tan", "cot", "sec", "csc")
+    complex_exp = not over_reals and any(
+        type(a).__name__ == "exp" and symbol in a.free_symbols for a in _preorder_nodes(expr)
+    )
+    if complex_exp or any(
+        type(a).__name__ in periodic and symbol in a.free_symbols for a in _preorder_nodes(expr)
+    ):
+        # Complete (infinite) solution sets as ImageSet unions; shapes
+        # outside the exact periodic solver raise instead of truncating.
+        from .solvers.solveset import solve_periodic
+
+        sol = solve_periodic(expr, symbol, domain)
+        if domain is not None and not over_reals and type(domain).__name__ != "Complexes":
+            from .sets import Intersection as _IntersectionP
+
+            return _IntersectionP(sol, domain)
+        return sol
+    try:
+        results = _native.solve_native(_native_expr(expr), _symbol_binding(symbol))
+    except ValueError as exc:
+        if str(exc) != "No solution found for equation":
+            raise
+        from .sets import EmptySet
+        return EmptySet()
+
+    from .sets import EmptySet, FiniteSet
+    if not results:
+        return EmptySet()
+    roots = [_lift_native_result(r, expr, symbol) for r in results]
+    if domain is not None and isinstance(domain, Set):
+        from .sets import Intersection, Interval
+        roots = [simplify(root) for root in roots]
+        if isinstance(domain, Interval):
+            # Exact nonzero rational imaginary parts exclude a candidate
+            # from every real interval, even if membership is undecidable.
+            retained = []
+            for root in roots:
+                imaginary = simplify(root.as_real_imag()[1])
+                if isinstance(imaginary, (Integer, Rational)) and imaginary != 0:
+                    continue
+                retained.append(root)
+            roots = retained
+        # Intersection preserves an undecidable membership condition instead
+        # of discarding the candidate through boolean containment coercion.
+        retained = []
+        unknown = False
+        from .sets import Reals as _Reals
+        for root in roots:
+            if (isinstance(domain, _Reals) or domain == _Reals()) and _is_real_constant(root):
+                retained.append(root)
+                continue
+            membership = domain.contains(root)
+            if membership is False:
+                continue
+            retained.append(root)
+            unknown = unknown or membership is None
+        candidates = FiniteSet(*retained)
+        return Intersection(candidates, domain) if unknown else candidates
+    if not roots:
+        return EmptySet()
+    return FiniteSet(*roots)
+
+
+def _preorder_nodes(e):
+    yield e
+    for a in getattr(e, "args", ()):
+        yield from _preorder_nodes(a)
+
+
+def _is_real_constant(e) -> bool:
+    """Structural real-valuedness of a symbol-free constant (no numerics)."""
+    if getattr(e, "free_symbols", None):
+        return False
+    if isinstance(e, (Integer, Rational, Float)):
+        return True
+    name = str(e) if type(e) is Expr else None
+    if name in ("pi", "E", "EulerGamma", "GoldenRatio", "Catalan"):
+        return True
+    if name == "I":
+        return False
+    if type(e) in (Add, Mul):
+        return all(_is_real_constant(a) for a in e.args)
+    if type(e) is Pow:
+        b, p = e.args
+        return _is_real_constant(b) and _is_real_constant(p) and _is_positive_constant(b)
+    fname = type(e).__name__
+    if fname in ("exp", "sin", "cos", "atan", "sinh", "cosh", "tanh", "Abs"):
+        return all(_is_real_constant(a) for a in e.args)
+    if fname == "log":
+        return _is_positive_constant(e.args[0])
+    return False
+
+
+def _is_positive_constant(e) -> bool:
+    if isinstance(e, (Integer, Rational)):
+        return e.p > 0
+    if type(e) is Expr and str(e) in ("pi", "E"):
+        return True
+    if type(e) is Mul:
+        return all(_is_positive_constant(a) for a in e.args)
+    if type(e) is Add:
+        return all(_is_positive_constant(a) for a in e.args)
+    if type(e) is Pow:
+        return _is_positive_constant(e.args[0]) and _is_real_constant(e.args[1])
+    if type(e).__name__ == "exp":
+        return _is_real_constant(e.args[0])
+    return False
+
+
+def checksol(expression, symbol, val=None):
+    """Check a solution, returning ``None`` when the result is inconclusive."""
+    if isinstance(expression, (list, tuple, set)):
+        if not expression:
+            raise ValueError("no functions to check")
+        inconclusive = False
+        for equation in expression:
+            result = checksol(equation, symbol, val)
+            if result is False:
+                return False
+            if result is None:
+                inconclusive = True
+        return None if inconclusive else True
+
+    if type(expression) is Eq:
+        expression = expression.lhs - expression.rhs
+    expr = _wrap(_native_expr(expression))
+    if isinstance(symbol, dict):
+        mapping = symbol
+    elif val is not None:
+        mapping = {symbol: val}
+    else:
+        raise ValueError("checksol requires either a mapping or (symbol, val)")
+    illegal = {S.NaN, S.ComplexInfinity, S.Infinity, S.NegativeInfinity}
+    if not expr.is_number:
+        # Validate the complete candidate before substitution can erase an
+        # unused entry or simplify an invalid value out of the residual.
+        for candidate in mapping.values():
+            if sympify(candidate).atoms() & illegal:
+                return False
+    subbed = expr
+    for sym, v in mapping.items():
+        subbed = subbed.subs(sym, v)
+    if subbed.atoms() & illegal:
+        return False
+    simplified = simplify(subbed)
+    if simplified.atoms() & illegal:
+        return False
+    if simplified == 0 or getattr(simplified, "is_zero", None) is True:
+        return True
+    expanded = expand(subbed)
+    if expanded == 0:
+        return True
+    zero_status = getattr(expanded, "is_zero", None)
+    if zero_status is not None:
+        return zero_status
+    # Failure to simplify a function or radical to zero is not a disproof.
+    # Keep the rational-expression negative lane, but leave these harder
+    # residuals inconclusive, as the compatibility checker requires.
+    pending = [expanded]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, Function):
+            return None
+        if isinstance(node, Pow) and not isinstance(node.args[1], Integer):
+            return None
+        pending.extend(node.args)
+    return False
+
+
+def laplace_transform(expression, t, s, noconds=False, **kwargs):
+    from .integrals.transforms import laplace_transform as _lt
+    return _lt(expression, t, s, noconds=noconds, **kwargs)
+
+
+def inverse_laplace_transform(expression, s, t, plane=None, noconds=True, **kwargs):
+    from .integrals.transforms import inverse_laplace_transform as _ilt
+    return _ilt(expression, s, t, plane=plane, noconds=noconds, **kwargs)
+
+
+def fourier_transform(expression, t, w, noconds=True, **kwargs):
+    from .integrals.transforms import fourier_transform as _ft
+    return _ft(expression, t, w, noconds=noconds, **kwargs)
+
+
+def inverse_fourier_transform(expression, w, t, noconds=True, **kwargs):
+    from .integrals.transforms import inverse_fourier_transform as _ift
+    return _ift(expression, w, t, noconds=noconds, **kwargs)
+
+
+def sine_transform(f, t, k, noconds=True, **kwargs):
+    from .integrals.transforms import sine_transform as _st
+    return _st(f, t, k, noconds=noconds, **kwargs)
+
+
+def inverse_sine_transform(F, k, t, noconds=True, **kwargs):
+    from .integrals.transforms import inverse_sine_transform as _ist
+    return _ist(F, k, t, noconds=noconds, **kwargs)
+
+
+def cosine_transform(f, t, k, noconds=True, **kwargs):
+    from .integrals.transforms import cosine_transform as _ct
+    return _ct(f, t, k, noconds=noconds, **kwargs)
+
+
+def inverse_cosine_transform(F, k, t, noconds=True, **kwargs):
+    from .integrals.transforms import inverse_cosine_transform as _ict
+    return _ict(F, k, t, noconds=noconds, **kwargs)
+
+
+def hankel_transform(f, r, k, nu, noconds=True, **kwargs):
+    from .integrals.transforms import hankel_transform as _ht
+    return _ht(f, r, k, nu, noconds=noconds, **kwargs)
+
+
+def inverse_hankel_transform(F, k, r, nu, noconds=True, **kwargs):
+    from .integrals.transforms import inverse_hankel_transform as _iht
+    return _iht(F, k, r, nu, noconds=noconds, **kwargs)
+
+
+def mellin_transform(f, x, s, noconds=False, **kwargs):
+    from .integrals.transforms import mellin_transform as _mt
+    return _mt(f, x, s, noconds=noconds, **kwargs)
+
+
+def inverse_mellin_transform(F, s, x, strip=None, noconds=True, **kwargs):
+    from .integrals.transforms import inverse_mellin_transform as _imt
+    return _imt(F, s, x, strip=strip, noconds=noconds, **kwargs)
+
+
+def dsolve(equation, func=None, hint="default", **kwargs):
+    """Solve an ordinary differential equation (see sympy.solvers.ode.dsolve)."""
+    from .solvers.ode import dsolve as _dsolve
+
+    return _dsolve(equation, func, hint=hint, **kwargs)
+
+
+def _exact_integer_value(value):
+    """Return an admitted exact integer without invoking lossy converters."""
+    if type(value) is int:
+        return value
+    from .core import NegativeOne, One, Zero
+
+    if type(value) in (Integer, Zero, One, NegativeOne):
+        return value.p
+    return None
+
+
+def _not_integer_message(value):
+    """Format exact built-in floats without executing arbitrary object hooks."""
+    if type(value) is float:
+        return f"{value!r} is not an integer"
+    return "value is not an integer"
+
+
+def isprime(value):
+    integer = _exact_integer_value(value)
+    if integer is None:
+        raise ValueError(_not_integer_message(value))
+    if integer < 2:
+        return False
+    return _native.is_prime(integer)
+
+
+def factorint(value):
+    integer = _exact_integer_value(value)
+    if integer is None:
+        raise ValueError(_not_integer_message(value))
+    if integer == 0:
+        return {0: 1}
+    factors = dict(_native.factorize(abs(integer)))
+    if integer < 0:
+        factors[-1] = 1
+    return factors
+
+
+from .functions import (
+    DiracDelta,
+    Heaviside,
+    Chi,
+    Ci,
+    Ei,
+    FresnelC,
+    FresnelS,
+    Shi,
+    Si,
+    acos,
+    acosh,
+    acot,
+    acoth,
+    acsc,
+    acsch,
+    airyai,
+    airybi,
+    arg,
+    asec,
+    asech,
+    asin,
+    asinh,
+    atan,
+    atanh,
+    bell,
+    bernoulli,
+    besseli,
+    besselj,
+    besselk,
+    bessely,
+    beta,
+    binomial,
+    catalan,
+    ceiling,
+    conjugate,
+    cos,
+    cosh,
+    cot,
+    coth,
+    csc,
+    csch,
+    digamma,
+    dirichlet_eta,
+    erf,
+    erfc,
+    erfcinv,
+    erfi,
+    erfinv,
+    exp,
+    factorial,
+    fibonacci,
+    floor,
+    gamma,
+    hankel1,
+    hankel2,
+    harmonic,
+    hyper,
+    im,
+    jn,
+    lerchphi,
+    log,
+    loggamma,
+    lowergamma,
+    lucas,
+    meijerg,
+    polygamma,
+    polylog,
+    re,
+    sec,
+    sech,
+    sign,
+    sin,
+    sinc,
+    sinh,
+    subfactorial,
+    tan,
+    tanh,
+    trigamma,
+    uppergamma,
+    yn,
+    zeta,
+)
+
+
+def totient(value):
+    integer = _exact_integer_value(value)
+    if integer is None:
+        raise TypeError("n should be an integer")
+    if integer <= 0:
+        raise ValueError("n should be a positive integer")
+    return _native.euler_totient(integer)
+
+
+def mobius(value):
+    integer = _exact_integer_value(value)
+    if integer is None:
+        raise TypeError("n should be an integer")
+    if integer <= 0:
+        raise ValueError("n should be a positive integer")
+    return _native.mobius_fn(integer)
+
+
+def divisor_count(value):
+    integer = _exact_integer_value(value)
+    if integer is None:
+        raise TypeError("n should be an integer")
+    if integer <= 0:
+        raise ValueError("n should be a positive integer")
+    return _native.divisor_count_fn(integer)
+
+
+def divisor_sigma(value, k=1):
+    integer = _exact_integer_value(value)
+    if integer is None:
+        raise TypeError("n should be an integer")
+    if integer <= 0:
+        raise ValueError("n should be a positive integer")
+    k_int = _exact_integer_value(k)
+    if k_int is None or k_int < 0:
+        raise TypeError("k should be a non-negative integer")
+    return _native.divisor_sum_fn(integer, k_int)
+
+
+def jacobi_symbol(m, n):
+    m_int = _exact_integer_value(m)
+    n_int = _exact_integer_value(n)
+    if m_int is None or n_int is None:
+        raise TypeError("m and n should be integers")
+    if n_int <= 0 or n_int % 2 == 0:
+        raise ValueError("n should be an odd positive integer")
+    return _native.jacobi_symbol_fn(m_int, n_int)
+
+
+from .ntheory import (
+    carmichael,
+    discrete_log,
+    divisors,
+    integer_nthroot,
+    is_nthpow_residue,
+    is_perfect,
+    is_primitive_root,
+    is_quad_residue,
+    is_square_free,
+    is_squarefree,
+    legendre_symbol,
+    mod_inverse,
+    multiplicity,
+    nextprime,
+    npartitions,
+    perfect_power,
+    prevprime,
+    prime,
+    prime_big_omega,
+    prime_omega,
+    primefactors,
+    primenu,
+    primeomega,
+    primepi,
+    primerange,
+    proper_divisors,
+    quadratic_residues,
+    reduced_totient,
+    sqrt_mod,
+)
+
+
+
+from .matrices import (
+    Matrix,
+    MatrixBase,
+    DenseMatrix,
+    MutableDenseMatrix,
+    ImmutableMatrix,
+    ImmutableDenseMatrix,
+    eye,
+    zeros,
+    ones,
+    diag,
+    hstack,
+    pinv,
+    vstack,
+)
+from . import (
+    assumptions,
+    functions,
+    geometry,
+    integrals,
+    logic,
+    ntheory,
+    polys,
+    series,
+    sets,
+    solvers,
+    tensor,
+)
+from .sets import (
+    Complexes,
+    ConditionSet,
+    ImageSet,
+    Integers,
+    Naturals,
+    Naturals0,
+    Range,
+    Rationals,
+    imageset,
+    Complement,
+    EmptySet,
+    FiniteSet,
+    Intersection,
+    Interval,
+    ProductSet,
+    Set,
+    SymmetricDifference,
+    Union,
+    UniversalSet,
+)
+Reals = S.Reals
+from .geometry import (
+    Circle,
+    Ellipse,
+    Line,
+    Line2D,
+    Line3D,
+    LinearEntity,
+    Plane,
+    Point,
+    Point2D,
+    Point3D,
+    Polygon,
+    Ray,
+    Ray2D,
+    Ray3D,
+    Segment,
+    Segment2D,
+    Segment3D,
+    Sphere,
+    Triangle,
+    are_collinear,
+    are_coplanar,
+    are_similar,
+    centroid,
+    convex_hull,
+    idiff,
+    intersection,
+)
+from .integrals import (
+    IntegralEnclosureReceipt,
+    certified_integral,
+    ExactRationalIntegralReceipt,
+    exact_rational_integral,
+    CosineTransform,
+    FourierTransform,
+    HankelTransform,
+    Integral,
+    InverseCosineTransform,
+    InverseFourierTransform,
+    InverseHankelTransform,
+    InverseLaplaceTransform,
+    InverseMellinTransform,
+    InverseSineTransform,
+    LaplaceTransform,
+    MellinTransform,
+    SineTransform,
+    Transform,
+)
+from .logic import (
+    And,
+    Boolean,
+    BooleanAtom,
+    BooleanFalse,
+    BooleanFunction,
+    BooleanTrue,
+    Equivalent,
+    ITE,
+    Implies,
+    NAND,
+    NOR,
+    Nand,
+    Nor,
+    Not,
+    Or,
+    POSform,
+    SOPform,
+    XNOR,
+    Xnor,
+    Xor,
+    false,
+    is_nnf,
+    pl_true,
+    satisfiable,
+    simplify_logic,
+    to_cnf,
+    to_dnf,
+    to_nnf,
+    true,
+    truth_table,
+    valid,
+)
+from .polys import (
+    GroebnerBasis,
+    LM,
+    LT,
+    interpolate,
+    invert,
+    EC,
+    LC,
+    Poly,
+    PurePoly,
+    TC,
+    apart,
+    cancel,
+    compose,
+    content,
+    decompose,
+    degree,
+    discriminant,
+    div,
+    exquo,
+    factor,
+    factor_list,
+    gcd,
+    gcdex,
+    groebner,
+    half_gcdex,
+    lcm,
+    monic,
+    poly,
+    primitive,
+    quo,
+    reduced,
+    rem,
+    resultant,
+    roots,
+    sqf,
+    sqf_list,
+    sqf_part,
+    sturm,
+    terms_gcd,
+    together,
+    trailing_coeff,
+)
+from .polys.polyerrors import (
+    BasePolynomialError,
+    CoercionFailed,
+    DomainError,
+    ExactQuotientFailed,
+    GeneratorsError,
+    GeneratorsNeeded,
+    NotInvertible,
+    PolynomialError,
+    UnificationFailed,
+)
+from . import calculus
+from .calculus import (
+    AccumBounds,
+    AccumulationBounds,
+    apply_finite_diff,
+    continuous_domain,
+    differentiate_finite,
+    euler_equations,
+    finite_diff_weights,
+    function_range,
+    is_decreasing,
+    is_increasing,
+    is_monotonic,
+    is_strictly_decreasing,
+    is_strictly_increasing,
+    maximum,
+    minimum,
+    periodicity,
+    singularities,
+    stationary_points,
+)
+from .series import (
+    FourierSeries,
+    Limit,
+    O,
+    Order,
+    formal_power_series,
+    fourier_series,
+    fps,
+    limit,
+    residue,
+    series,
+)
+from .combinatorics import (
+    AlternatingGroup,
+    Cycle,
+    CyclicGroup,
+    DihedralGroup,
+    GrayCode,
+    IntegerPartition,
+    Partition,
+    Permutation,
+    PermutationGroup,
+    Subset,
+    SymmetricGroup,
+)
+from .solvers import (
+    RootSearchError,
+    checkodesol,
+    dsolve_cauchy_euler,
+    dsolve_const_coeff_second_order,
+    dsolve_const_coeff_second_order_nonhomogeneous,
+    dsolve_exact_first_order,
+    dsolve_linear_first_order,
+    dsolve_separable_linear,
+    linsolve,
+    nonlinsolve,
+    nsolve,
+    nsolve_certified,
+    pdsolve,
+    solve_linear,
+    solve_linear_system,
+    solve_linear_system_LU,
+    solve_poly_system,
+    solve_univariate_inequality,
+)
+from .tensor import (
+    Metric,
+    Tensor,
+    TensorIndex,
+    tensor_indices,
+    tensorcontraction,
+    tensorproduct,
+)
+from .assumptions import (
+    AppliedPredicate,
+    AssumptionsContext,
+    Predicate,
+    Q,
+    ask,
+    assuming,
+    global_assumptions,
+    refine,
+)
+from .simplify import (
+    collect,
+    combsimp,
+    gammasimp,
+    expand_log,
+    expand_power_base,
+    expand_power_exp,
+    expand_trig,
+    logcombine,
+    nsimplify,
+    powsimp,
+    radsimp,
+    ratsimp,
+    separatevars,
+    simplify,
+    trigsimp,
+)
+
+
+from .utilities.lambdify import (
+    EvaluationBudget, EvaluationBudgetExceeded, EvaluationCancelled, NumericRootCandidate,
+    NumericLeastSquaresCandidate,
+    compile_numeric, compile_residual_system, load_residual_system, lambdify,
+)
+from .utilities.hybrid import compile_numeric_hybrid
+from .utilities.hybrid_system import compile_hybrid_residual_system
+from .utilities.objective import (
+    MinimizationSearchError, NumericMinimizationCandidate,
+    StationarySearchError, compile_objective,
+)
+from .utilities.source_certification import (
+    certify_box_extremum, certify_root_box, certify_stationary_point,
+    enclose_objective, enclose_residual_system, optimize_box_certified,
+)
+from .utilities._certified_numeric import ResidualJacobianEnclosure, RootBoxReceipt
+from .utilities._root_isolation import RootIsolationReceipt
+from .utilities._parametric_root import ParametricRootBoxReceipt
+from .utilities._parametric_cover import ParametricRootCoverReceipt
+from .utilities._parametric_sensitivity import ParametricSensitivityReceipt
+from .utilities._certified_objective import (
+    BoxExtremumReceipt, BoxOptimizationReceipt, ObjectiveEnclosure, StationaryPointReceipt,
+)
+
+
+def sstr(expr: Any) -> str:
+    """Return the string form of *expr* (same as ``str(expr)``)."""
+    return str(expr)
+
+
+def fraction(expr: Any) -> tuple:
+    """Return a ``(numer, denom)`` tuple for a rational expression."""
+    if isinstance(expr, Rational):
+        return (Integer(expr.p), Integer(expr.q))
+    if isinstance(expr, Expr):
+        num, den = fraction_inner(expr)
+        return (num, den)
+    return (expr, Integer(1))
+
+
+def fraction_inner(expr: Any) -> tuple:
+    """Walk an expression tree and split into (numer, denom)."""
+    if isinstance(expr, Mul):
+        numer = Integer(1)
+        denom = Integer(1)
+        for factor in expr.args:
+            n, d = fraction_inner(factor)
+            numer = numer * n
+            denom = denom * d
+        return (numer, denom)
+    if isinstance(expr, Pow):
+        base, exp = expr.args
+        exp_int = _require_int(exp)
+        if exp_int is not None and exp_int < 0:
+            n, d = fraction_inner(base)
+            return (Integer(1), n ** (-exp_int) * d)
+        return (expr, Integer(1))
+    if isinstance(expr, Rational):
+        return (Integer(expr.p), Integer(expr.q))
+    return (expr, Integer(1))
+
+
+def _require_int(expr: Any) -> int | None:
+    if isinstance(expr, Integer):
+        return expr.p
+    return None
+
+
+def posify(expr: Any) -> tuple:
+    """Replace symbols with positive dummies, returning (dummies, substituted)."""
+    from .core import Symbol as _Sym
+
+    if isinstance(expr, _Sym):
+        dummy = _Sym(f"_pos_{expr.name}", positive=True)
+        return (dummy, expr.subs({expr: dummy}))
+    if isinstance(expr, Expr):
+        symbols = expr.free_symbols
+        if not symbols:
+            return (expr, expr)
+        mapping = {}
+        dummies = []
+        for s in sorted(symbols, key=lambda s: s.name):
+            dummy = _Sym(f"_pos_{s.name}", positive=True)
+            mapping[s] = dummy
+            dummies.append(dummy)
+        return (dummies[0] if len(dummies) == 1 else tuple(dummies), expr.subs(mapping))
+    return (expr, expr)
+
+
+def root(expr: Any, n: int) -> Expr:
+    """Return *expr* raised to the power ``1/n``."""
+    if n == 2:
+        return sqrt(expr)
+    return Pow(expr, Rational(1, n))
+
+
+def cbrt(expr: Any) -> Expr:
+    """Return the cube root of *expr*."""
+    return Pow(expr, Rational(1, 3))
+
+
+def _limit_triples(limits):
+    from .core import sympify
+
+    out = []
+    for lim in limits:
+        if isinstance(lim, (tuple, list)) or type(lim).__name__ == "Tuple":
+            items = tuple(lim.args) if type(lim).__name__ == "Tuple" else tuple(lim)
+            if len(items) != 3:
+                raise ValueError("limits must be (index, lower, upper) triples")
+            var, lo, hi = items
+            out.append((_require_symbol(var), sympify(lo), sympify(hi)))
+        else:
+            raise ValueError("limits must be (index, lower, upper) triples")
+    return out
+
+
+def _contains_index_factorial(native_source, index, *, reciprocal=False):
+    """Bound and identify exact typed index-factorial syntax without evaluation."""
+    # This is only a dispatch probe. Domain and polynomial-work admission
+    # belong to the single checked summation call, on its existing ledgers.
+    # Bound the borrowed tree before recursive native has() queries.
+    _native.CompiledFunction._validate_source(native_source)
+    if not native_source.has_function("factorial"):
+        return False
+    native_index = _native_expr(index)
+    pattern = _native.py_function("factorial", native_index)
+    if reciprocal:
+        pattern = _native.Pow(
+            pattern, _native.py_integer(-1), evaluate=False,
+        ).as_expr()
+    return native_source.has(pattern)
+
+
+def _nonfinite_factorial_parameter(expression, index, native_source):
+    """Keep an entire-function summation identity off infinite arguments.
+
+    Native symbols retain typed identity, while these explicit surface facts
+    are not part of the summation bridge's algorithm context. Unknown facts
+    keep the formal entire-function parameter; only a declared contradiction
+    blocks this particular positive-infinite factorial family.
+    """
+    if not _contains_index_factorial(native_source, index, reciprocal=True):
+        return False
+    native_index = _native_expr(index)
+    for parameter in expression.free_symbols:
+        if type(parameter) not in (Symbol, Dummy) or parameter == index:
+            continue
+        facts = parameter._assumptions
+        if facts.get("finite") is not False and facts.get("infinite") is not True:
+            continue
+        geometric = _native.Pow(
+            _native_expr(parameter), native_index, evaluate=False,
+        ).as_expr()
+        if native_source.has(geometric):
+            return True
+    return False
+
+
+class _ConcreteOperator(Function):
+    """Shared shape of Sum / Product: args (function, Tuple(k, a, b), ...)."""
+
+    __slots__ = ()
+    _native_fn = ""
+
+    def __new__(cls, function, *limits, **options):
+        from .core import sympify
+
+        triples = _limit_triples(limits)
+        args = [sympify(function)] + [Tuple(k, a, b) for k, a, b in triples]
+        return Function.__new__(cls, *args, evaluate=False)
+
+    @property
+    def function(self):
+        return self.args[0]
+
+    @property
+    def limits(self):
+        return tuple(tuple(t.args) for t in self.args[1:])
+
+    @property
+    def variables(self):
+        return [lim[0] for lim in self.limits]
+
+    @property
+    def free_symbols(self):
+        syms = set(self.function.free_symbols)
+        for k, a, b in self.limits:
+            syms.discard(k)
+            syms |= set(getattr(a, "free_symbols", set()))
+            syms |= set(getattr(b, "free_symbols", set()))
+        return syms
+
+    def doit(self, **hints):
+        current = self.function
+        limits = self.limits
+        deep = hints.get("deep", True)
+        if deep and type(self) is Sum and any(b == oo for _, _, b in limits):
+            from .core import _contains_opaque
+
+            # Basic.doit reconstructs held arithmetic with evaluation enabled,
+            # which can erase original poles and excessive work under **0.
+            # Closed factorial candidates must reach native admission intact;
+            # unsupported sources remain held without a second folded attempt.
+            # Other expressions retain their established deep evaluation path.
+            if not _contains_opaque(current):
+                original_source = _native_expr(current)
+                if any(b == oo and _contains_index_factorial(original_source, k)
+                       for k, _, b in limits):
+                    deep = False
+        if deep and hasattr(current, "doit"):
+            current = current.doit(**hints)
+        for index, (k, a, b) in enumerate(limits):
+            native_source = _native_expr(current)
+            native_index = _symbol_binding(k)
+            native_lower = _native_expr(a)
+            native_upper = _native_expr(b)
+            if (type(self) is Sum and b == oo
+                    and _nonfinite_factorial_parameter(current, k, native_source)):
+                return type(self)(current, *limits[index:])
+            native = getattr(_native, self._native_fn)(
+                native_source, native_index, native_lower, native_upper,
+            )
+            if native is None:
+                remaining = limits[index:]
+                return type(self)(current, *remaining)
+            current = _lift_native_result(native, current, k, a, b)
+        return current
+
+
+class Sum(_ConcreteOperator):
+    """Unevaluated summation ``Sum(f, (k, a, b))``; ``doit`` finds closed forms."""
+
+    __slots__ = ()
+    _native_fn = "summation_native"
+
+
+class Product(_ConcreteOperator):
+    """Unevaluated product ``Product(f, (k, a, b))``; ``doit`` finds closed forms."""
+
+    __slots__ = ()
+    _native_fn = "product_native"
+
+
+def summation(f, *symbols, **kwargs):
+    """Closed form of a sum (upstream ``summation``); unevaluated ``Sum`` if none."""
+    return Sum(f, *symbols).doit(deep=False)
+
+
+def product(*args, **kwargs):
+    """Closed form of a product (upstream ``product``); unevaluated ``Product`` if none."""
+    return Product(*args).doit(deep=False)
+
+
+def _numeric_poly_roots(
+    coeffs: list, *, maxsteps: int = 500, cleanup: bool = True, n: int = 15
+) -> list:
+    """Shared dependency-free approximate polynomial-root kernel."""
+    from .polys._numeric_roots import numeric_roots
+
+    return numeric_roots(coeffs, maxsteps=maxsteps, cleanup=cleanup, digits=n)
+
+
+def _nroots_coefficients(coefficients: list) -> list:
+    """Convert coefficients without losing nonzero components or a common scalar."""
+    import math
+    import sys
+    from fractions import Fraction
+    from .core import _exact_ratio
+
+    components = []
+    exact = []
+    for coefficient in coefficients:
+        ratio = _exact_ratio(coefficient)
+        if ratio is not None:
+            parts = (coefficient, Integer(0))
+            pair = (Fraction(*ratio), Fraction(0))
+        else:
+            parts = coefficient.as_real_imag()
+            real_ratio, imag_ratio = (_exact_ratio(part) for part in parts)
+            pair = (
+                (Fraction(*real_ratio), Fraction(*imag_ratio))
+                if real_ratio is not None and imag_ratio is not None else None
+            )
+        components.append(parts)
+        exact.append(pair)
+
+    if all(pair is not None for pair in exact):
+        scale = max((abs(part) for pair in exact for part in pair), default=Fraction(0))
+        if scale == 0:
+            return [0j] * len(exact)
+        result = []
+        for pair in exact:
+            converted = [float(part / scale) for part in pair]
+            if any(part != 0 and (value == 0 or abs(value) < sys.float_info.min)
+                   for part, value in zip(pair, converted)):
+                raise ValueError("nroots coefficient normalization loses binary64 precision")
+            result.append(complex(*converted))
+        return result
+
+    result = []
+    for coefficient, parts in zip(coefficients, components):
+        try:
+            value = complex(N(coefficient))
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError("nroots requires numeric coefficients, got %s" % coefficient) from None
+        if not math.isfinite(value.real) or not math.isfinite(value.imag):
+            raise ValueError("nroots requires finite numeric coefficients")
+        for source, component in zip(parts, (value.real, value.imag)):
+            ratio = _exact_ratio(source)
+            if (component == 0 and (ratio is None or ratio[0] != 0)) or (
+                component != 0 and abs(component) < sys.float_info.min
+            ):
+                raise ValueError("nroots coefficient conversion loses binary64 precision")
+        result.append(value)
+    return result
+
+
+def _float_digits(v: float, n: int) -> Any:
+    from .core import _ExactDecimalFloat
+
+    if v == 0:
+        return Integer(0)
+    text = f"{v:#.{n}g}"
+    if "e" not in text and text.endswith("."):
+        text = text + "0"
+    return _ExactDecimalFloat(text, n)
+
+
+def nroots(f: Any, n: int = 15, maxsteps: int = 50, cleanup: bool = True) -> list:
+    """Finite numerical roots of a univariate polynomial.
+
+    The binary64 lane supports at most 15 significant digits. It honors the
+    iteration limit and raises the local ArithmeticError subclass
+    polys._numeric_roots.NoConvergence when the numerical checks fail.
+    This exception is dependency-free, not mpmath's exception class.
+
+    cleanup=False retains every computed component. With cleanup=True,
+    each axis projection must satisfy that root's own residual and update
+    checks; a large root cannot erase another root's imaginary component.
+    These checks do not certify exact roots or their numerical conditioning.
+    """
+    if type(n) is not int or n < 1:
+        raise ValueError("nroots precision must be a positive integer")
+    if n > 15:
+        raise NotImplementedError(
+            "precision-honest nroots: this shell computes roots in binary64 and "
+            "is honest to at most 15 significant digits; requested %d" % n
+        )
+    if type(maxsteps) is not int or maxsteps < 0:
+        raise ValueError("nroots maxsteps must be a nonnegative integer")
+    if type(cleanup) is not bool:
+        raise TypeError("nroots cleanup must be a boolean")
+
+    from .core import Half, NegativeOne, One, Zero
+    from .polys import _finitefield
+    from .polys.polytools import Poly as _Poly
+    from .polys._numeric_roots import NoConvergence
+
+    p = f if isinstance(f, _Poly) else _Poly(f)
+    if _finitefield.is_finite(p):
+        return _finitefield.unsupported(p, "numerical roots")
+    if len(p.gens) != 1:
+        raise ValueError("nroots requires a univariate polynomial")
+    original = p.all_coeffs()
+    numeric_original = _nroots_coefficients(original)
+    if len(original) <= 1:
+        return []
+
+    # Use the checked exact square-free lane where its coefficient domain
+    # applies. Its failures are terminal, rather than silently restarting a
+    # different algorithm after a budget, source or verification failure.
+    exact_atoms = (Integer, Rational, Zero, One, NegativeOne, Half)
+    # This preview admits domain=None and exact ZZ/QQ strings, matching
+    # polytools._rational_ideal_source; it has no domain-object coercion.
+    exact_domain = p._domain is None or (
+        type(p._domain) is str and p._domain in ("ZZ", "QQ")
+    )
+    parts = [(p, 1)]
+    if exact_domain and all(type(coefficient) in exact_atoms for coefficient in original):
+        _, parts = p.sqf_list()
+    roots = []
+    for part, multiplicity in parts:
+        coefficients = numeric_original if part is p else _nroots_coefficients(part.all_coeffs())
+        roots.extend(
+            _numeric_poly_roots(coefficients, maxsteps=maxsteps, cleanup=cleanup, n=n)
+            * multiplicity
+        )
+    if len(roots) != len(original) - 1:
+        raise NoConvergence("nroots: candidate root count does not match the source polynomial")
+
+    real = sorted(root.real for root in roots if root.imag == 0)
+    # Order components at the precision actually returned, so conjugate
+    # pairs are not reversed by a sub-ulp difference in their real parts.
+    complex_roots = sorted(
+        (root for root in roots if root.imag != 0),
+        key=lambda root: (
+            float(format(root.real, ".%dg" % n)),
+            float(format(abs(root.imag), ".%dg" % n)),
+            root.imag,
+        ),
+    )
+    result = [_float_digits(root, n) for root in real]
+    for root in complex_roots:
+        result.append(_float_digits(root.real, n) + _float_digits(root.imag, n) * I)
+    return result
+
+
+def _extract_single_symbol(expr: Any):
+    syms = getattr(expr, "free_symbols", set())
+    if len(syms) == 1:
+        return next(iter(syms))
+    return None
+
+
+def deg(poly: Any, gen: Any = None) -> int:
+    """Return the degree of the leading generator of *poly*."""
+    if isinstance(poly, Pow):
+        base, exp = poly.args
+        exp_int = _as_int_local(exp)
+        if exp_int is not None and exp_int > 0:
+            return deg(base, gen) * exp_int
+    if isinstance(poly, Mul):
+        return max(deg(f, gen) for f in poly.args)
+    if isinstance(poly, Symbol):
+        return 1
+    if isinstance(poly, (Integer, Rational)):
+        return 0
+    return 0
+
+
+def _as_int_local(expr: Any) -> int | None:
+    if isinstance(expr, Integer):
+        return expr.p
+    return None
+
+
+def coeff(expr: Any, sym: Any, n: int = 1) -> Any:
+    """Extract the coefficient of ``sym**n`` from *expr*."""
+    if n == 0:
+        # constant term: substitute 0 for sym
+        return expr.subs({sym: Integer(0)})
+    term_sym = Pow(sym, Integer(n)) if n != 1 else sym
+    if isinstance(expr, Add):
+        for term in expr.args:
+            if isinstance(term, Mul):
+                coeff_found = Integer(1)
+                has_target = False
+                for factor in term.args:
+                    if factor == term_sym:
+                        has_target = True
+                    elif factor == sym:
+                        has_target = True
+                        coeff_found = coeff_found * Integer(1)
+                    elif isinstance(factor, Integer):
+                        coeff_found = coeff_found * factor
+                if has_target:
+                    return coeff_found
+            elif term == term_sym:
+                return Integer(1)
+            elif term == sym:
+                return Integer(1)
+        return Integer(0)
+    if isinstance(expr, Mul):
+        coeff_found = Integer(1)
+        has_target = False
+        for factor in expr.args:
+            if factor == term_sym or factor == sym:
+                has_target = True
+            elif isinstance(factor, Integer):
+                coeff_found = coeff_found * factor
+        return coeff_found if has_target else Integer(0)
+    if expr == term_sym or expr == sym:
+        return Integer(1)
+    return Integer(0)
+
+
+from .functions.elementary.complexes import conjugate, im, re
+
+
+def count_ops(expr: Any) -> Integer:
+    """Count the number of operations in an expression."""
+    def _count(node: Any) -> int:
+        args = getattr(node, "args", ())
+        if not args:
+            return 0
+        return 1 + sum(_count(a) for a in args)
+    return Integer(_count(expr))
+
+
+def real_roots(expr: Any, var: Any = None) -> list:
+    """Return the real roots of a univariate polynomial expression."""
+    solutions = solve(expr, var) if var is not None else solve(expr)
+    real: list = []
+    for sol in solutions:
+        try:
+            v = float(sol)
+            real.append(sol)
+        except (TypeError, ValueError):
+            continue
+    return real
+
+
+def factor_terms(expr: Any) -> Any:
+    """Factor out common coefficients from an expression."""
+    if isinstance(expr, Add):
+        terms = expr.args
+        # Extract numeric coefficients
+        coeffs: list = []
+        for t in terms:
+            if isinstance(t, (Integer, Rational)):
+                coeffs.append(t)
+                continue
+            c = Rational(1)
+            if isinstance(t, Mul):
+                numeric_factors = [f for f in t.args if isinstance(f, (Integer, Rational))]
+                for f in numeric_factors:
+                    c = c * f
+            coeffs.append(c)
+        # Compute the GCD of the numeric coefficients
+        from math import gcd as _igcd
+        int_coeffs = [abs(int(c)) for c in coeffs]
+        common = 0
+        for ic in int_coeffs:
+            common = _igcd(common, ic) if common else ic
+        if common <= 1:
+            return expr
+        common_r = Rational(common)
+        factored = Add(*[t / common_r for t in terms], evaluate=False)
+        return Mul(common_r, factored, evaluate=False)
+    return expr
+
+
+from .functions.elementary.miscellaneous import Max, Min
+from .functions.elementary.piecewise import ExprCondPair, Piecewise, piecewise_fold
+from .functions.elementary.trigonometric import atan2
+from .functions.elementary.exponential import LambertW, ln
+from .core.mod import Mod
+
+
+def numer(expr: Any) -> Any:
+    """Numerator of ``expr`` (upstream ``numer``)."""
+    return sympify(expr).as_numer_denom()[0]
+
+
+def denom(expr: Any) -> Any:
+    """Denominator of ``expr`` (upstream ``denom``)."""
+    return sympify(expr).as_numer_denom()[1]
+
+
+def expand_mul(expr: Any, deep: bool = True) -> Any:
+    """Distribute products over sums only (upstream ``expand_mul``)."""
+    return expand(expr, power_exp=False, log=False, power_base=False)
+
+
+def expand_multinomial(expr: Any, deep: bool = True) -> Any:
+    """Expand integer powers of sums (upstream ``expand_multinomial``)."""
+    return expand(expr, power_exp=False, log=False, power_base=False)
+
+
+def expand_func(expr: Any, deep: bool = True) -> Any:
+    """Expand special functions into elementary ones where possible."""
+    return expand(expr, func=True, power_exp=False, log=False)
+
+from .core.lambdify_subs import Lambda, Subs
+import sys as _sys
+for _obj in (Lambda, Subs):
+    _obj.__module__ = "sympy.core.function"
+    setattr(_sys.modules["sympy.core.function"], _obj.__name__, _obj)
+
+
+from .polys.numberfields import minimal_polynomial, minpoly
+
+
+from .core import Relational
+
+_INEQUALITY_OPS = ("<", "<=", ">", ">=")
+
+
+def _is_inequality(e: Any) -> bool:
+    return isinstance(e, Relational) and e.rel_op in _INEQUALITY_OPS
+
+
+def _solve_inequality_set(rel: Any, symbol: Any) -> Any:
+    """Real solution set from the exact rational or supported elementary lane."""
+    from .solvers.inequalities import _solve_rational_inequality
+    from .sets.sets import _wrap_set
+
+    rational = _solve_rational_inequality(rel, symbol)
+    if rational is not None:
+        return rational
+    f = _wrap(_native_expr(rel.lhs - rel.rhs))
+    try:
+        native = _native.solve_inequality_native(
+            _native_expr(f), _symbol_binding(symbol), rel.rel_op
+        )
+    except ValueError as exc:
+        raise NotImplementedError(
+            f"The inequality, {rel}, cannot be solved by the exact real inequality solver: {exc}"
+        ) from None
+    return _wrap_set(native)
+
+
+def _set_as_relational(s: Any, x: Any) -> Any:
+    """Upstream ``Set.as_relational`` for real-line sets."""
+    from .logic.boolalg import And, Or, false
+    from .sets import EmptySet, FiniteSet, Intersection, Interval, Reals, Union
+
+    if s is EmptySet() or getattr(s, "is_empty", None) is True:
+        return false
+    if isinstance(s, FiniteSet):
+        return Or(*[Eq(x, e) for e in s.args])
+    if isinstance(s, Reals):
+        return And(Lt(-oo, x, evaluate=False), Lt(x, oo, evaluate=False))
+    if isinstance(s, Interval):
+        lo = Lt(s.start, x, evaluate=False) if s.left_open else Le(s.start, x, evaluate=False)
+        hi = Lt(x, s.end, evaluate=False) if s.right_open else Le(x, s.end, evaluate=False)
+        return And(lo, hi)
+    if isinstance(s, Union):
+        return Or(*[_set_as_relational(a, x) for a in s.args])
+    if isinstance(s, Intersection):
+        # Comparisons of algebraic endpoints may remain undecided in the set
+        # normalizer. Preserve the exact conjunction instead of sampling or
+        # discarding one of its constraints.
+        return And(*[_set_as_relational(a, x) for a in s.args])
+    raise NotImplementedError(f"as_relational for {type(s).__name__}")
+
+
+def _inequality_symbol(rels: list, symbols: Any) -> Any:
+    if symbols:
+        syms = list(symbols[0]) if isinstance(symbols[0], (list, tuple, set)) else list(symbols)
+        if len(syms) != 1:
+            raise NotImplementedError("only univariate inequalities are supported")
+        return syms[0]
+    free: set = set()
+    for r in rels:
+        free |= r.free_symbols
+    if len(free) != 1:
+        raise NotImplementedError(
+            "inequality systems need exactly one free variable, got %s"
+            % sorted(str(v) for v in free)
+        )
+    return next(iter(free))
+
+
+def reduce_inequalities(inequalities: Any, symbols: Any = None) -> Any:
+    """Reduce a univariate system of inequalities to a relational form.
+
+    Rational equalities, disequalities and inequalities share one complete
+    checked algebraic partition. Other supported elementary inequalities keep
+    their scalar solver. Unsupported systems raise explicitly.
+    """
+    from .logic.boolalg import BooleanFalse, BooleanTrue
+    from .sets import ConditionSet, EmptySet, Intersection, Reals, Union
+    from .solvers.inequalities import _solve_rational_constraints
+
+    if type(inequalities) not in (list, tuple, set):
+        inequalities = [inequalities]
+    if len(inequalities) > 256:
+        raise NotImplementedError("real constraint resource limit: too many inputs")
+    rels = []
+    conjunction_false = False
+    for ineq in inequalities:
+        if type(ineq) in (int, float, str):
+            ineq = sympify(ineq)
+        if ineq is False or type(ineq) is BooleanFalse:
+            conjunction_false = True
+            continue
+        if ineq is True or type(ineq) is BooleanTrue:
+            continue
+        if type(ineq) not in (Eq, Ne, Lt, Le, Gt, Ge):
+            raise NotImplementedError("reduce_inequalities requires a flat list of built-in relations")
+        rels.append(ineq)
+    if not rels:
+        from .logic.boolalg import false, true
+        return false if conjunction_false else true
+    checked = _solve_rational_constraints(rels, symbols, conjunction_false)
+    if checked is not None:
+        return checked
+    # The admitted original sides retain Piecewise's branch-aware symbol view.
+    # A relation's lowered native tree encodes Boolean guards as protocol atoms
+    # and must not turn those guards into solve coordinates.
+    original_sides = [side for relation in rels for side in (relation.lhs, relation.rhs)]
+    x = _inequality_symbol(original_sides, (symbols,) if symbols is not None else ())
+    sol = EmptySet() if conjunction_false else Reals()
+    for r in rels:
+        if _is_inequality(r):
+            part = _solve_inequality_set(r, x)
+        elif type(r) is Ne:
+            raise NotImplementedError("nonrational disequality systems are not supported")
+        else:
+            part = solveset(r, x, Reals())
+        pending = [part]
+        while pending:
+            node = pending.pop()
+            if isinstance(node, ConditionSet):
+                raise NotImplementedError("constraint fallback did not complete an original relation")
+            if isinstance(node, (Intersection, Union)):
+                pending.extend(node.args)
+        sol = Intersection(sol, part)
+    return _set_as_relational(sol, x)
+
+
+__all__ = [
+    "BasePolynomialError",
+    "CoercionFailed",
+    "DomainError",
+    "ExactQuotientFailed",
+    "GeneratorsError",
+    "GeneratorsNeeded",
+    "NotInvertible",
+    "PolynomialError",
+    "UnificationFailed",
+    "imageset",
+    "Rationals",
+    "Range",
+    "Naturals0",
+    "Naturals",
+    "Integers",
+    "ImageSet",
+    "ConditionSet",
+    "Complexes",
+    "invert",
+    "interpolate",
+    "LT",
+    "LM",
+    "GroebnerBasis",
+    "DiracDelta",
+    "Heaviside",
+    "Abs",
+    "AccumBounds",
+    "AccumulationBounds",
+    "Add",
+    "AlternatingGroup",
+    "And",
+    "Application",
+    "AppliedPredicate",
+    "AppliedUndef",
+    "AssumptionsContext",
+    "Atom",
+    "AtomicExpr",
+    "Basic",
+    "Boolean",
+    "BooleanAtom",
+    "BooleanFalse",
+    "BooleanFunction",
+    "BooleanTrue",
+    "Catalan",
+    "Chi",
+    "Ci",
+    "Circle",
+    "Complement",
+    "ComplexInfinity",
+    "CosineTransform",
+    "Cycle",
+    "CyclicGroup",
+    "DenseMatrix",
+    "Derivative",
+    "DihedralGroup",
+    "Dummy",
+    "E",
+    "EC",
+    "Ei",
+    "Ellipse",
+    "EmptySet",
+    "Eq",
+    "Equality",
+    "Equivalent",
+    "EulerGamma",
+    "Expr",
+    "FiniteSet",
+    "Float",
+    "FourierSeries",
+    "FourierTransform",
+    "FresnelC",
+    "FresnelS",
+    "Function",
+    "FunctionClass",
+    "Ge",
+    "GoldenRatio",
+    "GramSchmidt",
+    "GrayCode",
+    "Gt",
+    "HankelTransform",
+    "I",
+    "ITE",
+    "ImmutableDenseMatrix",
+    "ImmutableSparseMatrix",
+    "ImmutableMatrix",
+    "Implies",
+    "Integer",
+    "IntegerPartition",
+    "Integral",
+    "IntegralEnclosureReceipt",
+    "certified_integral",
+    "ExactRationalIntegralReceipt",
+    "exact_rational_integral",
+    "Intersection",
+    "Interval",
+    "InverseCosineTransform",
+    "InverseFourierTransform",
+    "InverseHankelTransform",
+    "InverseLaplaceTransform",
+    "InverseMellinTransform",
+    "InverseSineTransform",
+    "LC",
+    "Le",
+    "Line",
+    "Line2D",
+    "Line3D",
+    "Limit",
+    "LinearEntity",
+    "LaplaceTransform",
+    "Lt",
+    "Matrix",
+    "MatrixBase",
+    "MellinTransform",
+    "Metric",
+    "Mul",
+    "MutableDenseMatrix",
+    "MutableSparseMatrix",
+    "N",
+    "NAND",
+    "NOR",
+    "Nand",
+    "Ne",
+    "Nor",
+    "Not",
+    "Number",
+    "O",
+    "Or",
+    "Order",
+    "POSform",
+    "Partition",
+    "Permutation",
+    "PermutationGroup",
+    "Plane",
+    "Point",
+    "Point2D",
+    "Point3D",
+    "Poly",
+    "PurePoly",
+    "Polygon",
+    "Pow",
+    "Predicate",
+    "ProductSet",
+    "pinv",
+    "Q",
+    "Rational",
+    "Ray",
+    "Ray2D",
+    "Ray3D",
+    "Reals",
+    "S",
+    "SOPform",
+    "Segment",
+    "Segment2D",
+    "Segment3D",
+    "Set",
+    "Shi",
+    "Si",
+    "SparseMatrix",
+    "Sphere",
+    "SineTransform",
+    "Subset",
+    "Symbol",
+    "SymmetricDifference",
+    "SymmetricGroup",
+    "TC",
+    "Tensor",
+    "TensorIndex",
+    "Triangle",
+    "Transform",
+    "Tuple",
+    "UndefinedFunction",
+    "Union",
+    "UniversalSet",
+    "XNOR",
+    "Xnor",
+    "Xor",
+    "__version__",
+    "acos",
+    "acosh",
+    "acot",
+    "acoth",
+    "acsc",
+    "acsch",
+    "airyai",
+    "airybi",
+    "apart",
+    "apply_finite_diff",
+    "are_collinear",
+    "are_coplanar",
+    "are_similar",
+    "arg",
+    "asec",
+    "asech",
+    "ask",
+    "asin",
+    "asinh",
+    "assuming",
+    "atan",
+    "atanh",
+    "bell",
+    "bernoulli",
+    "besseli",
+    "besselj",
+    "besselk",
+    "bessely",
+    "beta",
+    "binomial",
+    "cancel",
+    "calculus",
+    "carmichael",
+    "casoratian",
+    "cholesky",
+    "catalan",
+    "centroid",
+    "ceiling",
+    "checkodesol",
+    "checksol",
+    "collect",
+    "combsimp",
+    "gammasimp",
+    "conjugate",
+    "content",
+    "continuous_domain",
+    "convex_hull",
+    "compose",
+    "cos",
+    "cosh",
+    "cosine_transform",
+    "cot",
+    "coth",
+    "csc",
+    "csch",
+    "decompose",
+    "degree",
+    "det",
+    "diag",
+    "diff",
+    "differentiate_finite",
+    "digamma",
+    "dirichlet_eta",
+    "discrete_log",
+    "discriminant",
+    "div",
+    "exquo",
+    "divisor_count",
+    "divisor_sigma",
+    "divisors",
+    "dsolve",
+    "dsolve_cauchy_euler",
+    "dsolve_const_coeff_second_order",
+    "dsolve_const_coeff_second_order_nonhomogeneous",
+    "dsolve_exact_first_order",
+    "dsolve_linear_first_order",
+    "dsolve_separable_linear",
+    "erf",
+    "erfc",
+    "erfcinv",
+    "erfi",
+    "erfinv",
+    "euler_equations",
+    "exp",
+    "expand",
+    "expand_log",
+    "expand_power_base",
+    "expand_power_exp",
+    "expand_trig",
+    "eye",
+    "factor",
+    "fraction",
+    "factor_list",
+    "factorial",
+    "factorint",
+    "false",
+    "fibonacci",
+    "finite_diff_weights",
+    "floor",
+    "formal_power_series",
+    "fourier_series",
+    "fourier_transform",
+    "fps",
+    "function_range",
+    "gamma",
+    "gcd",
+    "gcdex",
+    "global_assumptions",
+    "groebner",
+    "hadamard_product",
+    "half_gcdex",
+    "hankel1",
+    "hankel2",
+    "hankel_transform",
+    "harmonic",
+    "hstack",
+    "hyper",
+    "idiff",
+    "im",
+    "integer_nthroot",
+    "integrate",
+    "intersection",
+    "inverse_cosine_transform",
+    "inverse_fourier_transform",
+    "inverse_hankel_transform",
+    "inverse_laplace_transform",
+    "inverse_mellin_transform",
+    "inverse_sine_transform",
+    "is_decreasing",
+    "is_increasing",
+    "is_monotonic",
+    "is_nnf",
+    "is_nthpow_residue",
+    "is_strictly_decreasing",
+    "is_strictly_increasing",
+    "is_perfect",
+    "is_primitive_root",
+    "is_quad_residue",
+    "is_square_free",
+    "is_squarefree",
+    "isprime",
+    "jacobian",
+    "jacobi_symbol",
+    "jn",
+    "jordan_block",
+    "jordan_cell",
+    "kronecker_product",
+    "laplace_transform",
+    "lcm",
+    "legendre_symbol",
+    "lerchphi",
+    "limit",
+    "linsolve",
+    "latex",
+    "log",
+    "logcombine",
+    "loggamma",
+    "lowergamma",
+    "lucas",
+    "matrix_multiply_elementwise",
+    "maximum",
+    "meijerg",
+    "mellin_transform",
+    "minimum",
+    "mobius",
+    "mod_inverse",
+    "monic",
+    "multiplicity",
+    "nan",
+    "nextprime",
+    "nonlinsolve",
+    "npartitions",
+    "nsimplify",
+    "ones",
+    "oo",
+    "pdsolve",
+    "perfect_power",
+    "periodicity",
+    "pi",
+    "pl_true",
+    "poly",
+    "polygamma",
+    "polylog",
+    "powsimp",
+    "pprint",
+    "pprint_use_unicode",
+    "pretty",
+    "pretty_print",
+    "prevprime",
+    "prime",
+    "product",
+    "primitive",
+    "primenu",
+    "prime_big_omega",
+    "prime_omega",
+    "primefactors",
+    "primeomega",
+    "primepi",
+    "primerange",
+    "proper_divisors",
+    "quadratic_residues",
+    "quo",
+    "reduced",
+    "radsimp",
+    "randMatrix",
+    "rank",
+    "ratsimp",
+    "re",
+    "reduced_totient",
+    "refine",
+    "rem",
+    "residue",
+    "resultant",
+    "roots",
+    "satisfiable",
+    "sec",
+    "sech",
+    "separatevars",
+    "series",
+    "shape",
+    "sign",
+    "simplify",
+    "simplify_logic",
+    "sin",
+    "sinc",
+    "sine_transform",
+    "singularities",
+    "sinh",
+    "solve",
+    "solve_linear",
+    "solve_linear_system",
+    "solve_linear_system_LU",
+    "solve_poly_system",
+    "solveset",
+    "sqf",
+    "sqf_list",
+    "sqf_part",
+    "sturm",
+    "terms_gcd",
+    "srepr",
+    "sstr",
+    "sstr",
+    "sqrt",
+    "summation",
+    "sqrt_mod",
+    "stationary_points",
+    "subfactorial",
+    "symbols",
+    "sympify",
+    "SympifyError",
+    "tan",
+    "tanh",
+    "tensor_indices",
+    "tensorcontraction",
+    "tensorproduct",
+    "to_cnf",
+    "to_dnf",
+    "to_nnf",
+    "together",
+    "root",
+    "cbrt",
+    "Sum",
+    "Product",
+    "totient",
+    "trace",
+    "trailing_coeff",
+    "trigamma",
+    "trigsimp",
+    "true",
+    "truth_table",
+    "uppergamma",
+    "valid",
+    "vstack",
+    "wronskian",
+    "yn",
+    "zeros",
+    "nsolve",
+    "nsolve_certified",
+    "RootSearchError",
+    "lambdify",
+    "compile_numeric",
+    "compile_numeric_hybrid",
+    "compile_hybrid_residual_system",
+    "compile_residual_system",
+    "load_residual_system",
+    "compile_objective",
+    "enclose_residual_system",
+    "certify_root_box",
+    "enclose_objective",
+    "certify_stationary_point",
+    "certify_box_extremum",
+    "optimize_box_certified",
+    "StationarySearchError", "MinimizationSearchError", "NumericMinimizationCandidate",
+    "EvaluationBudget",
+    "EvaluationBudgetExceeded",
+    "EvaluationCancelled",
+    "NumericRootCandidate",
+    "NumericLeastSquaresCandidate",
+    "ResidualJacobianEnclosure",
+    "RootBoxReceipt",
+    "RootIsolationReceipt",
+    "ParametricRootBoxReceipt",
+    "ParametricRootCoverReceipt",
+    "ParametricSensitivityReceipt",
+    "ObjectiveEnclosure",
+    "StationaryPointReceipt",
+    "BoxExtremumReceipt",
+    "BoxOptimizationReceipt",
+    "count_ops",
+    "real_roots",
+    "factor_terms",
+    "Max",
+    "Min",
+    "minpoly",
+    "minimal_polynomial",
+    "reduce_inequalities",
+    "solve_univariate_inequality",
+    "nroots",
+    "deg",
+    "coeff",
+    "re",
+    "im",
+    "conjugate",
+    "zeta",
+    "zoo",
+    "ExprCondPair",
+    "Lambda",
+    "LambertW",
+    "Mod",
+    "Piecewise",
+    "Subs",
+    "atan2",
+    "ln",
+    "piecewise_fold",
+    "numer",
+    "denom",
+    "expand_mul",
+    "expand_multinomial",
+    "expand_func",
+]
+
+from .core.match import Wild, WildFunction, bottom_up, postorder_traversal, preorder_traversal  # noqa: E402
+
+__all__ += ["Wild", "WildFunction", "bottom_up", "postorder_traversal", "preorder_traversal"]
+
+from .functions.special.polynomials import (  # noqa: E402
+    assoc_laguerre, assoc_legendre, chebyshevt, chebyshevt_poly, chebyshevt_root, chebyshevu,
+    chebyshevu_poly, chebyshevu_root, gegenbauer, gegenbauer_poly, hermite, hermite_poly,
+    hermite_prob, hermite_prob_poly, jacobi, jacobi_poly, laguerre, laguerre_poly, legendre,
+    legendre_poly,
+)
+from .functions.special import polynomials as _orthopoly  # noqa: E402
+
+__all__ += list(_orthopoly.__all__)
+
+from .solvers.recurr import rsolve  # noqa: E402
+
+__all__ += ["rsolve"]
+
+from .simplify.cse_main import cse, numbered_symbols  # noqa: E402
+
+__all__ += ["cse", "numbered_symbols"]
+
+from .parsing.sympy_parser import parse_expr  # noqa: E402
+from . import parsing  # noqa: E402,F401
+
+__all__ += ["parse_expr"]
+
+from .utilities.iterables import (  # noqa: E402
+    default_sort_key, flatten, has_dups, has_variety, ordered, postfixes, prefixes, sift,
+    subsets, topological_sort, unflatten, variations,
+)
+from . import utilities  # noqa: E402,F401
+
+
+def var(names, **args):
+    """Create symbols and inject them into the caller's global namespace."""
+    import inspect
+
+    frame = inspect.currentframe().f_back
+    try:
+        syms = symbols(names, **args)
+        seq = syms if isinstance(syms, (list, tuple)) else (syms,)
+
+        def inject(s):
+            if isinstance(s, (list, tuple)):
+                for t in s:
+                    inject(t)
+            else:
+                frame.f_globals[s.name] = s
+
+        inject(seq)
+        return syms
+    finally:
+        del frame
+
+
+__all__ += [
+    "default_sort_key", "flatten", "has_dups", "has_variety", "ordered", "postfixes", "prefixes",
+    "sift", "subsets", "topological_sort", "unflatten", "var", "variations",
+]
+
+from .printing.codeprinter import (  # noqa: E402
+    ccode, fcode, jscode, julia_code, mathematica_code, octave_code, print_ccode, print_fcode,
+    pycode, rust_code,
+)
+
+__all__ += [
+    "ccode", "fcode", "jscode", "julia_code", "mathematica_code", "octave_code", "print_ccode",
+    "print_fcode", "pycode", "rust_code",
+]
+
+from .solvers.diophantine import diophantine  # noqa: E402
+
+__all__ += ["diophantine"]
+
+from .polys.rootoftools import CRootOf, ComplexRootOf, RootOf, all_roots, real_roots, rootof  # noqa: E402
+
+__all__ += ["CRootOf", "ComplexRootOf", "RootOf", "real_roots", "rootof"]
+
+# Package-defined classes are admitted by exact identity. A later extension's
+# chosen __module__ or printed name cannot register a native intrinsic.
+from .core import _freeze_builtin_function_classes as _freeze_functions  # noqa: E402
+
+_freeze_functions()

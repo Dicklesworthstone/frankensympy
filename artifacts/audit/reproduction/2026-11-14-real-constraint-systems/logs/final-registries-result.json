@@ -1,0 +1,9 @@
+{
+  "command": [
+    "./scripts/check.sh",
+    "registries"
+  ],
+  "returncode": 1,
+  "elapsed_seconds": 1.402667035000377,
+  "scope": "Executable planning registry checks on the selected local source view, after note-only bead updates; not a full runtime/profile gate."
+}

@@ -1,0 +1,76 @@
+   Compiling fsym-budget v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-budget)
+   Compiling fsym-bigint v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-bigint)
+   Compiling fsym-modular v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-modular)
+   Compiling fsym-rational v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-rational)
+   Compiling fsym-id v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-id)
+   Compiling fsym-core v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-core)
+   Compiling target-lexicon v0.13.5
+   Compiling pyo3-build-config v0.27.2
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-assumptions)
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-proof-kernel)
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-evidence)
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-polys)
+   Compiling fsym-simplify v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-simplify)
+   Compiling pyo3-ffi v0.27.2
+   Compiling pyo3-macros-backend v0.27.2
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus)
+   Compiling memoffset v0.9.1
+   Compiling syn v2.0.119
+   Compiling heck v0.5.0
+   Compiling pyo3 v0.27.2
+   Compiling fsym-sets v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-sets)
+   Compiling fsci-runtime v0.2.0 (/workspace/scratch/aac5c0ea4661/frankenscipy-pin/crates/fsci-runtime)
+   Compiling fsci-opt v0.2.0 (/workspace/scratch/aac5c0ea4661/frankenscipy-pin/crates/fsci-opt)
+   Compiling fsym-solvers v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-solvers)
+   Compiling pyo3-macros v0.27.2
+   Compiling indoc v2.0.7
+   Compiling once_cell v1.21.4
+   Compiling unindent v0.2.4
+   Compiling fsym-matrices v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-matrices)
+   Compiling fsym-numeric-consumer v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-numeric-consumer)
+   Compiling fsym-geometry v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-geometry)
+   Compiling fsym-tensor v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-tensor)
+   Compiling fsym-printing v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-printing)
+   Compiling fsym-logic v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-logic)
+   Compiling fsym-ntheory v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-ntheory)
+   Compiling fsym-functions v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-functions)
+   Compiling fsym-budget-source-component v0.1.0 (/workspace/scratch/aac5c0ea4661/validation/python-component/runtime)
+   Compiling fsym-python-math-source-component v0.1.0 (/workspace/scratch/aac5c0ea4661/validation/python-component)
+error[E0283]: type annotations needed
+  --> src/real_inequality.rs:74:40
+   |
+74 |                     && (power < &(-64).into() || power > &64.into())
+   |                               -        ^^^^
+   |                               |
+   |                               type must be known at this point
+   |
+   = note: multiple `impl`s satisfying `BigInt: PartialOrd<_>` found in the `fsym_bigint` crate:
+           - impl PartialOrd for BigInt;
+           - impl PartialOrd<i64> for BigInt;
+   = note: required for `&BigInt` to implement `PartialOrd<&_>`
+help: try using a fully qualified path to specify the expected types
+   |
+74 -                     && (power < &(-64).into() || power > &64.into())
+74 +                     && (power < &<i32 as Into<T>>::into((-64)) || power > &64.into())
+   |
+
+error[E0283]: type annotations needed
+  --> src/real_inequality.rs:74:62
+   |
+74 |                     && (power < &(-64).into() || power > &64.into())
+   |                                                        -     ^^^^
+   |                                                        |
+   |                                                        type must be known at this point
+   |
+   = note: multiple `impl`s satisfying `BigInt: PartialOrd<_>` found in the `fsym_bigint` crate:
+           - impl PartialOrd for BigInt;
+           - impl PartialOrd<i64> for BigInt;
+   = note: required for `&BigInt` to implement `PartialOrd<&_>`
+help: try using a fully qualified path to specify the expected types
+   |
+74 -                     && (power < &(-64).into() || power > &64.into())
+74 +                     && (power < &(-64).into() || power > &<i32 as Into<T>>::into(64))
+   |
+
+For more information about this error, try `rustc --explain E0283`.
+error: could not compile `fsym-python-math-source-component` (lib) due to 2 previous errors

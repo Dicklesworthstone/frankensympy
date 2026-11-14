@@ -1,0 +1,35 @@
+{
+  "command": [
+    "cargo",
+    "clippy",
+    "--offline",
+    "--locked",
+    "-p",
+    "fsym-python-math-source-component",
+    "--no-deps",
+    "--lib",
+    "--features",
+    "extension-module",
+    "--",
+    "-D",
+    "warnings"
+  ],
+  "cwd": "/workspace/scratch/aac5c0ea4661/validation/python-component",
+  "returncode": 101,
+  "elapsed_seconds": 36.334289168000396,
+  "rustflags": "-Zunstable-options --jobs-backend=1 --jobs-frontend=1 -Cdebuginfo=0 -Ccodegen-units=256",
+  "source_hashes_unchanged": true,
+  "harness_hashes_unchanged": true,
+  "source_hash_count": 942,
+  "harness_hash_count": 48,
+  "max_rss_kib": 512608,
+  "scope": "Supplementary mathematical/PyO3 component only; production async runtime and six helpers absent; no replacement functions or upstream production engine",
+  "omitted_members": [
+    "lib.rs::eval_error",
+    "lib.rs::eval_region",
+    "lib.rs::simplify_expr",
+    "lib.rs::expand_expr",
+    "expr.rs::PyExpr.simplify",
+    "expr.rs::PyExpr.expand"
+  ]
+}

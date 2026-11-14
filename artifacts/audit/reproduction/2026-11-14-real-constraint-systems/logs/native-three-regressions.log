@@ -1,0 +1,108 @@
+   Compiling syn v3.0.3
+   Compiling serde_derive v1.0.229
+   Compiling serde v1.0.229
+   Compiling num-bigint v0.4.8
+   Compiling fsym-budget v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-budget)
+   Compiling fsym-bigint v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-bigint)
+   Compiling serde_json v1.0.151
+   Compiling fsym-modular v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-modular)
+   Compiling num-rational v0.4.2
+   Compiling thiserror-impl v2.0.20
+   Compiling thiserror v2.0.20
+   Compiling fsym-rational v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-rational)
+   Compiling fsym-id v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-id)
+   Compiling fsym-outcome v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-outcome)
+   Compiling fsym-core v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-core)
+   Compiling getrandom v0.3.4
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-assumptions)
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-proof-kernel)
+   Compiling zerocopy v0.8.56
+   Compiling getrandom v0.4.3
+   Compiling rustix v1.1.4
+   Compiling rand_core v0.9.5
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-evidence)
+   Compiling bitflags v2.13.1
+   Compiling linux-raw-sys v0.12.1
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-polys)
+   Compiling once_cell v1.21.4
+   Compiling fastrand v2.5.0
+   Compiling tempfile v3.27.0
+   Compiling ppv-lite86 v0.2.21
+   Compiling fsym-simplify v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-simplify)
+   Compiling wait-timeout v0.2.1
+   Compiling quick-error v1.2.3
+   Compiling fnv v1.0.7
+   Compiling bit-vec v0.8.0
+   Compiling bit-set v0.8.0
+   Compiling rusty-fork v0.3.1
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus)
+   Compiling rand_chacha v0.9.0
+   Compiling rand v0.9.5
+   Compiling rand_xorshift v0.4.0
+   Compiling fsym-sets v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-sets)
+   Compiling unarray v0.1.4
+   Compiling regex-syntax v0.8.11
+   Compiling proptest v1.11.0
+   Compiling fsym-solvers v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-solvers)
+    Finished `test` profile [unoptimized] target(s) in 8m 00s
+     Running tests/real_constraints.rs (/workspace/scratch/aac5c0ea4661/validation/session-component/target/debug/build/fsym-solvers/2889f53eee7b583f/out/real_constraints-2889f53eee7b583f)
+
+running 21 tests
+test empty_boolean_connectives_have_their_mathematical_identity_sets ... ok
+test a_defined_disjunct_can_supply_another_atoms_excluded_point ... ok
+test constant_relations_and_nowhere_defined_atoms_are_distinct ... ok
+test every_source_is_admitted_even_if_the_formula_would_short_circuit ... ok
+test formula_indices_and_independent_structural_limits_fail_explicitly ... ok
+test equality_intersects_an_inequality_without_adding_spurious_gap_solutions ... ok
+test held_cancellation_and_nested_zero_powers_keep_irrational_domain_holes ... ok
+test a_foreign_algebraic_boundary_inherits_the_correct_local_gap ... ok
+test complex_only_zeros_do_not_create_real_boundaries ... ok
+test rational_disjunction_excludes_both_poles_exactly ... ok
+test irreducible_quintic_boundaries_need_no_radical_or_floating_approximation ... ok
+test shared_irrational_roots_and_multiplicities_are_deduplicated ... ok
+test atom_permutation_preserves_the_solution_when_formula_indices_follow ... ok
+test irrational_annulus_has_complete_exact_closed_boundaries ... ok
+test unions_mix_isolated_equation_roots_with_open_inequality_intervals ... ok
+test cancellation_stops_both_lanes_before_during_and_at_publication ... ok
+test the_combined_critical_degree_is_bounded_even_when_each_atom_fits ... ok
+test successful_and_failed_calls_preserve_cumulative_caller_accounting ... ok
+test boolean_laws_hold_on_the_same_complete_algebraic_decomposition ... ok
+test equality_and_disequality_partition_only_the_original_defined_domain ... ok
+test close_rational_boundaries_remain_distinct_beyond_binary64_precision ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.83s
+
+     Running tests/real_equation.rs (/workspace/scratch/aac5c0ea4661/validation/session-component/target/debug/build/fsym-solvers/2533e0b07f289ddc/out/real_equation-2533e0b07f289ddc)
+
+running 10 tests
+test constants_nowhere_defined_inputs_and_no_real_roots_are_distinct ... ok
+test unsupported_shapes_and_same_name_foreign_symbols_do_not_enter_the_exact_lane ... ok
+test generator_and_reference_verifier_cancellation_and_exhaustion_are_typed ... ok
+test nested_inverse_and_held_zero_power_keep_the_original_domain ... ok
+test original_hidden_growth_and_degree_limits_refuse_before_cancellation ... ok
+test rational_sums_cross_multiply_without_forgetting_either_original_denominator ... ok
+test unsolvable_quintic_is_complete_and_bound_to_the_original_typed_source ... ok
+test exact_polynomials_with_many_real_roots_deduplicate_repeated_factors ... ok
+test identities_return_the_complete_cofinite_domain_with_overlapping_irrational_holes ... ok
+test irrational_domain_holes_remove_all_multiplicities_not_just_rational_poles ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running tests/real_inequality.rs (/workspace/scratch/aac5c0ea4661/validation/session-component/target/debug/build/fsym-solvers/3c403c6228642683/out/real_inequality-3c403c6228642683)
+
+running 12 tests
+test nested_inverse_and_held_zero_powers_retain_original_domains ... ok
+test constants_nowhere_defined_sources_and_complex_only_zeros_remain_distinct ... ok
+test irreducible_quartic_and_quintic_signs_are_complete_without_radicals ... ok
+test cancellation_is_observed_before_during_and_at_final_publication_in_both_lanes ... ok
+test repeated_zeros_keep_even_and_odd_sign_changes_distinct ... ok
+test cancellation_never_fills_original_irrational_holes ... ok
+test production_budgets_accept_nontrivial_charts_and_preserve_exhaustion ... ok
+test identically_zero_expressions_return_all_and_only_defined_weak_gaps ... ok
+test rational_sums_preserve_both_original_denominators ... ok
+test exact_irrational_endpoint_ownership_distinguishes_zeros_from_poles ... ok
+test unsupported_shapes_foreign_identities_and_hidden_growth_refuse ... ok
+test extremely_close_critical_points_are_ordered_exactly ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.38s
+

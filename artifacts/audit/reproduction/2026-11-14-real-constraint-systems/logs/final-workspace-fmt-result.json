@@ -1,0 +1,19 @@
+{
+  "command": [
+    "cargo",
+    "fmt",
+    "--check"
+  ],
+  "exit_code": 1,
+  "elapsed_seconds": 11.005,
+  "head": "6a5505089aae516b76a3690f548694e4da217e1a",
+  "differing_files": [
+    "crates/fsym-calculus/src/box_optimization/checkpoint.rs",
+    "crates/fsym-calculus/tests/box_optimization_checkpoint.rs",
+    "crates/fsym-calculus/tests/square_root_programs.rs",
+    "crates/fsym-python/src/ode.rs",
+    "src/optimization_checkpoint.rs",
+    "tests/optimization_checkpoints.rs"
+  ],
+  "log": "/workspace/scratch/aac5c0ea4661/validation/logs/final-workspace-fmt.log"
+}

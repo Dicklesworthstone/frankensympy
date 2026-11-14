@@ -1,0 +1,76 @@
+{
+  "source_hashes_unchanged": true,
+  "harness_hashes_unchanged": true,
+  "source_hash_count": 942,
+  "harness_hash_count": 48,
+  "repository_head_before": "6a5505089aae516b76a3690f548694e4da217e1a",
+  "repository_head_after": "6a5505089aae516b76a3690f548694e4da217e1a",
+  "source_snapshot_includes_reviewed_bridge_corrections": true,
+  "rustflags": "-Zunstable-options --jobs-backend=1 --jobs-frontend=1 -Cdebuginfo=0 -Ccodegen-units=256",
+  "pyo3_python": "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+  "cargo_target_dir": "/workspace/scratch/aac5c0ea4661/validation/session-component/target",
+  "scope": "Supplementary mathematical/PyO3 component only; production async runtime and six helpers absent; no replacement functions or upstream production engine",
+  "omitted_members": [
+    "lib.rs::eval_error",
+    "lib.rs::eval_region",
+    "lib.rs::simplify_expr",
+    "lib.rs::expand_expr",
+    "expr.rs::PyExpr.simplify",
+    "expr.rs::PyExpr.expand"
+  ],
+  "source_function_replacements": [],
+  "runner_script_sha256": "89869f8fb8d9c6dc7ac6ada43f6f1dd9b62b9296d700793735572eae7259efae",
+  "max_rss_kib": 745976,
+  "commands": [
+    {
+      "name": "python-final-build",
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--lib",
+        "--features",
+        "extension-module"
+      ],
+      "cwd": "/workspace/scratch/aac5c0ea4661/validation/python-component",
+      "returncode": 0,
+      "elapsed_seconds": 29.493632169000193,
+      "log": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-final-build.log"
+    },
+    {
+      "name": "python-pinned-runner-smoke",
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-c",
+        "import json,pathlib,sympy,fsym_python,pytest; assert pathlib.Path(sympy.__file__).resolve()==pathlib.Path('/workspace/scratch/aac5c0ea4661/frankensympy/python/sympy/__init__.py').resolve(); assert pathlib.Path(fsym_python.__file__).resolve()==pathlib.Path('/workspace/scratch/aac5c0ea4661/validation/python-component/extension/fsym_python.so').resolve(); assert pytest.__version__==\"8.4.2\"; assert hasattr(fsym_python,\"solve_real_rational_constraints_native\") and hasattr(fsym_python,\"real_constraint_source_preflight_native\"); print(json.dumps({\"sympy\":sympy.__file__,\"native\":fsym_python.__file__,\"pytest_version\":pytest.__version__,\"new_bridge_registered\":True}))"
+      ],
+      "cwd": "/workspace/scratch/aac5c0ea4661/validation/python-component",
+      "returncode": 0,
+      "elapsed_seconds": 0.9550481269998272,
+      "log": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-pinned-runner-smoke.log"
+    },
+    {
+      "name": "python-pinned-runner-tests",
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-m",
+        "pytest",
+        "-q",
+        "/workspace/scratch/aac5c0ea4661/frankensympy/python/tests/test_real_constraint_systems.py",
+        "/workspace/scratch/aac5c0ea4661/frankensympy/python/tests/test_real_rational_inequalities.py"
+      ],
+      "cwd": "/workspace/scratch/aac5c0ea4661/validation/python-component",
+      "returncode": 1,
+      "elapsed_seconds": 5.695079812999211,
+      "log": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-pinned-runner-tests.log"
+    }
+  ],
+  "returncode": 1,
+  "loaded_binary": "/workspace/scratch/aac5c0ea4661/validation/python-component/extension/fsym_python.so",
+  "binary_sha256": "eaddec5e59d488f8ae55320882c54ff6fd83f0dfc4110ffe96ebfd33c64c76ab",
+  "pythonpath": "/workspace/scratch/aac5c0ea4661/validation/python-component/extension:/workspace/scratch/aac5c0ea4661/frankensympy/python:/workspace/scratch/aac5c0ea4661/validation/python-runner-8.4.2/site-packages",
+  "pytest_version": "8.4.2",
+  "pytest_wheel_manifest": "/workspace/scratch/aac5c0ea4661/validation/python-runner-8.4.2/wheel-manifest.json",
+  "pytest_wheel_manifest_sha256": "d72b2e3a8bca4bea5984bd7f8943107095cc3e98373ca67b3c7c809d1b646348"
+}

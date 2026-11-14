@@ -1,0 +1,46 @@
+    Checking serde v1.0.229
+    Checking fsym-budget v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-budget)
+    Checking num-bigint v0.4.8
+    Checking fsym-bigint v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-bigint)
+    Checking fsym-modular v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-modular)
+    Checking num-rational v0.4.2
+    Checking thiserror v2.0.20
+    Checking fsym-rational v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-rational)
+    Checking fsym-id v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-id)
+    Checking fsym-core v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-core)
+    Checking fsym-assumptions v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-assumptions)
+    Checking fsym-proof-kernel v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-proof-kernel)
+    Checking fsym-evidence v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-evidence)
+    Checking fsym-polys v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-polys)
+    Checking fsym-simplify v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-simplify)
+    Checking fsym-calculus v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus)
+    Checking fsym-sets v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-sets)
+    Checking fsci-runtime v0.2.0 (/workspace/scratch/aac5c0ea4661/frankenscipy-pin/crates/fsci-runtime)
+    Checking fsci-opt v0.2.0 (/workspace/scratch/aac5c0ea4661/frankenscipy-pin/crates/fsci-opt)
+    Checking fsym-solvers v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-solvers)
+    Checking memoffset v0.9.1
+    Checking pyo3-ffi v0.27.2
+    Checking unindent v0.2.4
+    Checking once_cell v1.21.4
+    Checking pyo3 v0.27.2
+    Checking fsym-matrices v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-matrices)
+    Checking fsym-numeric-consumer v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-numeric-consumer)
+    Checking fsym-geometry v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-geometry)
+    Checking fsym-tensor v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-tensor)
+    Checking fsym-ntheory v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-ntheory)
+    Checking fsym-functions v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-functions)
+    Checking fsym-printing v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-printing)
+    Checking fsym-logic v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-logic)
+    Checking fsym-budget-source-component v0.1.0 (/workspace/scratch/aac5c0ea4661/validation/python-component/runtime)
+    Checking fsym-python-math-source-component v0.1.0 (/workspace/scratch/aac5c0ea4661/validation/python-component)
+error: manual `!RangeInclusive::contains` implementation
+  --> src/real_inequality.rs:74:24
+   |
+74 |                     && (power < &(-64_i64) || power > &64_i64)
+   |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: use: `!(&(-64_i64)..=&64_i64).contains(&power)`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_range_contains
+   = note: `-D clippy::manual-range-contains` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::manual_range_contains)]`
+
+error: could not compile `fsym-python-math-source-component` (lib) due to 1 previous error

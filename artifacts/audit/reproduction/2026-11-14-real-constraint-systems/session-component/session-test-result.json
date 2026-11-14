@@ -1,0 +1,18 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--offline",
+    "--locked",
+    "--test",
+    "real_constraints_session",
+    "--test",
+    "real_solver_session"
+  ],
+  "rustflags": "-Zunstable-options --jobs-backend=1 --jobs-frontend=1 -Cdebuginfo=0 -Ccodegen-units=256",
+  "cargo_build_jobs": "1",
+  "scope": "Exact current root library, CLI and tests; whole original synchronous runtime and pinned codec modules, no source function substitutions; excludes full async runtime graph",
+  "returncode": 0,
+  "elapsed_seconds": 497.69749681799976,
+  "max_rss_kib": 624284
+}

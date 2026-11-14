@@ -1,0 +1,41 @@
+{
+  "source_hashes_unchanged": true,
+  "harness_hashes_unchanged": true,
+  "source_hash_count": 942,
+  "harness_hash_count": 48,
+  "repository_head_before": "6a5505089aae516b76a3690f548694e4da217e1a",
+  "repository_head_after": "6a5505089aae516b76a3690f548694e4da217e1a",
+  "source_snapshot_includes_reviewed_bridge_corrections": true,
+  "rustflags": "-Zunstable-options --jobs-backend=1 --jobs-frontend=1 -Cdebuginfo=0 -Ccodegen-units=256",
+  "pyo3_python": "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+  "cargo_target_dir": "/workspace/scratch/aac5c0ea4661/validation/session-component/target",
+  "scope": "Supplementary mathematical/PyO3 component only; production async runtime and six helpers absent; no replacement functions or upstream production engine",
+  "omitted_members": [
+    "lib.rs::eval_error",
+    "lib.rs::eval_region",
+    "lib.rs::simplify_expr",
+    "lib.rs::expand_expr",
+    "expr.rs::PyExpr.simplify",
+    "expr.rs::PyExpr.expand"
+  ],
+  "source_function_replacements": [],
+  "runner_script_sha256": "533a6f870560a9fc18a462b673251afbe7c9f6bb565a19e0f564cd41a925e971",
+  "max_rss_kib": 32872,
+  "command": {
+    "name": "python-retry2-build",
+    "command": [
+      "cargo",
+      "build",
+      "--offline",
+      "--locked",
+      "--lib",
+      "--features",
+      "extension-module"
+    ],
+    "cwd": "/workspace/scratch/aac5c0ea4661/validation/python-component",
+    "returncode": 0,
+    "elapsed_seconds": 0.37751506399945356,
+    "log": "/workspace/scratch/aac5c0ea4661/validation/python-component/python-retry2-build.log"
+  },
+  "returncode": 0
+}

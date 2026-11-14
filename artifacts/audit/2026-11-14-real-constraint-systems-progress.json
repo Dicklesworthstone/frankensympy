@@ -1,0 +1,357 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-14",
+  "repository": "https://github.com/Dicklesworthstone/frankensympy",
+  "feature_summary": "Complete bounded exact real rational constraint systems share an independently checked algebraic partition in Rust, typed Session/NDJSON and Python reduce_inequalities. Eq/Ne/Lt/Le/Gt/Ge preserve held denominator exclusions and typed variables; public conjunctions no longer depend on ordering separately solved algebraic endpoint sets.",
+  "implementation_commits": [
+    {
+      "sha": "a12cd1f482debb9303b02a93ba6f1d7c813dd179",
+      "feature": "Native All/Any/Atom composition, independently checked LCM/root ownership and Boolean point/gap replay."
+    },
+    {
+      "sha": "c086436a1170d621d6f474ab97ddbbce309e80e8",
+      "feature": "SolveRealConstraints in typed Session and NDJSON with frozen source/context, protected verification and bounded output admission."
+    },
+    {
+      "sha": "6a5505089aae516b76a3690f548694e4da217e1a",
+      "feature": "Python flat-conjunction consumer with Eq/Ne support, exact root association, original source admission and terminal operational refusals; documented Session usage and selected CI regression targets."
+    },
+    {
+      "sha": "f832f8788abc2e52f14bc46eedd6a6a829203c96",
+      "feature": "Correct borrowed PyO3 extraction-error conversion and assert that an invalid non-PyExpr input is rejected even behind a false conjunction. Review caught the typing mismatch before bridge compilation; no compiler diagnostic is claimed."
+    }
+  ],
+  "tested_source_view": {
+    "baseline": "6a5505089aae516b76a3690f548694e4da217e1a",
+    "prior_committed_pyo3_correction": "f832f8788abc2e52f14bc46eedd6a6a829203c96",
+    "final_overlays": {
+      "crates/fsym-python/src/real_inequality.rs": {
+        "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/tested-source-overlays/crates/fsym-python/src/real_inequality.rs",
+        "sha256": "97b1991539f7e97cfcbd2ade9c7889692d13f04ebd684dfd0eff633cf17bdcf6"
+      },
+      "python/sympy/solvers/inequalities.py": {
+        "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/tested-source-overlays/python/sympy/solvers/inequalities.py",
+        "sha256": "9950011ae36678f5c02f5561b269d935b636e31b5a07ca9cda26bc5a4c1a7e22"
+      },
+      "python/sympy/__init__.py": {
+        "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/tested-source-overlays/python/sympy/__init__.py",
+        "sha256": "a2370dbf4724b421c0ceb73ba2b124a95ccedc56df692b00267a6504ea8437b4"
+      },
+      "python/tests/test_real_constraint_systems.py": {
+        "path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/tested-source-overlays/python/tests/test_real_constraint_systems.py",
+        "sha256": "775d67f9fdf37e6d4549f3afc93edebc0d3268cae0bb4d5733bcdc7ebd1745d8"
+      }
+    },
+    "binding": "The frozen local dependency/source view is baseline 6a plus the four exact retained overlays. Those overlays include the PyO3 conversion, exponent-bound, singleton-admission and Piecewise-inference corrections co-published with this audit. Recorded file hashes, not checkout HEAD alone, identify executed inputs.",
+    "concurrent_main_scope": "Concurrent remote changes, including 01ed740 and 820a0c7, were preserved but excluded from this frozen validation view. These results are not an integrated execution of final remote main."
+  },
+  "implemented": [
+    "Native RealConstraint/RealRelation/RealFormula All/Any/Atom composition: checked atom charts, square-free common LCM, exact complete root ownership maps and separate Boolean point/gap replay.",
+    "All supplied atoms are admitted, even when unused or behind Boolean constants. Undefined comparisons exclude their own poles; a satisfied alternative can include such a point. No formula negation operator is introduced.",
+    "SolveRealConstraints over frozen registered univariate residual systems in Session and NDJSON, with typed source/context binding, protected verifier accounting, bounded output admission and exact_cross_checked real-completeness evidence.",
+    "Python flat conjunctions of Eq/Ne and all four inequalities, exact root association, original held-side/domain capture, source/owner mutation checks through publication, terminal operational refusal and preserved supported elementary/Piecewise fallback."
+  ],
+  "bounds": {
+    "atoms": 32,
+    "formula_nodes": 256,
+    "formula_depth": 32,
+    "formula_fanout": 64,
+    "common_polynomial_degree": 64,
+    "input_coefficient_bits": 4096,
+    "source_nodes_per_native_atom": 2048,
+    "source_depth": 64,
+    "source_fanout": 256,
+    "absolute_integer_exponent": 64,
+    "python_formula_scope": "Flat conjunctions only; no new public Or/Not parser.",
+    "work": "Separate cumulative generation and verification caps cover nested atom, LCM, isolation, map and Boolean work."
+  },
+  "validation": {
+    "native": {
+      "status": "passed",
+      "production_integration_tests": 43,
+      "targets": {
+        "real_constraints": 21,
+        "real_equation": 10,
+        "real_inequality": 12
+      },
+      "selected_private_mutation_tests": 1,
+      "private_tests_filtered": 80,
+      "failed": 0,
+      "ignored": 0,
+      "scope": "Original production fsym-solvers Cargo package, with no source substitutions. The 680-source / 8-harness inventory is a recorded superset of actual native inputs, not an assertion that component wrappers were used for this run.",
+      "source_bookends": {
+        "head_before": "c086436a1170d621d6f474ab97ddbbce309e80e8",
+        "head_after": "6a5505089aae516b76a3690f548694e4da217e1a",
+        "source_hash_count": 680,
+        "harness_hash_count": 8,
+        "source_hashes_unchanged": true,
+        "harness_hashes_unchanged": true
+      },
+      "evidence": [
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/native-current-regressions-result.json",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/native-three-regressions.log",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/native-private-composition-mutants.log",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/native-current-pre-run.json",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/native-post-run.json"
+      ],
+      "independent_corroboration": {
+        "passed": 21,
+        "overlaps_selected_constraints_tests": true,
+        "evidence": "artifacts/audit/reproduction/2026-11-14-sparse-families-inverse-fourier/concurrent-real-constraints-validation.json"
+      }
+    },
+    "session": {
+      "status": "passed",
+      "new_tests": 10,
+      "existing_tests": 12,
+      "failed": 0,
+      "ignored": 0,
+      "scope": "Complete unchanged root library, CLI and selected tests with whole original synchronous runtime and pinned codec modules. No source functions were substituted. Includes fresh-process NDJSON with default limits; excludes the full async runtime graph.",
+      "source_bookends": {
+        "source_hash_count": 680,
+        "harness_hash_count": 8,
+        "source_hashes_unchanged": true,
+        "harness_hashes_unchanged": true
+      },
+      "evidence": [
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/session-test-result.json",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/session-tests.log",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/session-test-bookends.json",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/component-current-pre-run.json",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/component-post-session-tests.json"
+      ]
+    },
+    "python": {
+      "status": "passed",
+      "new_tests": 15,
+      "existing_tests": 24,
+      "failed": 0,
+      "skipped": 0,
+      "pytest_version": "8.4.2",
+      "pytest_reported_seconds": 6.27,
+      "scope": "Actual current Python facade loaded against the mathematical PyO3 source component. Complete mathematical dependency sources are retained; six runtime-dependent simplify/expand bridge helpers are omitted, with no stubs, replacement functions or upstream production engine. The full production extension and async runtime are outside scope.",
+      "omitted_helpers": [
+        "lib.rs::eval_error",
+        "lib.rs::eval_region",
+        "lib.rs::simplify_expr",
+        "lib.rs::expand_expr",
+        "expr.rs::PyExpr.simplify",
+        "expr.rs::PyExpr.expand"
+      ],
+      "source_bookends": {
+        "registry_identities_matching_production": 56,
+        "complete_native_path_packages": 27,
+        "source_hash_count": 942,
+        "harness_hash_count": 48,
+        "source_hashes_unchanged": true,
+        "harness_hashes_unchanged": true
+      },
+      "binary_sha256": "eaddec5e59d488f8ae55320882c54ff6fd83f0dfc4110ffe96ebfd33c64c76ab",
+      "compiled_bridge_sha256": "97b1991539f7e97cfcbd2ade9c7889692d13f04ebd684dfd0eff633cf17bdcf6",
+      "runner_script_sha256": "533a6f870560a9fc18a462b673251afbe7c9f6bb565a19e0f564cd41a925e971",
+      "evidence": [
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/result.json",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/tests.log",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/smoke.log",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/pre-tests.json",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/post-tests.json",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/build-result.json",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/pre-build.json",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/post-build.json"
+      ]
+    },
+    "strict_clippy": {
+      "native": {
+        "status": "passed",
+        "scope": "Original production fsym-solvers --lib and the three selected integration targets; --no-deps -- -D warnings.",
+        "evidence": [
+          "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/native-scoped-clippy-result.json",
+          "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/native-scoped-clippy.log",
+          "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/native-pre-clippy.json",
+          "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/native-post-clippy.json"
+        ]
+      },
+      "session": {
+        "status": "passed",
+        "command": [
+          "cargo",
+          "clippy",
+          "--offline",
+          "--locked",
+          "-p",
+          "frankensympy-session-source-component-check",
+          "--no-deps",
+          "--lib",
+          "--bin",
+          "frankensympy",
+          "--test",
+          "real_constraints_session",
+          "--test",
+          "real_solver_session",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "working_directory": "/workspace/scratch/aac5c0ea4661/validation/session-component",
+        "scope": "Actual root library, CLI and two selected Session targets in the documented component; --no-deps -- -D warnings. Dependency warnings are retained.",
+        "evidence": [
+          "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/session-component/component-clippy.log"
+        ]
+      },
+      "python_bridge": {
+        "status": "passed",
+        "scope": "Mathematical PyO3 component --lib with extension-module; --no-deps -- -D warnings. Compiled bridge 97b is unchanged. The 621 native source hashes and all 942 source / 48 harness hashes match within this lint invocation; final facade tests have their own later immutable bookends.",
+        "evidence": [
+          "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/clippy-result.json",
+          "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/clippy.log",
+          "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/pre-clippy.json",
+          "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/final/post-clippy.json"
+        ]
+      }
+    },
+    "formatting": {
+      "changed_files": "Scoped pinned Rust formatting checks passed for all native, Session and Python Rust changes.",
+      "workspace": {
+        "status": "failed_preexisting",
+        "command": [
+          "cargo",
+          "fmt",
+          "--check"
+        ],
+        "exit_code": 1,
+        "head": "6a5505089aae516b76a3690f548694e4da217e1a",
+        "differing_files": [
+          "crates/fsym-calculus/src/box_optimization/checkpoint.rs",
+          "crates/fsym-calculus/tests/box_optimization_checkpoint.rs",
+          "crates/fsym-calculus/tests/square_root_programs.rs",
+          "crates/fsym-python/src/ode.rs",
+          "src/optimization_checkpoint.rs",
+          "tests/optimization_checkpoints.rs"
+        ],
+        "unchanged_from_session_baseline": "bb8b4b204cdb58914fa5bbb68af194e19d419553",
+        "baseline_comparison": "Root observed git diff --quiet exit 0 for these six files between session baseline bb8b4b204cdb58914fa5bbb68af194e19d419553 and the validated 6a5505089aae516b76a3690f548694e4da217e1a source view. No formatting-only changes were made.",
+        "evidence_paths": [
+          "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/final-workspace-fmt-result.json",
+          "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/final-workspace-fmt.log"
+        ]
+      }
+    },
+    "full_production_attempt": {
+      "status": "failed_during_dependency_compilation",
+      "command": [
+        "cargo",
+        "check",
+        "--workspace",
+        "--all-targets",
+        "--locked"
+      ],
+      "exit_code": 101,
+      "failure": "Pinned asupersync rustc exited on signal 9 (SIGKILL); no target tests were reached.",
+      "scope": "Attempt made while implementation was in progress, not a frozen-baseline comparison. No full production runtime/workspace/profile result is inferred.",
+      "evidence_path": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/baseline-workspace-check.log",
+      "evidence_sha256": "f3832db08c7527b3161926dd116fc25e859f88d1827c5af6f33bed060708a806"
+    },
+    "planning": {
+      "direct_validator": {
+        "status": "passed",
+        "commands": [
+          [
+            "python3",
+            "tools/validate_planning.py",
+            "--self-test"
+          ],
+          [
+            "python3",
+            "tools/validate_planning.py"
+          ]
+        ],
+        "evidence": [
+          "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/final-planning-direct-result.json",
+          "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/final-planning-direct.log"
+        ]
+      },
+      "aggregate_registries": {
+        "status": "failed_environment",
+        "command": [
+          "./scripts/check.sh",
+          "registries"
+        ],
+        "exit_code": 1,
+        "reason": "Conformance-tool fixtures require Python 3.14 but observed Python 3.12.14. The 25 tool tests passed; conformance self-tests reported 2 errors and 13 skips among 125 cases, before registry subcommands. The aggregate gate is not claimed passed.",
+        "evidence": [
+          "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/final-registries-result.json",
+          "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/logs/final-registries.log"
+        ]
+      }
+    }
+  },
+  "retained_findings": [
+    {
+      "finding": "Pinned PyO3 borrowed extraction requires explicit PyErr conversion.",
+      "classification": "Review correction before bridge compilation; no observed compiler failure is claimed for this issue.",
+      "evidence": [
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-build/prior-review-transition.json"
+      ]
+    },
+    {
+      "finding": "Initial actual bridge build failed with E0283 on ambiguous exponent-bound .into() comparisons.",
+      "observed_exit": 101,
+      "correction": "The final bridge uses to_i64 and matches!(Some(-64..=64)) without changing the range.",
+      "evidence": [
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-build/build.log",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-build/result.json"
+      ]
+    },
+    {
+      "finding": "The intermediate explicit-i64 form compiled but failed strict manual_range_contains lint.",
+      "observed_exit": 101,
+      "correction": "The same final matches! range check resolves the lint.",
+      "evidence": [
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/intermediate-build/result.json",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-clippy/clippy.log",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-clippy/result.json"
+      ]
+    },
+    {
+      "finding": "The first pytest launcher lacked pytest, so no tests ran.",
+      "correction": "The executed suites use the CI-pinned pytest 8.4.2 runner and recorded wheel hashes.",
+      "evidence": [
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-runner/tests.log",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/runner/wheel-manifest.json"
+      ]
+    },
+    {
+      "finding": "First actual 39-case suite: 25 passed, 14 failed because singleton owner admission compared Integer payloads against distinct py_rational payloads.",
+      "correction": "Compare exact numerator/denominator after scalar shape admission; owner checks remain enforced.",
+      "evidence": [
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-tests/result.json",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-tests/tests.log",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-tests/pre.json",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/initial-tests/post.json"
+      ]
+    },
+    {
+      "finding": "First retry: 38 passed, 1 failed because inferred Piecewise fallback read a Boolean protocol sentinel as a free variable.",
+      "correction": "Infer from admitted original relation sides and their branch-aware symbol views, preserving genuine typed Symbol(\"True\") identities. No tests were weakened or omitted.",
+      "evidence": [
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/retry1-tests/result.json",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/retry1-tests/tests.log",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/retry1-tests/pre.json",
+        "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/retry1-tests/post.json"
+      ]
+    }
+  ],
+  "reproduction": {
+    "index": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/evidence-index.json",
+    "python_preparation": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/recipes/prepare_python_component.py",
+    "final_python_runner": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/recipes/run_python_gates_retry2.py",
+    "runner_wheels": "artifacts/audit/reproduction/2026-11-14-real-constraint-systems/python-component/runner/wheel-manifest.json",
+    "instructions": "Reconstruct the named baseline and apply the four byte-exact tested-source overlays before running the retained preparation/runner scripts in the recorded original layout. Complete Cargo manifests/locks/metadata, component wrappers, shortened bridge files and raw per-run inventories are retained. Unchanged bridge files come from that baseline; the overlays and generated hashes identify every correction."
+  },
+  "remaining_functionality": [
+    "Native multivariate real constraint composition.",
+    "Portable independent source-reduction and solver proof artifacts.",
+    "Broader symbolic-parameter and nonrational constraint families."
+  ],
+  "unchanged_gates": "No bead status, priority, dependency, claim tier, independent CLI/workstream gate, whole compatibility profile or full async/workspace integration is promoted."
+}

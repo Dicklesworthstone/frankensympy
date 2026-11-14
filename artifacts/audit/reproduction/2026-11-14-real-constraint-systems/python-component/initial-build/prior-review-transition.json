@@ -1,0 +1,11 @@
+{
+  "recorded_at": "2026-11-14T22:11:39.679835+00:00",
+  "file": "real_inequality.rs",
+  "old_sha256": "f6a75c0f4cd9bdc4ca83a485663ae002d7765d51119243891ddea7a72fa4fc5d",
+  "new_sha256": "b756785aa945ebd21bb73f157d830cab94f4da519de00363fbd55f1ae119050a",
+  "reason": "Pinned PyO3 PyClassGuardError requires explicit conversion into PyErr before collecting PyResult",
+  "last_observed_build_phase": "   Compiling fsym-solvers v0.1.0 (/workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-solvers)",
+  "bridge_compilation_already_logged": false,
+  "original_prebuild_is_not_an_unchanged_bookend": true,
+  "final_frozen_build_confirmation_required": true
+}

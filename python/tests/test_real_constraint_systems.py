@@ -264,3 +264,7 @@ def test_existing_closed_elementary_and_piecewise_equation_fallbacks_remain_avai
     piecewise = s.Piecewise((x, s.Ge(x, 0, evaluate=False)), (0, True), evaluate=False)
     equation = s.Eq(piecewise, 0, evaluate=False)
     assert s.reduce_inequalities(equation) == s.reduce_inequalities(equation, x)
+    named_true = s.Symbol("True")
+    symbolic_guard = s.Piecewise((x, named_true), (0, True), evaluate=False)
+    with pytest.raises(NotImplementedError, match="exactly one free variable"):
+        s.reduce_inequalities(s.Eq(symbolic_guard, 0, evaluate=False))

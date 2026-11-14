@@ -71,7 +71,7 @@ fn source_storage(expression: &Expr, meter: &mut Budget) -> PyResult<bool> {
             Expr::Pow(base, exponent) => {
                 supported &= matches!(exponent.as_ref(), Expr::Integer(_));
                 if let Expr::Integer(power) = exponent.as_ref()
-                    && (power < &(-64).into() || power > &64.into())
+                    && !matches!(power.to_i64(), Some(-64..=64))
                 {
                     return Err(PyValueError::new_err(
                         "real constraint resource limit: integer exponent",

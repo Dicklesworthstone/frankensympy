@@ -1,0 +1,1183 @@
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus/src/box_optimization/checkpoint.rs:34:
+     workspace.account(
+         1,
+         (nodes.len() * std::mem::size_of::<BoxPartitionStep>()
+-            + (leaf_count - 1 + MAX_BOX_OPTIMIZATION_DEPTH + 1)
+-                * std::mem::size_of::<usize>()) as u64,
++            + (leaf_count - 1 + MAX_BOX_OPTIMIZATION_DEPTH + 1) * std::mem::size_of::<usize>())
++            as u64,
+         3,
+     )?;
+     let mut partition = reserve(nodes.len(), "optimization checkpoint partition allocation")?;
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus/src/box_optimization/checkpoint.rs:103:
+         (2 * partition.len() * std::mem::size_of::<usize>()) as u64,
+         2,
+     )?;
+-    let mut spans = reserve(partition.len(), "optimization checkpoint subtree allocation")?;
++    let mut spans = reserve(
++        partition.len(),
++        "optimization checkpoint subtree allocation",
++    )?;
+     spans.resize(partition.len(), 0usize);
+     for index in (0..partition.len()).rev() {
+         workspace.account(1, 0, 0)?;
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus/src/box_optimization/checkpoint.rs:279:
+         }
+         let (partition, split_order, incumbent_point) =
+             self.prepared.with_workspace(meter, |workspace| {
+-                let (partition, split_order) = snapshot_topology(
+-                    workspace,
+-                    &self.frontier.nodes,
+-                    self.frontier.leaf_count,
+-                )?;
++                let (partition, split_order) =
++                    snapshot_topology(workspace, &self.frontier.nodes, self.frontier.leaf_count)?;
+                 let point = self
+                     .frontier
+                     .incumbent
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus/src/box_optimization/checkpoint.rs:363:
+             workspace.account(1, rational_bytes(absolute_tolerance), 2)?;
+             let absolute_tolerance = absolute_tolerance.clone();
+             let mut frontier = restore_frontier(workspace, domain, kind, checkpoint)?;
+-            frontier.settle(
+-                workspace,
+-                kind,
+-                &absolute_tolerance,
+-                checkpoint.options,
+-            )?;
++            frontier.settle(workspace, kind, &absolute_tolerance, checkpoint.options)?;
+             Ok((absolute_tolerance, frontier))
+         })?;
+         Ok(Self {
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus/tests/box_optimization_checkpoint.rs:172:
+     assert!(restore(&bad, &mut Unbounded).is_err(), "repeated split");
+     let mut bad = original.clone();
+     bad.split_order.swap(0, 1);
+-    assert!(restore(&bad, &mut Unbounded).is_err(), "child before parent");
++    assert!(
++        restore(&bad, &mut Unbounded).is_err(),
++        "child before parent"
++    );
+     let mut bad = original.clone();
+     bad.split_order[0] = usize::MAX;
+     assert!(restore(&bad, &mut Unbounded).is_err(), "unbounded index");
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus/tests/box_optimization_checkpoint.rs:239:
+     assert!(receipt.value().contains(&q(1, 1)));
+     let mut bad = checkpoint;
+     bad.partition[0] = BoxPartitionStep::Split { axis: 1 };
+-    assert!(BoxOptimizationSearch::from_checkpoint(
+-        &objective,
+-        &variables,
+-        &domain,
+-        BoxExtremumKind::Minimum,
+-        &tolerance,
+-        &bad,
+-        &mut Unbounded,
+-    )
+-    .is_err());
++    assert!(
++        BoxOptimizationSearch::from_checkpoint(
++            &objective,
++            &variables,
++            &domain,
++            BoxExtremumKind::Minimum,
++            &tolerance,
++            &bad,
++            &mut Unbounded,
++        )
++        .is_err()
++    );
+ }
+ 
+ #[test]
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus/tests/box_optimization_checkpoint.rs:265:
+     coarse.split_order.clear();
+     coarse.incumbent_point = Some(vec![q(0, 1)]);
+     let mut resumed = restore(&coarse, &mut Unbounded).unwrap();
+-    assert_eq!(resumed.progress().status, BoxOptimizationSearchStatus::Searching);
++    assert_eq!(
++        resumed.progress().status,
++        BoxOptimizationSearchStatus::Searching
++    );
+     assert!(resumed.completed_witness().is_none());
+     assert_eq!(resumed.incumbent_bound(), Some(&q(4, 1)));
+     resumed
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus/tests/box_optimization_checkpoint.rs:314:
+         &mut Unbounded,
+     )
+     .unwrap();
+-    assert_eq!(resumed.progress().status, BoxOptimizationSearchStatus::Searching);
++    assert_eq!(
++        resumed.progress().status,
++        BoxOptimizationSearchStatus::Searching
++    );
+     assert!(resumed.completed_witness().is_none());
+     assert!(resumed.optimistic_bound().is_none());
+     let mut bad = checkpoint;
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus/tests/box_optimization_checkpoint.rs:321:
+     bad.incumbent_point = Some(vec![q(0, 1)]);
+-    assert!(BoxOptimizationSearch::from_checkpoint(
+-        &objective,
+-        &variables,
+-        &domain,
+-        BoxExtremumKind::Minimum,
+-        &tolerance,
+-        &bad,
+-        &mut Unbounded,
+-    )
+-    .is_err(), "the saved point must retain the hidden pole");
++    assert!(
++        BoxOptimizationSearch::from_checkpoint(
++            &objective,
++            &variables,
++            &domain,
++            BoxExtremumKind::Minimum,
++            &tolerance,
++            &bad,
++            &mut Unbounded,
++        )
++        .is_err(),
++        "the saved point must retain the hidden pole"
++    );
+ }
+ 
+ #[test]
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus/tests/box_optimization_checkpoint.rs:352:
+             2 => bad.counters.source_bytes += 1,
+             _ => bad.counters.evaluations = 0,
+         }
+-        assert!(restore(&bad, &mut Unbounded).is_err(), "history field {field}");
++        assert!(
++            restore(&bad, &mut Unbounded).is_err(),
++            "history field {field}"
++        );
+     }
+     for count in [MAX_ROOT_BOX_STEPS, u64::MAX] {
+         let mut bad = original.clone();
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus/tests/box_optimization_checkpoint.rs:450:
+             at: Some(at),
+             stopped: false,
+         };
+-        let error = restore(&checkpoint, &mut cancelled).err().expect("cancellation");
++        let error = restore(&checkpoint, &mut cancelled)
++            .err()
++            .expect("cancellation");
+         assert_eq!(
+             error,
+             BoxOptimizationError::Verification(RootBoxError::Meter(MeterError::Cancelled))
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus/tests/box_optimization_checkpoint.rs:472:
+         stopped: false,
+     };
+     let error = search.advance(1, &mut cancelled).unwrap_err();
+-    assert_eq!(search.progress().status, BoxOptimizationSearchStatus::Failed);
++    assert_eq!(
++        search.progress().status,
++        BoxOptimizationSearchStatus::Failed
++    );
+     let before = search.counters();
+     // A stopped meter panics if consulted again: a terminal search must refuse
+     // before attempting any copying, resource admission or publication.
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus/tests/square_root_programs.rs:79:
+     let inner = parse("3*x+1").unwrap();
+     let source = sqrt(inner.clone());
+     let inverse_root = Expr::pow(inner.clone(), fraction(-1, 2));
+-    let correct = Expr::Mul(vec![fraction(1, 2), inverse_root.clone(), Expr::from_i64(3)]);
++    let correct = Expr::Mul(vec![
++        fraction(1, 2),
++        inverse_root.clone(),
++        Expr::from_i64(3),
++    ]);
+     verify_diff_derivation(
+         &derivation(&source, &variable, &correct, RULE_DIFF_SQRT),
+         &source,
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus/tests/square_root_programs.rs:125:
+     let original_tree = derivation(&source, &variable, &correct, RULE_DIFF_SQRT);
+     assert!(verify_diff_derivation(&original_tree, &source, &other, &correct).is_err());
+     assert!(
+-        verify_diff_derivation(&original_tree, &sqrt(Expr::symbol("x")), &variable, &correct)
+-            .is_err()
++        verify_diff_derivation(
++            &original_tree,
++            &sqrt(Expr::symbol("x")),
++            &variable,
++            &correct
++        )
++        .is_err()
+     );
+ }
+ 
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus/tests/square_root_programs.rs:156:
+     }
+ 
+     let objective = VerifiedObjective::try_compile(&source, &variables).unwrap();
+-    assert_eq!(objective.hessian_pattern(), [(0, 0), (0, 1), (1, 0), (1, 1)]);
++    assert_eq!(
++        objective.hessian_pattern(),
++        [(0, 0), (0, 1), (1, 0), (1, 1)]
++    );
+     let result = objective.evaluate(&[2.0, 2.0]).unwrap();
+     close(result.value, 3.0);
+     for derivative in result.gradient {
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus/tests/square_root_programs.rs:163:
+         close(derivative, 2.0 / 3.0);
+     }
+-    for (actual, expected) in result.hessian.iter().zip([
+-        5.0 / 27.0,
+-        -4.0 / 27.0,
+-        -4.0 / 27.0,
+-        5.0 / 27.0,
+-    ]) {
++    for (actual, expected) in
++        result
++            .hessian
++            .iter()
++            .zip([5.0 / 27.0, -4.0 / 27.0, -4.0 / 27.0, 5.0 / 27.0])
++    {
+         close(*actual, expected);
+     }
+     let product = objective
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus/tests/square_root_programs.rs:189:
+ fn nested_roots_and_vanishing_inner_gradients_keep_the_second_chain_term() {
+     let variable = Symbol::new("x");
+     let source = sqrt(sqrt(Expr::Sym(variable.clone())));
+-    let objective = VerifiedObjective::try_compile(&source, std::slice::from_ref(&variable)).unwrap();
++    let objective =
++        VerifiedObjective::try_compile(&source, std::slice::from_ref(&variable)).unwrap();
+     let result = objective.evaluate(&[16.0]).unwrap();
+     close(result.value, 2.0);
+     close(result.gradient[0], 1.0 / 32.0);
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus/tests/square_root_programs.rs:278:
+     let program =
+         CompiledExpr::try_compile_checked_with_meter(&source, &mapping, &mut Unbounded).unwrap();
+     assert!(compiled_expression_matches(&source, &mapping, &program).unwrap());
+-    let forged =
+-        CompiledExpr::try_from_ops(vec![CompiledOp::LoadVar(0), CompiledOp::Exp]).unwrap();
++    let forged = CompiledExpr::try_from_ops(vec![CompiledOp::LoadVar(0), CompiledOp::Exp]).unwrap();
+     assert!(!compiled_expression_matches(&source, &mapping, &forged).unwrap());
+ }
+ 
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus/tests/square_root_programs.rs:327:
+             interrupt: Some(checkpoint),
+         };
+         assert!(
+-            VerifiedResidualSystem::try_compile_with_meter(&sources, &variables, &mut meter).is_err()
++            VerifiedResidualSystem::try_compile_with_meter(&sources, &variables, &mut meter)
++                .is_err()
+         );
+         assert_eq!(meter.checkpoints, checkpoint);
+     }
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-calculus/tests/square_root_programs.rs:344:
+         VerifiedResidualSystem::try_compile_with_meter(&sources, &variables, &mut exact).unwrap();
+         assert_eq!(exact.remaining(dimension), 0);
+         assert!(
+-            VerifiedResidualSystem::try_compile_with_meter(&sources, &variables, &mut exact).is_err()
++            VerifiedResidualSystem::try_compile_with_meter(&sources, &variables, &mut exact)
++                .is_err()
+         );
+         assert_eq!(exact.verifier_remaining(), 37);
+     }
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-python/src/ode.rs:80:
+     c2: &PyExpr,
+ ) -> PyResult<PyExpr> {
+     admit(&[forcing])?;
+-    lift(fsym_solvers::dsolve_const_coeff_second_order_nonhomogeneous(
+-        a,
+-        b,
+-        c,
+-        &forcing.inner,
+-        symbol(x)?,
+-        symbol(c1)?,
+-        symbol(c2)?,
+-    ))
++    lift(
++        fsym_solvers::dsolve_const_coeff_second_order_nonhomogeneous(
++            a,
++            b,
++            c,
++            &forcing.inner,
++            symbol(x)?,
++            symbol(c1)?,
++            symbol(c2)?,
++        ),
++    )
+ }
+ 
+ #[pyfunction]
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-python/src/ode.rs:246:
+         let c2 = coordinate("C2", 6);
+         let homogeneous = dsolve_const_coeff_second_order_native(1, 0, -1, &x, &c1, &c2).unwrap();
+         assert!(
+-            verify_const_coeff_second_order_solution_native(&homogeneous, 1, 0, -1, &x)
+-                .unwrap()
++            verify_const_coeff_second_order_solution_native(&homogeneous, 1, 0, -1, &x).unwrap()
+         );
+         let forced = dsolve_const_coeff_second_order_nonhomogeneous_native(
+             1,
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-python/src/ode.rs:259:
+             &c2,
+         )
+         .unwrap();
+-        assert!(fsym_solvers::verify_const_coeff_second_order_nonhomogeneous_solution(
+-            &forced.inner,
+-            1,
+-            0,
+-            -1,
+-            &Expr::from_i64(2),
+-            symbol(&x).unwrap(),
+-        ));
++        assert!(
++            fsym_solvers::verify_const_coeff_second_order_nonhomogeneous_solution(
++                &forced.inner,
++                1,
++                0,
++                -1,
++                &Expr::from_i64(2),
++                symbol(&x).unwrap(),
++            )
++        );
+         let euler = dsolve_cauchy_euler_native(1, 0, 0, &x, &c1, &c2).unwrap();
+         assert!(verify_cauchy_euler_solution_native(&euler, 1, 0, 0, &x).unwrap());
+         let separable = dsolve_separable_linear_native(&integer(1), &x, &c1).unwrap();
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-python/src/ode.rs:298:
+         let x = coordinate("x", 7);
+         let c1 = coordinate("C1", 8);
+         assert!(
+-            dsolve_linear_first_order_native(&integer(0), &integer(1), &integer(2), &c1)
+-                .is_err()
++            dsolve_linear_first_order_native(&integer(0), &integer(1), &integer(2), &c1).is_err()
+         );
+         assert!(dsolve_linear_first_order_native(&integer(0), &integer(1), &x, &x).is_err());
+         assert!(dsolve_linear_first_order_native(&integer(0), &c1, &x, &c1).is_err());
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/crates/fsym-python/src/ode.rs:306:
+         assert!(dsolve_const_coeff_second_order_native(1, 0, 0, &x, &c1, &c1).is_err());
+-        let solution =
+-            dsolve_linear_first_order_native(&integer(0), &integer(1), &x, &c1).unwrap();
++        let solution = dsolve_linear_first_order_native(&integer(0), &integer(1), &x, &c1).unwrap();
+         let mutated = PyExpr::from_expr(solution.inner + x.inner.clone());
+         assert!(
+             !verify_linear_first_order_solution_native(&mutated, &integer(0), &integer(1), &x)
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/src/optimization_checkpoint.rs:90:
+             type Value = BoundedSequence<T, N>;
+ 
+             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+-                write!(formatter, "an optimization checkpoint sequence of at most {N} items")
++                write!(
++                    formatter,
++                    "an optimization checkpoint sequence of at most {N} items"
++                )
+             }
+ 
+-            fn visit_seq<A: de::SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
++            fn visit_seq<A: de::SeqAccess<'de>>(
++                self,
++                mut sequence: A,
++            ) -> Result<Self::Value, A::Error> {
+                 let mut values = Vec::new();
+                 loop {
+                     if values.len() == N {
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/src/optimization_checkpoint.rs:166:
+         return Err(error.clone().into());
+     }
+     meter.checkpoint().map_err(CertificationError::from)?;
+-    check_problem_sources(std::slice::from_ref(search.objective()), search.variables(), meter)?;
++    check_problem_sources(
++        std::slice::from_ref(search.objective()),
++        search.variables(),
++        meter,
++    )?;
+     charge_statement(
+         search.domain(),
+         search.variables().len(),
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/src/optimization_checkpoint.rs:224:
+         charge(meter, chunk.len() as u64, 0, 0)?;
+         nesting.scan(chunk)?;
+     }
+-    charge(meter, bytes.len() as u64 + 1, bytes.len() as u64 * 4 + 1024, 64)?;
++    charge(
++        meter,
++        bytes.len() as u64 + 1,
++        bytes.len() as u64 * 4 + 1024,
++        64,
++    )?;
+     let wire: UntrustedCheckpoint<'_> =
+         serde_json::from_slice(bytes).map_err(|error| encoding_error(&error))?;
+     if wire.schema_version != BOX_OPTIMIZATION_CHECKPOINT_SCHEMA_VERSION {
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/src/optimization_checkpoint.rs:262:
+     let options = encode(&expected_options, meter)?;
+     charge(
+         meter,
+-        (objective.len() + variables.len() + domain.len() + tolerance.len() + options.len()) as u64 + 1,
++        (objective.len() + variables.len() + domain.len() + tolerance.len() + options.len()) as u64
++            + 1,
+         0,
+         0,
+     )?;
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/src/optimization_checkpoint.rs:286:
+         serde_json::from_str(wire.counters.get()).map_err(|error| encoding_error(&error))?;
+     meter.checkpoint().map_err(CertificationError::from)?;
+     let topology_bytes = (wire.partition.get().len() + wire.split_order.get().len()) as u64;
+-    charge(meter, topology_bytes + 1, topology_bytes * 16 + 1024, topology_bytes + 1)?;
++    charge(
++        meter,
++        topology_bytes + 1,
++        topology_bytes * 16 + 1024,
++        topology_bytes + 1,
++    )?;
+     let partition: BoundedSequence<BoxPartitionStep, MAX_BOX_OPTIMIZATION_NODES> =
+         serde_json::from_str(wire.partition.get()).map_err(|error| encoding_error(&error))?;
+     let split_order: BoundedSequence<usize, MAX_BOX_OPTIMIZATION_NODES> =
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/src/optimization_checkpoint.rs:293:
+         serde_json::from_str(wire.split_order.get()).map_err(|error| encoding_error(&error))?;
+-    let incumbent_point = decode_point(wire.incumbent_point, expected_options.precision_digits, meter)?;
++    let incumbent_point = decode_point(
++        wire.incumbent_point,
++        expected_options.precision_digits,
++        meter,
++    )?;
+     let checkpoint = BoxOptimizationSearchCheckpoint {
+         options: expected_options,
+         counters,
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:19:
+ }
+ 
+ fn domain() -> Vec<ExactInterval> {
+-    vec![ExactInterval { lower: "-2".into(), upper: "2".into() }]
++    vec![ExactInterval {
++        lower: "-2".into(),
++        upper: "2".into(),
++    }]
+ }
+ 
+ fn native_domain() -> Vec<RealBall> {
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:27:
+ }
+ 
+ fn options() -> BoxOptimizationOptions {
+-    BoxOptimizationOptions { precision_digits: 16, max_leaves: 256 }
++    BoxOptimizationOptions {
++        precision_digits: 16,
++        max_leaves: 256,
++    }
+ }
+ 
+ fn problem(source: &str) -> ObjectiveProblem {
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:37:
+ fn native_search(source: &str) -> BoxOptimizationSearch {
+     problem(source)
+         .begin_box_optimization_search(
+-            &native_domain(), BoxExtremumKind::Minimum, &q(1, 1000),
+-            options(), &mut Unbounded,
++            &native_domain(),
++            BoxExtremumKind::Minimum,
++            &q(1, 1000),
++            options(),
++            &mut Unbounded,
+         )
+         .unwrap()
+ }
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:45:
+ 
+ fn restore_native(bytes: &[u8]) -> Result<BoxOptimizationSearch, OptimizationError> {
+     restore_box_optimization_checkpoint(
+-        bytes, &problem("(x^2-2)^2"), &native_domain(),
+-        BoxExtremumKind::Minimum, &q(1, 1000), options(), [3; 32], &mut Unbounded,
++        bytes,
++        &problem("(x^2-2)^2"),
++        &native_domain(),
++        BoxExtremumKind::Minimum,
++        &q(1, 1000),
++        options(),
++        [3; 32],
++        &mut Unbounded,
+     )
+ }
+ 
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:72:
+ 
+ fn registration(source: &str) -> CertificationRequest {
+     CertificationRequest::RegisterObjective {
+-        schema_version: 1, objective: objective(), source: source.into(),
++        schema_version: 1,
++        objective: objective(),
++        source: source.into(),
+         variables: vec!["x".into()],
+     }
+ }
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:85:
+ 
+ fn begin(name: &str) -> CertificationRequest {
+     CertificationRequest::BeginBoxOptimization {
+-        schema_version: 1, objective: objective(), search: search(name), domain: domain(),
+-        extremum: BoxExtremumKind::Minimum, absolute_tolerance: "1/1000".into(),
+-        precision_digits: 16, max_leaves: 256,
++        schema_version: 1,
++        objective: objective(),
++        search: search(name),
++        domain: domain(),
++        extremum: BoxExtremumKind::Minimum,
++        absolute_tolerance: "1/1000".into(),
++        precision_digits: 16,
++        max_leaves: 256,
+     }
+ }
+ 
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:94:
+ fn advance(name: &str, splits: usize) -> CertificationRequest {
+     CertificationRequest::AdvanceBoxOptimization {
+-        schema_version: 1, search: search(name), max_splits: splits,
++        schema_version: 1,
++        search: search(name),
++        max_splits: splits,
+     }
+ }
+ 
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:100:
+ fn finish(name: &str) -> CertificationRequest {
+     CertificationRequest::FinishBoxOptimization {
+-        schema_version: 1, search: search(name), optimization: optimization(name),
++        schema_version: 1,
++        search: search(name),
++        optimization: optimization(name),
+     }
+ }
+ 
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:106:
+ fn export(session: &mut Session, name: &str) -> String {
+-    let CertificationResponse::BoxOptimizationSearchExported { artifact, evidence, .. } =
+-        session.certification_request(CertificationRequest::ExportBoxOptimizationSearch {
+-            schema_version: 1, search: search(name),
+-        }).unwrap()
+-    else { panic!("candidate checkpoint"); };
++    let CertificationResponse::BoxOptimizationSearchExported {
++        artifact, evidence, ..
++    } = session
++        .certification_request(CertificationRequest::ExportBoxOptimizationSearch {
++            schema_version: 1,
++            search: search(name),
++        })
++        .unwrap()
++    else {
++        panic!("candidate checkpoint");
++    };
+     assert_eq!(evidence, "heuristic_candidate");
+     artifact
+ }
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:115:
+ 
+ fn restore(name: &str, artifact: &str) -> CertificationRequest {
+     CertificationRequest::RestoreBoxOptimizationSearch {
+-        schema_version: 1, objective: objective(), search: search(name), domain: domain(),
+-        extremum: BoxExtremumKind::Minimum, absolute_tolerance: "1/1000".into(),
+-        precision_digits: 16, max_leaves: 256, artifact: artifact.into(),
++        schema_version: 1,
++        objective: objective(),
++        search: search(name),
++        domain: domain(),
++        extremum: BoxExtremumKind::Minimum,
++        absolute_tolerance: "1/1000".into(),
++        precision_digits: 16,
++        max_leaves: 256,
++        artifact: artifact.into(),
+     }
+ }
+ 
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:130:
+ 
+ fn complete(session: &mut Session, name: &str) {
+     for _ in 0..256 {
+-        let progress = session.box_optimization_search_progress(&search(name)).unwrap();
++        let progress = session
++            .box_optimization_search_progress(&search(name))
++            .unwrap();
+         if progress.status == BoxOptimizationSearchStatus::Complete {
+             return;
+         }
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:145:
+     original.advance(1, &mut Unbounded).unwrap();
+     let bytes = export_box_optimization_checkpoint(&mut original, [3; 32], &mut Unbounded).unwrap();
+     let wire: Value = serde_json::from_slice(&bytes).unwrap();
+-    for absent in ["accepted", "verified", "value", "gap", "bounds", "priority_queue"] {
++    for absent in [
++        "accepted",
++        "verified",
++        "value",
++        "gap",
++        "bounds",
++        "priority_queue",
++    ] {
+         assert!(wire.get(absent).is_none(), "{absent}");
+     }
+     let mut restored = restore_native(&bytes).unwrap();
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:152:
+-    assert_eq!(restored.progress().leaf_count, original.progress().leaf_count);
+-    assert_eq!(restored.progress().split_count, original.progress().split_count);
++    assert_eq!(
++        restored.progress().leaf_count,
++        original.progress().leaf_count
++    );
++    assert_eq!(
++        restored.progress().split_count,
++        original.progress().split_count
++    );
+     assert!(restored.counters().steps > original.counters().steps);
+     original.advance(1024, &mut Unbounded).unwrap();
+     restored.advance(1024, &mut Unbounded).unwrap();
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:157:
+     assert_eq!(restored.completed_witness(), original.completed_witness());
+-    let accepted = problem("(x^2-2)^2").verify_box_optimization(
+-        &native_domain(), BoxExtremumKind::Minimum, &q(1, 1000),
+-        restored.completed_witness().unwrap(), &mut Unbounded,
+-    ).unwrap();
++    let accepted = problem("(x^2-2)^2")
++        .verify_box_optimization(
++            &native_domain(),
++            BoxExtremumKind::Minimum,
++            &q(1, 1000),
++            restored.completed_witness().unwrap(),
++            &mut Unbounded,
++        )
++        .unwrap();
+     assert!(accepted.value().lower() <= q(0, 1));
+     assert!(accepted.value().upper() >= q(0, 1));
+     assert!(accepted.gap() <= &q(1, 1000));
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:171:
+     let baseline = problem("(x^2-2)^2");
+     assert!(matches!(
+         restore_box_optimization_checkpoint(
+-            &bytes, &problem("(x^2-2)^2+1"), &native_domain(),
+-            BoxExtremumKind::Minimum, &q(1, 1000), options(), [3; 32], &mut Unbounded,
++            &bytes,
++            &problem("(x^2-2)^2+1"),
++            &native_domain(),
++            BoxExtremumKind::Minimum,
++            &q(1, 1000),
++            options(),
++            [3; 32],
++            &mut Unbounded,
+         ),
+-        Err(OptimizationError::Certification(CertificationError::SourceMismatch))
++        Err(OptimizationError::Certification(
++            CertificationError::SourceMismatch
++        ))
+     ));
+     let different = vec![RealBall::new(q(0, 1), q(3, 1)).unwrap()];
+     assert!(matches!(
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:181:
+         restore_box_optimization_checkpoint(
+-            &bytes, &baseline, &different, BoxExtremumKind::Minimum,
+-            &q(1, 1000), options(), [3; 32], &mut Unbounded,
++            &bytes,
++            &baseline,
++            &different,
++            BoxExtremumKind::Minimum,
++            &q(1, 1000),
++            options(),
++            [3; 32],
++            &mut Unbounded,
+         ),
+-        Err(OptimizationError::Certification(CertificationError::DomainMismatch))
++        Err(OptimizationError::Certification(
++            CertificationError::DomainMismatch
++        ))
+     ));
+     for (kind, tolerance, changed_options) in [
+         (BoxExtremumKind::Maximum, q(1, 1000), options()),
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:189:
+         (BoxExtremumKind::Minimum, q(1, 100), options()),
+-        (BoxExtremumKind::Minimum, q(1, 1000),
+-            BoxOptimizationOptions { precision_digits: 24, ..options() }),
+-        (BoxExtremumKind::Minimum, q(1, 1000),
+-            BoxOptimizationOptions { max_leaves: 128, ..options() }),
++        (
++            BoxExtremumKind::Minimum,
++            q(1, 1000),
++            BoxOptimizationOptions {
++                precision_digits: 24,
++                ..options()
++            },
++        ),
++        (
++            BoxExtremumKind::Minimum,
++            q(1, 1000),
++            BoxOptimizationOptions {
++                max_leaves: 128,
++                ..options()
++            },
++        ),
+     ] {
+         assert!(matches!(
+             restore_box_optimization_checkpoint(
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:197:
+-                &bytes, &baseline, &native_domain(), kind, &tolerance,
+-                changed_options, [3; 32], &mut Unbounded,
++                &bytes,
++                &baseline,
++                &native_domain(),
++                kind,
++                &tolerance,
++                changed_options,
++                [3; 32],
++                &mut Unbounded,
+             ),
+             Err(OptimizationError::StatementMismatch)
+         ));
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:202:
+     }
+     assert!(matches!(
+         restore_box_optimization_checkpoint(
+-            &bytes, &baseline, &native_domain(), BoxExtremumKind::Minimum,
+-            &q(1, 1000), options(), [4; 32], &mut Unbounded,
++            &bytes,
++            &baseline,
++            &native_domain(),
++            BoxExtremumKind::Minimum,
++            &q(1, 1000),
++            options(),
++            [4; 32],
++            &mut Unbounded,
+         ),
+-        Err(OptimizationError::Certification(CertificationError::UniverseMismatch { .. }))
++        Err(OptimizationError::Certification(
++            CertificationError::UniverseMismatch { .. }
++        ))
+     ));
+ 
+     // Corrupt arithmetic cannot mask a statement mismatch. The receiver never
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:214:
+     corrupted["incumbent_point"] = json!("not a rational coordinate list");
+     assert!(matches!(
+         restore_box_optimization_checkpoint(
+-            &serde_json::to_vec(&corrupted).unwrap(), &problem("x"), &native_domain(),
+-            BoxExtremumKind::Minimum, &q(1, 1000), options(), [3; 32], &mut Unbounded,
++            &serde_json::to_vec(&corrupted).unwrap(),
++            &problem("x"),
++            &native_domain(),
++            BoxExtremumKind::Minimum,
++            &q(1, 1000),
++            options(),
++            [3; 32],
++            &mut Unbounded,
+         ),
+-        Err(OptimizationError::Certification(CertificationError::SourceMismatch))
++        Err(OptimizationError::Certification(
++            CertificationError::SourceMismatch
++        ))
+     ));
+ }
+ 
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:229:
+     trailing.push(b' ');
+     assert!(matches!(
+         restore_native(&trailing),
+-        Err(OptimizationError::Certification(CertificationError::NonCanonical))
++        Err(OptimizationError::Certification(
++            CertificationError::NonCanonical
++        ))
+     ));
+     for (field, value) in [
+         ("schema_version", json!(2)),
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:241:
+     ] {
+         let mut malformed: Value = serde_json::from_slice(&bytes).unwrap();
+         malformed[field] = value;
+-        assert!(restore_native(&serde_json::to_vec(&malformed).unwrap()).is_err(), "{field}");
++        assert!(
++            restore_native(&serde_json::to_vec(&malformed).unwrap()).is_err(),
++            "{field}"
++        );
+     }
+     assert!(restore_native(b"{}").is_err());
+     let oversized = vec![b' '; frankensympy::MAX_BOX_OPTIMIZATION_CHECKPOINT_BYTES + 1];
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:248:
+     assert!(matches!(
+         restore_native(&oversized),
+-        Err(OptimizationError::Certification(CertificationError::ByteLimit { .. }))
++        Err(OptimizationError::Certification(
++            CertificationError::ByteLimit { .. }
++        ))
+     ));
+ }
+ 
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:254:
+ #[test]
+ fn session_resume_preserves_candidate_status_budgets_and_the_accepted_result() {
+     let mut sender = paused();
+-    let saved = sender.box_optimization_search_progress(&search("paused")).unwrap();
++    let saved = sender
++        .box_optimization_search_progress(&search("paused"))
++        .unwrap();
+     assert_eq!(saved.status, BoxOptimizationSearchStatus::Searching);
+     let artifact = export(&mut sender, "paused");
+-    let spent = sender.box_optimization_search_counters(&search("paused")).unwrap();
++    let spent = sender
++        .box_optimization_search_counters(&search("paused"))
++        .unwrap();
+     let mut receiver = registered("(x^2-2)^2");
+     let protected = receiver.budget_snapshot().verifier_pool;
+     let CertificationResponse::BoxOptimizationSearchRestored {
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:264:
+-        evidence, progress, counters, ..
+-    } = receiver.certification_request(restore("resumed", &artifact)).unwrap()
+-    else { panic!("restored progress"); };
++        evidence,
++        progress,
++        counters,
++        ..
++    } = receiver
++        .certification_request(restore("resumed", &artifact))
++        .unwrap()
++    else {
++        panic!("restored progress");
++    };
+     assert_eq!(evidence, "heuristic_candidate");
+     assert_eq!(progress.leaf_count, saved.leaf_count);
+     assert_eq!(progress.split_count, saved.split_count);
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:270:
+     assert!(counters.steps > spent.steps);
+     assert!(counters.allocation_bytes > spent.allocation_bytes);
+     assert_eq!(receiver.budget_snapshot().verifier_pool, protected);
+-    assert!(receiver.box_optimization(&optimization("resumed")).is_none());
++    assert!(
++        receiver
++            .box_optimization(&optimization("resumed"))
++            .is_none()
++    );
+     assert_eq!(
+-        receiver.certification_request(finish("resumed")).unwrap_err().code(),
++        receiver
++            .certification_request(finish("resumed"))
++            .unwrap_err()
++            .code(),
+         "search_not_ready"
+     );
+     complete(&mut sender, "paused");
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:291:
+     let mut sender = paused();
+     let artifact = export(&mut sender, "paused");
+     let context = ImmutableAssumptionsSnapshot::empty()
+-        .derive_child(HashMap::new(), HashMap::new(), "checkpoint-other-universe").unwrap();
++        .derive_child(HashMap::new(), HashMap::new(), "checkpoint-other-universe")
++        .unwrap();
+     let mut receiver = Session::with_context_and_budget_limits(context, limits(), 256);
+-    receiver.certification_request(registration("(x^2-2)^2")).unwrap();
++    receiver
++        .certification_request(registration("(x^2-2)^2"))
++        .unwrap();
+     assert_eq!(
+-        receiver.certification_request(restore("copy", &artifact)).unwrap_err().code(),
++        receiver
++            .certification_request(restore("copy", &artifact))
++            .unwrap_err()
++            .code(),
+         "universe_mismatch"
+     );
+-    assert!(receiver.box_optimization_search_progress(&search("copy")).is_none());
++    assert!(
++        receiver
++            .box_optimization_search_progress(&search("copy"))
++            .is_none()
++    );
+ 
+     let mut receiver = registered("(x^2-2)^2");
+-    assert!(receiver.certification_request(restore("copy", "{}")).is_err());
+-    assert!(receiver.box_optimization_search_progress(&search("copy")).is_none());
+-    receiver.certification_request(restore("copy", &artifact)).unwrap();
++    assert!(
++        receiver
++            .certification_request(restore("copy", "{}"))
++            .is_err()
++    );
++    assert!(
++        receiver
++            .box_optimization_search_progress(&search("copy"))
++            .is_none()
++    );
++    receiver
++        .certification_request(restore("copy", &artifact))
++        .unwrap();
+     assert_eq!(
+-        receiver.certification_request(restore("copy", &artifact)).unwrap_err().code(),
++        receiver
++            .certification_request(restore("copy", &artifact))
++            .unwrap_err()
++            .code(),
+         "duplicate_object"
+     );
+     let before_release = receiver.budget_snapshot();
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:312:
+-    receiver.certification_request(CertificationRequest::ReleaseBoxOptimizationSearch {
+-        schema_version: 1, search: search("copy"),
+-    }).unwrap();
+-    assert!(receiver.box_optimization_search_progress(&search("copy")).is_none());
+-    assert!(receiver.budget_snapshot().dimensions[Dimension::ComputeSteps.index()]
+-        <= before_release.dimensions[Dimension::ComputeSteps.index()]);
++    receiver
++        .certification_request(CertificationRequest::ReleaseBoxOptimizationSearch {
++            schema_version: 1,
++            search: search("copy"),
++        })
++        .unwrap();
++    assert!(
++        receiver
++            .box_optimization_search_progress(&search("copy"))
++            .is_none()
++    );
++    assert!(
++        receiver.budget_snapshot().dimensions[Dimension::ComputeSteps.index()]
++            <= before_release.dimensions[Dimension::ComputeSteps.index()]
++    );
+ }
+ 
+ #[test]
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:325:
+     let mut allowance = limits();
+     allowance.verifier_pool = 0;
+     let mut receiver = Session::with_budget_limits(allowance, 256);
+-    receiver.certification_request(registration("(x^2-2)^2")).unwrap();
+-    receiver.certification_request(restore("complete", &artifact)).unwrap();
++    receiver
++        .certification_request(registration("(x^2-2)^2"))
++        .unwrap();
++    receiver
++        .certification_request(restore("complete", &artifact))
++        .unwrap();
+     assert_eq!(
+-        receiver.box_optimization_search_progress(&search("complete")).unwrap().status,
++        receiver
++            .box_optimization_search_progress(&search("complete"))
++            .unwrap()
++            .status,
+         BoxOptimizationSearchStatus::Complete
+     );
+     assert_eq!(
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:335:
+-        receiver.certification_request(finish("complete")).unwrap_err().code(),
++        receiver
++            .certification_request(finish("complete"))
++            .unwrap_err()
++            .code(),
+         "budget_exhausted"
+     );
+-    assert!(receiver.box_optimization(&optimization("complete")).is_none());
++    assert!(
++        receiver
++            .box_optimization(&optimization("complete"))
++            .is_none()
++    );
+ }
+ 
+ #[test]
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:342:
+ fn chunked_transfer_preserves_kind_and_waits_for_complete_import_before_restore() {
+     let mut sender = paused();
+     let transfer = ArtifactTransferId::new("transfer:optimization-checkpoint").unwrap();
+-    let CertificationResponse::ArtifactExportStarted { manifest, .. } =
+-        sender.certification_request(CertificationRequest::BeginArtifactExport {
+-            schema_version: 1, transfer: transfer.clone(),
++    let CertificationResponse::ArtifactExportStarted { manifest, .. } = sender
++        .certification_request(CertificationRequest::BeginArtifactExport {
++            schema_version: 1,
++            transfer: transfer.clone(),
+             source: ArtifactSource::BoxOptimizationSearch(search("paused")),
+-        }).unwrap()
+-    else { panic!("checkpoint manifest"); };
++        })
++        .unwrap()
++    else {
++        panic!("checkpoint manifest");
++    };
+     assert_eq!(manifest.kind, ArtifactKind::BoxOptimizationCheckpoint);
+     let mut receiver = registered("(x^2-2)^2");
+-    receiver.certification_request(CertificationRequest::BeginArtifactImport {
+-        schema_version: 1, transfer: transfer.clone(), manifest: manifest.clone(),
+-    }).unwrap();
++    receiver
++        .certification_request(CertificationRequest::BeginArtifactImport {
++            schema_version: 1,
++            transfer: transfer.clone(),
++            manifest: manifest.clone(),
++        })
++        .unwrap();
+     let request = CertificationRequest::RestoreBoxOptimizationSearchFromArtifact {
+-        schema_version: 1, objective: objective(), search: search("copy"), domain: domain(),
+-        extremum: BoxExtremumKind::Minimum, absolute_tolerance: "1/1000".into(),
+-        precision_digits: 16, max_leaves: 256, transfer: transfer.clone(),
++        schema_version: 1,
++        objective: objective(),
++        search: search("copy"),
++        domain: domain(),
++        extremum: BoxExtremumKind::Minimum,
++        absolute_tolerance: "1/1000".into(),
++        precision_digits: 16,
++        max_leaves: 256,
++        transfer: transfer.clone(),
+     };
+     assert_eq!(
+-        receiver.certification_request(request.clone()).unwrap_err().code(),
++        receiver
++            .certification_request(request.clone())
++            .unwrap_err()
++            .code(),
+         "incomplete_transfer"
+     );
+     for index in 0..manifest.chunk_count() {
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:366:
+-        let CertificationResponse::ArtifactChunkRead { chunk, .. } =
+-            sender.certification_request(CertificationRequest::ReadArtifactChunk {
+-                schema_version: 1, transfer: transfer.clone(), index,
+-            }).unwrap()
+-        else { panic!("checkpoint chunk"); };
+-        receiver.certification_request(CertificationRequest::AppendArtifactChunk {
+-            schema_version: 1, transfer: transfer.clone(), chunk,
+-        }).unwrap();
++        let CertificationResponse::ArtifactChunkRead { chunk, .. } = sender
++            .certification_request(CertificationRequest::ReadArtifactChunk {
++                schema_version: 1,
++                transfer: transfer.clone(),
++                index,
++            })
++            .unwrap()
++        else {
++            panic!("checkpoint chunk");
++        };
++        receiver
++            .certification_request(CertificationRequest::AppendArtifactChunk {
++                schema_version: 1,
++                transfer: transfer.clone(),
++                chunk,
++            })
++            .unwrap();
+     }
+-    assert!(receiver.box_optimization_search_progress(&search("copy")).is_none());
++    assert!(
++        receiver
++            .box_optimization_search_progress(&search("copy"))
++            .is_none()
++    );
+     receiver.certification_request(request).unwrap();
+     assert!(receiver.box_optimization(&optimization("copy")).is_none());
+     assert_eq!(
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:379:
+-        receiver.certification_request(CertificationRequest::ReplayBoxOptimizationFromArtifact {
+-            schema_version: 1, objective: objective(), optimization: optimization("wrong"),
+-            domain: domain(), extremum: BoxExtremumKind::Minimum,
+-            absolute_tolerance: "1/1000".into(), transfer,
+-        }).unwrap_err().code(),
++        receiver
++            .certification_request(CertificationRequest::ReplayBoxOptimizationFromArtifact {
++                schema_version: 1,
++                objective: objective(),
++                optimization: optimization("wrong"),
++                domain: domain(),
++                extremum: BoxExtremumKind::Minimum,
++                absolute_tolerance: "1/1000".into(),
++                transfer,
++            })
++            .unwrap_err()
++            .code(),
+         "artifact_kind_mismatch"
+     );
+ }
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:389:
+ fn ndjson_checkpoint_dispatch_rejects_unknown_fields_versions_and_duplicate_keys() {
+     let mut session = paused();
+     let request = CertificationRequest::ExportBoxOptimizationSearch {
+-        schema_version: 1, search: search("paused"),
++        schema_version: 1,
++        search: search("paused"),
+     };
+-    let reply: Value = serde_json::from_str(
+-        &session.handle_envelope(&serde_json::to_string(&request).unwrap())
+-    ).unwrap();
++    let reply: Value =
++        serde_json::from_str(&session.handle_envelope(&serde_json::to_string(&request).unwrap()))
++            .unwrap();
+     assert_eq!(reply["status"], "success");
+     assert_eq!(reply["result"]["kind"], "box_optimization_search_exported");
+     let artifact = reply["result"]["artifact"].as_str().unwrap();
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:401:
+     let request = serde_json::to_string(&restore("wire", artifact)).unwrap();
+     for bad in [
+         request.replace("\"schema_version\":1", "\"schema_version\":2"),
+-        request.replacen("\"schema_version\":1", "\"schema_version\":1,\"schema_version\":1", 1),
+-        request.replacen("\"schema_version\":1", "\"unknown\":true,\"schema_version\":1", 1),
++        request.replacen(
++            "\"schema_version\":1",
++            "\"schema_version\":1,\"schema_version\":1",
++            1,
++        ),
++        request.replacen(
++            "\"schema_version\":1",
++            "\"unknown\":true,\"schema_version\":1",
++            1,
++        ),
+     ] {
+         let reply: Value = serde_json::from_str(&receiver.handle_envelope(&bad)).unwrap();
+         assert_eq!(reply["status"], "error", "{reply}");
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:409:
+-        assert!(receiver.box_optimization_search_progress(&search("wire")).is_none());
++        assert!(
++            receiver
++                .box_optimization_search_progress(&search("wire"))
++                .is_none()
++        );
+     }
+     let reply: Value = serde_json::from_str(&receiver.handle_envelope(&request)).unwrap();
+     assert_eq!(reply["status"], "success");
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:423:
+     fn new() -> Self {
+         let mut child = Command::new(env!("CARGO_BIN_EXE_frankensympy"))
+             .args([
+-                "--compute-steps", "100000000",
+-                "--memory-bytes", "1073741824",
+-                "--allocations", "4000000",
++                "--compute-steps",
++                "100000000",
++                "--memory-bytes",
++                "1073741824",
++                "--allocations",
++                "4000000",
+             ])
+-            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
+-            .spawn().unwrap();
++            .stdin(Stdio::piped())
++            .stdout(Stdio::piped())
++            .stderr(Stdio::piped())
++            .spawn()
++            .unwrap();
+         Self {
+             input: child.stdin.take(),
+             output: BufReader::new(child.stdout.take().unwrap()),
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:469:
+     sender.send(begin("original"));
+     let progress = sender.send(advance("original", 1));
+     let exported = sender.send(CertificationRequest::ExportBoxOptimizationSearch {
+-        schema_version: 1, search: search("original"),
++        schema_version: 1,
++        search: search("original"),
+     });
+     let saved = exported["result"]["artifact"].as_str().unwrap().to_owned();
+     sender.close();
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:484:
+     );
+     let mut ready = restored["result"]["progress"]["status"] == "complete";
+     for _ in 0..256 {
+-        if ready { break; }
++        if ready {
++            break;
++        }
+         let advanced = receiver.send(advance("continued", 3));
+         ready = advanced["result"]["progress"]["status"] == "complete";
+     }
+Diff in /workspace/scratch/aac5c0ea4661/frankensympy/tests/optimization_checkpoints.rs:491:
+     assert!(ready);
+     let checked = receiver.send(finish("continued"));
+     assert_eq!(checked["result"]["evidence"], "certified_numeric");
+-    assert_eq!(checked["result"]["claim"], "global_box_optimum_with_absolute_value_gap_bound");
++    assert_eq!(
++        checked["result"]["claim"],
++        "global_box_optimum_with_absolute_value_gap_bound"
++    );
+     receiver.close();
+ }
+ 

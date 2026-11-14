@@ -1,0 +1,22 @@
+{
+  "commands": [
+    {
+      "command": [
+        "python3",
+        "tools/validate_planning.py",
+        "--self-test"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 0.047588447000634915
+    },
+    {
+      "command": [
+        "python3",
+        "tools/validate_planning.py"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 0.30275712799993926
+    }
+  ],
+  "scope": "Direct planning-registry validation, separate from the aggregate registries command that failed its Python-version conformance fixtures."
+}
