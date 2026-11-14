@@ -13,6 +13,19 @@ use fsym_budget::BudgetError;
 use fsym_core::real_roots::identify_real_root_factors;
 use std::cmp::Ordering;
 
+/// A complete atom chart. Only the checked constructor below creates one.
+/// Equality and disequality share the original-source sign and domain checks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct VerifiedRealChart {
+    pub(super) expression: Expr,
+    pub(super) variable: Symbol,
+    pub(super) relation: RealRelation,
+    pub(super) polynomial: UnivariatePoly,
+    pub(super) roots: VerifiedRealRoots,
+    pub(super) gaps: Vec<bool>,
+    pub(super) points: Vec<bool>,
+}
+
 /// Complete real sign-chart result tied to the original typed source.
 ///
 /// If the critical polynomial has `n` real roots, the gap mask contains `n+1`
@@ -57,9 +70,18 @@ impl VerifiedRealInequality {
 
 /// All stages, including core isolation and root-factor verification, consume
 /// one fixed allowance per lane. Nested reference kernels cannot reset it.
-struct CappedMeter<'a, M> {
+pub(super) struct CappedMeter<'a, M> {
     inner: &'a mut M,
     used: [u64; 3],
+}
+
+impl<'a, M> CappedMeter<'a, M> {
+    pub(super) fn new(inner: &'a mut M) -> Self {
+        Self {
+            inner,
+            used: [0; 3],
+        }
+    }
 }
 
 impl<M: BudgetMeter> BudgetMeter for CappedMeter<'_, M> {
@@ -108,12 +130,14 @@ impl<M: BudgetMeter> BudgetMeter for CappedMeter<'_, M> {
     }
 }
 
-fn accepts(operation: IneqOp, sign: Ordering) -> bool {
+fn accepts(operation: RealRelation, sign: Ordering) -> bool {
     match operation {
-        IneqOp::Lt => sign == Ordering::Less,
-        IneqOp::Le => sign != Ordering::Greater,
-        IneqOp::Gt => sign == Ordering::Greater,
-        IneqOp::Ge => sign != Ordering::Less,
+        RealRelation::Eq => sign == Ordering::Equal,
+        RealRelation::Ne => sign != Ordering::Equal,
+        RealRelation::Lt => sign == Ordering::Less,
+        RealRelation::Le => sign != Ordering::Greater,
+        RealRelation::Gt => sign == Ordering::Greater,
+        RealRelation::Ge => sign != Ordering::Less,
     }
 }
 
@@ -232,7 +256,7 @@ struct ChartCandidate {
 struct ChartStatement<'a> {
     expression: &'a Expr,
     variable: &'a Symbol,
-    operation: IneqOp,
+    operation: RealRelation,
     roots: &'a VerifiedRealRoots,
     zero_points: &'a [bool],
     nowhere_defined: bool,
@@ -302,6 +326,39 @@ pub fn metered_solve_real_inequality(
     generator_meter: &mut impl BudgetMeter,
     verifier_meter: &mut impl BudgetMeter,
 ) -> Result<Option<VerifiedRealInequality>> {
+    let relation = match operation {
+        IneqOp::Lt => RealRelation::Lt,
+        IneqOp::Le => RealRelation::Le,
+        IneqOp::Gt => RealRelation::Gt,
+        IneqOp::Ge => RealRelation::Ge,
+    };
+    metered_real_chart(
+        expression,
+        variable,
+        relation,
+        generator_meter,
+        verifier_meter,
+    )
+    .map(|chart| {
+        chart.map(|chart| VerifiedRealInequality {
+            expression: chart.expression,
+            variable: chart.variable,
+            operation,
+            polynomial: chart.polynomial,
+            roots: chart.roots,
+            gap_inclusions: chart.gaps,
+            point_inclusions: chart.points,
+        })
+    })
+}
+
+pub(super) fn metered_real_chart(
+    expression: &Expr,
+    variable: &Symbol,
+    operation: RealRelation,
+    generator_meter: &mut impl BudgetMeter,
+    verifier_meter: &mut impl BudgetMeter,
+) -> Result<Option<VerifiedRealChart>> {
     let mut generator_meter = CappedMeter {
         inner: generator_meter,
         used: [0; 3],
@@ -404,14 +461,14 @@ pub fn metered_solve_real_inequality(
     )?;
     generator.charge(1, 256 + variable.name.len() as u64 * 2)?;
     verifier.meter.checkpoint()?;
-    Ok(Some(VerifiedRealInequality {
+    Ok(Some(VerifiedRealChart {
         expression: expression.clone(),
         variable: variable.clone(),
-        operation,
+        relation: operation,
         polynomial: UnivariatePoly::new(variable.clone(), polynomial),
         roots,
-        gap_inclusions: candidate.gaps,
-        point_inclusions: candidate.points,
+        gaps: candidate.gaps,
+        points: candidate.points,
     }))
 }
 
@@ -443,7 +500,7 @@ mod tests {
         let statement = ChartStatement {
             expression: &expression,
             variable: &x,
-            operation: IneqOp::Ge,
+            operation: RealRelation::Ge,
             roots: &roots,
             zero_points: &[true],
             nowhere_defined: false,

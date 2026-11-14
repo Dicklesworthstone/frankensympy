@@ -22,10 +22,16 @@ use num_traits::{One, Zero};
 use thiserror::Error;
 
 mod algebraic_value;
+mod real_constraints;
 mod real_inequality;
 pub use algebraic_value::{
     AlgebraicValueCertificate, VerifiedAlgebraicValue, evaluate_real_algebraic,
     metered_evaluate_real_algebraic, verify_real_algebraic_value,
+};
+pub use real_constraints::{
+    MAX_REAL_CONSTRAINTS, MAX_REAL_FORMULA_DEPTH, MAX_REAL_FORMULA_FANOUT, MAX_REAL_FORMULA_NODES,
+    RealConstraint, RealFormula, RealRelation, VerifiedRealConstraints,
+    metered_solve_real_constraints, solve_real_constraints,
 };
 pub use real_inequality::{
     VerifiedRealInequality, metered_solve_real_inequality, solve_real_inequality,
@@ -45,6 +51,8 @@ type Result<T> = std::result::Result<T, RealEquationError>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum RealEquationError {
+    #[error("invalid real constraint input: {0}")]
+    InvalidConstraints(&'static str),
     #[error("exact real equation resource limit exceeded: {0}")]
     ResourceLimit(&'static str),
     #[error("invalid real equation reduction: {0}")]

@@ -263,6 +263,7 @@ pub(super) fn solve(
 
 pub(super) fn error_code(error: &RealEquationError) -> &'static str {
     match error {
+        RealEquationError::InvalidConstraints(_) => "invalid_input",
         RealEquationError::Meter(MeterError::Cancelled)
         | RealEquationError::Roots(RealRootError::Meter(MeterError::Cancelled)) => "cancelled",
         RealEquationError::Meter(MeterError::Budget(_))

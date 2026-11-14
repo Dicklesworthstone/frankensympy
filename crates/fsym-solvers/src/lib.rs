@@ -23,8 +23,11 @@ pub mod univariate;
 pub use exact_ode::{exact_ode_potential, verify_exact_ode_potential};
 pub use ode::*;
 pub use real_equation::{
-    RealEquationError, VerifiedRealEquation, VerifiedRealInequality, metered_solve_real_equation,
-    metered_solve_real_inequality, solve_real_equation, solve_real_inequality,
+    MAX_REAL_CONSTRAINTS, MAX_REAL_FORMULA_DEPTH, MAX_REAL_FORMULA_FANOUT, MAX_REAL_FORMULA_NODES,
+    RealConstraint, RealEquationError, RealFormula, RealRelation, VerifiedRealConstraints,
+    VerifiedRealEquation, VerifiedRealInequality, metered_solve_real_constraints,
+    metered_solve_real_equation, metered_solve_real_inequality, solve_real_constraints,
+    solve_real_equation, solve_real_inequality,
 };
 pub use system::*;
 
