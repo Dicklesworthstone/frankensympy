@@ -12,6 +12,9 @@ use std::sync::Arc;
 /// Complete bounded constant-coefficient two-component systems.
 pub mod system;
 
+/// Checked nonzero local families of bounded Bernoulli equations.
+pub mod bernoulli;
+
 fn positive_rational_literal(expr: &Expr) -> bool {
     match expr {
         Expr::Integer(value) => value.is_positive(),
