@@ -233,6 +233,8 @@ jobs:
               "python/tests/test_assumptions_context_adversaries.py",
               "python/tests/test_solve_assumptions.py",
               "python/tests/test_solve_system_assumptions.py",
+              "python/tests/test_nroots_convergence.py",
+              "python/tests/test_surface.py::SurfaceTests::test_nroots_matrix_exp_complex_parts_and_assumptions",
               "python/tests/test_groebner_operations.py",
               "python/tests/test_exact_monotonicity.py",
               "python/tests/test_exact_function_range.py",

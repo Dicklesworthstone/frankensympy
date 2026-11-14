@@ -1764,60 +1764,68 @@ def product(*args, **kwargs):
     return Product(*args).doit(deep=False)
 
 
-def _numeric_poly_roots(coeffs: list) -> list:
-    """All complex roots of a polynomial (descending coefficients) by
-    Aberth-Ehrlich simultaneous iteration, polished by Newton steps."""
-    import cmath
+def _numeric_poly_roots(
+    coeffs: list, *, maxsteps: int = 500, cleanup: bool = True, n: int = 15
+) -> list:
+    """Shared dependency-free approximate polynomial-root kernel."""
+    from .polys._numeric_roots import numeric_roots
 
-    while coeffs and coeffs[0] == 0:
-        coeffs = coeffs[1:]
-    deg = len(coeffs) - 1
-    if deg < 1:
-        return []
-    lead = coeffs[0]
-    a = [c / lead for c in coeffs]
-    zeros = 0
-    while deg > 0 and a[-1] == 0:
-        a.pop()
-        deg -= 1
-        zeros += 1
+    return numeric_roots(coeffs, maxsteps=maxsteps, cleanup=cleanup, digits=n)
 
-    def ev(z: complex) -> tuple:
-        pv, dv = 0j, 0j
-        for c in a:
-            dv = dv * z + pv
-            pv = pv * z + c
-        return pv, dv
 
-    roots = []
-    if deg > 0:
-        radius = 1 + max(abs(c) for c in a[1:])
-        zs = [radius * 0.5 * cmath.exp(2j * cmath.pi * (k + 0.25) / deg) for k in range(deg)]
-        for _ in range(500):
-            done = True
-            for i in range(deg):
-                pv, dv = ev(zs[i])
-                if pv == 0:
-                    continue
-                ratio = pv / dv if dv != 0 else 1e-3
-                corr = sum(1 / (zs[i] - zs[j]) for j in range(deg) if j != i and zs[i] != zs[j])
-                w = ratio / (1 - ratio * corr)
-                zs[i] -= w
-                if abs(w) > 1e-17 * max(1.0, abs(zs[i])):
-                    done = False
-            if done:
-                break
-        for z in zs:
-            for _ in range(3):
-                pv, dv = ev(z)
-                if dv == 0:
-                    break
-                step = pv / dv
-                if abs(step) > 1e-6 * max(1.0, abs(z)):
-                    break
-                z -= step
-            roots.append(z)
-    return roots + [0j] * zeros
+def _nroots_coefficients(coefficients: list) -> list:
+    """Convert coefficients without losing nonzero components or a common scalar."""
+    import math
+    import sys
+    from fractions import Fraction
+    from .core import _exact_ratio
+
+    components = []
+    exact = []
+    for coefficient in coefficients:
+        ratio = _exact_ratio(coefficient)
+        if ratio is not None:
+            parts = (coefficient, Integer(0))
+            pair = (Fraction(*ratio), Fraction(0))
+        else:
+            parts = coefficient.as_real_imag()
+            real_ratio, imag_ratio = (_exact_ratio(part) for part in parts)
+            pair = (
+                (Fraction(*real_ratio), Fraction(*imag_ratio))
+                if real_ratio is not None and imag_ratio is not None else None
+            )
+        components.append(parts)
+        exact.append(pair)
+
+    if all(pair is not None for pair in exact):
+        scale = max((abs(part) for pair in exact for part in pair), default=Fraction(0))
+        if scale == 0:
+            return [0j] * len(exact)
+        result = []
+        for pair in exact:
+            converted = [float(part / scale) for part in pair]
+            if any(part != 0 and (value == 0 or abs(value) < sys.float_info.min)
+                   for part, value in zip(pair, converted)):
+                raise ValueError("nroots coefficient normalization loses binary64 precision")
+            result.append(complex(*converted))
+        return result
+
+    result = []
+    for coefficient, parts in zip(coefficients, components):
+        try:
+            value = complex(N(coefficient))
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError("nroots requires numeric coefficients, got %s" % coefficient) from None
+        if not math.isfinite(value.real) or not math.isfinite(value.imag):
+            raise ValueError("nroots requires finite numeric coefficients")
+        for source, component in zip(parts, (value.real, value.imag)):
+            ratio = _exact_ratio(source)
+            if (component == 0 and (ratio is None or ratio[0] != 0)) or (
+                component != 0 and abs(component) < sys.float_info.min
+            ):
+                raise ValueError("nroots coefficient conversion loses binary64 precision")
+        result.append(value)
+    return result
 
 
 def _float_digits(v: float, n: int) -> Any:
@@ -1832,53 +1840,82 @@ def _float_digits(v: float, n: int) -> Any:
 
 
 def nroots(f: Any, n: int = 15, maxsteps: int = 50, cleanup: bool = True) -> list:
-    """Numerical roots of a univariate polynomial with numeric coefficients
-    (upstream ``nroots``): real roots first in increasing order, then the
-    complex ones by real and imaginary part. Binary64-backed, so at most
-    15 significant digits are honest; more is refused."""
-    del maxsteps, cleanup
+    """Finite numerical roots of a univariate polynomial.
+
+    The binary64 lane supports at most 15 significant digits. It honors the
+    iteration limit and raises the local ArithmeticError subclass
+    polys._numeric_roots.NoConvergence when the numerical checks fail.
+    This exception is dependency-free, not mpmath's exception class.
+
+    cleanup=False retains every computed component. With cleanup=True,
+    each axis projection must satisfy that root's own residual and update
+    checks; a large root cannot erase another root's imaginary component.
+    These checks do not certify exact roots or their numerical conditioning.
+    """
+    if type(n) is not int or n < 1:
+        raise ValueError("nroots precision must be a positive integer")
     if n > 15:
         raise NotImplementedError(
             "precision-honest nroots: this shell computes roots in binary64 and "
             "is honest to at most 15 significant digits; requested %d" % n
         )
+    if type(maxsteps) is not int or maxsteps < 0:
+        raise ValueError("nroots maxsteps must be a nonnegative integer")
+    if type(cleanup) is not bool:
+        raise TypeError("nroots cleanup must be a boolean")
+
+    from .core import Half, NegativeOne, One, Zero
+    from .polys import _finitefield
     from .polys.polytools import Poly as _Poly
+    from .polys._numeric_roots import NoConvergence
 
     p = f if isinstance(f, _Poly) else _Poly(f)
+    if _finitefield.is_finite(p):
+        return _finitefield.unsupported(p, "numerical roots")
     if len(p.gens) != 1:
         raise ValueError("nroots requires a univariate polynomial")
-    # Exact square-free parts first: simultaneous iteration only reaches
-    # sqrt(eps) on a repeated root.
+    original = p.all_coeffs()
+    numeric_original = _nroots_coefficients(original)
+    if len(original) <= 1:
+        return []
+
+    # Use the checked exact square-free lane where its coefficient domain
+    # applies. Its failures are terminal, rather than silently restarting a
+    # different algorithm after a budget, source or verification failure.
+    exact_atoms = (Integer, Rational, Zero, One, NegativeOne, Half)
+    # This preview admits domain=None and exact ZZ/QQ strings, matching
+    # polytools._rational_ideal_source; it has no domain-object coercion.
+    exact_domain = p._domain is None or (
+        type(p._domain) is str and p._domain in ("ZZ", "QQ")
+    )
     parts = [(p, 1)]
-    try:
-        _, sq = p.sqf_list()
-        if sq:
-            parts = sq
-    except Exception:
-        pass
+    if exact_domain and all(type(coefficient) in exact_atoms for coefficient in original):
+        _, parts = p.sqf_list()
     roots = []
-    for part, mult in parts:
-        coeffs = []
-        for c in part.all_coeffs():
-            try:
-                coeffs.append(complex(N(c)))
-            except Exception:
-                raise ValueError("nroots requires numeric coefficients, got %s" % c)
-        roots.extend(_numeric_poly_roots(coeffs) * mult)
-    scale = max([1.0] + [abs(z) for z in roots])
-    real, cplx = [], []
-    for z in roots:
-        if abs(z.imag) <= 1e-10 * scale:
-            real.append(z.real)
-        else:
-            cplx.append(z)
-    real.sort()
-    cplx.sort(key=lambda z: (round(z.real, 10), z.imag))
-    out = [_float_digits(r, n) for r in real]
-    for z in cplx:
-        re_part = _float_digits(z.real, n) if abs(z.real) > 1e-14 * scale else Integer(0)
-        out.append(re_part + _float_digits(z.imag, n) * I)
-    return out
+    for part, multiplicity in parts:
+        coefficients = numeric_original if part is p else _nroots_coefficients(part.all_coeffs())
+        roots.extend(
+            _numeric_poly_roots(coefficients, maxsteps=maxsteps, cleanup=cleanup, n=n)
+            * multiplicity
+        )
+    if len(roots) != len(original) - 1:
+        raise NoConvergence("nroots: candidate root count does not match the source polynomial")
+
+    real = sorted(root.real for root in roots if root.imag == 0)
+    # Order components at the precision actually returned, so conjugate
+    # pairs are not reversed by a sub-ulp difference in their real parts.
+    complex_roots = sorted(
+        (root for root in roots if root.imag != 0),
+        key=lambda root: (
+            float(format(root.real, ".%dg" % n)),
+            float(format(abs(root.imag), ".%dg" % n)),
+            root.imag,
+        ),
+    )
+    result = [_float_digits(root, n) for root in real]
+    for root in complex_roots:
+        result.append(_float_digits(root.real, n) + _float_digits(root.imag, n) * I)
+    return result
 
 
 def _extract_single_symbol(expr: Any):
