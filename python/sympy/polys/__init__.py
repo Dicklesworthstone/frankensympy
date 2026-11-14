@@ -48,6 +48,7 @@ from .polytools import (
     together,
     trailing_coeff,
 )
+from .numberfields import minimal_polynomial, minpoly
 
 __all__ = [
     "CoercionFailed",
@@ -85,6 +86,8 @@ __all__ = [
     "invert",
     "lcm",
     "monic",
+    "minimal_polynomial",
+    "minpoly",
     "poly",
     "primitive",
     "quo",

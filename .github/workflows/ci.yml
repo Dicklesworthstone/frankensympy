@@ -156,6 +156,7 @@ jobs:
           cargo test --locked -p fsym-python --lib rational_cancel::tests -j1
           cargo test --locked -p fsym-python --lib ode::tests -j1
           cargo test --locked -p fsym-python --lib assumptions::tests -j1
+          cargo test --locked -p fsym-python --lib expr::multiquadratic_source_tests -j1
           cargo test --locked -p fsym-python --lib numeric::tests::certified_gaussian_sources_require_unary_bound_arguments -j1
           cargo test --locked -p fsym-core --test raw_product_value -j1
           cargo test --locked -p fsym-core --test binding_substitution -j1
@@ -171,7 +172,7 @@ jobs:
           cargo test --locked -p fsym-calculus --test certified_parametric_cover -j1
           cargo test --locked -p fsym-bigint --lib floor_square_root_pins_exact_square_boundaries_and_governed_lane -j1
           cargo test --locked -p fsym-polys --test rational_localization --test ideal_quotient --test ideal_inverse --test syzygy --test quotient_algebra --test quotient_minpoly --test radical --test finite_field --test finite_field_source --test finite_field_arithmetic --test finite_field_element_source --test finite_field_resultant --test finite_field_multivariate --test finite_field_multivariate_source -j1
-          cargo test --locked -p fsym-matrices --test affine_system --test rectangular_solve --test least_squares --test matrix_exponential --test minimal_polynomial -j1
+          cargo test --locked -p fsym-matrices --test affine_system --test rectangular_solve --test least_squares --test sparse_least_squares --test matrix_exponential --test minimal_polynomial -j1
           cargo test --locked -p fsym-proof-kernel --test sparse_determinant -j1
           cargo test --locked -p fsym-matrices --test sparse_determinant -j1
           cargo test --locked -p fsym-calculus --test rational_laplace --test delayed_laplace --test distributional_laplace --test delayed_distributional_laplace --test rational_mellin --test fourier_catalog -j1
@@ -369,6 +370,7 @@ jobs:
               "python/tests/test_matrix_norms.py",
               "python/tests/test_matrix_exponential.py",
               "python/tests/test_matrix_minimal_polynomial.py",
+              "python/tests/test_multiquadratic_minpoly.py",
               "python/tests/test_rectangular_matrix_solve.py",
               "python/tests/test_matrix_least_squares.py",
               "python/tests/test_sparse_surface_storage.py",
@@ -377,6 +379,7 @@ jobs:
               "python/tests/test_sparse_linear_algebra.py",
               "python/tests/test_sparse_row_reduction.py",
               "python/tests/test_sparse_rectangular_solve.py",
+              "python/tests/test_sparse_least_squares.py",
               "python/tests/test_sparse_affine.py",
               "python/tests/test_affine_linear_systems.py",
               "python/tests/test_sparse_linear_systems.py",

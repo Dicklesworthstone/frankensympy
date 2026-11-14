@@ -967,6 +967,39 @@ are checked before and after native execution, and checked results are
 published through original storage descriptors rather than replaceable Python
 constructors.
 
+### Exact sparse least squares
+
+`SparseMatrix.solve_least_squares(B)` also handles inconsistent tall rational
+systems, minimizing the sum of squared residuals for each right-hand side.
+Generation forms sparse normal equations; acceptance independently replays a
+full-column-rank witness for the original coefficient matrix and checks the
+original equations `A.T * (A * X - B) == 0` exactly. The coefficient matrix,
+normal matrix and residual checking remain sparse.
+
+```python
+from sympy import Matrix, Rational, SparseMatrix
+
+A = SparseMatrix([[1, 0], [0, 1], [1, 1]])
+B = Matrix([[1], [2], [4]])
+X = A.solve_least_squares(B)
+assert X == Matrix([[Rational(4, 3)], [Rational(7, 3)]])
+```
+
+The public default is `method="LDL"`; `"CH"` uses the same checked exact
+rational lane. Full column rank is required even for an empty right-hand side.
+Underdetermined or rank-deficient systems, unsupported methods and nonrational
+entries refuse explicitly. Mutable sparse coefficients preserve the RHS matrix
+class; immutable sparse coefficients return an immutable sparse result.
+Sparse fill, coefficient growth, cumulative work and allocation limits remain
+enforced through generation and verification.
+
+Native callers can retain `VerifiedSparseLeastSquares`, including its original
+RHS and source-bound rank evidence, or use separate
+`generate_sparse_least_squares_candidate` and
+`verify_sparse_least_squares_candidate` calls with separate meters. The combined
+least-squares result is immutable in-process evidence; its rank witness uses
+the existing portable RREF checker.
+
 ### Complete exact affine solution families
 
 Both dense and sparse `gauss_jordan_solve()` use one checked sparse elimination
@@ -1091,6 +1124,39 @@ completeness or a compatibility-profile certification.
 separates the executed earlier native baseline from the new named-coordinate
 and public regression suites, whose execution remains pending after executor
 loss.
+
+## Exact multiquadratic minimal polynomials (development API)
+
+`minpoly()` and `minimal_polynomial()` accept rational constants, rational
+square roots, `I`, sums, products, integer powers and reciprocals in an exact
+multiquadratic field over QQ. Dependent square classes are reduced exactly,
+including the principal-root phases of negative radicands. The multiplication
+operator is passed to the native matrix minimal-polynomial checker, which
+checks annihilation and the independence of all lower powers.
+
+```python
+from sympy import I, Rational, minpoly, sqrt, symbols
+
+x = symbols("x")
+assert minpoly(Rational(2, 3), x) == 3*x - 2
+assert minpoly(sqrt(2) + sqrt(3), x) == x**4 - 10*x**2 + 1
+assert minpoly(1/(sqrt(2) + sqrt(3)), x) == x**4 - 10*x**2 + 1
+assert minpoly(sqrt(2) + I, x) == x**4 - 2*x**2 + 9
+```
+
+The default result is a primitive polynomial expression with positive leading
+coefficient. `polys=True` returns a `Poly` for an explicit typed generator, or
+a `PurePoly` with a fresh `Dummy` when the generator is omitted. Generator
+identity and assumptions are retained. Both Boolean `compose` options use the
+same checked field algorithm; the supported domain forms are `None` and `"QQ"`.
+
+This lane admits four independent square classes, giving degree at most 16,
+with bounded source size, integer powers, coefficient height and total work.
+Original held operands are checked before algebraic cancellation, including
+undefined denominators under zero products or zero powers. General algebraic
+extensions, irrational nested radicals, approximate inputs and custom scalar
+hooks refuse explicitly. This extends the implemented exact arithmetic slice;
+the broad number-field and compatibility profiles remain open.
 
 ## Prime-field polynomials (development API)
 

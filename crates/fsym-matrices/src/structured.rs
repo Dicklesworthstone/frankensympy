@@ -3,8 +3,9 @@
 //! The working rows, pivot-column index, factors, right-hand sides and results
 //! remain sparse. Deterministic row pivoting handles zero diagonal entries as
 //! well as triangular and banded inputs. Fill, arithmetic work, coefficient
-//! growth and cumulative logical allocations have explicit bounds. These are
-//! same-crate reference checks, not portable proof-kernel certificates.
+//! growth and cumulative logical allocations have explicit bounds. LU and
+//! normal-equation identities use same-crate reference checks; least squares
+//! additionally replays portable rank evidence in the independent proof kernel.
 //!
 //! This lane admits dimensions up to 8192, 262144 stored entries per matrix,
 //! 16384 bits per coefficient component (including uncancelled arithmetic
@@ -20,6 +21,9 @@ use fsym_core::arith::RationalArithmeticError;
 use fsym_core::{BigRational, Expr};
 use num_traits::{One, Zero};
 use std::collections::{BTreeMap, BTreeSet};
+
+mod least_squares;
+pub use least_squares::*;
 
 const MAX_DIMENSION: usize = 8_192;
 const MAX_ENTRIES: usize = 262_144;

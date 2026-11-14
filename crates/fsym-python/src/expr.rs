@@ -4,7 +4,7 @@
 
 use fsym_calculus::diff;
 use fsym_calculus::proof as calculus_proof;
-use fsym_core::{BigInt, BigRational, Expr, parse};
+use fsym_core::{BigInt, BigRational, Constant, Expr, parse};
 use fsym_functions::{
     abs_val as abs_expr, acos as acos_expr, acosh as acosh_expr, acot as acot_expr,
     acoth as acoth_expr, acsc as acsc_expr, acsch as acsch_expr, asec as asec_expr,
@@ -22,7 +22,7 @@ use fsym_printing::{latex, pretty as render_pretty};
 use fsym_runtime::{Budget, BudgetLimits, FsymCx, RuntimeBudget};
 use fsym_simplify::{expand_with, simplify_with};
 use pyo3::basic::CompareOp;
-use pyo3::exceptions::{PyRecursionError, PyTypeError, PyValueError};
+use pyo3::exceptions::{PyNotImplementedError, PyRecursionError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyInt, PyTuple};
 use std::collections::BTreeSet;
@@ -35,6 +35,57 @@ use std::sync::Arc;
 /// built-in `int.bit_length()` first prevents an already-large Python integer from forcing an
 /// unbounded temporary byte buffer across the boundary.
 pub(crate) const MAX_PYTHON_INTEGER_BITS: usize = 8 * 1024 * 1024;
+
+#[derive(Debug, PartialEq, Eq)]
+enum MultiquadraticSourceError {
+    Unsupported,
+    ResourceLimit(&'static str),
+}
+
+/// Inspect borrowed nodes before the Python shell can clone any child tree.
+/// Count repeated Arc paths as well: they become owned values in `raw_args`.
+fn multiquadratic_source_size(source: &Expr) -> Result<usize, MultiquadraticSourceError> {
+    let mut pending = vec![(source, 0usize)];
+    let mut visited = 0usize;
+    while let Some((node, depth)) = pending.pop() {
+        visited += 1;
+        if visited > 4096 || depth > 64 {
+            return Err(MultiquadraticSourceError::ResourceLimit(
+                "minimal_polynomial source exceeds its node or depth limit",
+            ));
+        }
+        match node {
+            Expr::Const(Constant::I) => {}
+            Expr::Integer(value) if value.bits() <= 4096 => {}
+            Expr::Rational(value)
+                if value.numer().bits() <= 4096 && value.denom().bits() <= 4096 => {}
+            Expr::Integer(_) | Expr::Rational(_) => {
+                return Err(MultiquadraticSourceError::ResourceLimit(
+                    "minimal_polynomial literal exceeds 4096 bits",
+                ));
+            }
+            Expr::Add(children) | Expr::Mul(children) => {
+                if children.len() > 4096 - visited - pending.len() {
+                    return Err(MultiquadraticSourceError::ResourceLimit(
+                        "minimal_polynomial source exceeds its node limit",
+                    ));
+                }
+                pending.extend(children.iter().map(|child| (child, depth + 1)));
+            }
+            Expr::Pow(base, exponent) => {
+                if 2 > 4096 - visited - pending.len() {
+                    return Err(MultiquadraticSourceError::ResourceLimit(
+                        "minimal_polynomial source exceeds its node limit",
+                    ));
+                }
+                pending.push((base.as_ref(), depth + 1));
+                pending.push((exponent.as_ref(), depth + 1));
+            }
+            _ => return Err(MultiquadraticSourceError::Unsupported),
+        }
+    }
+    Ok(visited)
+}
 
 /// Effective depth bound for bridge arithmetic, overridable via
 /// `FSYM_MAX_EXPR_DEPTH` for callers who genuinely need deeper trees.
@@ -155,6 +206,17 @@ impl PyExpr {
             ],
             Expr::Function(_, args) => args.iter().map(|a| PyExpr::from_expr(a.clone())).collect(),
         }
+    }
+
+    /// Borrowed admission for the exact multiquadratic Python source lane.
+    /// This checks shape and allocation bounds, not algebraic definedness.
+    pub fn multiquadratic_source_size(&self) -> PyResult<usize> {
+        multiquadratic_source_size(&self.inner).map_err(|error| match error {
+            MultiquadraticSourceError::Unsupported => PyNotImplementedError::new_err(
+                "minimal_polynomial supports exact multiquadratic constants over QQ",
+            ),
+            MultiquadraticSourceError::ResourceLimit(message) => PyValueError::new_err(message),
+        })
     }
 
     /// Callable constructor (`func`) for SymPy reconstruction invariant: `expr.func(*expr.args) == expr`.
@@ -1295,5 +1357,69 @@ pub fn py_derivative(expr: PyExpr, var: PyExpr) -> PyExpr {
             "Derivative".into(),
             vec![expr.inner, var.inner],
         )),
+    }
+}
+
+#[cfg(test)]
+mod multiquadratic_source_tests {
+    use super::{MultiquadraticSourceError, multiquadratic_source_size};
+    use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
+    use std::sync::Arc;
+
+    #[test]
+    fn imaginary_unit_and_exact_arithmetic_have_a_borrowed_node_count() {
+        let root = Expr::Pow(
+            Arc::new(Expr::from_i64(2)),
+            Arc::new(Expr::Rational(BigRational::new(1.into(), 2.into()))),
+        );
+        let source = Expr::Add(vec![Expr::Const(Constant::I), root, Expr::from_i64(3)]);
+        assert_eq!(multiquadratic_source_size(&source), Ok(6));
+        let undefined = Expr::Pow(Arc::new(Expr::from_i64(0)), Arc::new(Expr::from_i64(-1)));
+        // The shell must still reject this denominator after shape admission.
+        assert_eq!(multiquadratic_source_size(&undefined), Ok(3));
+    }
+
+    #[test]
+    fn symbols_other_constants_and_functions_are_not_closed_field_sources() {
+        for source in [
+            Expr::Sym(Symbol::new("x")),
+            Expr::Const(Constant::Pi),
+            Expr::Function("sqrt".into(), vec![Expr::from_i64(2)]),
+        ] {
+            assert_eq!(
+                multiquadratic_source_size(&source),
+                Err(MultiquadraticSourceError::Unsupported)
+            );
+        }
+    }
+
+    #[test]
+    fn expanded_native_paths_and_large_literals_refuse_before_copying() {
+        let wide = Expr::Add(vec![Expr::from_i64(1); 4096]);
+        let large = Expr::Integer(BigInt::from(1) << 4096u32);
+        let mut shared = Arc::new(Expr::from_i64(1));
+        for _ in 0..12 {
+            shared = Arc::new(Expr::Pow(Arc::clone(&shared), Arc::clone(&shared)));
+        }
+        for source in [&wide, &large, shared.as_ref()] {
+            assert!(matches!(
+                multiquadratic_source_size(source),
+                Err(MultiquadraticSourceError::ResourceLimit(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn depth_is_checked_without_recursive_clone_or_traversal() {
+        let mut source = Expr::from_i64(1);
+        for _ in 0..64 {
+            source = Expr::Pow(Arc::new(source), Arc::new(Expr::from_i64(1)));
+        }
+        assert_eq!(multiquadratic_source_size(&source), Ok(129));
+        source = Expr::Pow(Arc::new(source), Arc::new(Expr::from_i64(1)));
+        assert!(matches!(
+            multiquadratic_source_size(&source),
+            Err(MultiquadraticSourceError::ResourceLimit(_))
+        ));
     }
 }

@@ -37,6 +37,7 @@ _REDUCTION_NATIVE_MEMBERS = {
     for name in (
         "shape", "is_exact_rational", "todok", "to_dense",
         "rref", "rank", "nullspace", "columnspace", "solve", "gauss_jordan_solve",
+        "solve_least_squares",
     )
 }
 _SOLVE_NATIVE_DENSE = _native.Matrix
@@ -1023,6 +1024,48 @@ class SparseMatrix(MatrixBase):
         _check_rational_source(source_snapshot)
         _check_rational_source(rhs_snapshot)
         result = _checked_sparse_lift(solution, type(b))
+        _check_rational_source(source_snapshot)
+        _check_rational_source(rhs_snapshot)
+        return result
+
+    def solve_least_squares(self, rhs, method="LDL"):
+        """Minimize exact rational residuals without dense coefficient storage.
+
+        LDL and CH use the same checked rational normal-equation lane. Full
+        column rank is required. Mutable sparse coefficients preserve the RHS
+        class; immutable sparse coefficients return immutable sparse results.
+        """
+        if type(method) is not str:
+            raise TypeError("least-squares method must be a string")
+        if method not in ("LDL", "CH"):
+            raise NotImplementedError("sparse least squares supports LDL and CH methods")
+        if not any(type(self) is cls for cls in (SparseMatrix, ImmutableSparseMatrix)):
+            raise NotImplementedError("custom matrix subclasses require a supervised override lane")
+        rhs_sparse = any(type(rhs) is cls for cls in (SparseMatrix, ImmutableSparseMatrix))
+        if not rhs_sparse and not any(type(rhs) is cls for cls in (Matrix, ImmutableDenseMatrix)):
+            raise TypeError("solve_least_squares requires a built-in Matrix right-hand side")
+        left = _rational_source_snapshot(self, context="sparse least squares")
+        right = _rational_source_snapshot(rhs, dense=not rhs_sparse, context="sparse least squares")
+        if left is None or right is None:
+            raise ValueError("sparse least squares supports exact rational entries only")
+        coefficients, source_snapshot = left
+        rhs_native, rhs_snapshot = right
+        rows, unknowns = source_snapshot[4]
+        rhs_rows, rhs_columns = rhs_snapshot[4]
+        if rows != rhs_rows:
+            raise ValueError("The matrices have incompatible number of rows")
+        if not rhs_sparse:
+            rhs_native = _SOLVE_DENSE_MEMBERS["to_sparse"](rhs_native)
+        _check_rational_source(source_snapshot)
+        _check_rational_source(rhs_snapshot)
+        solution = _REDUCTION_NATIVE_MEMBERS["solve_least_squares"](coefficients, rhs_native)
+        _check_rational_source(source_snapshot)
+        _check_rational_source(rhs_snapshot)
+        if (_REDUCTION_NATIVE_MEMBERS["shape"].__get__(solution, _NativeSparseMatrix)
+                != (unknowns, rhs_columns)):
+            raise RuntimeError("native sparse least-squares result has an invalid shape")
+        result_class = ImmutableSparseMatrix if type(self) is ImmutableSparseMatrix else type(rhs)
+        result = _checked_sparse_lift(solution, result_class)
         _check_rational_source(source_snapshot)
         _check_rational_source(rhs_snapshot)
         return result

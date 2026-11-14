@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "scope": "Checked sparse exact least squares and bounded multiquadratic minimal polynomials",
+  "base_commit": "7a604f94a33ba5e3e16c8ef2b5d8bc96bbb3ba96",
+  "sparse_least_squares": {
+    "generation": "Sparse Gram/RHS assembly followed by exact sparse solving; no dense coefficient matrix.",
+    "acceptance": "Independent original-A RREF witness replay establishes full column rank; a separate exact traversal recomputes A^T(AX-B)=0 from original A, original B and candidate X.",
+    "native_result": "Immutable in-process accepted solution, retained original RHS and portable rank evidence; no new portable least-squares certificate claim.",
+    "public_surface": "SparseMatrix.solve_least_squares(rhs, method='LDL'); LDL and CH; immutable sparse coefficients return immutable sparse, otherwise RHS class is retained.",
+    "native_validation": {
+      "tests": "cargo test --locked -p fsym-matrices --test sparse_least_squares -j1",
+      "passed": 10,
+      "failed": 0,
+      "clippy": "cargo clippy --locked -p fsym-matrices --test sparse_least_squares -- -D warnings: passed",
+      "coverage": "600 unknowns; multiple inconsistent RHS; 124 scalar projection cases; 400-digit exact coefficients; source/witness/solution mutations; every-safe-point cancellation; cumulative budget and fill/height bounds."
+    },
+    "public_component_validation": {
+      "new_cases_passed": 65,
+      "new_cases_failed": 0,
+      "adjacent_cases_passed": 199,
+      "adjacent_cases_failed": 0,
+      "adjacent_suites": ["test_sparse_rectangular_solve.py", "test_sparse_affine.py", "test_sparse_row_reduction.py"]
+    }
+  },
+  "multiquadratic_minpoly": {
+    "algorithm": "Exact square-class independence and principal-root embeddings construct a field of dimension at most sixteen; the native checked multiplication-matrix minimal polynomial proves annihilation and minimal degree.",
+    "public_surface": "Primitive positive-leading integer polynomial expression by default; explicit-generator Poly or fresh-Dummy PurePoly with polys=True; rational/imaginary square roots, sums, products, integer powers and inverses.",
+    "source_admission": "Original held operands and captured native constructors are checked; borrowed native-tree admission bounds expanded paths before Python child clones.",
+    "public_component_validation": {
+      "collected": 49,
+      "passed": 48,
+      "failed": 1,
+      "failure": "test_exact_polynomial_annihilation_in_original_radicals calls the deliberately omitted runtime Expr.expand; the test is preserved unchanged for production CI.",
+      "passing_coverage": "Degree sixteen; independently checked coefficients; dependent square classes; negative principal-root phases; reciprocal identities; return classes and typed generators; held poles; mutation and resource refusal."
+    },
+    "native_helper_tests": "Four expr::multiquadratic_source_tests authored and selected in production CI; not yet executed locally at this checkpoint."
+  },
+  "validation_scope": {
+    "native_toolchain": "nightly-2026-08-20; actual pinned repository Cargo workspace and donors",
+    "public_component": "artifacts/audit/2026-11-14-math-component-scope.json",
+    "public_binary_sha256": "e930181ed0067d3bed6d34b10f5c6c8c71dd4e374091406dc3b5056859662248",
+    "component_description": "All mathematical Rust files and the complete Python shell are current source. Two copied bridge files omit six async-runtime-only helpers, with no replacement functions or upstream production fallback. Original bridge hashes and exact omissions are recorded.",
+    "production_extension": "Attempted cargo build --locked -p fsym-python --features extension-module -j1 failed when pinned asupersync rustc received SIGKILL. No completed full production extension or workspace test pass is claimed.",
+    "formatting": "Pinned rustfmt --check passed on five touched Rust math files; six touched Python files passed AST parsing; diff whitespace checks passed.",
+    "review": "Independent mathematical, source-admission and publication-boundary reviews completed."
+  },
+  "status": "Feature implementation and focused evidence only. Bead statuses, priorities, dependencies and all broad workstream, compatibility, performance and certification gates remain unchanged."
+}

@@ -1019,6 +1019,16 @@ impl PySparseMatrix {
         })
     }
 
+    /// Unique exact rational least squares with bounded sparse intermediates.
+    pub fn solve_least_squares(&self, rhs: &Self) -> PyResult<Self> {
+        Ok(Self {
+            inner: self
+                .inner
+                .solve_least_squares(&rhs.inner)
+                .map_err(matrix_err)?,
+        })
+    }
+
     /// Complete checked affine family, rendered under the same native budget.
     pub fn gauss_jordan_solve(&self, rhs: &Self) -> PyResult<Option<SparseAffineSolutionParts>> {
         self.inner

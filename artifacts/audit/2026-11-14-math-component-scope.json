@@ -1,0 +1,113 @@
+{
+  "source_root": "/tmp/frankensympy-work",
+  "original_bridge_files": {
+    "tensor.rs": "686da9c102f0d12b151a6e1f248a6af601f369c1bc3c9894992ddb103a3d47a8",
+    "square_free.rs": "341710594a281ea7c75b6a35a51f32b2d774c5b63130c376936d3402d2b93e54",
+    "sets.rs": "b9c84fbcdb1f01238990f56428845fe9a6fdb63cc978de937186b046ad36a04b",
+    "recursive_division.rs": "47281cf2e59cfcfdd92b1c3e78ed7afa7600c6fb4e10d34899f83f9cd7626960",
+    "real_inequality.rs": "4bd4352e07109be6eecb870c2a2dd081cb049e507564e4dfc2896983d57adbdb",
+    "rational_mellin.rs": "2901e758716e6f6800c840056d2bdbd78526d79c64454786129359498f6015d6",
+    "rational_laplace.rs": "564ddda91b45c3937c6e4afcf221ef6a80d42144ae5980a41cf8f8ee79c93fe9",
+    "rational_cancel.rs": "84a108340b0d8db697830850220e90577644d02c6b13b2aa03b596a0dd978a79",
+    "quotient_algebra.rs": "8f08f97411f431c2e1607deeee4dcb7d0d0ee94fb3f779a78946449811862719",
+    "quadrature.rs": "6a7f0b9d1a2cd1c02a01b95f3770a285d32c93271c1339e92beb5cbcf571780e",
+    "polynomial_systems.rs": "e1b1f1e6cdd8efc4f9c88158ffe0148002f2360b37d594474a47ad59b2293d4d",
+    "polynomial_relations.rs": "0a9e23582470a735180d8e35c26edb7d1c5cd0e7306d6b7aac92ab53a0a18ccb",
+    "polynomial_laplace.rs": "9811e8f6adde71595c42cfb469cecdd179222da7c38f95fb740fb7177c170cb7",
+    "pde.rs": "ce25e73f023097c004268c659e33d6646939ed2bb848d79ecbccdd26f03d4b3d",
+    "ode_system.rs": "9a08ccb1e403c96f52bf2ff56faab944a94577e0713ad24246161541aea485a5",
+    "ode.rs": "fe05b05c9221190524aa78d8f5e74c10a3fe4dd283791d5a39f768daf569dcef",
+    "objective.rs": "a33ecf2ce96357991fc3a61482417858a7547fc8b6a002aafe136f19510ed4c8",
+    "numeric_budget.rs": "4300c2561f68419743a9bcc2553e315239ad9e743f8484b4dbc4774f27d68d56",
+    "numeric.rs": "052a8d55e30f6a4117bdd2cb0fecc0b770f1c32cbc1fd4609dfe8a7ad1b869c2",
+    "ntheory.rs": "9d1bffecd61f056b985c287cb9f67b2f8fd60d2b06cd79212c976e8e43446883",
+    "matrix.rs": "aea543a446415388edc7c981886e566adebcf65dd7927d4a761b36f9ebd64e3c",
+    "logic.rs": "760cb2b5d1367cb46b1965ddccde5ff613be0d0ea7864618ed51aaceb0ce3a12",
+    "lib.rs": "ab5e00f45f3531ecc3f4453736397e421477900c8ffa8c3882d3b070338b49cb",
+    "ideal_operations.rs": "3ef5bbbbaa47a5fff49cf5465f0cd6dda1d737426f2001550bfcecdaa49526b9",
+    "geometry.rs": "202591966ad6a7137dc82c907ed7ee03456cb635f588f5eb97eafad30f6dbaa5",
+    "fourier.rs": "47795d9bf3495642b7b695791e813f0b55bc345af5a7b9a938180df09d90ac75",
+    "finite_field_polynomial.rs": "901a0ef1c57db593dfdbc5f231f33c77818bf58ca60f87d329bc4bf1ff5153f0",
+    "finite_field_multivariate.rs": "c9039be18e0007aed87c3c443a889c5827195d4401928a8a9c0bb9054d613404",
+    "finite_field_ideal.rs": "79142415ab06ef1915dfba11d0f5847a4b8e98cbad422d546b406dcf24efe4ea",
+    "finite_field_groebner.rs": "1133459099121b45705d01edd0280577d838de521252776c250fa5d0829ac8b4",
+    "finite_field.rs": "303200cb450e39ee17090bd53d431e19722405286b10c2c5a1e76b84b4cb8f6c",
+    "expr.rs": "b91e67135869ebd346a89c1836015ee569fe874cd3d78ae70d6ac7217f2727d0",
+    "exact_integral.rs": "8a847b631f2f47156ae4813fc641027e5fd4def01f43ea436af7ae6f93e4213b",
+    "callbacks.rs": "300ad34fc5dcdffcc127c9ffc4fc9e5b2a9bdce587416e23a9b379167fa6d140",
+    "binding.rs": "633277cb4ec21126c944475dacdd5ac1db1d0ccd8fc5e50de6be20c8c7d4d706",
+    "assumptions.rs": "96d3521188926ba292423e3f7142f7ac65e592dd2a71df66fc9bcd731a863719",
+    "algebraic_roots.rs": "6511bc6224261d631f5c23c0a6287c82e12b740bc0fd9935cb77da2cf0c6dfaf",
+    "numeric_budget/tests.rs": "759f7be452381971a0fcfeb7a9f298a204e61f81df537e82a9220b911a0aa745",
+    "callbacks/tests.rs": "9a9a5469f3b8bb19a802d191a91c3a3cf7e4e1f8efaf77bd2f7923f714c659f0"
+  },
+  "changes": {
+    "lib.rs": {
+      "original_sha256": "ab5e00f45f3531ecc3f4453736397e421477900c8ffa8c3882d3b070338b49cb",
+      "omitted_block_sha256": "f52e906f92117916e059a4b263a34f23ff82847faa03ba10977e648aed182340",
+      "component_sha256": "3d108b39cdcfb684cc59ffe0c6b98fdf747342e508bbf6d6cf22dcb7476ff115"
+    },
+    "expr.rs": {
+      "original_sha256": "b91e67135869ebd346a89c1836015ee569fe874cd3d78ae70d6ac7217f2727d0",
+      "omitted_block_sha256": "77d218e828cd2109d557ec1037404af50020af1a44392473d9521c9f6038486a",
+      "component_sha256": "4e8eff4b98fd31e3fb844295ec5d74c57f5ad0de41dbef23ba64901cef1f6116",
+      "removed_imports": "fsym_runtime Budget, BudgetLimits, FsymCx, RuntimeBudget; fsym_simplify expand_with, simplify_with, used only by the two omitted methods"
+    }
+  },
+  "omitted_members": [
+    "lib.rs::eval_error",
+    "lib.rs::eval_region",
+    "lib.rs::simplify_expr",
+    "lib.rs::expand_expr",
+    "expr.rs::PyExpr.simplify",
+    "expr.rs::PyExpr.expand"
+  ],
+  "scope": "Supplementary mathematical/PyO3 component only; production async runtime and six helpers absent. No replacement implementation or upstream production engine.",
+  "schema_version": 1,
+  "binary_sha256": "e930181ed0067d3bed6d34b10f5c6c8c71dd4e374091406dc3b5056859662248",
+  "python": "3.12.14",
+  "pytest": "8.4.2",
+  "manifest": "[package]\nname=\"fsym-python-math-source-component\"\nversion=\"0.1.0\"\nedition=\"2024\"\npublish=false\n[workspace]\nmembers=[\"runtime\"]\nresolver=\"3\"\n[lib]\nname=\"fsym_python\"\ncrate-type=[\"cdylib\"]\n[features]\nextension-module=[\"pyo3/extension-module\"]\n[dependencies]\nfsym-budget={path=\"/tmp/frankensympy-work/crates/fsym-budget\"}\nfsym-core={path=\"/tmp/frankensympy-work/crates/fsym-core\"}\nfsym-polys={path=\"/tmp/frankensympy-work/crates/fsym-polys\"}\nfsym-proof-kernel={path=\"/tmp/frankensympy-work/crates/fsym-proof-kernel\"}\nfsym-simplify={path=\"/tmp/frankensympy-work/crates/fsym-simplify\"}\nfsym-calculus={path=\"/tmp/frankensympy-work/crates/fsym-calculus\"}\nfsym-numeric-consumer={path=\"/tmp/frankensympy-work/crates/fsym-numeric-consumer\"}\nfsym-solvers={path=\"/tmp/frankensympy-work/crates/fsym-solvers\"}\nfsym-matrices={path=\"/tmp/frankensympy-work/crates/fsym-matrices\"}\nfsym-functions={path=\"/tmp/frankensympy-work/crates/fsym-functions\"}\nfsym-logic={path=\"/tmp/frankensympy-work/crates/fsym-logic\"}\nfsym-ntheory={path=\"/tmp/frankensympy-work/crates/fsym-ntheory\"}\nfsym-sets={path=\"/tmp/frankensympy-work/crates/fsym-sets\"}\nfsym-geometry={path=\"/tmp/frankensympy-work/crates/fsym-geometry\"}\nfsym-tensor={path=\"/tmp/frankensympy-work/crates/fsym-tensor\"}\nfsym-assumptions={path=\"/tmp/frankensympy-work/crates/fsym-assumptions\"}\nfsym-printing={path=\"/tmp/frankensympy-work/crates/fsym-printing\"}\nfsym-runtime={package=\"fsym-budget-source-component\",path=\"runtime\"}\nblake3=\"=1.8.7\"\npyo3={version=\"=0.27.2\"}\n",
+  "runtime_wrapper": "//! Actual budget implementation reexport; no replacement functions.\npub use fsym_budget::*;\n",
+  "runtime_manifest": "[package]\nname=\"fsym-budget-source-component\"\nversion=\"0.1.0\"\nedition=\"2024\"\n[lib]\nname=\"fsym_runtime\"\npath=\"lib.rs\"\n[dependencies]\nfsym-budget={path=\"/tmp/frankensympy-work/crates/fsym-budget\"}\n",
+  "external_package_identities_and_checksums": "All 56 exactly match repository Cargo.lock; component resolution was offline and subsequent build used --locked.",
+  "shell_files_sha256": {
+    "python/sympy/polys/numberfields.py": "ee6d8734631047d79b2e907712498a902c93fc2efa3e82841f8718430e2fcf67",
+    "python/sympy/matrices/sparse.py": "d30011ff39e191360c923d0b758f070614bc3f47e17ff50cac8362b7fab87d16",
+    "python/tests/test_multiquadratic_minpoly.py": "83e0ba8af967b6eb64b918d212255a439afb1918ea9620a97e75c4d704bdfc23",
+    "python/tests/test_sparse_least_squares.py": "83c89a38536fc5789d94ae922b530d19f1e3993d8311db7ed080fd6dfc95887a"
+  },
+  "results": {
+    "combined_new_suite": {
+      "passed": 113,
+      "failed": 1,
+      "failure": "test_multiquadratic_minpoly.py::test_exact_polynomial_annihilation_in_original_radicals: omitted runtime Expr.expand unavailable",
+      "test_changes": "none; full test remains selected in production CI"
+    },
+    "sparse_least_squares": {
+      "passed": 65,
+      "failed": 0
+    },
+    "multiquadratic_minpoly": {
+      "passed": 48,
+      "failed": 1
+    },
+    "adjacent_sparse_suites": {
+      "passed": 199,
+      "failed": 0,
+      "suites": [
+        "test_sparse_rectangular_solve.py",
+        "test_sparse_affine.py",
+        "test_sparse_row_reduction.py"
+      ]
+    },
+    "previously_committed_cse": {
+      "passed": 79,
+      "failed": 0,
+      "suites": [
+        "test_cse_integrity.py",
+        "test_surface.py::SurfaceTests::test_cse_parse_expr_utilities_and_term_order"
+      ]
+    }
+  }
+}

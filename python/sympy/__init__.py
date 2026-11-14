@@ -2081,53 +2081,7 @@ for _obj in (Lambda, Subs):
     setattr(_sys.modules["sympy.core.function"], _obj.__name__, _obj)
 
 
-def minpoly(expr: Any, gen: Any = None) -> Any:
-    """Minimal polynomial of a quadratic surd expression.
-
-    Handles a + b*sqrt(c) forms (with rational a, b, c) by conjugate
-    elimination. Returns a Poly in *gen* (default x).
-    """
-    x = Symbol("x") if gen is None else gen
-    expr = sympify(expr) if "sympify" in globals() else expr
-    # Detect a + b*sqrt(c) with integer/rational a, b, c
-    if isinstance(expr, Add) and len(expr.args) == 2:
-        a_part, rest = expr.args
-        a_ok = isinstance(a_part, (Integer, Rational))
-        bare_surd = isinstance(rest, Pow) and len(rest.args) == 2 and rest.args[1] == Rational(1, 2)
-        if a_ok and bare_surd:
-            b_val, c_val, a_val = Integer(1), rest.args[0], a_part
-            two_a = Integer(2) * a_val
-            const = a_val**2 - b_val**2 * c_val
-            return Poly(x**2 - two_a * x + const, x)
-        if a_ok and isinstance(rest, Mul):
-            coeffs = [f for f in rest.args if isinstance(f, (Integer, Rational))]
-            surds = [f for f in rest.args if isinstance(f, Pow)]
-            if len(coeffs) == 1 and len(surds) == 1 and len(surds[0].args) == 2 and surds[0].args[1] == Rational(1, 2):
-                b_val = coeffs[0]
-                c_val = surds[0].args[0]
-                a_val = a_part
-                # (x - a)^2 = b^2 * c  =>  x^2 - 2a x + (a^2 - b^2 c)
-                two_a = Integer(2) * a_val
-                const = a_val**2 - b_val**2 * c_val
-                return Poly(x**2 - two_a * x + const, x)
-    if isinstance(expr, Pow) and len(expr.args) == 2 and expr.args[1] == Rational(1, 2):
-        # sqrt(c): x^2 - c
-        return Poly(x**2 - expr.args[0], x)
-    if isinstance(expr, Mul):
-        coeffs = [f for f in expr.args if isinstance(f, (Integer, Rational))]
-        surds = [f for f in expr.args if isinstance(f, Pow)]
-        if len(coeffs) == 1 and len(surds) == 1 and len(surds[0].args) == 2 and surds[0].args[1] == Rational(1, 2):
-            # b*sqrt(c): x^2 - b^2 c
-            b_val, c_val = coeffs[0], surds[0].args[0]
-            return Poly(x**2 - b_val**2 * c_val, x)
-    if isinstance(expr, (Integer, Rational)):
-        return Poly(x - expr, x)
-    raise NotImplementedError(
-        f"minpoly supports rational and quadratic surd forms, got {expr}"
-    )
-
-
-minimal_polynomial = minpoly
+from .polys.numberfields import minimal_polynomial, minpoly
 
 
 from .core import Relational
