@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "scope": "Complete source-bound native replay using the shared portable compiled-program format",
+  "base_commit": "d924e69b37e8dd592c6ef810879a30fec4a2e1f5",
+  "implementation": [
+    "replay_residual_program accepts exact artifact bytes, a receiver-owned ResidualProblem, expected context digest and a cumulative meter; returns a VerifiedResidualSystem only after transport and source-bound independent admission.",
+    "replay_objective_program independently admits original objective, gradient, Hessian, sparse coverage and bytecode before returning VerifiedObjective.",
+    "Both complete native helpers reuse program_transport decoding and calculus program_artifact admission. They introduce no alternate wire format and retain original-domain checks and explicit binary64 numerical semantics.",
+    "ProgramReplayError distinguishes transport decoding refusals from independent source or mathematical admission failures.",
+    "The concurrent Session, NDJSON, resident publication, inline/chunked transfer and frozen-context export implementations are retained without replacement."
+  ],
+  "existing_limits": {
+    "schema_version": 1,
+    "outer_artifact_bytes": 1048576,
+    "inline_artifact_bytes": 24576,
+    "json_depth": 96,
+    "scalar_component_bits": 4096,
+    "proof_profile": "one rooted definitional equality step",
+    "resident_programs_per_kind": 32
+  },
+  "concurrent_work_preserved": [
+    {
+      "sha": "e74fbebb7b30b53bab9fe49df07b010f1fc87eba",
+      "scope": "Native exact source-bound candidate admission"
+    },
+    {
+      "sha": "d924e69b37e8dd592c6ef810879a30fec4a2e1f5",
+      "scope": "Session and NDJSON portable residual/Jacobian and objective/gradient/Hessian programs, shared canonical envelope, eleven Session/CLI regressions"
+    }
+  ],
+  "validation": {
+    "native_candidate_transport": "10 passed; strict selected calculus Clippy passed in the actual pinned repository Cargo workspace; landed in 7a604f94a33ba5e3e16c8ef2b5d8bc96bbb3ba96.",
+    "complete_native_replay_tests": {
+      "file": "tests/compiled_artifacts.rs",
+      "status": "Authored and independently source-reviewed after executor loss; no current-source execution result is claimed.",
+      "scope": "Both program kinds, hand-derived sparse numeric products, exact source/order/symbol identity/context, canonical source/derivative/bytecode forgery, held source domains and singular derivatives, malformed/oversized wire and cumulative budgets, and interoperability with Session.",
+      "count": 6,
+      "functions": [
+        "replay_restores_both_program_kinds_and_hand_derived_numeric_products",
+        "receiver_binds_exact_sources_axis_order_typed_identity_and_context",
+        "canonical_inner_source_derivative_and_bytecode_forgery_cannot_gain_admission",
+        "transport_keeps_original_domains_and_singular_derivatives_even_for_zero_products",
+        "outer_wire_rejects_unknown_duplicate_noncanonical_oversized_and_unfunded_inputs",
+        "session_and_native_replay_interoperate_in_both_directions_for_both_kinds"
+      ]
+    },
+    "prior_transport_prototype": {
+      "status": "Superseded by concurrent main before publication. These executed results are historical component evidence, not passes for the retained or newly merged implementation.",
+      "implementation": "Earlier recovered compiled_artifact module with additional outer source fields; this alternate module and wire format are intentionally not committed.",
+      "new_facade_tests": {
+        "passed": 5,
+        "failed": 0
+      },
+      "new_session_and_fresh_cli_tests": {
+        "passed": 7,
+        "failed": 0
+      },
+      "existing_objective_suite": {
+        "passed": 10,
+        "failed": 1,
+        "failure": "compilation_cannot_borrow_missing_or_exhausted_verifier_authority exposed an early ordinary metadata charge before missing-verifier-capability refusal."
+      },
+      "correction": "Both compile/replay paths must require verifier authority before ordinary metadata charges. The recovered prototype was corrected; the retained concurrent Session implementation independently has the same correct ordering.",
+      "remaining_selected_targets": "Cargo stopped after the existing objective-suite failure; no completed residual-session or facade optimization-checkpoint result from this invocation.",
+      "composition": "Whole current root library, CLI and test files; whole original fsym-runtime workspace/protocol/fmap/publication/repair modules; fourteen whole pinned asupersync codec/support source files and systematic table. No replacement mathematical or protocol functions.",
+      "external_dependencies": "All 46 external package identities and checksums in the component lock matched production Cargo.lock.",
+      "donor_warnings": "Seven existing source-component donor warnings were visible; no full-workspace strict Clippy pass is claimed.",
+      "reference_wrapper_templates": [
+        {
+          "name": "Cargo.lock",
+          "sha": "234f5639e8ff0a8bf029cb123dc320aefdf0259b",
+          "path": "artifacts/audit/reproduction/2026-11-11-parametric-session-component/Cargo.lock"
+        },
+        {
+          "name": "Cargo.toml",
+          "sha": "6cc1e42f25c29c28265a0afaa51d59b7b35a1488",
+          "path": "artifacts/audit/reproduction/2026-11-11-parametric-session-component/Cargo.toml"
+        },
+        {
+          "name": "README.md",
+          "sha": "54e61143c10d987284f8efd124962d21bfe719e6",
+          "path": "artifacts/audit/reproduction/2026-11-11-parametric-session-component/README.md"
+        },
+        {
+          "name": "codec",
+          "sha": "b54d9321c1a1ebf85e20f35efe89e4c0fff20005",
+          "path": "artifacts/audit/reproduction/2026-11-11-parametric-session-component/codec"
+        },
+        {
+          "name": "component-clippy.txt",
+          "sha": "fe8766c88ff8a56338639f7942738cf07a174194",
+          "path": "artifacts/audit/reproduction/2026-11-11-parametric-session-component/component-clippy.txt"
+        },
+        {
+          "name": "component-tests.txt",
+          "sha": "caf22a47784698d6f4d4e27be4c9462c04bb700a",
+          "path": "artifacts/audit/reproduction/2026-11-11-parametric-session-component/component-tests.txt"
+        },
+        {
+          "name": "input-snapshots.json",
+          "sha": "12fa0be3418a072b20471b9d49c82971997f6b62",
+          "path": "artifacts/audit/reproduction/2026-11-11-parametric-session-component/input-snapshots.json"
+        },
+        {
+          "name": "record_scope.py",
+          "sha": "ee3ee29583f26c0aa4f9339dad9188e08f0a693b",
+          "path": "artifacts/audit/reproduction/2026-11-11-parametric-session-component/record_scope.py"
+        },
+        {
+          "name": "reproduce.py",
+          "sha": "7b3982f628e584cae8fe2d2f54ec296141efb21b",
+          "path": "artifacts/audit/reproduction/2026-11-11-parametric-session-component/reproduce.py"
+        },
+        {
+          "name": "root-component-clippy.txt",
+          "sha": "acdb80984f7bbf8263cd50db58ff13a1f80aec7d",
+          "path": "artifacts/audit/reproduction/2026-11-11-parametric-session-component/root-component-clippy.txt"
+        },
+        {
+          "name": "runtime",
+          "sha": "8e2c41dfa4db462531e45aae264a5aad522b490c",
+          "path": "artifacts/audit/reproduction/2026-11-11-parametric-session-component/runtime"
+        },
+        {
+          "name": "source-inventory.json",
+          "sha": "68dc78d5de1d3746eada9a17b6efa869985df7df",
+          "path": "artifacts/audit/reproduction/2026-11-11-parametric-session-component/source-inventory.json"
+        },
+        {
+          "name": "validation-result.json",
+          "sha": "e04de252773c5ac7d974aea7d8dc344942b91bf3",
+          "path": "artifacts/audit/reproduction/2026-11-11-parametric-session-component/validation-result.json"
+        }
+      ]
+    },
+    "environment_failures": [
+      "Full production Python extension build: pinned asupersync rustc terminated by SIGKILL.",
+      "Initial Session component build: fsym-calculus rustc terminated by SIGKILL; a retry completed and ran the results above.",
+      "After the lease-order correction, two root recompilation attempts (default and one codegen unit) terminated by SIGKILL.",
+      "A further single-backend retry was interrupted by executor disconnection before an observed terminal result. The execution environment then reported unavailable."
+    ],
+    "current_source": {
+      "construction": "Exact concurrent-main source plus guarded additive edits and reviewed adaptation of recovered native tests. Existing Session wire, APIs, tests and documentation are preserved.",
+      "exact_lost_file_identity": "Not established; recovered test bodies are not claimed byte-identical to lost local files.",
+      "final_compilation": "Not performed after executor disconnection; no usable execution environment remained.",
+      "final_rustfmt_and_clippy": "Not performed after executor disconnection.",
+      "production_ci": "New native replay tests are selected alongside existing compiled-program, Session and native admission suites; queued or unobserved workflow outcomes are not passes.",
+      "independent_review": {
+        "transport_blob": "340013899a4888c4990b9e6463d33148dd7f8d98",
+        "exports_blob": "525bea27baa28e39f29d1217ed787ad8a1b4b499",
+        "findings": [
+          "Existing canonical wire structs and original decode/export implementations remain unchanged.",
+          "Both complete replay calls match current native source-bound admission APIs and propagate transport, source, proof, cancellation and resource failures.",
+          "No executable program escapes on a failed final admission charge.",
+          "Retained concurrent residents already enforce lease-before-metadata ordering and export their frozen compilation context; no resident implementation patch is justified."
+        ],
+        "scope": "Post-disconnection read-only source review; no execution claimed."
+      },
+      "test_review": "Adapted tests independently reviewed against pinned Session registration, response fields, label grammar, source parser and canonical wire. Both directions and both program kinds use the actual exported assumption-context digest. No execution or formatter pass is claimed."
+    },
+    "earlier_feature_execution": {
+      "square_root_native": {
+        "passed": 7,
+        "failed": 0
+      },
+      "optimization_checkpoint_native": {
+        "passed": 9,
+        "failed": 0
+      },
+      "cse_public_component": {
+        "passed": 79,
+        "failed": 0,
+        "scope": "Exact current-source supplementary math bridge, as recorded in math-component-scope.json."
+      }
+    }
+  },
+  "related_exact_math_progress": "artifacts/audit/2026-11-14-exact-math-features-progress.json",
+  "implementation_blobs": {
+    "src/program_transport.rs": "340013899a4888c4990b9e6463d33148dd7f8d98",
+    "src/lib.rs": "525bea27baa28e39f29d1217ed787ad8a1b4b499",
+    "tests/compiled_artifacts.rs": "304673407f96d8b5964a0a79b46825e343dd459a",
+    ".github/workflows/ci.yml": "e51a7c54a350ae15e1632095f3daba1dea7c38b7",
+    "docs/NATIVE_CERTIFICATION_SESSION.md": "77aae89a8709ff9ce989a1d8c16d05bae319a29c",
+    ".beads/issues.jsonl": "fa81f2c1c2d069dc3c8c72804bdd6fe3cb2bdb34"
+  },
+  "status": "Concrete feature progress with bounded evidence. No campaign, compatibility, performance or certification gate is promoted; bead changes append notes only."
+}

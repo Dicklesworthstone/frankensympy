@@ -8,13 +8,16 @@
 #![forbid(unsafe_code)]
 
 use crate::certification::{
-    CertificationError, JsonNesting, MAX_ROOT_CERTIFICATE_BYTES, charge, encode, encoding_error,
+    CertificationError, JsonNesting, MAX_ROOT_CERTIFICATE_BYTES, ResidualProblem, charge, encode,
+    encoding_error,
 };
+use crate::objective::ObjectiveProblem;
 use fsym_budget::BudgetMeter;
 use fsym_calculus::VerifiedResidualSystem;
 use fsym_calculus::program_artifact::{
-    ProgramArtifactError, decode_objective_candidate, decode_residual_candidate,
-    encode_objective_candidate, encode_residual_candidate,
+    ProgramAdmissionError, ProgramArtifactError, admit_objective_candidate, admit_residual_candidate,
+    decode_objective_candidate, decode_residual_candidate, encode_objective_candidate,
+    encode_residual_candidate,
 };
 use fsym_calculus::sparse_hessian::{ObjectiveCandidate, VerifiedObjective};
 use fsym_calculus::sparse_jacobian::SparseJacobian;
@@ -31,6 +34,16 @@ pub enum ProgramTransportError {
     Envelope(#[from] CertificationError),
     #[error("compiled program candidate refused: {0}")]
     Candidate(#[from] ProgramArtifactError),
+}
+
+/// A complete replay can fail while decoding its transport or independently
+/// checking its mathematical evidence against the receiving problem.
+#[derive(Debug, Error)]
+pub enum ProgramReplayError {
+    #[error("compiled program transport refused: {0}")]
+    Transport(#[from] ProgramTransportError),
+    #[error("compiled program admission refused: {0}")]
+    Admission(#[from] ProgramAdmissionError),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -151,4 +164,54 @@ pub fn decode_objective_program(
 ) -> Result<ObjectiveCandidate, ProgramTransportError> {
     let candidate = unwrap_candidate(bytes, expected_context, meter)?;
     Ok(decode_objective_candidate(candidate, meter)?)
+}
+
+/// Restore a verified residual/Jacobian program against a receiving problem.
+///
+/// This complete facade checks the canonical context-bound transport, then
+/// independently binds the original typed sources and ordered coordinates,
+/// replays derivative evidence and rebuilds executable plans. A decoded
+/// candidate or transported receipt alone cannot become a verified program.
+///
+/// Decoding and verification both consume the supplied cumulative meter. The
+/// Session interface uses the same wire format with ordinary decoding and a
+/// separate protected verification allowance.
+pub fn replay_residual_program(
+    bytes: &[u8],
+    expected: &ResidualProblem,
+    expected_context: [u8; 32],
+    meter: &mut impl BudgetMeter,
+) -> Result<VerifiedResidualSystem, ProgramReplayError> {
+    let candidate = decode_residual_program(bytes, expected_context, meter)?;
+    Ok(admit_residual_candidate(
+        expected.residuals(),
+        expected.variables(),
+        candidate,
+        meter,
+    )?)
+}
+
+/// Restore a verified objective/gradient/Hessian program against its source.
+///
+/// Both derivative stages, sparse coverage and bytecode provenance are checked
+/// independently. The resulting program retains original-domain guards for
+/// every evaluation and product; its numerical outputs remain binary64
+/// approximations. This operation grants no interval or optimization proof.
+///
+/// All transport and admission work consumes the same supplied meter. Use the
+/// Session interface when decoding and protected verification must consume
+/// different allowances on one cumulative ledger.
+pub fn replay_objective_program(
+    bytes: &[u8],
+    expected: &ObjectiveProblem,
+    expected_context: [u8; 32],
+    meter: &mut impl BudgetMeter,
+) -> Result<VerifiedObjective, ProgramReplayError> {
+    let candidate = decode_objective_program(bytes, expected_context, meter)?;
+    Ok(admit_objective_candidate(
+        expected.objective(),
+        expected.variables(),
+        candidate,
+        meter,
+    )?)
 }

@@ -342,6 +342,17 @@ the boundary with `fsym_calculus::program_artifact::admit_residual_candidate` or
 ordered typed variables and an independent verifier meter. The typed Session
 requests perform those stages and publication together.
 
+For a complete native operation, use `replay_residual_program` with the
+receiver's `ResidualProblem`, or `replay_objective_program` with its
+`ObjectiveProblem`. Each takes the exact artifact bytes, the receiving problem,
+the expected context digest and a caller-owned meter, and returns a verified
+program only after both transport decoding and independent source-bound
+admission succeed. The same meter pays for both phases. These helpers accept
+the existing Session export format, and their returned programs can be
+reexported with the functions above. `ProgramReplayError::Transport` and
+`ProgramReplayError::Admission` distinguish transport refusals from independent
+mathematical admission failures; neither failure returns an executable program.
+
 ## Enclose an objective and certify a stationary point
 
 Register a scalar objective with its explicit coordinate order. Enclosure and

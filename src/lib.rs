@@ -116,8 +116,9 @@ pub use parametric_transport::{
 };
 pub use program_transport::{
     COMPILED_PROGRAM_ARTIFACT_SCHEMA_VERSION, MAX_COMPILED_PROGRAM_ARTIFACT_BYTES,
-    ProgramTransportError, decode_objective_program, decode_residual_program,
-    export_objective_program, export_residual_program,
+    ProgramReplayError, ProgramTransportError, decode_objective_program, decode_residual_program,
+    export_objective_program, export_residual_program, replay_objective_program,
+    replay_residual_program,
 };
 pub use repairable_search::{
     PreparedRepairableRootSearchCheckpoint, RepairableRootSearchCheckpoint,
