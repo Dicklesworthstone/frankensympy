@@ -129,10 +129,22 @@ fn nonfinite(expression: &Expr) -> bool {
 /// Inspect the complete borrowed parameter forest before normalization. This
 /// guard runs even when the accepted kernel projector will annihilate W.
 fn admit_least_squares_parameters(matrix: &Matrix) -> PyResult<()> {
-    const MAX_NODES: usize = 4096;
     if matrix.rows() > 32 || matrix.cols() > 32 {
         return Err(PyValueError::new_err(
             "least-squares parameter dimensions exceed 32",
+        ));
+    }
+    admit_least_squares_parameter_roots(matrix.data().iter(), None).map(|_| ())
+}
+
+fn admit_least_squares_parameter_roots<'a>(
+    entries: impl ExactSizeIterator<Item = &'a Expr> + Clone,
+    retained: Option<&Bound<'_, PyList>>,
+) -> PyResult<Vec<usize>> {
+    const MAX_NODES: usize = 4096;
+    if entries.len() > MAX_NODES {
+        return Err(PyValueError::new_err(
+            "least-squares parameters exceed their bounded expression envelope",
         ));
     }
     let mut limits = BudgetLimits::uniform(512 * 1024 * 1024, 0);
@@ -142,19 +154,28 @@ fn admit_least_squares_parameters(matrix: &Matrix) -> PyResult<()> {
         .try_charge_batch(&[
             (
                 Dimension::MemoryBytes,
-                (MAX_NODES * (std::mem::size_of::<(&Expr, usize)>() + std::mem::size_of::<&Expr>()))
-                    as u64,
+                (MAX_NODES
+                    * (std::mem::size_of::<(&Expr, usize, usize)>()
+                        + std::mem::size_of::<&Expr>()
+                        + std::mem::size_of::<usize>())) as u64,
             ),
-            (Dimension::AllocationCount, 2),
+            (Dimension::AllocationCount, 3),
         ])
         .map_err(to_value_error)?;
     let mut pending = Vec::with_capacity(MAX_NODES);
     let mut functions = Vec::with_capacity(MAX_NODES);
-    pending.extend(matrix.data().iter().map(|entry| (entry, 0usize)));
+    let mut root_sizes = vec![0usize; entries.len()];
+    pending.extend(
+        entries
+            .clone()
+            .enumerate()
+            .map(|(index, entry)| (entry, 0usize, index)),
+    );
     let mut visited = 0usize;
     let mut text_bytes = 0usize;
-    while let Some((node, depth)) = pending.pop() {
+    while let Some((node, depth, root)) = pending.pop() {
         visited += 1;
+        root_sizes[root] += 1;
         if visited > MAX_NODES || depth > 64 {
             return Err(PyValueError::new_err(
                 "least-squares parameters exceed their bounded expression envelope",
@@ -201,7 +222,7 @@ fn admit_least_squares_parameters(matrix: &Matrix) -> PyResult<()> {
                         "least-squares parameters exceed their bounded expression envelope",
                     ));
                 }
-                pending.extend(children.iter().map(|child| (child, depth + 1)));
+                pending.extend(children.iter().map(|child| (child, depth + 1, root)));
             }
             Expr::Pow(base, exponent) => {
                 if 2 > MAX_NODES.saturating_sub(visited + pending.len()) {
@@ -209,8 +230,8 @@ fn admit_least_squares_parameters(matrix: &Matrix) -> PyResult<()> {
                         "least-squares parameters exceed their bounded expression envelope",
                     ));
                 }
-                pending.push((base.as_ref(), depth + 1));
-                pending.push((exponent.as_ref(), depth + 1));
+                pending.push((base.as_ref(), depth + 1, root));
+                pending.push((exponent.as_ref(), depth + 1, root));
             }
             _ => {}
         }
@@ -219,6 +240,11 @@ fn admit_least_squares_parameters(matrix: &Matrix) -> PyResult<()> {
                 "least-squares parameter names exceed their bounded envelope",
             ));
         }
+    }
+    // Original retained child identities must agree with these native roots
+    // before either algebra or a zero projector can erase a supplied node.
+    if let Some(retained) = retained {
+        crate::fourier::check_retained(retained, &mut meter)?;
     }
     // Inspect original function nodes separately, before a parent zero could
     // erase a known pole such as held log(0) or log(x-x). Unknown symbolic
@@ -246,13 +272,13 @@ fn admit_least_squares_parameters(matrix: &Matrix) -> PyResult<()> {
     // Known function poles above are terminal even below a zeroth power whose
     // general symbolic base this checker cannot otherwise resolve. Preserve
     // every raw inverse/zeroth-power child and its polynomial zero obligation.
-    for entry in matrix.data() {
+    for entry in entries {
         validate_held_transform_domains(entry, &mut meter)?;
     }
     meter
         .try_charge_batch(&[(Dimension::ComputeSteps, 1)])
         .map_err(to_value_error)?;
-    Ok(())
+    Ok(root_sizes)
 }
 
 /// Native matrix type exposing exact algebraic matrix operations.
@@ -668,6 +694,22 @@ impl PyMatrix {
         admit_least_squares_parameters(&self.inner)
     }
 
+    /// Borrow original dense W before exporting cells or converting to sparse.
+    /// The sparse family admits large thin dense parameter matrices within the
+    /// same stored-forest bound, independently of the dense solver's 32 cap.
+    #[pyo3(signature = (retained=None))]
+    pub fn validate_sparse_least_squares_parameters(
+        &self,
+        retained: Option<&Bound<'_, PyList>>,
+    ) -> PyResult<Vec<usize>> {
+        if self.inner.rows() > 8192 || self.inner.cols() > 8192 {
+            return Err(PyValueError::new_err(
+                "sparse least-squares parameter dimensions exceed 8192",
+            ));
+        }
+        admit_least_squares_parameter_roots(self.inner.data().iter(), retained)
+    }
+
     pub fn __richcmp__(&self, other: &Bound<'_, PyAny>, op: CompareOp) -> PyResult<bool> {
         match op {
             CompareOp::Eq => {
@@ -1044,6 +1086,35 @@ impl PySparseMatrix {
                 .minimum_norm_least_squares(&rhs.inner)
                 .map_err(matrix_err)?,
         })
+    }
+
+    /// Independently checked minimum-norm particular and complete kernel projector.
+    pub fn least_squares_family(&self, rhs: &Self) -> PyResult<(Self, Self)> {
+        let (minimum_norm, projector) = self
+            .inner
+            .least_squares_family(&rhs.inner)
+            .map_err(matrix_err)?
+            .into_parts();
+        Ok((
+            Self {
+                inner: minimum_norm,
+            },
+            Self { inner: projector },
+        ))
+    }
+
+    /// Admit original stored parameter roots without visiting implicit zeros.
+    #[pyo3(signature = (retained=None))]
+    pub fn validate_least_squares_parameters(
+        &self,
+        retained: Option<&Bound<'_, PyList>>,
+    ) -> PyResult<Vec<usize>> {
+        if self.inner.rows() > 8192 || self.inner.cols() > 8192 {
+            return Err(PyValueError::new_err(
+                "sparse least-squares parameter dimensions exceed 8192",
+            ));
+        }
+        admit_least_squares_parameter_roots(self.inner.entries().values(), retained)
     }
 
     /// Complete checked affine family, rendered under the same native budget.

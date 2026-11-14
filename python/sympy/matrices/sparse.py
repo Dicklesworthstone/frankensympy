@@ -38,12 +38,14 @@ _REDUCTION_NATIVE_MEMBERS = {
         "shape", "nnz", "is_exact_rational", "todok", "to_dense",
         "rref", "rank", "nullspace", "columnspace", "solve", "gauss_jordan_solve",
         "solve_least_squares", "pinv", "minimum_norm_least_squares",
+        "least_squares_family", "validate_least_squares_parameters",
     )
 }
 _SOLVE_NATIVE_DENSE = _native.Matrix
 _SOLVE_DENSE_MEMBERS = {
     name: _REDUCTION_DICT.__get__(_SOLVE_NATIVE_DENSE)[name]
-    for name in ("shape", "is_exact_rational", "flat", "to_sparse")
+    for name in ("shape", "is_exact_rational", "flat", "to_sparse",
+                 "validate_sparse_least_squares_parameters")
 }
 _REDUCTION_STORAGE_NAMES = (
     "_native_storage", "_matrix_shape", "_surface", "_mutation_generation",
@@ -1031,14 +1033,18 @@ class SparseMatrix(MatrixBase):
     def solve_least_squares(self, rhs, method="LDL"):
         """Minimize exact rational residuals without dense coefficient storage.
 
-        LDL and CH use the same checked rational normal-equation lane. Full
-        column rank is required. Mutable sparse coefficients preserve the RHS
-        class; immutable sparse coefficients return immutable sparse results.
+        LDL and CH use the checked rational normal-equation lane and require
+        full column rank. They preserve the RHS class for mutable coefficients
+        and return immutable sparse results for immutable coefficients. PINV
+        returns the complete checked family, including deficient rank, using
+        pinv_solve's fresh parameters and pinned class promotion.
         """
         if type(method) is not str:
             raise TypeError("least-squares method must be a string")
+        if method == "PINV":
+            return _sparse_pinv_solve(self, rhs)
         if method not in ("LDL", "CH"):
-            raise NotImplementedError("sparse least squares supports LDL and CH methods")
+            raise NotImplementedError("sparse least squares supports LDL, CH and PINV methods")
         if not any(type(self) is cls for cls in (SparseMatrix, ImmutableSparseMatrix)):
             raise NotImplementedError("custom matrix subclasses require a supervised override lane")
         rhs_sparse = any(type(rhs) is cls for cls in (SparseMatrix, ImmutableSparseMatrix))
@@ -1116,6 +1122,22 @@ class SparseMatrix(MatrixBase):
         result = _checked_sparse_lift(inverse, result_class)
         _check_rational_source(source_snapshot)
         return result
+
+    def pinv_solve(self, B, arbitrary_matrix=None):
+        """Return every exact-rational least-squares minimizer as X0 + N*W.
+
+        The minimum-norm particular and full kernel projector are checked
+        independently against the original sparse A and B. A zero supplied W
+        selects the minimum-norm solution; otherwise fresh Dummy parameters
+        follow the pinned transposed-grid ordering. All four built-in dense
+        and sparse RHS/parameter classes are supported with pinned promotion.
+
+        Coefficients and proof products stay sparse within the native bounds.
+        Parameter forests admit at most 4096 nodes and depth 64, and projection
+        admits at most one million stored scalar products. Undefined original
+        parameters are rejected even when the projector would erase them.
+        """
+        return _sparse_pinv_solve(self, B, arbitrary_matrix)
 
     def rref(self, iszerofunc=None, simplify=False, pivots=True, normalize_last=True):
         """Checked rational reduction, with the profile's dense final result.
@@ -1772,3 +1794,7 @@ _STRUCTURAL_STACK_BINDINGS = (
     (SparseMatrix, SparseMatrix.row_join, SparseMatrix.col_join, SparseMatrix._new),
     (Matrix, Matrix.row_join, Matrix.col_join, Matrix._new),
 )
+
+# Freeze scalar interfaces at module initialization, before a first call can
+# observe replacement constructors or arithmetic implementations.
+from ._sparse_family import pinv_solve as _sparse_pinv_solve

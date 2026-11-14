@@ -1,0 +1,198 @@
+{
+  "groups": {
+    "python.tests.test_fourier_transforms": {
+      "passed": 48,
+      "omitted_helper_failures": 17,
+      "other_failures": 0
+    },
+    "python.tests.test_inverse_fourier_transforms": {
+      "passed": 25,
+      "omitted_helper_failures": 13,
+      "other_failures": 0
+    }
+  },
+  "failures": [
+    {
+      "class": "python.tests.test_fourier_transforms",
+      "name": "test_cycles_normalization_at_exact_rational_angular_frequency[1-1-2-1]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_fourier_transforms",
+      "name": "test_cycles_normalization_at_exact_rational_angular_frequency[2-1-1-unit_frequency1]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_fourier_transforms",
+      "name": "test_cycles_normalization_at_exact_rational_angular_frequency[rate2-1-6-unit_frequency2]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_fourier_transforms",
+      "name": "test_cycles_normalization_at_exact_rational_angular_frequency[2-3-3-unit_frequency3]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_fourier_transforms",
+      "name": "test_gaussian_mass_and_translation_keep_the_negative_fourier_phase[0]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_fourier_transforms",
+      "name": "test_gaussian_mass_and_translation_keep_the_negative_fourier_phase[2]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_fourier_transforms",
+      "name": "test_gaussian_mass_and_translation_keep_the_negative_fourier_phase[center2]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_fourier_transforms",
+      "name": "test_shifted_scaled_bilateral_exponential_uses_absolute_slope",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_fourier_transforms",
+      "name": "test_rational_quadratic_completion_and_finite_linearity",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_fourier_transforms",
+      "name": "test_pinned_bilateral_sufficient_conditions_are_preserved[facts0]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_fourier_transforms",
+      "name": "test_pinned_bilateral_sufficient_conditions_are_preserved[facts1]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_fourier_transforms",
+      "name": "test_pinned_bilateral_sufficient_conditions_are_preserved[facts2]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_fourier_transforms",
+      "name": "test_pinned_bilateral_sufficient_conditions_are_preserved[facts3]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_fourier_transforms",
+      "name": "test_pinned_bilateral_sufficient_conditions_are_preserved[facts4]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_fourier_transforms",
+      "name": "test_gaussian_and_zero_condition_contracts",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_fourier_transforms",
+      "name": "test_unsupported_assumed_frequency_conditions_stay_unevaluated",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_fourier_transforms",
+      "name": "test_public_path_never_calls_the_legacy_string_transform",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_inverse_fourier_transforms",
+      "name": "test_inverse_translation_has_the_positive_kernel_phase[gaussian-0]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_inverse_fourier_transforms",
+      "name": "test_inverse_translation_has_the_positive_kernel_phase[gaussian-2]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_inverse_fourier_transforms",
+      "name": "test_inverse_translation_has_the_positive_kernel_phase[gaussian-center2]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_inverse_fourier_transforms",
+      "name": "test_inverse_translation_has_the_positive_kernel_phase[bilateral-0]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_inverse_fourier_transforms",
+      "name": "test_inverse_translation_has_the_positive_kernel_phase[bilateral-2]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_inverse_fourier_transforms",
+      "name": "test_inverse_translation_has_the_positive_kernel_phase[bilateral-center2]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_inverse_fourier_transforms",
+      "name": "test_inverse_gaussian_completion_and_finite_linearity",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_inverse_fourier_transforms",
+      "name": "test_inverse_bilateral_pinned_sufficient_conditions[facts0]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_inverse_fourier_transforms",
+      "name": "test_inverse_bilateral_pinned_sufficient_conditions[facts1]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_inverse_fourier_transforms",
+      "name": "test_inverse_bilateral_pinned_sufficient_conditions[facts2]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_inverse_fourier_transforms",
+      "name": "test_inverse_bilateral_pinned_sufficient_conditions[facts3]",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_inverse_fourier_transforms",
+      "name": "test_inverse_gaussian_and_zero_conditions",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    },
+    {
+      "class": "python.tests.test_inverse_fourier_transforms",
+      "name": "test_generic_integration_and_forward_kernel_are_never_used",
+      "message": "AttributeError: 'fsym_python.Expr' object has no attribute 'expand'",
+      "omitted_comparator_helper": true
+    }
+  ],
+  "tests_unchanged": true,
+  "scope": "Actual source-scoped extension; six runtime helper omissions unchanged; no substitute functions or comparator changes."
+}

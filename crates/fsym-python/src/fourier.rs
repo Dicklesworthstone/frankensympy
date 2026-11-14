@@ -3,7 +3,10 @@
 use crate::binding::PySymbolBinding;
 use crate::expr::PyExpr;
 use crate::to_value_error;
-use fsym_calculus::fourier::{FourierError, metered_fourier_transform_l1};
+use fsym_calculus::fourier::{
+    FourierDirection, FourierError, metered_fourier_transform_l1,
+    metered_inverse_fourier_transform_l1,
+};
 use fsym_core::Expr;
 use fsym_runtime::{Budget, BudgetLimits, Dimension};
 use pyo3::exceptions::{PyNotImplementedError, PyValueError};
@@ -215,6 +218,39 @@ pub fn fourier_l1_native(
     frequency: &PySymbolBinding,
     retained: Option<&Bound<'_, PyList>>,
 ) -> PyResult<(PyExpr, bool)> {
+    transform_l1_native(
+        source,
+        variable,
+        frequency,
+        retained,
+        FourierDirection::Forward,
+    )
+}
+
+#[pyfunction]
+#[pyo3(signature = (source, variable, coordinate, retained=None))]
+pub fn inverse_fourier_l1_native(
+    source: &PyExpr,
+    variable: &PySymbolBinding,
+    coordinate: &PySymbolBinding,
+    retained: Option<&Bound<'_, PyList>>,
+) -> PyResult<(PyExpr, bool)> {
+    transform_l1_native(
+        source,
+        variable,
+        coordinate,
+        retained,
+        FourierDirection::Inverse,
+    )
+}
+
+fn transform_l1_native(
+    source: &PyExpr,
+    variable: &PySymbolBinding,
+    frequency: &PySymbolBinding,
+    retained: Option<&Bound<'_, PyList>>,
+    direction: FourierDirection,
+) -> PyResult<(PyExpr, bool)> {
     let names = variable.name.len().saturating_add(frequency.name.len());
     if names > 65_536 {
         return Err(PyValueError::new_err(
@@ -236,10 +272,30 @@ pub fn fourier_l1_native(
     if let Some(retained) = retained {
         check_retained(retained, &mut budget)?;
     }
-    let value = metered_fourier_transform_l1(&source.inner, &variable, &frequency, &mut budget)
-        .map_err(|error| match error {
-            FourierError::Unsupported(reason) => PyNotImplementedError::new_err(reason),
-            error => to_value_error(error),
-        })?;
+    let value = match direction {
+        FourierDirection::Forward => {
+            metered_fourier_transform_l1(&source.inner, &variable, &frequency, &mut budget)
+        }
+        FourierDirection::Inverse => {
+            metered_inverse_fourier_transform_l1(&source.inner, &variable, &frequency, &mut budget)
+        }
+    }
+    .map_err(|error| match error {
+        FourierError::Unsupported(reason) => PyNotImplementedError::new_err(reason),
+        error => to_value_error(error),
+    })?;
+    if value.direction != direction {
+        return Err(PyValueError::new_err(
+            "Fourier result has the wrong kernel direction",
+        ));
+    }
+    // The pinned public profile has one-sided Cauchy expressions even on the
+    // negative output axis. Keep that source formal here; the native L1 API
+    // retains its exact two-sided real-axis formula and its explicit scope.
+    if value.used_cauchy_identity {
+        return Err(PyNotImplementedError::new_err(
+            "positive quadratic reciprocals are available only in the native L1 catalog",
+        ));
+    }
     Ok((PyExpr { inner: value.value }, value.used_bilateral_identity))
 }

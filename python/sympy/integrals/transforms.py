@@ -122,11 +122,21 @@ class InverseFourierTransform(Transform):
     """Unevaluated inverse Fourier transform: F^-1{F(k)}(x)."""
 
     def __new__(cls, F: Any, k: Any, x: Any, **kwargs: Any) -> Any:
-        return super().__new__(cls, F, k, x)
+        result = super().__new__(cls, F, k, x)
+        result._struct_args = result._args
+        return result
+
+    @property
+    def free_symbols(self):
+        function, variable, coordinate = self.args
+        return (function.free_symbols - {variable}) | coordinate.free_symbols
 
     def doit(self, **hints: Any) -> Any:
         F, k, x = self.args
         return inverse_fourier_transform(F, k, x, **hints)
+
+
+_register_held_fourier(InverseFourierTransform, Transform.__dict__["__dict__"])
 
 
 class SineTransform(Transform):
@@ -723,13 +733,18 @@ def fourier_transform(expression: Any, x: Any, k: Any, noconds: bool = True, **k
     condition profiles remain unevaluated. This is a bounded catalog, not a
     general compatibility or portable mathematical-certification claim.
     """
+    return _ordinary_fourier_transform(expression, x, k, noconds, kwargs, inverse=False)
+
+
+def _ordinary_fourier_transform(expression, x, k, noconds, options, *, inverse):
+    """Shared retained-source boundary; native dispatch fixes the kernel sign."""
     from fractions import Fraction
 
     from ..core import Float
 
     if type(noconds) is not bool:
         raise TypeError("Fourier noconds must be an exact bool")
-    if kwargs:
+    if options:
         raise TypeError("unsupported Fourier transform options")
     # Do not invoke an arbitrary _sympy_ converter before source admission.
     if type(expression) is int:
@@ -746,18 +761,21 @@ def fourier_transform(expression: Any, x: Any, k: Any, noconds: bool = True, **k
         raise TypeError("Fourier transforms require exact built-in symbolic sources")
     x_sym, k_sym = _require_symbol(x), _require_symbol(k)
     snapshot = _FourierSource(expression, x_sym, k_sym)
+    transform_type = InverseFourierTransform if inverse else FourierTransform
 
     def unevaluated():
         original = _native_expr(expression)
         if original.is_integer or original.is_rational:
-            result = expression * FourierTransform(Integer(1), x_sym, k_sym)
+            result = expression * transform_type(Integer(1), x_sym, k_sym)
         else:
-            result = FourierTransform(expression, x_sym, k_sym)
+            result = transform_type(expression, x_sym, k_sym)
         snapshot.unchanged()
         return result
 
     try:
-        native, bilateral = _native.fourier_l1_native(
+        native_transform = (_native.inverse_fourier_l1_native if inverse
+                            else _native.fourier_l1_native)
+        native, bilateral = native_transform(
             _native_expr(expression), _symbol_binding(x_sym), _symbol_binding(k_sym),
             snapshot.records(),
         )
@@ -797,23 +815,16 @@ def fourier_transform(expression: Any, x: Any, k: Any, noconds: bool = True, **k
 
 
 def inverse_fourier_transform(F: Any, k: Any, x: Any, noconds: bool = True, **kwargs: Any) -> Any:
-    """Compute the inverse Fourier transform: F^-1{F(k)}(x)."""
-    from .. import integrate
-    from ..simplify import simplify
+    """Ordinary inverse Fourier integral with kernel exp(+2*pi*I*k*x).
 
-    F = sympify(F)
-    k = Symbol(str(k)) if not isinstance(k, Symbol) else k
-    x = Symbol(str(x)) if not isinstance(x, Symbol) else x
-
-    try:
-        res = integrate(F * exp(2 * pi * I * k * x), (k, -oo, oo))
-        if res is not None and not _has_integral(res):
-            simplified = simplify(res)
-            return simplified if noconds else (simplified, True)
-    except Exception:
-        pass
-
-    return InverseFourierTransform(F, k, x) if noconds else (InverseFourierTransform(F, k, x), True)
+    The exact native Gaussian and bilateral-exponential catalog includes
+    rational translations, scales and finite linear combinations. Source
+    identity, real-axis premises, conditions and operational failures follow
+    the forward transform boundary. Unsupported inputs remain structural
+    InverseFourierTransform objects. This bounded integral catalog makes no
+    distributional, general inversion, or portable certification claim.
+    """
+    return _ordinary_fourier_transform(F, k, x, noconds, kwargs, inverse=True)
 
 
 def sine_transform(f: Any, t: Any, k: Any, noconds: bool = True, **kwargs: Any) -> Any:

@@ -1,0 +1,337 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-14T21:10:17.545305+00:00",
+  "base_commit": "bb8b4b204cdb58914fa5bbb68af194e19d419553",
+  "scope": "Feature implementation in WS10/fra-kfo and WS18/fra-a5x; bounded native mathematical acceptance and explicitly scoped public execution. No workstream, compatibility profile or portable transform certificate promotion.",
+  "verified_direct_main_increments": [
+    {
+      "sha": "4a7a0880a9fb973b02f5f8143fe98c685a6b2e04",
+      "feature": "Complete native sparse least-squares families"
+    },
+    {
+      "sha": "02a9ca1095a635d1b904b9c429109b7bb5204e00",
+      "feature": "Native inverse Fourier and exact positive quadratic reciprocal integrals"
+    },
+    {
+      "sha": "8176a96eb74f86de16460f36f1bee8da7dfdda24",
+      "feature": "Mixed sparse/dense products and equality without sparse densification"
+    }
+  ],
+  "features": {
+    "sparse_family": {
+      "native": "All minimizers X=X0+N*W; independently replay four Penrose identities, X0=P*B and N+P*A=I against original A/B. Accepted constructors are private; original RHS and empty/zero shapes remain checked.",
+      "public": [
+        "SparseMatrix.pinv_solve(B, arbitrary_matrix=None)",
+        "SparseMatrix.solve_least_squares(B, method=PINV)"
+      ],
+      "parameters": "Fresh Dummy identities with SymPy1.14 transposed-grid ordering, or bounded supplied matrices retaining exact Symbol/Dummy/function/finite-constant owners. A zero W selects minimum norm. All four built-in matrix classes participate in pinned result promotion.",
+      "limits": {
+        "native_compute": 20000000,
+        "native_logical_allocation_bytes": 268435456,
+        "native_dimension": 8192,
+        "parameter_nodes": 4096,
+        "parameter_depth": 64,
+        "parameter_coefficient_bits": 4096,
+        "parameter_products": 1000000,
+        "cumulative_rendered_nodes": 131072
+      },
+      "admission": "Borrowed dense/sparse W validation precedes to_sparse/todok export; original held poles and nonfinite values are terminal even when N is zero."
+    },
+    "mixed_arithmetic": {
+      "behavior": "Both operand orders and equality preserve sparse coefficient storage. Literal rational inputs use native sparse arithmetic; retained symbolic cells use bounded stored-coordinate operations with source checks.",
+      "classes": "Immutable sparse wins; otherwise immutable dense, then mutable dense, matching isolated SymPy1.14.",
+      "limits": "Unsupported nonfinite implicit-zero products and effectful skipped multiplication refuse explicitly."
+    },
+    "fourier": {
+      "native": "Typed forward (-2*pi*i) and inverse (+2*pi*i) directions; rational quadratic Gaussians, absolute-value exponentials, and positive quadratic reciprocals, with translations/scales/finite sums. Cauchy completion independently reconstructs original coefficients and proves positive real width/tail.",
+      "public": "inverse_fourier_transform and held InverseFourierTransform use structured native Gaussian/bilateral-exponential evaluation, exact typed sources, pinned sufficient conditions, and terminal operational errors. Held inverse arguments/free symbols and opaque scalar arithmetic are retained.",
+      "compatibility_boundary": "Cauchy kernels remain native-only. Isolated SymPy1.14 returned a one-sided Cauchy expression even on negative output coordinates; it was not copied as an incorrect all-real identity. Standard Python wrappers remain formal for this slice.",
+      "nonclaims": [
+        "General distributional inversion",
+        "Arbitrary Fourier round trips",
+        "Portable transform proof certificates",
+        "Symbolic or general pi-valued input coefficients"
+      ]
+    }
+  },
+  "native_validation": {
+    "sparse_family": {
+      "base_commit": "bb8b4b204cdb58914fa5bbb68af194e19d419553",
+      "working_directory": "/tmp/frankensympy-next",
+      "environment_file": "/tmp/frankensympy-next-env.sh",
+      "toolchain": "nightly-2026-08-20",
+      "source_sha256": {
+        "crates/fsym-proof-kernel/src/sparse_pseudoinverse.rs": "c7134661d958e950fadb3700ba90dd383fafbc52e9c7f4387748852abe17f7a1",
+        "crates/fsym-matrices/src/structured/pseudoinverse.rs": "739db916eb2f919fe23131cd2f61d626ffae103756f8e46db1f72055a2518492",
+        "crates/fsym-proof-kernel/tests/sparse_least_squares_family.rs": "556b7c011be99ce13993f57fd9dbbcb9223dfcacf11ea79ae02921fe2a3d4b5b",
+        "crates/fsym-matrices/tests/sparse_least_squares_family.rs": "9d7f752cd70798b10420ec8230c09942e15341962d50ebc25d054bf4ae2400b4"
+      },
+      "checks": [
+        {
+          "command": "cargo test --offline --locked -p fsym-matrices -p fsym-proof-kernel --test sparse_least_squares_family --test sparse_pseudoinverse",
+          "exit_code": 101,
+          "outcome": "No compilation: restored offline cache lacked proptest index entry; retried with normal locked dependency fetching.",
+          "log": "/tmp/frankensympy-sparse-family-tests.log"
+        },
+        {
+          "command": "cargo test --locked -p fsym-matrices -p fsym-proof-kernel --test sparse_least_squares_family --test sparse_pseudoinverse",
+          "exit_code": 0,
+          "passed": 30,
+          "failed": 0,
+          "suites": {
+            "fsym-matrices/family": 7,
+            "fsym-matrices/pseudoinverse": 9,
+            "fsym-proof-kernel/family": 6,
+            "fsym-proof-kernel/pseudoinverse": 8
+          },
+          "log": "/tmp/frankensympy-sparse-family-tests-online.log"
+        },
+        {
+          "command": "cargo clippy --offline --locked -p fsym-matrices -p fsym-proof-kernel --lib --test sparse_least_squares_family --test sparse_pseudoinverse -- -D warnings",
+          "exit_code": 0,
+          "log": "/tmp/frankensympy-sparse-family-clippy.log"
+        },
+        {
+          "command": "/workspace/scratch/cdfae34e00d3/toolchain/rustup/toolchains/nightly-2026-08-20-x86_64-unknown-linux-gnu/bin/rustfmt --check --edition 2024 crates/fsym-proof-kernel/src/sparse_pseudoinverse.rs crates/fsym-matrices/src/structured/pseudoinverse.rs crates/fsym-proof-kernel/tests/sparse_least_squares_family.rs crates/fsym-matrices/tests/sparse_least_squares_family.rs",
+          "exit_code": 0,
+          "output": ""
+        },
+        {
+          "command": "git diff --check -- crates/fsym-matrices/src/structured/pseudoinverse.rs crates/fsym-proof-kernel/src/sparse_pseudoinverse.rs",
+          "exit_code": 0,
+          "output": ""
+        }
+      ],
+      "constraints": {
+        "intrinsic_compute_limit": 20000000,
+        "intrinsic_cumulative_allocation_limit_bytes": 268435456,
+        "portable_coefficient_limit_bits": 8192,
+        "matrix_dimension_limit": 8192,
+        "matrix_entry_limit": 262144,
+        "unchanged_existing_caps": true,
+        "no_dense_materialization": true,
+        "new_large_fixture_dimension": 1200,
+        "new_large_fixture_projector_nnz": 2400,
+        "independent_completeness_identity": "N + P*A = I",
+        "family": "X0 + N*W; W has A.columns rows and B.columns columns"
+      },
+      "scope": "Native sparse least-squares families only. Public Python bridge, upstream differential/class checks, CI, beads, audit edits, and GitHub publication remain root-owned."
+    },
+    "fourier": {
+      "source": "Observed session exec output; no saved native stdout log was created.",
+      "log_path": null,
+      "checks": [
+        {
+          "command": "cargo test --offline --locked -p fsym-calculus --test inverse_fourier --test fourier_catalog",
+          "exit_code": 0,
+          "passed": 23
+        },
+        {
+          "command": "cargo test --offline --locked -p fsym-calculus --lib fourier::tests::cauchy_reconstruction_rejects_wrong_center_width_and_original_source",
+          "exit_code": 0,
+          "passed": 1
+        },
+        {
+          "command": "cargo clippy --offline --locked -p fsym-calculus --lib --test inverse_fourier --test fourier_catalog -- -D warnings",
+          "exit_code": 0
+        }
+      ],
+      "coverage": "Both phase signs, mass/differential identities, both real half axes, original poles, typed identities, exact/one-short every charged budget dimension and cancellation at every observed checkpoint."
+    },
+    "independent_review": "Separate implementation authors reviewed sparse completeness and Fourier phase/positivity/source/resource behavior. Review found a Cauchy pre-meter borrowed negation; fixed before final native validation."
+  },
+  "public_execution": {
+    "component_only": true,
+    "full_production_runtime_pass": false,
+    "original_bridge_files": 40,
+    "original_native_package_source_manifest_files": 421,
+    "original_repository_packages": 23,
+    "matching_production_dependency_identities": 83,
+    "matching_registry_checksums": 56,
+    "runtime_adapter": "Only pub use fsym_budget::*; no replacement implementations or upstream production engine.",
+    "omitted_helpers": [
+      "lib.rs::eval_error",
+      "lib.rs::eval_region",
+      "lib.rs::simplify_expr",
+      "lib.rs::expand_expr",
+      "expr.rs::PyExpr.simplify",
+      "expr.rs::PyExpr.expand"
+    ],
+    "build": {
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--features",
+        "extension-module"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 16.595475123998767,
+      "finished_at": "2026-11-14T21:03:44.700754+00:00"
+    },
+    "clippy": {
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--features",
+        "extension-module",
+        "--lib",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 31.258539334994566,
+      "finished_at": "2026-11-14T21:04:25.895703+00:00"
+    },
+    "binary": {
+      "source_path": "/tmp/frankensympy-next-target/debug/libfsym_python.so",
+      "test_binary_path": "/tmp/frankensympy-next-public-native-v2/debug/libfsym_python.so",
+      "sha256": "b3d53e55f0b258471cd5e8e11e426e1bd7996d0bbde5331a83f13cfbff51f6b2",
+      "size": 59371776,
+      "copied_at": "2026-11-14T21:04:03.353717+00:00",
+      "prior_candidate_and_baseline_binary_unchanged": true
+    },
+    "matrices": {
+      "finished_at": "2026-11-14T21:09:31.639193+00:00",
+      "working_directory": "/tmp/frankensympy-next-public-check-v2",
+      "command": [
+        "python3",
+        "-m",
+        "pytest",
+        "-q",
+        "--tb=short",
+        "--junitxml=/tmp/frankensympy-next-math-component-v2/public-sparse-integrated-final.xml",
+        "python/tests/test_sparse_least_squares_family.py",
+        "python/tests/test_mixed_matrix_products.py",
+        "python/tests/test_sparse_pseudoinverse.py",
+        "python/tests/test_sparse_least_squares.py",
+        "python/tests/test_sparse_surface_storage.py",
+        "python/tests/test_sparse_structure.py"
+      ],
+      "environment": {
+        "CARGO_TARGET_DIR": "/tmp/frankensympy-next-public-native-v2",
+        "PYTHONPATH": "/tmp/frankensympy-next-public-check-v2/python:/tmp/frankensympy-next-pytest",
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"
+      },
+      "binary_sha256": "b3d53e55f0b258471cd5e8e11e426e1bd7996d0bbde5331a83f13cfbff51f6b2",
+      "test_sha256": {
+        "test_sparse_least_squares_family.py": "ba3f08e81ed9cf20511b880bfbcb7cc1c4f2a74144f45e18e5422c8ed99ce5fc",
+        "test_mixed_matrix_products.py": "70b3d48e64e858477dafbf9064f2a477a8203357594d6249832b2a345d3420ba",
+        "test_sparse_pseudoinverse.py": "78a0ac927a0046a22a4f4fe43d80fb5575abdb11d9921e97d39fb8ef2d0ead68",
+        "test_sparse_least_squares.py": "811d2c3ca58e93ec7320588e45a785bf8693a3b49de74f399812d27d48c855cf",
+        "test_sparse_surface_storage.py": "c887db3be75495f0bdb82564242cd6c9f3f3ad1add42a5abd1dc416b988a7ff0",
+        "test_sparse_structure.py": "691fce52827d68a91b0e9cf0d11a5839ad63194221ab53be9ef45b1971234518"
+      },
+      "verified_python_snapshot_files": 319,
+      "python_snapshot_manifest_sha256": "559d30471dc422ef94bb0e442b3b81c749b4aaa046291f16f3aa403295b059f7",
+      "exit_code": 0,
+      "passed": 406,
+      "failed": 0,
+      "skipped": 0,
+      "elapsed_seconds_reported_by_pytest": 6.53,
+      "suite_counts": {
+        "python.tests.test_sparse_least_squares_family": 103,
+        "python.tests.test_mixed_matrix_products": 55,
+        "python.tests.test_sparse_pseudoinverse": 55,
+        "python.tests.test_sparse_least_squares": 65,
+        "python.tests.test_sparse_surface_storage": 37,
+        "python.tests.test_sparse_structure": 91
+      },
+      "implementation_scope": "Same frozen v2 source-derived native component and Python implementation; excludes six declared runtime helper surfaces, including Expr.expand/simplify. No substitute helper or weakened numerical comparator.",
+      "test_update": "Root updated obsolete PINV-refusal case to exact Matrix([3/5]) success; QR/LU/invalid refusals retained with current supported-method text. Case count remains65. Only that test file was copied before this rerun.",
+      "prior_result": "public-sparse-integrated-result.json",
+      "updated_test_record": "sparse-least-squares-test-update.json",
+      "log": "public-sparse-integrated-final.log",
+      "junit": "public-sparse-integrated-final.xml"
+    },
+    "fourier_v1": {
+      "existing_forward": {
+        "passed": 48,
+        "omitted_expand_failures": 17
+      },
+      "new_inverse": {
+        "passed": 25,
+        "omitted_expand_failures": 13
+      },
+      "other_failures": 0,
+      "skipped": 0,
+      "note": "All30 failures occur at the unchanged exact comparator calling the absent native Expr.expand. Formula assertions blocked there are not passes. Fourier native/bridge sources match v2; only matrix.rs changed between component versions."
+    },
+    "prior_forward_mellin": {
+      "passed": 23,
+      "omitted_simplify_failures": 18,
+      "note": "Failures occur at the deliberately absent native Expr.simplify in evaluation and/or unchanged comparisons. No complete public Mellin execution pass is claimed."
+    },
+    "failure_fixes": [
+      "Mixed products/equality formerly densified sparse operands; fixed, original55pinv cases pass.",
+      "Identity projectors reconstructed function/constant owners; trusted native one comparison now preserves exact supplied objects.",
+      "ComplexInfinity owner now reaches terminal native finite-domain rejection.",
+      "Parameter traversal admits borrowed roots before export."
+    ],
+    "test_adjustment": "Existing sparse least-squares PINV-refusal expectation became an exact successful3/5 assertion because PINV is now implemented; QR/LU/invalid still refuse. No mathematical comparator was weakened."
+  },
+  "source_sha256": {
+    "crates/fsym-proof-kernel/src/sparse_pseudoinverse.rs": "c7134661d958e950fadb3700ba90dd383fafbc52e9c7f4387748852abe17f7a1",
+    "crates/fsym-matrices/src/structured/pseudoinverse.rs": "739db916eb2f919fe23131cd2f61d626ffae103756f8e46db1f72055a2518492",
+    "crates/fsym-proof-kernel/tests/sparse_least_squares_family.rs": "556b7c011be99ce13993f57fd9dbbcb9223dfcacf11ea79ae02921fe2a3d4b5b",
+    "crates/fsym-matrices/tests/sparse_least_squares_family.rs": "9d7f752cd70798b10420ec8230c09942e15341962d50ebc25d054bf4ae2400b4",
+    "crates/fsym-calculus/src/fourier.rs": "099f07b105bcc668ec750a338021b551d412bca94f7d9d1400a8eb2ea8df87fb",
+    "crates/fsym-calculus/tests/inverse_fourier.rs": "2ee3d981b56bfaeb4d1b68c6f8e3f1bf52a8999a99edc31cd0c131089292c3e0",
+    "crates/fsym-python/src/matrix.rs": "9aa65c831678a756902c40e3cf568e339047a5b392b92c4b764b24243cf6d5da",
+    "crates/fsym-python/src/fourier.rs": "fc5959b1a10d7fbf5dd7480ca84156b954b84e1c55ccc0d8837298b97cf1dbc2",
+    "crates/fsym-python/src/lib.rs": "9cd96a3c888d8363de2d351532ec40b19ae2430ac25a09b102914cd13d84fec0",
+    "python/sympy/matrices/sparse.py": "2eb275602cd7b461cbc02e88713beacfd8a316741f226668bd052736219d0e79",
+    "python/sympy/matrices/dense.py": "58e2400dada2cdccb51cd8dfd4c9d1da1ff44153f8062b6c34438556a535695e",
+    "python/sympy/matrices/_sparse_family.py": "cd2b095bd9b8f1489dbf3173f5adc4c402e750f9233ab9a2979adfb15a3ef45f",
+    "python/sympy/matrices/_mixed_products.py": "7b7276f614c330e454620772702184d3e1a46decff4b264b2f34a9b7645fec86",
+    "python/sympy/integrals/transforms.py": "4fecf92336aba1fdc7bade308738578983357250d21e9cd0d1dff8684ab80149",
+    "python/sympy/core/_opaque_arithmetic.py": "cd56a940bec4581dadcc29d1367fd6dfe6b9ba0e18db1ce0e063bfd2e90ba172",
+    "python/tests/test_sparse_least_squares_family.py": "ba3f08e81ed9cf20511b880bfbcb7cc1c4f2a74144f45e18e5422c8ed99ce5fc",
+    "python/tests/test_mixed_matrix_products.py": "70b3d48e64e858477dafbf9064f2a477a8203357594d6249832b2a345d3420ba",
+    "python/tests/test_inverse_fourier_transforms.py": "71e8c05a8a69a4341f219543ac286ec1133f476154951b4ee59389ea99a64a07",
+    "python/tests/test_sparse_least_squares.py": "811d2c3ca58e93ec7320588e45a785bf8693a3b49de74f399812d27d48c855cf",
+    ".github/workflows/ci.yml": "b8d6bdc827e5b2881cd78fbe84c756c4012a602d3d61d0636be9a97fa11e0a9c"
+  },
+  "evidence_files": {
+    "artifacts/audit/reproduction/2026-11-14-sparse-families-inverse-fourier/public-fourier-analysis.json": "2004a1b8f420ca36770f837c0378f5fa422ba5b5a007f20a36d0e5d6adf21df8",
+    "artifacts/audit/reproduction/2026-11-14-sparse-families-inverse-fourier/public-matrices.log": "19e8e50d12a10198b4e67d162e17f6b641a694b9d3c7b95aa325d8a74b280fb5",
+    "artifacts/audit/reproduction/2026-11-14-sparse-families-inverse-fourier/public-matrices-result.json": "58849dd3d1540d57d759ed5a747e399b3bcba81cb25e02b5e86555296e2d4eba",
+    "artifacts/audit/reproduction/2026-11-14-sparse-families-inverse-fourier/dependency-identities.json": "2489d81c398ee63da09de14e4f723f6974c483897bbb80cb0b9b25a73bfd1f11",
+    "artifacts/audit/reproduction/2026-11-14-sparse-families-inverse-fourier/component-preparation.json": "76d15f84c953a1345ca4c92378b73be66e95bacf6bbb9263d8d7e097dd1fa9f6",
+    "artifacts/audit/reproduction/2026-11-14-sparse-families-inverse-fourier/component-scope.json": "c4186a73c959031b660b6be4cbcefcde27e3807cb0dd173f82e2fa07f9f2f31d",
+    "artifacts/audit/reproduction/2026-11-14-sparse-families-inverse-fourier/concurrent-real-constraints-validation.json": "44f9cbb400c40cd6dd66b1da391542055298cba4a7892b881c5f4595d6354c98"
+  },
+  "remaining_gates": [
+    "Full production extension and workspace conformance execution remain pending; the local component intentionally omits async runtime helpers.",
+    "No status, priority, dependencies, registry claims or broad workstream gate was promoted."
+  ],
+  "concurrent_main_preservation": {
+    "commit": "a12cd1f482debb9303b02a93ba6f1d7c813dd179",
+    "parent": "8176a96eb74f86de16460f36f1bee8da7dfdda24",
+    "feature": "Concurrent complete exact real rational constraint systems",
+    "authorship": "Not authored by this task; preserved as publication parent. Separately validated the original native solver integration target.",
+    "validation_boundary": "Our frozen native and component hashes predate this concurrent solver change. No combined workspace/runtime claim is made.",
+    "scoped_validation": {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "fsym-solvers",
+        "--test",
+        "real_constraints"
+      ],
+      "exit_code": 0,
+      "passed": 21,
+      "checked_source_manifest_files": 182,
+      "source_unchanged": true,
+      "evidence": "artifacts/audit/reproduction/2026-11-14-sparse-families-inverse-fourier/concurrent-real-constraints-validation.json",
+      "limits": "No root Session consumer or full production Python/runtime execution claim."
+    }
+  }
+}

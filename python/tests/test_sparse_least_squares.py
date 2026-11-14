@@ -98,10 +98,16 @@ def test_tiny_coefficients_keep_exact_residuals_and_do_not_underflow():
     assert result == ImmutableSparseMatrix([3/(5*tiny)])
 
 
-@pytest.mark.parametrize("method", ["QR", "PINV", "LU", "invalid"])
+@pytest.mark.parametrize("method", ["QR", "LU", "invalid"])
 def test_unsupported_methods_are_explicit(method):
-    with pytest.raises(NotImplementedError, match="LDL and CH"):
+    with pytest.raises(NotImplementedError, match="LDL, CH and PINV"):
         SparseMatrix([[1], [2]]).solve_least_squares(Matrix([1, 1]), method=method)
+
+
+def test_pinv_method_returns_the_exact_unique_solution_when_rank_is_full():
+    result = SparseMatrix([[1], [2]]).solve_least_squares(Matrix([1, 1]), method="PINV")
+    assert type(result) is Matrix
+    assert result == Matrix([Rational(3, 5)])
 
 
 def test_method_objects_cannot_run_custom_comparisons():

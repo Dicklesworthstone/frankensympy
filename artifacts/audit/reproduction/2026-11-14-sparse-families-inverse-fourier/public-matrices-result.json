@@ -1,0 +1,53 @@
+{
+  "finished_at": "2026-11-14T21:09:31.639193+00:00",
+  "working_directory": "/tmp/frankensympy-next-public-check-v2",
+  "command": [
+    "python3",
+    "-m",
+    "pytest",
+    "-q",
+    "--tb=short",
+    "--junitxml=/tmp/frankensympy-next-math-component-v2/public-sparse-integrated-final.xml",
+    "python/tests/test_sparse_least_squares_family.py",
+    "python/tests/test_mixed_matrix_products.py",
+    "python/tests/test_sparse_pseudoinverse.py",
+    "python/tests/test_sparse_least_squares.py",
+    "python/tests/test_sparse_surface_storage.py",
+    "python/tests/test_sparse_structure.py"
+  ],
+  "environment": {
+    "CARGO_TARGET_DIR": "/tmp/frankensympy-next-public-native-v2",
+    "PYTHONPATH": "/tmp/frankensympy-next-public-check-v2/python:/tmp/frankensympy-next-pytest",
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"
+  },
+  "binary_sha256": "b3d53e55f0b258471cd5e8e11e426e1bd7996d0bbde5331a83f13cfbff51f6b2",
+  "test_sha256": {
+    "test_sparse_least_squares_family.py": "ba3f08e81ed9cf20511b880bfbcb7cc1c4f2a74144f45e18e5422c8ed99ce5fc",
+    "test_mixed_matrix_products.py": "70b3d48e64e858477dafbf9064f2a477a8203357594d6249832b2a345d3420ba",
+    "test_sparse_pseudoinverse.py": "78a0ac927a0046a22a4f4fe43d80fb5575abdb11d9921e97d39fb8ef2d0ead68",
+    "test_sparse_least_squares.py": "811d2c3ca58e93ec7320588e45a785bf8693a3b49de74f399812d27d48c855cf",
+    "test_sparse_surface_storage.py": "c887db3be75495f0bdb82564242cd6c9f3f3ad1add42a5abd1dc416b988a7ff0",
+    "test_sparse_structure.py": "691fce52827d68a91b0e9cf0d11a5839ad63194221ab53be9ef45b1971234518"
+  },
+  "verified_python_snapshot_files": 319,
+  "python_snapshot_manifest_sha256": "559d30471dc422ef94bb0e442b3b81c749b4aaa046291f16f3aa403295b059f7",
+  "exit_code": 0,
+  "passed": 406,
+  "failed": 0,
+  "skipped": 0,
+  "elapsed_seconds_reported_by_pytest": 6.53,
+  "suite_counts": {
+    "python.tests.test_sparse_least_squares_family": 103,
+    "python.tests.test_mixed_matrix_products": 55,
+    "python.tests.test_sparse_pseudoinverse": 55,
+    "python.tests.test_sparse_least_squares": 65,
+    "python.tests.test_sparse_surface_storage": 37,
+    "python.tests.test_sparse_structure": 91
+  },
+  "implementation_scope": "Same frozen v2 source-derived native component and Python implementation; excludes six declared runtime helper surfaces, including Expr.expand/simplify. No substitute helper or weakened numerical comparator.",
+  "test_update": "Root updated obsolete PINV-refusal case to exact Matrix([3/5]) success; QR/LU/invalid refusals retained with current supported-method text. Case count remains65. Only that test file was copied before this rerun.",
+  "prior_result": "public-sparse-integrated-result.json",
+  "updated_test_record": "sparse-least-squares-test-update.json",
+  "log": "public-sparse-integrated-final.log",
+  "junit": "public-sparse-integrated-final.xml"
+}

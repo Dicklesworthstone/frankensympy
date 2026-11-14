@@ -28,11 +28,11 @@ _DICT = type.__dict__["__dict__"]
 _NAME = type.__dict__["__name__"]
 _MAX_NODES = 16384
 _MAX_DEPTH = 128
-_HELD_FOURIER = None
+_HELD_FOURIER = ()
 
 
 def _register_held_fourier(cls, instance_dict):
-    """Capture the one built-in held transform admitted by surface arithmetic.
+    """Capture the built-in forward and inverse held Fourier transforms.
 
     This record never grants a native capability. Integral-transform imports
     install it after the class exists, avoiding a core/import cycle and any
@@ -41,19 +41,20 @@ def _register_held_fourier(cls, instance_dict):
     from ._function_capabilities import _owner_record
 
     global _HELD_FOURIER
-    if _HELD_FOURIER is not None:
-        raise RuntimeError("the held FourierTransform class is already registered")
+    if len(_HELD_FOURIER) >= 2 or any(cls is record[0] for record in _HELD_FOURIER):
+        raise RuntimeError("the held FourierTransform classes are already registered")
     owners = _MRO.__get__(cls)
-    _HELD_FOURIER = (
+    record = (
         cls, owners, instance_dict,
         tuple((owner, _owner_record(owner)) for owner in owners),
     )
+    _HELD_FOURIER = (*_HELD_FOURIER, record)
 
 
 def _admit_held_fourier(value):
     """Check exact ownership and retained state without invoking public hooks."""
-    record = _HELD_FOURIER
-    if record is None or type(value) is not record[0]:
+    record = next((record for record in _HELD_FOURIER if type(value) is record[0]), None)
+    if record is None:
         return False
     from ._function_capabilities import _owner_matches
 

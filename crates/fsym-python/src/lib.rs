@@ -2118,6 +2118,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     finite_field_groebner::register(m)?;
     finite_field_ideal::register(m)?;
     m.add_function(wrap_pyfunction!(fourier::fourier_l1_native, m)?)?;
+    m.add_function(wrap_pyfunction!(fourier::inverse_fourier_l1_native, m)?)?;
     m.add_class::<numeric::PyCompiledFunction>()?;
     m.add_class::<numeric::PySourceResidualSystem>()?;
     m.add_class::<numeric::PyVerifiedResidualSystem>()?;
