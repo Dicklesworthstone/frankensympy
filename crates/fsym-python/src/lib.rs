@@ -2072,6 +2072,7 @@ pub mod ntheory;
 pub mod numeric;
 mod numeric_budget;
 pub mod objective;
+mod ode;
 mod ode_system;
 mod pde;
 mod polynomial_laplace;
@@ -2110,6 +2111,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySymbol>()?;
     m.add_class::<binding::PySymbolBinding>()?;
     numeric_budget::register(m)?;
+    ode::register(m)?;
     finite_field_polynomial::register(m)?;
     finite_field_multivariate::register(m)?;
     finite_field_groebner::register(m)?;

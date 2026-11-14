@@ -154,6 +154,7 @@ jobs:
           cargo test --locked -p fsym-simplify --test rational_cancel -j1
           cargo test --locked -p fsym-polys --test finite_field_ideal_inverse --test finite_field_quotient_minpoly --test finite_field_syzygy -j1
           cargo test --locked -p fsym-python --lib rational_cancel::tests -j1
+          cargo test --locked -p fsym-python --lib ode::tests -j1
           cargo test --locked -p fsym-python --lib assumptions::tests -j1
           cargo test --locked -p fsym-python --lib numeric::tests::certified_gaussian_sources_require_unary_bound_arguments -j1
           cargo test --locked -p fsym-core --test raw_product_value -j1
@@ -257,6 +258,7 @@ jobs:
               "python/tests/test_linear_pde.py",
               "python/tests/test_linear_pde_elementary.py",
               "python/tests/test_exact_dsolve.py",
+              "python/tests/test_typed_scalar_ode.py",
               "python/tests/test_surface.py::SurfaceTests::test_ode_checkodesol_and_verifiers",
               "python/tests/test_surface.py::SurfaceTests::test_calculus_and_series_advanced",
               "python/tests/test_surface.py::SurfaceTests::test_integral_subsystem",

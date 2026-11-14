@@ -78,32 +78,52 @@ def _checkodesol_children(node):
     return tuple(_wrap(child) for child in native.args)
 
 
+def _scalar_ode_inputs(x, values, constant_count):
+    """Freeze admitted native inputs and choose genuinely unused constants."""
+    x_sym = _require_symbol(x)
+    sources = tuple(_wrap(_native_expr(value)) for value in values)
+    excluded = {x_sym}
+    for source in sources:
+        excluded.update(source.free_symbols)
+    constants = _constants(1, constant_count, exclude=excluded)
+    return x_sym, sources, constants
+
+
 def dsolve_linear_first_order(P: Any, Q: Any, x: Any) -> Any:
     """Solve first-order linear ODE: y'(x) + P(x)*y(x) = Q(x)."""
-    x_sym = _require_symbol(x)
-    p_str = str(_wrap(_native_expr(P)))
-    q_str = str(_wrap(_native_expr(Q)))
-    res = _native.dsolve_linear_first_order_expr(p_str, q_str, _native_symbol_key(x_sym))
-    return _parse_result(res)
+    from ..core import _lift_native_result
+
+    x_sym, (p, q), (c1,) = _scalar_ode_inputs(x, (P, Q), 1)
+    result = _native.dsolve_linear_first_order_native(
+        _native_expr(p), _native_expr(q), _native_expr(x_sym), _native_expr(c1)
+    )
+    return _lift_native_result(result, p, q, x_sym, c1)
 
 
 def dsolve_const_coeff_second_order(a: int, b: int, c: int, x: Any) -> Any:
-    """Solve homogeneous 2nd-order ODE with constant coefficients: a*y''(x) + b*y'(x) + c*y(x) = 0."""
-    x_sym = _require_symbol(x)
-    res = _native.dsolve_const_coeff_second_order_expr(int(a), int(b), int(c), _native_symbol_key(x_sym))
-    return _parse_result(res)
+    """Solve homogeneous 2nd-order ODE: a*y''(x) + b*y'(x) + c*y(x) = 0."""
+    from ..core import _lift_native_result
+
+    x_sym, _, (c1, c2) = _scalar_ode_inputs(x, (), 2)
+    result = _native.dsolve_const_coeff_second_order_native(
+        int(a), int(b), int(c), _native_expr(x_sym),
+        _native_expr(c1), _native_expr(c2),
+    )
+    return _lift_native_result(result, x_sym, c1, c2)
 
 
 def dsolve_const_coeff_second_order_nonhomogeneous(
     a: int, b: int, c: int, f: Any, x: Any
 ) -> Any:
-    """Solve non-homogeneous 2nd-order ODE with constant coefficients: a*y''(x) + b*y'(x) + c*y(x) = f(x)."""
-    x_sym = _require_symbol(x)
-    f_str = str(_wrap(_native_expr(f)))
-    res = _native.dsolve_const_coeff_second_order_nonhomogeneous_expr(
-        int(a), int(b), int(c), f_str, _native_symbol_key(x_sym)
+    """Solve a*y''(x) + b*y'(x) + c*y(x) = f(x), retaining typed symbols."""
+    from ..core import _lift_native_result
+
+    x_sym, (forcing,), (c1, c2) = _scalar_ode_inputs(x, (f,), 2)
+    result = _native.dsolve_const_coeff_second_order_nonhomogeneous_native(
+        int(a), int(b), int(c), _native_expr(forcing), _native_expr(x_sym),
+        _native_expr(c1), _native_expr(c2),
     )
-    return _parse_result(res)
+    return _lift_native_result(result, forcing, x_sym, c1, c2)
 
 
 def dsolve_cauchy_euler(a: int, b: int, c: int, x: Any) -> Any:
@@ -113,17 +133,25 @@ def dsolve_cauchy_euler(a: int, b: int, c: int, x: Any) -> Any:
     impose initial conditions or extend the family across the singularity
     at x = 0.
     """
-    x_sym = _require_symbol(x)
-    res = _native.dsolve_cauchy_euler_expr(int(a), int(b), int(c), _native_symbol_key(x_sym))
-    return _parse_result(res)
+    from ..core import _lift_native_result
+
+    x_sym, _, (c1, c2) = _scalar_ode_inputs(x, (), 2)
+    result = _native.dsolve_cauchy_euler_native(
+        int(a), int(b), int(c), _native_expr(x_sym),
+        _native_expr(c1), _native_expr(c2),
+    )
+    return _lift_native_result(result, x_sym, c1, c2)
 
 
 def dsolve_separable_linear(f: Any, x: Any) -> Any:
     """Solve separable ODE: y'(x) = f(x)*y(x)."""
-    x_sym = _require_symbol(x)
-    f_str = str(_wrap(_native_expr(f)))
-    res = _native.dsolve_separable_linear_expr(f_str, _native_symbol_key(x_sym))
-    return _parse_result(res)
+    from ..core import _lift_native_result
+
+    x_sym, (coefficient,), (c1,) = _scalar_ode_inputs(x, (f,), 1)
+    result = _native.dsolve_separable_linear_native(
+        _native_expr(coefficient), _native_expr(x_sym), _native_expr(c1)
+    )
+    return _lift_native_result(result, coefficient, x_sym, c1)
 
 
 def _plain_ode_function_class(cls):
@@ -370,33 +398,27 @@ def checkodesol(
 
 
 def verify_linear_first_order_solution(sol: Any, P: Any, Q: Any, x: Any) -> bool:
-    """Verify candidate solution of y'(x) + P(x)*y(x) = Q(x) via independent native verifier."""
+    """Check the exact residual while preserving every typed symbol."""
     x_sym = _require_symbol(x)
-    sol_str = str(_wrap(_native_expr(sol)))
-    p_str = str(_wrap(_native_expr(P)))
-    q_str = str(_wrap(_native_expr(Q)))
-    return _native.verify_linear_first_order_solution_expr(
-        sol_str, p_str, q_str, _native_symbol_key(x_sym)
+    return _native.verify_linear_first_order_solution_native(
+        _native_expr(sol), _native_expr(P), _native_expr(Q), _native_expr(x_sym)
     )
 
 
 def verify_const_coeff_second_order_solution(sol: Any, a: int, b: int, c: int, x: Any) -> bool:
-    """Verify candidate solution of a*y''(x) + b*y'(x) + c*y(x) = 0 via independent native verifier."""
+    """Verify a*y''(x) + b*y'(x) + c*y(x) = 0 for the supplied coordinate."""
     x_sym = _require_symbol(x)
-    sol_str = str(_wrap(_native_expr(sol)))
-    return _native.verify_const_coeff_second_order_solution_expr(
-        sol_str, int(a), int(b), int(c), _native_symbol_key(x_sym)
+    return _native.verify_const_coeff_second_order_solution_native(
+        _native_expr(sol), int(a), int(b), int(c), _native_expr(x_sym)
     )
 
 
 def verify_cauchy_euler_solution(sol: Any, a: int, b: int, c: int, x: Any) -> bool:
-    """Verify candidate solution of a*x^2*y''(x) + b*x*y'(x) + c*y(x) = 0 via independent native verifier."""
+    """Verify the Euler residual on the declared positive coordinate axis."""
     x_sym = _require_symbol(x)
-    sol_str = str(_wrap(_native_expr(sol)))
-    return _native.verify_cauchy_euler_solution_expr(
-        sol_str, int(a), int(b), int(c), _native_symbol_key(x_sym)
+    return _native.verify_cauchy_euler_solution_native(
+        _native_expr(sol), int(a), int(b), int(c), _native_expr(x_sym)
     )
-
 
 __all__ = [
     "checkodesol",
