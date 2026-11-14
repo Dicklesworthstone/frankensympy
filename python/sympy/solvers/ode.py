@@ -20,6 +20,7 @@ from ..core import (
 )
 from ..core._function_capabilities import _owner_matches, _owner_record
 from ._ode_system import solve_linear_system as _solve_linear_system
+from ._bernoulli import solve_bernoulli as _solve_bernoulli
 
 
 # Reuse the closed-function implementation policy for ordinary formal ODE
@@ -1511,6 +1512,14 @@ def dsolve(eq, func=None, hint="default", ics=None, **kwargs):
     value initial conditions bind those level sets; derivative initial data
     for an implicit solution are not currently supported.
 
+    ``Bernoulli`` supports y' + p*y = q(x)*y**n with rational constant p,
+    rational polynomial q of degree at most 16 and integer n in [-16,-1]
+    or [2,16]. The default route also selects nonseparable members. Results
+    describe nonzero local branches: n=2 gives a reciprocal, n=3 and n=-1
+    give both quadratic branches, and other exponents stay implicit. Zeros
+    of the transformed family are excluded; no global interval is selected.
+    Bernoulli initial conditions are outside this bounded lane.
+
     A list or tuple of one through eight first-order equations may describe a
     coupled system with exact rational constant coefficients and an invertible
     derivative coefficient matrix. Polynomial forcing of degree at most 16 is
@@ -1526,6 +1535,10 @@ def dsolve(eq, func=None, hint="default", ics=None, **kwargs):
 
     if type(eq) in (list, tuple):
         return _solve_linear_system(eq, func, ics=ics, hint=hint, **kwargs)
+
+    bernoulli = _solve_bernoulli(eq, func, hint, ics, kwargs.get("simplify", True))
+    if bernoulli is not None:
+        return bernoulli
 
     # Reserve original parameters before creating or simplifying constants.
     # Validate observations before doing any solving work. The pinned profile

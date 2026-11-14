@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-14",
+  "feature": "Bounded exact Bernoulli differential equations through native and public Python APIs",
+  "native_commit": "820a0c7bcc83bb3c03721f224be41555e3aed8e6",
+  "implementation": {
+    "equation": "y' + p*y = q(x)*y^n",
+    "supported_inputs": {
+      "p": "rational constant",
+      "q": "ascending exact rational coefficients, canonical degree at most 16",
+      "n": "integers [-16,-1] union [2,16]"
+    },
+    "generation": "u = y^(1-n); construct polynomial r and C*exp((n-1)*p*x) + r using a backward recurrence or, for p=0, exact integration",
+    "independent_check": "Replay every coefficient of r' + (1-n)*p*r = (1-n)*q using the bound original inputs",
+    "public": "dsolve with explicit hint='Bernoulli'; default dispatch for supported mixed nonseparable equations",
+    "output": "Reciprocal for n=2, both quadratic branches for n=3 or -1, implicit relation otherwise or simplify=False",
+    "admission": [
+      "Original held children are admitted before cancellation",
+      "Typed coordinate/native identity agreement and mutable assumptions are checked",
+      "Dummy metadata, fresh constant and undefined-function owners remain bound through publication",
+      "Borrowed coefficient-list preflight precedes extraction; native failures remain terminal",
+      "Previously supported ordinary separable default and initial-condition routes retain their selection"
+    ],
+    "limitations": [
+      "Nonzero local solution families; no global branch or interval claim",
+      "Separate native zero-solution flag only for n>1; ordinary public general solution does not append that exceptional branch",
+      "Initial conditions for the new nonseparable Bernoulli lane are unsupported",
+      "Rational constant p only; bounded polynomial q and bounded integer nonlinear exponent",
+      "Immutable in-process checked results, not portable proof transport or a full ODE compatibility-profile pass"
+    ]
+  },
+  "observed_native_validation": {
+    "toolchain": "nightly-2026-08-20",
+    "test_command": "cargo test --offline --locked -p fsym-solvers --test bernoulli",
+    "tests_passed": 8,
+    "independent_symbolic_residual_cases": 24,
+    "test_exit": 0,
+    "coverage": [
+      "Source and candidate mutations",
+      "Zero-linear-coefficient integration",
+      "Degree sixteen boundary and coefficient heights",
+      "Typed coordinate/constant identity and alias refusal",
+      "Every observed cancellation checkpoint",
+      "Exact and one-short compute, memory and allocation budgets in both phases"
+    ],
+    "clippy_command": "cargo clippy --offline --locked -p fsym-solvers --lib --test bernoulli -- -D warnings",
+    "clippy_exit": 0,
+    "scoped_pinned_rustfmt_exit": 0,
+    "independent_reviewer": "algebra_next2",
+    "earlier_failures": "An initial dependent algebra API-arity typo and a test-fixture shift type were corrected before the final passing test and lint commands, without changing mathematical assertions.",
+    "raw_logs": "Observed terminal outcomes and source hashes survived execution-service loss; raw scratch logs from that environment were not available for this publication."
+  },
+  "public_validation": {
+    "authored_test_functions": 21,
+    "authored_pytest_cases": 28,
+    "source_review": "Independent review completed before loss; recovered bridge independently reviewed again against pinned PyO3 0.27.2 and the native API.",
+    "recovered_python_ast": {
+      "exit_code": 0,
+      "files": [
+        "python/sympy/solvers/_bernoulli.py",
+        "python/sympy/solvers/ode.py",
+        "python/tests/test_bernoulli_ode.py"
+      ]
+    },
+    "runtime_tests_executed": 0,
+    "completed_public_build": false,
+    "obstruction": "The actual-source mathematical/PyO3 component build lost its execution service before a terminal result. A later environment restore enabled fresh syntax checks, but did not itself provide a completed native build.",
+    "component_scope": "40 bridge files, 38 whole unchanged files, six explicitly omitted async helpers; 23 original native packages; 427 source/manifests; 83 production-lock dependency identities including 56 registry checksums.",
+    "omitted_members": [
+      "lib.rs::eval_error",
+      "lib.rs::eval_region",
+      "lib.rs::simplify_expr",
+      "lib.rs::expand_expr",
+      "expr.rs::PyExpr.simplify",
+      "expr.rs::PyExpr.expand"
+    ],
+    "replacement_implementations": false,
+    "full_runtime_or_profile_pass": false,
+    "recovered_bridge_pinned_rustfmt_exit": 0
+  },
+  "source_sha256": {
+    "crates/fsym-solvers/src/ode.rs": "c619c70fef6b2abf9231ddad536a4942bb9a1292b61d1b2b7c27d5352adf72a0",
+    "crates/fsym-solvers/src/ode/bernoulli.rs": "c07d06d9871b546a95f4045beea248a6579e7da655aa4ee6946c37c23c4da3ad",
+    "crates/fsym-solvers/tests/bernoulli.rs": "832c9884056a5eaa81d6d364d3bdf409595f9d3eb41b6181c40380485291c0c0",
+    "crates/fsym-python/src/ode.rs": "c3ec1c5a62ba59b98cac71fef63a88826d5421e7f99918818e695929e3638b16",
+    "python/sympy/solvers/_bernoulli.py": "54cd114e0a9521fb7069db242a333876af12033b21bbb3fdd79fa3177ad7bcc0",
+    "python/sympy/solvers/ode.py": "f3ab3f3d4883e3b741f037529adaeaaf1791ecb4693e35dba49b3a7bc3254f73",
+    "python/tests/test_bernoulli_ode.py": "f2e2070a73f70880ac39f5b110a94855032c3a9e0317919232174b2b79c44c37"
+  },
+  "recovery": {
+    "python_files": "All three recovered byte-exact against their recorded pre-loss SHA256 values; independently fetched GitHub blobs were byte-compared.",
+    "bridge": "After the execution environment returned with the pinned rustfmt binary, formatting the recovered semantic patch reproduced the exact recorded pre-loss SHA256 and 10370 bytes. All four public sources now match their recorded final pre-loss bytes; compilation/runtime remain pending.",
+    "bridge_pre_loss_formatted_sha256": "c3ec1c5a62ba59b98cac71fef63a88826d5421e7f99918818e695929e3638b16",
+    "fresh_environment": "Recovered Python syntax and source SHA256 checks executed successfully in a fresh isolated directory. Pinned rustfmt reproduced the final bridge bytes; no stale checkout changes were used."
+  },
+  "related_commits": {
+    "native_prime_field_radical": "01ed74014f44c9eb73ae3a37c4d3d09e282b07ff",
+    "public_ideal_radical": "c12c44e76e87c4207c0b0c7917ad4c301622c3ed",
+    "session_polynomial_system": "557b4ec883c976d834a86c05168aac01ac1b91e4"
+  },
+  "broad_workstream_and_profile_gates": "unchanged"
+}

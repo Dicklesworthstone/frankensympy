@@ -222,6 +222,10 @@ mod tests {
             Ok(())
         }
 
+        fn charge_batch(&mut self, _: &[(Dimension, u64)]) -> Result<(), MeterError> {
+            Ok(())
+        }
+
         fn checkpoint(&mut self) -> Result<(), MeterError> {
             if self.remaining == 0 {
                 Err(MeterError::Cancelled)
@@ -310,10 +314,8 @@ mod tests {
     #[test]
     fn same_print_axes_keep_distinct_typed_identities_through_the_response() {
         let first = Symbol::new("same");
-        let second = Symbol::with_identity(
-            "same",
-            SymbolIdentity::from_assumptions_digest([81; 32]),
-        );
+        let second =
+            Symbol::with_identity("same", SymbolIdentity::from_assumptions_digest([81; 32]));
         let x = Expr::Sym(first.clone());
         let y = Expr::Sym(second.clone());
         let problem = ResidualProblem::new(

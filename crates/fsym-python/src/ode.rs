@@ -11,6 +11,48 @@ use crate::to_value_error;
 use fsym_core::{Expr, Symbol};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyList;
+
+#[pyfunction]
+fn bernoulli_native(
+    p: &PyExpr,
+    q: &Bound<'_, PyList>,
+    n: i32,
+    x: &crate::binding::PySymbolBinding,
+    c1: &crate::binding::PySymbolBinding,
+) -> PyResult<PyExpr> {
+    use fsym_core::BigRational;
+    let scalar = |value: &PyExpr| -> PyResult<BigRational> {
+        match &value.inner {
+            Expr::Integer(value) if value.bits() <= 1024 => Ok(BigRational::from(value.clone())),
+            Expr::Rational(value) if value.numer().bits().max(value.denom().bits()) <= 1024 => {
+                Ok(value.clone())
+            }
+            _ => Err(PyValueError::new_err(
+                "Bernoulli coefficients require bounded exact rationals",
+            )),
+        }
+    };
+    if q.is_empty() || q.len() > 17 {
+        return Err(PyValueError::new_err(
+            "Bernoulli forcing has degree at most 16",
+        ));
+    }
+    if x.name.len().saturating_add(c1.name.len()) > 16_384 {
+        return Err(PyValueError::new_err(
+            "Bernoulli symbol text exceeds its bound",
+        ));
+    }
+    let p = scalar(p)?;
+    let q = q
+        .iter()
+        .map(|value| scalar(&value.extract::<PyRef<'_, PyExpr>>()?))
+        .collect::<PyResult<Vec<_>>>()?;
+    let result =
+        fsym_solvers::ode::bernoulli::bernoulli(&p, &q, n, &x.to_symbol(), &c1.to_symbol())
+            .map_err(to_value_error)?;
+    Ok(PyExpr::from_expr(result.into_transformed()))
+}
 
 fn symbol(value: &PyExpr) -> PyResult<&Symbol> {
     match &value.inner {
@@ -80,15 +122,17 @@ fn dsolve_const_coeff_second_order_nonhomogeneous_native(
     c2: &PyExpr,
 ) -> PyResult<PyExpr> {
     admit(&[forcing])?;
-    lift(fsym_solvers::dsolve_const_coeff_second_order_nonhomogeneous(
-        a,
-        b,
-        c,
-        &forcing.inner,
-        symbol(x)?,
-        symbol(c1)?,
-        symbol(c2)?,
-    ))
+    lift(
+        fsym_solvers::dsolve_const_coeff_second_order_nonhomogeneous(
+            a,
+            b,
+            c,
+            &forcing.inner,
+            symbol(x)?,
+            symbol(c1)?,
+            symbol(c2)?,
+        ),
+    )
 }
 
 #[pyfunction]
@@ -177,6 +221,7 @@ fn verify_cauchy_euler_solution_native(
 }
 
 pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(bernoulli_native, module)?)?;
     module.add_function(wrap_pyfunction!(dsolve_linear_first_order_native, module)?)?;
     module.add_function(wrap_pyfunction!(
         dsolve_const_coeff_second_order_native,
@@ -246,8 +291,7 @@ mod tests {
         let c2 = coordinate("C2", 6);
         let homogeneous = dsolve_const_coeff_second_order_native(1, 0, -1, &x, &c1, &c2).unwrap();
         assert!(
-            verify_const_coeff_second_order_solution_native(&homogeneous, 1, 0, -1, &x)
-                .unwrap()
+            verify_const_coeff_second_order_solution_native(&homogeneous, 1, 0, -1, &x).unwrap()
         );
         let forced = dsolve_const_coeff_second_order_nonhomogeneous_native(
             1,
@@ -259,14 +303,16 @@ mod tests {
             &c2,
         )
         .unwrap();
-        assert!(fsym_solvers::verify_const_coeff_second_order_nonhomogeneous_solution(
-            &forced.inner,
-            1,
-            0,
-            -1,
-            &Expr::from_i64(2),
-            symbol(&x).unwrap(),
-        ));
+        assert!(
+            fsym_solvers::verify_const_coeff_second_order_nonhomogeneous_solution(
+                &forced.inner,
+                1,
+                0,
+                -1,
+                &Expr::from_i64(2),
+                symbol(&x).unwrap(),
+            )
+        );
         let euler = dsolve_cauchy_euler_native(1, 0, 0, &x, &c1, &c2).unwrap();
         assert!(verify_cauchy_euler_solution_native(&euler, 1, 0, 0, &x).unwrap());
         let separable = dsolve_separable_linear_native(&integer(1), &x, &c1).unwrap();
@@ -298,14 +344,12 @@ mod tests {
         let x = coordinate("x", 7);
         let c1 = coordinate("C1", 8);
         assert!(
-            dsolve_linear_first_order_native(&integer(0), &integer(1), &integer(2), &c1)
-                .is_err()
+            dsolve_linear_first_order_native(&integer(0), &integer(1), &integer(2), &c1).is_err()
         );
         assert!(dsolve_linear_first_order_native(&integer(0), &integer(1), &x, &x).is_err());
         assert!(dsolve_linear_first_order_native(&integer(0), &c1, &x, &c1).is_err());
         assert!(dsolve_const_coeff_second_order_native(1, 0, 0, &x, &c1, &c1).is_err());
-        let solution =
-            dsolve_linear_first_order_native(&integer(0), &integer(1), &x, &c1).unwrap();
+        let solution = dsolve_linear_first_order_native(&integer(0), &integer(1), &x, &c1).unwrap();
         let mutated = PyExpr::from_expr(solution.inner + x.inner.clone());
         assert!(
             !verify_linear_first_order_solution_native(&mutated, &integer(0), &integer(1), &x)

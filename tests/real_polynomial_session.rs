@@ -216,10 +216,7 @@ fn singular_and_nonmonogenic_ideals_preserve_complete_distinct_points() {
 
 #[test]
 fn unit_and_complex_only_ideals_are_complete_empty_real_sets() {
-    for sources in [
-        vec!["x^2-2", "y^2-3", "1"],
-        vec!["x^2-2", "y^2+1"],
-    ] {
+    for sources in [vec!["x^2-2", "y^2-3", "1"], vec!["x^2-2", "y^2+1"]] {
         let mut session = registered(&sources, &["x", "y"]);
         let set = solution(session.certification_request(request()).unwrap());
         assert!(set.roots.is_empty());
@@ -271,7 +268,10 @@ fn unknown_systems_invalid_dimensions_and_wire_source_forgery_refuse() {
     );
     let mut many_axes = registered(&["a"], &["a", "b", "c", "d", "e", "f", "g", "h", "i"]);
     assert_eq!(
-        many_axes.certification_request(request()).unwrap_err().code(),
+        many_axes
+            .certification_request(request())
+            .unwrap_err()
+            .code(),
         "invalid_input"
     );
     let mut session = registered(&["x-y", "y^2-2"], &["x", "y"]);

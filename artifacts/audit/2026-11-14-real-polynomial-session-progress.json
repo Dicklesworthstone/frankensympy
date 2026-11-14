@@ -30,13 +30,14 @@
   "review": {
     "independent_source_reviewer": "/root",
     "before_environment_loss": "Source review of new module, dispatch, docs and tests found no blocker; reviewed exact maps, protected authority, source retention, output admission and claim scope",
-    "recovered_bytes": "Reconstructed from exact applied patch contents and the pinned remote base. All feature paths, cases and assertions retained. Final reconstructed formatting has not been executed.",
+    "recovered_bytes": "Reconstructed from exact applied patch contents and the pinned remote base. After the environment returned with the pinned formatter, the recovered new module and integration tests were formatted and checked. Review found and corrected the private CancelAt test meter's missing mandatory charge_batch method; all existing cases and assertions were retained.",
     "observed_existing_rust_blob_prefixes_match": {
       "src/certification_session/real_solver.rs": "55182ae",
       "src/lib.rs": "0df30c3",
       "src/session.rs": "035caeb",
       "src/certification_session.rs": "9e576fb"
-    }
+    },
+    "post_restore": "Product and algebra agents independently reviewed current native/accessor types, request/schema/NDJSON dispatch, response/export/error wiring, and original-source/output admission; no additional blocker found. Both reviews identified the private test meter's missing charge_batch, which was corrected. This does not change production solver or ledger behavior."
   },
   "validation": {
     "toolchain": "nightly-2026-08-20",
@@ -102,9 +103,33 @@
     "private_tests_executed": 0,
     "strict_clippy_executed": false,
     "original_final_scoped_rustfmt_and_diff_check": "Observed passing before environment loss; not transferable to reconstructed final bytes without a fresh check.",
-    "reconstructed_bytes_compilation_formatting_tests": "unexecuted",
+    "reconstructed_bytes_compilation_formatting_tests": "Pinned rustfmt --edition 2024 --check passed for the recovered new module and integration test file. Full Session crate compilation and tests remain unexecuted.",
     "raw_logs": "Full logs were retained in scratch during execution, but became unavailable with the execution environment. Only the observed outcomes and these abbreviated terminal excerpts are retained here.",
-    "full_source_inventory": "Both original 711-file bookend comparisons were observed identical. The complete historical hash maps were in the unavailable scratch environment and have not been reconstructed as execution evidence."
+    "full_source_inventory": "Both original 711-file bookend comparisons were observed identical. The complete historical hash maps were in the unavailable scratch environment and have not been reconstructed as execution evidence.",
+    "post_restore": {
+      "pinned_toolchain_available": true,
+      "source_dependency_cache_available": false,
+      "formatting": {
+        "toolchain": "nightly-2026-08-20",
+        "files": [
+          "src/certification_session/polynomial_solver.rs",
+          "tests/real_polynomial_session.rs"
+        ],
+        "exit_code": 0
+      },
+      "test_meter_contract": {
+        "scope": "Verbatim current BudgetMeter trait and exact private CancelAt adapter; stand-ins only for argument/error types, no Session/native solver compilation.",
+        "before": {
+          "exit_code": 1,
+          "error": "E0046: missing charge_batch"
+        },
+        "after": {
+          "exit_code": 0
+        },
+        "change": "Implement the required no-op charge_batch for this checkpoint-driven cancellation fixture."
+      },
+      "full_session_compile_and_tests_executed": false
+    }
   },
   "component_scope": {
     "whole_root_library_and_cli": true,
@@ -122,19 +147,21 @@
   "files": [
     {
       "path": "src/certification_session/polynomial_solver.rs",
-      "blob_sha": "9f4e317043dbe783eb30bbe55c930bd5c246d3c8",
-      "sha256": "990595248388e698ce4549e50d36522f75a44a352e8884023cfe98527cce313c",
-      "bytes": 12376,
+      "blob_sha": "8779b4251e5cbeb5dd2de5506d3f42770b61bbf2",
+      "sha256": "ac1bec35146059eefbe6a09be5e4a1a8cb24da7871832250e0b70fd258045182",
+      "bytes": 12470,
       "remote_exact_readback": true,
-      "reconstructed_from_recorded_patches": true
+      "reconstructed_from_recorded_patches": true,
+      "post_restore_change": "Pinned formatting plus required test-meter charge_batch implementation."
     },
     {
       "path": "tests/real_polynomial_session.rs",
-      "blob_sha": "709f21b637440848f0c0d3012a5f1d0598b69fd3",
-      "sha256": "e68b214e818469be19b07b16ce3ae164a480cf0c525230454c37f60b93f64fa5",
-      "bytes": 16036,
+      "blob_sha": "4253a1f9e5711c292a3aadab328cae43e7d00a1d",
+      "sha256": "fea4e3f84431739bcdf806d3781ad64e94d6e7dedbd7c35dd0fbdcb422255d31",
+      "bytes": 16052,
       "remote_exact_readback": true,
-      "reconstructed_from_recorded_patches": true
+      "reconstructed_from_recorded_patches": true,
+      "post_restore_change": "Pinned formatting only; assertions unchanged."
     },
     {
       "path": "src/certification_session/real_solver.rs",
