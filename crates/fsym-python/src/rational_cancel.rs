@@ -312,7 +312,7 @@ pub fn rational_cancel_arguments_native(
     }
     let children = children
         .iter()
-        .map(|value| value.extract::<PyRef<'_, PyExpr>>())
+        .map(|value| value.extract::<PyRef<'_, PyExpr>>().map_err(PyErr::from))
         .collect::<PyResult<Vec<_>>>()?;
     for child in &children {
         rational_cancel_source_native(child)?;
@@ -535,4 +535,50 @@ pub fn rational_cancel_native(
     // The immutable original source and its guards outlive every output check.
     drop(original);
     Ok(PyExpr::from_expr(expression))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rational_cancel_arguments_native;
+    use crate::expr::PyExpr;
+    use fsym_core::{Expr, Symbol};
+    use pyo3::exceptions::{PyRuntimeError, PyTypeError};
+    use pyo3::prelude::*;
+    use pyo3::types::PyList;
+
+    #[test]
+    fn invalid_retained_child_preserves_type_error_and_releases_earlier_guards() {
+        Python::initialize();
+        Python::attach(|py| {
+            let symbol = Expr::Sym(Symbol::new("x"));
+            let source = PyExpr::from_expr(Expr::Add(vec![symbol.clone(), Expr::from_i64(1)]));
+            let child = Bound::new(py, PyExpr::from_expr(symbol)).unwrap();
+            let children = PyList::empty(py);
+            children.append(&child).unwrap();
+            children.append(1i64).unwrap();
+
+            let error = rational_cancel_arguments_native(&source, "add", &children).unwrap_err();
+            assert!(error.is_instance_of::<PyTypeError>(py));
+            assert!(child.try_borrow_mut().is_ok());
+        });
+    }
+
+    #[test]
+    fn borrowed_retained_child_preserves_runtime_error_and_valid_retry() {
+        Python::initialize();
+        Python::attach(|py| {
+            let symbol = Expr::Sym(Symbol::new("x"));
+            let source = PyExpr::from_expr(Expr::Add(vec![symbol.clone(), symbol.clone()]));
+            let child = Bound::new(py, PyExpr::from_expr(symbol)).unwrap();
+            let children = PyList::new(py, [&child, &child]).unwrap();
+
+            let guard = child.borrow_mut();
+            let error = rational_cancel_arguments_native(&source, "add", &children).unwrap_err();
+            assert!(error.is_instance_of::<PyRuntimeError>(py));
+            drop(guard);
+
+            rational_cancel_arguments_native(&source, "add", &children).unwrap();
+            assert!(child.try_borrow_mut().is_ok());
+        });
+    }
 }

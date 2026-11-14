@@ -160,13 +160,19 @@ fn inspect_expression<M: BudgetMeter + ?Sized>(
         match expression {
             Expr::Integer(value) => {
                 if value.bits() > MAX_OBJECTIVE_PAYLOAD_BITS {
-                    return Err(resource("integer bits", MAX_OBJECTIVE_PAYLOAD_BITS as usize));
+                    return Err(resource(
+                        "integer bits",
+                        MAX_OBJECTIVE_PAYLOAD_BITS as usize,
+                    ));
                 }
                 charge_compilation_work(meter, value.bits().div_ceil(64) as usize + 1, 0, 0)?;
             }
             Expr::Rational(value) => {
                 if value.numer().bits().max(value.denom().bits()) > MAX_OBJECTIVE_PAYLOAD_BITS {
-                    return Err(resource("rational bits", MAX_OBJECTIVE_PAYLOAD_BITS as usize));
+                    return Err(resource(
+                        "rational bits",
+                        MAX_OBJECTIVE_PAYLOAD_BITS as usize,
+                    ));
                 }
                 let limbs = value.numer().bits().div_ceil(64) + value.denom().bits().div_ceil(64);
                 charge_compilation_work(meter, limbs as usize + 1, 0, 0)?;
@@ -618,9 +624,17 @@ impl ObjectiveCandidate {
             let mapping = source_envelope(source, variables, &mut total, meter)?;
             // Reject unsupported original nodes before differentiation can erase them.
             let compiled_objective = CompiledExpr::try_compile_with_meter(source, &mapping, meter)?;
-            stage_envelope(std::slice::from_ref(source), variables.len(), &mut total, meter)?;
-            let mut gradient =
-                SparseJacobian::try_build_with_meter(std::slice::from_ref(source), variables, meter)?;
+            stage_envelope(
+                std::slice::from_ref(source),
+                variables.len(),
+                &mut total,
+                meter,
+            )?;
+            let mut gradient = SparseJacobian::try_build_with_meter(
+                std::slice::from_ref(source),
+                variables,
+                meter,
+            )?;
             propose_zero_omissions(&mut gradient, meter)?;
             jacobian_envelope(&gradient, 1, variables.len(), &mut total, meter)?;
             verify_sparse_jacobian_certificate_with_meter(&gradient, &[], meter)?;
@@ -705,7 +719,9 @@ impl VerifiedObjective {
                 ));
             }
             if !expressions_match(&candidate.gradient.residuals[0], source, meter)? {
-                return Err(ObjectiveCompilationError::SourceMismatch("objective source"));
+                return Err(ObjectiveCompilationError::SourceMismatch(
+                    "objective source",
+                ));
             }
             if !compiled_expression_matches_with_meter(
                 source,
@@ -713,9 +729,16 @@ impl VerifiedObjective {
                 &candidate.compiled_objective,
                 meter,
             )? {
-                return Err(ObjectiveCompilationError::SourceMismatch("compiled objective"));
+                return Err(ObjectiveCompilationError::SourceMismatch(
+                    "compiled objective",
+                ));
             }
-            stage_envelope(std::slice::from_ref(source), variables.len(), &mut total, meter)?;
+            stage_envelope(
+                std::slice::from_ref(source),
+                variables.len(),
+                &mut total,
+                meter,
+            )?;
             let first =
                 verify_sparse_jacobian_certificate_with_meter(&candidate.gradient, &[], meter)?;
             let sources = gradient_sources(&candidate.gradient, variables.len(), meter)?;
@@ -730,11 +753,9 @@ impl VerifiedObjective {
             // Execute the exact programs admitted by the independent checker,
             // not fresh generator output. Every absent column was proved zero.
             charge_buffer::<CompiledOp, _>(1, meter)?;
-            let zero = CompiledExpr::try_from_ops_with_meter(
-                vec![CompiledOp::LoadConst(0.0)],
-                meter,
-            )
-            .map_err(CompileError::InvalidBytecode)?;
+            let zero =
+                CompiledExpr::try_from_ops_with_meter(vec![CompiledOp::LoadConst(0.0)], meter)
+                    .map_err(CompileError::InvalidBytecode)?;
             charge_buffer::<CompiledExpr, _>(variables.len(), meter)?;
             let mut compiled_gradient = Vec::new();
             compiled_gradient
@@ -766,7 +787,8 @@ impl VerifiedObjective {
                     } else if index <= compiled_gradient.len() {
                         &compiled_gradient[index - 1]
                     } else {
-                        &candidate.hessian.entries[index - 1 - compiled_gradient.len()].compiled_deriv
+                        &candidate.hessian.entries[index - 1 - compiled_gradient.len()]
+                            .compiled_deriv
                     }
                 }),
                 meter,

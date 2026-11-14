@@ -2481,8 +2481,14 @@ impl CertificationState {
                     .objectives
                     .get(&objective)
                     .ok_or(CertificationSessionError::UnknownObjective)?;
-                self.compiled_objectives
-                    .compile(objective, program, problem, context_digest, budget, lease)
+                self.compiled_objectives.compile(
+                    objective,
+                    program,
+                    problem,
+                    context_digest,
+                    budget,
+                    lease,
+                )
             }
             CertificationRequest::EvaluateObjective { program, point, .. } => {
                 self.compiled_objectives.evaluate(program, &point, budget)

@@ -40,14 +40,14 @@ pub use certification::{
 };
 pub use certification_session::{
     ArtifactSource, BoxOptimizationId, BoxOptimizationSearchId, CERTIFICATION_REQUEST_SCHEMA,
-    CertificationRequest, CertificationResponse, CertificationSessionError,
-    CompiledObjectiveId, CompiledResidualSystemId, ExactInterval, ExactParametricRootWitness,
-    ExactRootWitness, IntegralCertificateId, IsolatedRoot, MAX_SESSION_ARTIFACT_TRANSFERS,
+    CertificationRequest, CertificationResponse, CertificationSessionError, CompiledObjectiveId,
+    CompiledResidualSystemId, ExactInterval, ExactParametricRootWitness, ExactRootWitness,
+    IntegralCertificateId, IsolatedRoot, MAX_SESSION_ARTIFACT_TRANSFERS,
     MAX_SESSION_COMPILED_OBJECTIVES, MAX_SESSION_COMPILED_SYSTEMS,
-    MAX_SESSION_OPTIMIZATION_SEARCHES, MAX_SESSION_ROOT_SEARCHES,
-    ObjectiveId, ParametricFamilyId, ParametricFamilyReceipt, ParametricProblemId,
-    ParametricSensitivityId, ResidualSystemId, RootCertificateId, RootIsolationId,
-    RootIsolationSearchId, StationaryPointClassification, StationaryPointId,
+    MAX_SESSION_OPTIMIZATION_SEARCHES, MAX_SESSION_ROOT_SEARCHES, ObjectiveId, ParametricFamilyId,
+    ParametricFamilyReceipt, ParametricProblemId, ParametricSensitivityId, ResidualSystemId,
+    RootCertificateId, RootIsolationId, RootIsolationSearchId, StationaryPointClassification,
+    StationaryPointId,
 };
 pub use durable_search::{
     DURABLE_ROOT_SEARCH_SCHEMA, DurableSearchError, PreparedRootSearchCheckpoint,

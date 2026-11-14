@@ -71,10 +71,8 @@ fn prepare(session: &mut Session, residuals: &[&str], variables: &[&str]) {
 }
 
 fn wire(session: &mut Session, request: CertificationRequest) -> Value {
-    serde_json::from_str(
-        &session.handle_envelope(&serde_json::to_string(&request).unwrap()),
-    )
-    .unwrap()
+    serde_json::from_str(&session.handle_envelope(&serde_json::to_string(&request).unwrap()))
+        .unwrap()
 }
 
 #[test]
@@ -253,9 +251,7 @@ fn output_admission_exhaustion_retains_programs_and_cumulative_work() {
             assert!(bounded.compiled_residual_system(&program()).is_some());
             let after = bounded.budget_snapshot();
             assert_eq!(after.verifier_pool, before.verifier_pool);
-            assert!(
-                after.dimensions[dimension.index()] < before.dimensions[dimension.index()]
-            );
+            assert!(after.dimensions[dimension.index()] < before.dimensions[dimension.index()]);
             // The remaining ledger is not replaced by a new per-call budget.
             assert_eq!(
                 bounded
@@ -356,7 +352,10 @@ impl Drop for Cli {
 fn fresh_cli_supports_both_products_without_dense_or_certified_numeric_payloads() {
     let mut cli = Cli::new();
     assert_eq!(
-        cli.send(registration(&["x^2+y", "sin(y)", "7"], &["y", "x"]), "register")["status"],
+        cli.send(
+            registration(&["x^2+y", "sin(y)", "7"], &["y", "x"]),
+            "register"
+        )["status"],
         "success"
     );
     assert_eq!(cli.send(compile(), "compile")["status"], "success");

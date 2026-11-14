@@ -153,6 +153,7 @@ jobs:
           cargo test --locked -p fsym-polys --test multivariate_gcd --test multivariate_square_free --test rational_cancel --test recursive_division -j1
           cargo test --locked -p fsym-simplify --test rational_cancel -j1
           cargo test --locked -p fsym-polys --test finite_field_ideal_inverse --test finite_field_quotient_minpoly --test finite_field_syzygy -j1
+          cargo test --locked -p fsym-python --lib rational_cancel::tests -j1
           cargo test --locked -p fsym-python --lib assumptions::tests -j1
           cargo test --locked -p fsym-python --lib numeric::tests::certified_gaussian_sources_require_unary_bound_arguments -j1
           cargo test --locked -p fsym-core --test raw_product_value -j1

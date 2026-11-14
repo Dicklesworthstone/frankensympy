@@ -79,16 +79,15 @@ fn protected_admission_preserves_hand_derived_value_gradient_hessian_and_axis_or
     assert!(ledger.verifier_remaining() < AMPLE);
     assert_eq!(program.objective(), &source);
     assert_eq!(program.variables(), variables);
-    assert_eq!(
-        program.hessian_pattern(),
-        [(0, 0), (0, 1), (1, 0), (1, 1)]
-    );
+    assert_eq!(program.hessian_pattern(), [(0, 0), (0, 1), (1, 0), (1, 1)]);
     assert_eq!(program.receipt().gradient_proofs_verified, 2);
     assert_eq!(program.receipt().hessian_proofs_verified, 4);
     assert_eq!(program.receipt().zero_entries_checked, 0);
 
     let reserve = ledger.verifier_remaining();
-    let result = program.evaluate_with_meter(&[2.0, 3.0], &mut ledger).unwrap();
+    let result = program
+        .evaluate_with_meter(&[2.0, 3.0], &mut ledger)
+        .unwrap();
     assert_eq!(result.value, 30.0);
     assert_eq!(result.gradient, [21.0, 12.0]);
     assert_eq!(result.hessian, [6.0, 6.0, 6.0, 4.0]);
@@ -108,19 +107,22 @@ fn generation_admission_and_complete_compilation_retain_cumulative_resource_cost
     let variables = [Symbol::new("x")];
     let candidate = ObjectiveCandidate::try_build(&source, &variables).unwrap();
     for phase in 0..3 {
-        let run = |ledger: &mut Budget| -> Result<(), ObjectiveCompilationError> {
-            match phase {
-                0 => ObjectiveCandidate::try_build_with_meter(&source, &variables, ledger).map(drop),
-                1 => VerifiedObjective::try_from_candidate_with_meter(
-                    &source,
-                    &variables,
-                    candidate.clone(),
-                    ledger,
-                )
-                .map(drop),
-                _ => VerifiedObjective::try_compile_with_meter(&source, &variables, ledger).map(drop),
-            }
-        };
+        let run =
+            |ledger: &mut Budget| -> Result<(), ObjectiveCompilationError> {
+                match phase {
+                    0 => ObjectiveCandidate::try_build_with_meter(&source, &variables, ledger)
+                        .map(drop),
+                    1 => VerifiedObjective::try_from_candidate_with_meter(
+                        &source,
+                        &variables,
+                        candidate.clone(),
+                        ledger,
+                    )
+                    .map(drop),
+                    _ => VerifiedObjective::try_compile_with_meter(&source, &variables, ledger)
+                        .map(drop),
+                }
+            };
         let mut probe = budget([AMPLE; 3], 37);
         run(&mut probe).unwrap();
         let cost = remaining(&probe).map(|left| AMPLE - left);
@@ -287,10 +289,8 @@ fn metered_import_rejects_source_axis_proof_bytecode_and_completeness_forgeries(
             }
             1 => forged.gradient.residuals[0] = Expr::from_i64(30),
             2 => {
-                let typed = Symbol::with_identity(
-                    "y",
-                    SymbolIdentity::from_assumptions_digest([3; 32]),
-                );
+                let typed =
+                    Symbol::with_identity("y", SymbolIdentity::from_assumptions_digest([3; 32]));
                 forged.gradient.vars[0] = typed.clone();
                 forged.hessian.vars[0] = typed;
             }
@@ -327,16 +327,18 @@ fn original_domain_guards_survive_zero_omission_and_zero_hessian_directions() {
     let x = Symbol::new("x");
     let source = Expr::Mul(vec![
         Expr::from_i64(0),
-        Expr::Pow(
-            Arc::new(Expr::Sym(x.clone())),
-            Arc::new(Expr::from_i64(-1)),
-        ),
+        Expr::Pow(Arc::new(Expr::Sym(x.clone())), Arc::new(Expr::from_i64(-1))),
     ]);
     let mut ledger = budget([AMPLE; 3], 37);
-    let program =
-        VerifiedObjective::try_compile_with_meter(&source, &[x], &mut ledger).unwrap();
+    let program = VerifiedObjective::try_compile_with_meter(&source, &[x], &mut ledger).unwrap();
     assert_eq!(program.objective(), &source);
-    assert_eq!(program.evaluate_with_meter(&[2.0], &mut ledger).unwrap().value, 0.0);
+    assert_eq!(
+        program
+            .evaluate_with_meter(&[2.0], &mut ledger)
+            .unwrap()
+            .value,
+        0.0
+    );
     assert!(program.evaluate_with_meter(&[0.0], &mut ledger).is_err());
     assert!(
         program
@@ -363,12 +365,9 @@ fn metered_preflight_preserves_depth_node_and_exact_payload_limits() {
         (large, "integer bits"),
     ] {
         let mut ledger = budget([AMPLE; 3], 37);
-        let error = ObjectiveCandidate::try_build_with_meter(
-            &source,
-            &[Symbol::new("x")],
-            &mut ledger,
-        )
-        .unwrap_err();
+        let error =
+            ObjectiveCandidate::try_build_with_meter(&source, &[Symbol::new("x")], &mut ledger)
+                .unwrap_err();
         assert!(
             matches!(
                 error,
@@ -395,7 +394,9 @@ fn same_name_typed_coordinates_and_constant_empty_axes_keep_exact_semantics() {
     let mut ledger = budget([AMPLE; 3], 37);
     let program =
         VerifiedObjective::try_compile_with_meter(&source, &variables, &mut ledger).unwrap();
-    let result = program.evaluate_with_meter(&[2.0, 3.0], &mut ledger).unwrap();
+    let result = program
+        .evaluate_with_meter(&[2.0, 3.0], &mut ledger)
+        .unwrap();
     assert_eq!(program.variables(), variables);
     assert_eq!(program.hessian_pattern(), [(0, 0), (1, 1)]);
     assert_eq!(result.value, 31.0);

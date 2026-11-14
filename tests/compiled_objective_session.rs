@@ -31,7 +31,10 @@ fn registration(source: &str, variables: &[&str]) -> CertificationRequest {
         schema_version: 1,
         objective: objective(),
         source: source.into(),
-        variables: variables.iter().map(|variable| (*variable).into()).collect(),
+        variables: variables
+            .iter()
+            .map(|variable| (*variable).into())
+            .collect(),
     }
 }
 
@@ -107,7 +110,10 @@ fn frozen_objective_compiles_once_and_returns_hand_derived_values_and_sparse_pro
     assert_eq!(source, objective());
     assert_eq!(handle, program("checked"));
     assert_eq!(evidence, "certificate_verified");
-    assert_eq!(claim, "formal_symbolic_gradient_hessian_and_binary64_lowering");
+    assert_eq!(
+        claim,
+        "formal_symbolic_gradient_hessian_and_binary64_lowering"
+    );
     assert_eq!(
         variables
             .iter()
@@ -193,7 +199,10 @@ fn frozen_objective_compiles_once_and_returns_hand_derived_values_and_sparse_pro
     assert_eq!(direction, [3.0, -2.0]);
     assert_eq!(product, [4.0, -9.0]);
     assert_eq!(evaluated_context, context_digest);
-    assert_eq!(session.budget_snapshot().verifier_pool, before.verifier_pool);
+    assert_eq!(
+        session.budget_snapshot().verifier_pool,
+        before.verifier_pool
+    );
 }
 
 #[test]
@@ -260,10 +269,7 @@ fn point_and_direction_validation_retains_finite_decimal_and_dimension_contracts
             product("finite", &["1"], &values),
         ] {
             assert_eq!(
-                session
-                    .certification_request(request)
-                    .unwrap_err()
-                    .code(),
+                session.certification_request(request).unwrap_err().code(),
                 "invalid_input",
                 "{values:?}"
             );
@@ -275,10 +281,7 @@ fn point_and_direction_validation_retains_finite_decimal_and_dimension_contracts
         product("finite", &["1"], &[&oversized]),
     ] {
         assert_eq!(
-            session
-                .certification_request(request)
-                .unwrap_err()
-                .code(),
+            session.certification_request(request).unwrap_err().code(),
             "invalid_input"
         );
     }
@@ -357,7 +360,11 @@ fn every_final_publication_resource_can_refuse_a_fully_checked_objective_handle(
             .certification_request(compile("publication"))
             .unwrap_err();
         assert_eq!(error.code(), "budget_exhausted", "{dimension:?}: {error}");
-        assert!(session.compiled_objective(&program("publication")).is_none());
+        assert!(
+            session
+                .compiled_objective(&program("publication"))
+                .is_none()
+        );
         let after = session.budget_snapshot();
         assert_eq!(
             after.verifier_pool, accepted.verifier_pool,
@@ -377,10 +384,7 @@ fn bounded_handles_are_session_local_and_release_reuses_capacity_without_refunds
         release("missing"),
     ] {
         assert_eq!(
-            session
-                .certification_request(request)
-                .unwrap_err()
-                .code(),
+            session.certification_request(request).unwrap_err().code(),
             "unknown_object"
         );
     }
@@ -492,7 +496,10 @@ fn failed_release_preserves_the_handle_and_unsupported_sources_publish_none() {
         "budget_exhausted"
     );
     assert!(bounded.compiled_objective(&program("retain")).is_some());
-    assert_eq!(bounded.budget_snapshot().verifier_pool, before.verifier_pool);
+    assert_eq!(
+        bounded.budget_snapshot().verifier_pool,
+        before.verifier_pool
+    );
 
     let mut unsupported = session();
     unsupported
@@ -505,7 +512,11 @@ fn failed_release_preserves_the_handle_and_unsupported_sources_publish_none() {
             .code(),
         "unsupported_operation"
     );
-    assert!(unsupported.compiled_objective(&program("unsupported")).is_none());
+    assert!(
+        unsupported
+            .compiled_objective(&program("unsupported"))
+            .is_none()
+    );
 }
 
 #[test]
@@ -574,9 +585,7 @@ fn strict_wire_schemas_fields_duplicate_keys_and_typed_ids_are_enforced() {
     ] {
         assert!(CompiledObjectiveId::new(invalid).is_err());
     }
-    assert!(
-        CompiledObjectiveId::new(format!("objective_program:{}", "a".repeat(128))).is_err()
-    );
+    assert!(CompiledObjectiveId::new(format!("objective_program:{}", "a".repeat(128))).is_err());
     session.certification_request(compile("wire")).unwrap();
     for request in [
         evaluate("wire", &["2"]),
@@ -679,7 +688,10 @@ fn fresh_cli_executes_objective_and_hessian_product_lifecycle_with_explicit_appr
     );
     let multiplied = cli.send(product("cli", &["2", "-1"], &["3", "-2"]), "product");
     assert_eq!(multiplied["status"], "success", "{multiplied}");
-    assert_eq!(multiplied["result"]["kind"], "objective_hessian_vector_product");
+    assert_eq!(
+        multiplied["result"]["kind"],
+        "objective_hessian_vector_product"
+    );
     assert_eq!(multiplied["result"]["product"], json!([4.0, -9.0]));
     assert_approximate(&multiplied["result"]);
     assert_eq!(
