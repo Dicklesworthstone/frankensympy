@@ -157,6 +157,8 @@ def test_bridge_returns_one_complete_common_basis_and_validates_original_inputs(
     for operations in ([">="], [">=", "bad"]):
         with pytest.raises(ValueError):
             _native.solve_real_rational_constraints_native(sources, _symbol_binding(x), operations)
+    with pytest.raises(TypeError):
+        _native.solve_real_rational_constraints_native([object()], _symbol_binding(x), ["=="], True)
     with pytest.raises(ValueError, match="32"):
         _native.solve_real_rational_constraints_native([_native_expr(x)] * 33, _symbol_binding(x), ["=="] * 33)
     with pytest.raises(ValueError, match="resource limit"):

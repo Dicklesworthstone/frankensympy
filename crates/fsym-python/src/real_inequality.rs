@@ -163,7 +163,7 @@ pub fn solve_real_rational_constraints_native(
     crate::ideal_operations::charge(&mut generator, 1, expressions.len() * 256 + 64)?;
     let expressions = expressions
         .iter()
-        .map(|value| value.extract::<PyRef<'_, PyExpr>>())
+        .map(|value| value.extract::<PyRef<'_, PyExpr>>().map_err(PyErr::from))
         .collect::<PyResult<Vec<_>>>()?;
     for expression in &expressions {
         source_storage(&expression.inner, &mut generator)?;
