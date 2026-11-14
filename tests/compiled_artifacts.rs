@@ -72,8 +72,7 @@ fn replay_restores_both_program_kinds_and_hand_derived_numeric_products() {
     let problem = residual_problem(&["x^2+y", "x*y+sin(x)"], &["x", "y"]);
     let original = residual_program(&problem);
     let bytes = export_residual_program(&original, [3; 32], &mut Unbounded).unwrap();
-    let replayed =
-        replay_residual_program(&bytes, &problem, [3; 32], &mut Unbounded).unwrap();
+    let replayed = replay_residual_program(&bytes, &problem, [3; 32], &mut Unbounded).unwrap();
     assert_eq!(original.receipt(), replayed.receipt());
     assert_eq!(
         export_residual_program(&replayed, [3; 32], &mut Unbounded).unwrap(),
@@ -119,8 +118,7 @@ fn replay_restores_both_program_kinds_and_hand_derived_numeric_products() {
 fn receiver_binds_exact_sources_axis_order_typed_identity_and_context() {
     let problem = residual_problem(&["x^2+y", "x*y"], &["x", "y"]);
     let bytes =
-        export_residual_program(&residual_program(&problem), [3; 32], &mut Unbounded)
-            .unwrap();
+        export_residual_program(&residual_program(&problem), [3; 32], &mut Unbounded).unwrap();
     for other in [
         residual_problem(&["x^2+y+1", "x*y"], &["x", "y"]),
         residual_problem(&["x*y", "x^2+y"], &["x", "y"]),
@@ -128,25 +126,24 @@ fn receiver_binds_exact_sources_axis_order_typed_identity_and_context() {
     ] {
         assert!(matches!(
             replay_residual_program(&bytes, &other, [3; 32], &mut Unbounded),
-            Err(ProgramReplayError::Admission(ProgramAdmissionError::SourceMismatch(_)))
+            Err(ProgramReplayError::Admission(
+                ProgramAdmissionError::SourceMismatch(_)
+            ))
         ));
     }
     assert!(matches!(
         replay_residual_program(&bytes, &problem, [4; 32], &mut Unbounded),
-        Err(ProgramReplayError::Transport(ProgramTransportError::Envelope(
-            CertificationError::UniverseMismatch { .. }
-        )))
+        Err(ProgramReplayError::Transport(
+            ProgramTransportError::Envelope(CertificationError::UniverseMismatch { .. })
+        ))
     ));
 
     let typed = Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([7; 32]));
     let typed_problem =
         ResidualProblem::new(vec![Expr::Sym(typed.clone())], vec![typed], &mut Unbounded).unwrap();
-    let bytes =
-        export_residual_program(&residual_program(&typed_problem), [3; 32], &mut Unbounded)
-            .unwrap();
-    assert!(
-        replay_residual_program(&bytes, &typed_problem, [3; 32], &mut Unbounded).is_ok()
-    );
+    let bytes = export_residual_program(&residual_program(&typed_problem), [3; 32], &mut Unbounded)
+        .unwrap();
+    assert!(replay_residual_program(&bytes, &typed_problem, [3; 32], &mut Unbounded).is_ok());
     assert!(matches!(
         replay_residual_program(
             &bytes,
@@ -154,7 +151,9 @@ fn receiver_binds_exact_sources_axis_order_typed_identity_and_context() {
             [3; 32],
             &mut Unbounded
         ),
-        Err(ProgramReplayError::Admission(ProgramAdmissionError::SourceMismatch(_)))
+        Err(ProgramReplayError::Admission(
+            ProgramAdmissionError::SourceMismatch(_)
+        ))
     ));
 
     let objective = objective_problem("x^2+x*y+y^2");
@@ -167,13 +166,15 @@ fn receiver_binds_exact_sources_axis_order_typed_identity_and_context() {
             [3; 32],
             &mut Unbounded
         ),
-        Err(ProgramReplayError::Admission(ProgramAdmissionError::SourceMismatch(_)))
+        Err(ProgramReplayError::Admission(
+            ProgramAdmissionError::SourceMismatch(_)
+        ))
     ));
     assert!(matches!(
         replay_residual_program(&bytes, &problem, [3; 32], &mut Unbounded),
-        Err(ProgramReplayError::Transport(ProgramTransportError::Candidate(
-            ProgramArtifactError::WrongKind { .. }
-        )))
+        Err(ProgramReplayError::Transport(
+            ProgramTransportError::Candidate(ProgramArtifactError::WrongKind { .. })
+        ))
     ));
 }
 
@@ -192,8 +193,7 @@ fn canonical_inner_source_derivative_and_bytecode_forgery_cannot_gain_admission(
             }
         }
         let bytes = forged("residual", &candidate);
-        let error =
-            replay_residual_program(&bytes, &problem, [3; 32], &mut Unbounded).unwrap_err();
+        let error = replay_residual_program(&bytes, &problem, [3; 32], &mut Unbounded).unwrap_err();
         if mutation == 0 {
             assert!(matches!(
                 error,
@@ -201,7 +201,10 @@ fn canonical_inner_source_derivative_and_bytecode_forgery_cannot_gain_admission(
             ));
         } else {
             assert!(
-                matches!(error, ProgramReplayError::Admission(ProgramAdmissionError::Residual(_))),
+                matches!(
+                    error,
+                    ProgramReplayError::Admission(ProgramAdmissionError::Residual(_))
+                ),
                 "{error}"
             );
         }
@@ -214,7 +217,9 @@ fn canonical_inner_source_derivative_and_bytecode_forgery_cannot_gain_admission(
     let bytes = forged("objective", &candidate);
     assert!(matches!(
         replay_objective_program(&bytes, &problem, [3; 32], &mut Unbounded),
-        Err(ProgramReplayError::Admission(ProgramAdmissionError::Objective(_)))
+        Err(ProgramReplayError::Admission(
+            ProgramAdmissionError::Objective(_)
+        ))
     ));
 }
 
@@ -223,10 +228,8 @@ fn transport_keeps_original_domains_and_singular_derivatives_even_for_zero_produ
     for source in ["0*(1/x)", "sqrt(x)"] {
         let problem = residual_problem(&[source], &["x"]);
         let bytes =
-            export_residual_program(&residual_program(&problem), [3; 32], &mut Unbounded)
-                .unwrap();
-        let replayed =
-            replay_residual_program(&bytes, &problem, [3; 32], &mut Unbounded).unwrap();
+            export_residual_program(&residual_program(&problem), [3; 32], &mut Unbounded).unwrap();
+        let replayed = replay_residual_program(&bytes, &problem, [3; 32], &mut Unbounded).unwrap();
         assert!(
             replayed
                 .evaluate_sparse_with_meter(&[4.0], &mut Unbounded)
@@ -263,8 +266,7 @@ fn transport_keeps_original_domains_and_singular_derivatives_even_for_zero_produ
 fn outer_wire_rejects_unknown_duplicate_noncanonical_oversized_and_unfunded_inputs() {
     let problem = residual_problem(&["x"], &["x"]);
     let bytes =
-        export_residual_program(&residual_program(&problem), [3; 32], &mut Unbounded)
-            .unwrap();
+        export_residual_program(&residual_program(&problem), [3; 32], &mut Unbounded).unwrap();
     let text = String::from_utf8(bytes.clone()).unwrap();
     for malformed in [
         format!(" {text}"),
@@ -273,13 +275,8 @@ fn outer_wire_rejects_unknown_duplicate_noncanonical_oversized_and_unfunded_inpu
         text.replacen("\"schema_version\":1", "\"schema_version\":2", 1),
     ] {
         assert!(
-            replay_residual_program(
-                malformed.as_bytes(),
-                &problem,
-                [3; 32],
-                &mut Unbounded
-            )
-            .is_err()
+            replay_residual_program(malformed.as_bytes(), &problem, [3; 32], &mut Unbounded)
+                .is_err()
         );
     }
     assert!(matches!(
@@ -289,9 +286,9 @@ fn outer_wire_rejects_unknown_duplicate_noncanonical_oversized_and_unfunded_inpu
             [3; 32],
             &mut Unbounded
         ),
-        Err(ProgramReplayError::Transport(ProgramTransportError::Envelope(
-            CertificationError::ByteLimit { .. }
-        )))
+        Err(ProgramReplayError::Transport(
+            ProgramTransportError::Envelope(CertificationError::ByteLimit { .. })
+        ))
     ));
     for dimension in [
         Dimension::ComputeSteps,

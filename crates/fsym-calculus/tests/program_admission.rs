@@ -152,7 +152,7 @@ fn typed_axis_identity_order_count_and_unused_axes_are_bound() {
     // requested by this receiving caller.
     let source = Expr::from_i64(3);
     let changed = [
-        variables.to_vec().into_iter().rev().collect::<Vec<_>>(),
+        variables.iter().rev().cloned().collect::<Vec<_>>(),
         vec![Symbol::new("x"), variables[1].clone()],
         vec![
             Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([9; 32])),
@@ -471,6 +471,9 @@ struct InterruptAt {
 
 impl BudgetMeter for InterruptAt {
     fn charge(&mut self, _: Dimension, _: u64) -> Result<(), MeterError> {
+        Ok(())
+    }
+    fn charge_batch(&mut self, _: &[(Dimension, u64)]) -> Result<(), MeterError> {
         Ok(())
     }
     fn checkpoint(&mut self) -> Result<(), MeterError> {

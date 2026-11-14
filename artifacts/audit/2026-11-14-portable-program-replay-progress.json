@@ -1,0 +1,152 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-11-14T18:12:17.376877+00:00",
+  "scope": "Source-bound portable residual/Jacobian and objective/gradient/Hessian admission and Session/NDJSON replay",
+  "work_item": "fra-campaign-jacobian-bundle-ukp",
+  "base_commit": "7c91d51f88d434f4ec4f6783786b4abf29aaaeec",
+  "feature_commits": [
+    {
+      "sha": "e74fbebb7b30b53bab9fe49df07b010f1fc87eba",
+      "change": "Native admission binds imported candidates to the receiving exact raw sources and ordered typed symbols before independent verification."
+    },
+    {
+      "sha": "d924e69b37e8dd592c6ef810879a30fec4a2e1f5",
+      "change": "Canonical context-bound transport and inline/chunked typed Session/NDJSON replay for both compiled program kinds."
+    }
+  ],
+  "concurrent_work_preserved": [
+    {
+      "sha": "2d134b5395077656f39d7abfef5c2f644e1c794a",
+      "scope": "Separate exact algebra and Python work; not authored or validated by this replay slice."
+    },
+    {
+      "sha": "7c91d51f88d434f4ec4f6783786b4abf29aaaeec",
+      "scope": "Complete native replay convenience APIs and bidirectional Session interoperability tests using the same format and independent admission."
+    }
+  ],
+  "functionality": [
+    "Exact original expression shape, operand order and multiplicity, scalar variants, full symbol identity and ordered axes are bound before admission.",
+    "Derivative proofs, compiled bytecode and sparse omissions are independently checked; producer receipts and shared execution plans are not imported authority.",
+    "Session decoding spends ordinary resources; independent source/proof admission uses a protected verifier allowance on the same cumulative ledger.",
+    "Export freezes the program context; replay checks the receiving context, and response admission precedes program-handle publication.",
+    "Residual/Jacobian and objective/gradient/Hessian values and sparse products retain original-source and derivative domain checks, including zero directions.",
+    "Completed chunk transfers contain candidates only; an explicit successful independent replay is required to publish a resident program."
+  ],
+  "bounds": {
+    "artifact_bytes": 1048576,
+    "inline_artifact_bytes": 24576,
+    "json_depth": 96,
+    "chunk_bytes": 16384,
+    "ndjson_frame_bytes": 65536,
+    "numeric_model": "approximate finite real binary64; no new enclosure, optimization, or floating-point error claim"
+  },
+  "validation": {
+    "native": {
+      "scope": "Actual pinned Cargo native derivative-program tests",
+      "recorded_at_utc": "2026-11-14T18:06:53.515476+00:00",
+      "toolchain": {
+        "channel": "nightly-2026-08-20",
+        "rustc": "1.100.0-nightly",
+        "commit_hash": "f7d782a3be46d6bb4b9792fe69a61db389ba1769",
+        "commit_date": "2026-08-19",
+        "host": "x86_64-unknown-linux-gnu",
+        "llvm": "23.1.0"
+      },
+      "environment": {
+        "PATH_prefix": "/home/agent/.cargo/bin",
+        "RUSTUP_HOME": "/workspace/scratch/be76fc747855/rustup",
+        "CARGO_HOME": "/workspace/scratch/be76fc747855/cargo-cache",
+        "CARGO_BUILD_JOBS": "1",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "RUSTFLAGS_override": null,
+        "CARGO_TARGET_DIR_override": null,
+        "incremental_override": null,
+        "codegen_override": null
+      },
+      "command": "cargo test -p fsym-calculus --test program_admission --test program_artifact --locked",
+      "executor_session": 89391,
+      "exit_code": 0,
+      "profile_build_duration": "2m 10s",
+      "results": [
+        {
+          "target": "program_admission",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0,
+          "filtered_out": 0,
+          "duration_seconds": 0.09
+        },
+        {
+          "target": "program_artifact",
+          "passed": 10,
+          "failed": 0,
+          "ignored": 0,
+          "filtered_out": 0,
+          "duration_seconds": 0.1
+        }
+      ],
+      "total_passed": 21,
+      "source_hash_algorithm": "SHA-256",
+      "start_source_hashes": {
+        "crates/fsym-calculus/src/program_artifact.rs": "192157fb6d347fc73f2e1ce54329b4cbd036bbdfdcd5328f17cf83db0de225c9",
+        "crates/fsym-calculus/tests/program_admission.rs": "53b1e32d0560a4d33ace720ddde940eeb8d643c64ccc91077ef3f1b01b0b12fe",
+        "crates/fsym-calculus/tests/program_artifact.rs": "6e4aa71e1a0486e92dcb3ff825eaba4240f1a342778dd9271c87141de8ebfd4a"
+      },
+      "start_source_hash_provenance": "Reconstructed after completion from files frozen throughout successful session 89391. Hashes were not sampled contemporaneously before that run; no separately measured start snapshot is claimed.",
+      "final_source_hashes": {
+        "crates/fsym-calculus/src/program_artifact.rs": "192157fb6d347fc73f2e1ce54329b4cbd036bbdfdcd5328f17cf83db0de225c9",
+        "crates/fsym-calculus/tests/program_admission.rs": "53b1e32d0560a4d33ace720ddde940eeb8d643c64ccc91077ef3f1b01b0b12fe",
+        "crates/fsym-calculus/tests/program_artifact.rs": "6e4aa71e1a0486e92dcb3ff825eaba4240f1a342778dd9271c87141de8ebfd4a"
+      },
+      "final_source_hash_provenance": "Measured from the shared working tree after successful completion and quick source-diff review.",
+      "config_hashes": {
+        "rust-toolchain.toml": "cdaedf5d65db22fa32d18beadab465c1b7653285dfb2e14d23f7dfd9677f9848",
+        "Cargo.toml": "6f3af7552c2d6683e7d287250517cfe3a35aa78de8ed784f1813230782deb3eb",
+        "Cargo.lock": "6935b01ef3f91365feb1a37e75c6cbb4d4f82654d46641aca678414dc547ca46",
+        "crates/fsym-calculus/Cargo.toml": "35ec1a5d54b4c1700b51bd6ee53f433ec98c136e668d0b8a93f8821bf776d3eb"
+      },
+      "git_head_when_hashes_measured": "7c91d51f88d434f4ec4f6783786b4abf29aaaeec",
+      "test_fix_not_yet_committed_when_run": true,
+      "previous_actual_failure": {
+        "executor_session": 28639,
+        "exit_code": 101,
+        "code": "E0046",
+        "message": "BudgetMeter implementation for InterruptAt omitted required charge_batch method",
+        "correction": "Added charge_batch returning Ok(()) to cancellation-only, unbounded test meter. It matches its existing charge behavior. Production charging and test expectations were unchanged; separate real-Budget tests cover cumulative charging and protected reservation."
+      },
+      "interrupted_attempts": [
+        {
+          "executor_session": 77513,
+          "exit_code": 130,
+          "reason": "Cold test compilation interrupted before test execution; no pass claimed."
+        },
+        {
+          "executor_session": 29024,
+          "exit_code": 130,
+          "reason": "Artifact-diagnostic command omitted profile debug overrides; interrupted immediately; excluded from validation evidence."
+        }
+      ],
+      "production_library_build": {
+        "command": "cargo build --locked -p fsym-calculus --lib",
+        "executor_session": 30176,
+        "exit_code": 0,
+        "duration_seconds": 2.0,
+        "environment": "Same exact environment above"
+      },
+      "log_path": "artifacts/audit/reproduction/2026-11-14-portable-program-replay/native-tests.txt",
+      "log_sha256": "4d54901c2bd5ea51407df6300ae07a55f0b50f006616ef1ee0498e4176421345",
+      "limitations": [
+        "Only the two named native test targets are evidenced here. Root Session and CLI validation is owned by the separate validation agent.",
+        "No replacement runtime or modified dependency graph was used for the passing Cargo tests."
+      ]
+    },
+    "session_and_cli": {
+      "status": "In progress; no execution pass claimed yet.",
+      "command": "cargo test --locked -p frankensympy --test compiled_program_transport --test compiled_program_cli --test compiled_artifacts --test compiled_residual_session --test compiled_residual_products --test compiled_objective_session --test artifact_transfer --test artifact_transfer_session -j1 -- --test-threads=1"
+    },
+    "source_review": "Separate source reviewers checked native admission and the merged canonical transport, expected-context/source binding, protected accounting, and response-before-publication boundaries. No remaining blocker was reported.",
+    "formatting": "Pinned rustfmt was applied to changed replay files, including the concurrently added convenience API imports and test target. This is not a whole-workspace formatting pass."
+  },
+  "status": "Bounded implementation and native execution evidence. Session/CLI execution remains in progress; no campaign, compatibility profile, performance or workstream gate is promoted."
+}

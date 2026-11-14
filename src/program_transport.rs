@@ -15,9 +15,9 @@ use crate::objective::ObjectiveProblem;
 use fsym_budget::BudgetMeter;
 use fsym_calculus::VerifiedResidualSystem;
 use fsym_calculus::program_artifact::{
-    ProgramAdmissionError, ProgramArtifactError, admit_objective_candidate, admit_residual_candidate,
-    decode_objective_candidate, decode_residual_candidate, encode_objective_candidate,
-    encode_residual_candidate,
+    ProgramAdmissionError, ProgramArtifactError, admit_objective_candidate,
+    admit_residual_candidate, decode_objective_candidate, decode_residual_candidate,
+    encode_objective_candidate, encode_residual_candidate,
 };
 use fsym_calculus::sparse_hessian::{ObjectiveCandidate, VerifiedObjective};
 use fsym_calculus::sparse_jacobian::SparseJacobian;

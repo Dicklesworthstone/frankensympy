@@ -1,0 +1,53 @@
+Native derivative program validation
+Repository: /workspace/scratch/be76fc747855/frankensympy
+Toolchain: repository-pinned nightly-2026-08-20
+Environment: PATH=/home/agent/.cargo/bin:$PATH RUSTUP_HOME=/workspace/scratch/be76fc747855/rustup CARGO_HOME=/workspace/scratch/be76fc747855/cargo-cache CARGO_BUILD_JOBS=1 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
+No RUSTFLAGS, CARGO_TARGET_DIR, codegen, or incremental overrides.
+
+Command: cargo test -p fsym-calculus --test program_admission --test program_artifact --locked
+Executor session: 89391
+Exit code: 0
+The following is the complete terminal output returned for this execution:
+
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/be76fc747855/frankensympy/crates/fsym-calculus)
+    Finished `test` profile [unoptimized] target(s) in 2m 10s
+     Running tests/program_admission.rs (target/debug/build/fsym-calculus/0b38327c5d189b19/out/program_admission-0b38327c5d189b19)
+
+running 11 tests
+test caller_source_is_preflighted_without_trusting_candidate_decode_bounds ... ok
+test original_held_poles_survive_admission_and_zero_direction_evaluation ... ok
+test receiving_residual_source_binds_and_all_sparse_products_execute ... ok
+test typed_axis_identity_order_count_and_unused_axes_are_bound ... ok
+test cancellation_before_binding_during_verification_and_at_publication_stays_typed ... ok
+test raw_source_order_multiplicity_and_scalar_variants_cannot_be_normalized_away ... ok
+test every_resource_dimension_refuses_at_the_measured_cumulative_boundary ... ok
+test receiving_objective_binds_and_gradient_hessian_products_execute ... ok
+test valid_proofs_for_a_different_source_do_not_authorize_replay ... ok
+test independent_verifier_rejects_source_matching_derivative_proof_bytecode_and_omission_mutants ... ok
+test decode_and_independent_admission_share_a_ledger_with_protected_verifier_compute ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/program_artifact.rs (target/debug/build/fsym-calculus/7b951c005f822352/out/program_artifact-7b951c005f822352)
+
+running 10 tests
+test export_checks_retained_rational_height_before_any_output_allocation ... ok
+test schemas_kinds_duplicates_unknown_fields_and_noncanonical_json_refuse ... ok
+test objective_export_refuses_nonfinite_retained_bytecode ... ok
+test scalar_preflight_rejects_excess_limbs_zero_denominators_and_nonreduced_rationals ... ok
+test imported_programs_keep_original_domains_even_for_zero_numeric_directions ... ok
+test objective_round_trip_preserves_gradient_hessian_products_and_exact_candidate ... ok
+test residual_round_trip_preserves_typed_axes_proofs_bytecode_and_all_numeric_products ... ok
+test shape_depth_proof_and_bytecode_bounds_precede_full_candidate_materialization ... ok
+test decoding_never_grants_math_authority_to_forged_proofs_bytecode_or_sparse_omissions ... ok
+test transport_consumes_cumulative_ordinary_budget_and_refuses_exhaustion_or_cancellation ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+Provenance and preceding attempts:
+- An initial cold Cargo test invocation was interrupted after expensive development-dependency compilation (session 77513, exit 130); no test pass was claimed for that attempt.
+- Actual `cargo build --locked -p fsym-calculus --lib` with the exact environment succeeded (session 30176, exit 0, Finished dev in 2.00s).
+- An artifact-diagnostic build briefly omitted profile debug overrides, was immediately interrupted (session 29024, exit 130), and is not validation evidence.
+- Exact-env artifact listing confirmed the original dependency cache and successful actual library build (session 64104, exit 0, Finished dev in 3.88s).
+- The first subsequent selected test compile failed with E0046: InterruptAt's BudgetMeter implementation lacked required charge_batch (session 28639, exit 101). A required test-only trait method was added. No assertions or production charging behavior changed.
+- The complete selected test rerun above used the ordinary Cargo command, original repository dependency graph, and exact pinned toolchain; it did not use a replacement runtime, source harness, or direct rustc shortcut.
