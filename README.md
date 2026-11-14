@@ -254,6 +254,14 @@ and every evaluation retains original source-domain checks. The
 [session guide](docs/NATIVE_CERTIFICATION_SESSION.md) includes complete NDJSON
 examples and the distinct numerical, symbolic and interval-proof contracts.
 
+Compiled programs can also be exported and independently replayed in a fresh
+session. The receiver registers its own expected source and coordinate order;
+source, symbol-identity, context, derivative-proof and bytecode checks precede
+publication of a new handle. Both residual and objective programs support
+inline and chunked transfer, with cumulative budgets and protected verifier
+resources. Numerical values remain approximate binary64. Stored acceptance
+flags, cached values and shared execution plans are never imported as authority.
+
 ### Objective derivatives and local stationary points
 
 The native session also accepts `RegisterObjective`, `EncloseObjective`, and

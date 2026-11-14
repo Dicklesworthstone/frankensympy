@@ -6,12 +6,14 @@
 //! grants no interval, convexity, smoothness-on-a-box or optimality claim.
 
 use super::{
-    CERTIFICATION_REQUEST_SCHEMA, CertificationResponse, CertificationSessionError, ObjectiveId,
-    admit_response, charge, valid_label,
+    CERTIFICATION_REQUEST_SCHEMA, CertificationResponse, CertificationSessionError,
+    MAX_SESSION_ROOT_ARTIFACT_BYTES, ObjectiveId, admit_response, charge, valid_label,
 };
 use crate::objective::ObjectiveProblem;
+use crate::program_transport::{decode_objective_program, export_objective_program};
 use fsym_budget::{Budget, BudgetError, BudgetMeter, MeterError, VerifierLease};
 use fsym_calculus::compile::EvalError;
+use fsym_calculus::program_artifact::admit_objective_candidate;
 use fsym_calculus::sparse_hessian::{
     ObjectiveCandidate, ObjectiveCompilationError, ObjectiveEvaluationError, VerifiedObjective,
 };
@@ -62,6 +64,14 @@ pub(super) struct CompiledObjectiveState {
     programs: BTreeMap<CompiledObjectiveId, ResidentObjective>,
 }
 
+pub(super) struct ObjectiveReplay<'a> {
+    pub source: ObjectiveId,
+    pub id: CompiledObjectiveId,
+    pub problem: &'a ObjectiveProblem,
+    pub context_digest: [u8; 32],
+    pub bytes: &'a [u8],
+}
+
 impl CompiledObjectiveState {
     pub(super) fn objective(&self, id: &CompiledObjectiveId) -> Option<&VerifiedObjective> {
         self.programs.get(id).map(|resident| &resident.program)
@@ -76,15 +86,8 @@ impl CompiledObjectiveState {
         budget: &mut Budget,
         lease: Option<&VerifierLease>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
-        budget.checkpoint()?;
-        if self.programs.contains_key(&id) {
-            return Err(CertificationSessionError::DuplicateObject);
-        }
-        if self.programs.len() >= MAX_SESSION_COMPILED_OBJECTIVES {
-            return Err(CertificationSessionError::ObjectLimit);
-        }
+        self.admit_id(&id, budget)?;
         let lease = lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
-        // Reserve bounded map/identifier metadata before generating a proposal.
         charge(budget, 1, 4096)?;
         let candidate = ObjectiveCandidate::try_build_with_meter(
             problem.objective(),
@@ -97,6 +100,57 @@ impl CompiledObjectiveState {
             candidate,
             &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
         )?;
+        self.publish(source, id, program, context_digest, budget)
+    }
+
+    pub(super) fn replay(
+        &mut self,
+        request: ObjectiveReplay<'_>,
+        budget: &mut Budget,
+        lease: Option<&VerifierLease>,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        self.admit_id(&request.id, budget)?;
+        let lease = lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+        charge(budget, 1, 4096)?;
+        let candidate = decode_objective_program(request.bytes, request.context_digest, budget)?;
+        let program = admit_objective_candidate(
+            request.problem.objective(),
+            request.problem.variables(),
+            candidate,
+            &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+        )?;
+        self.publish(
+            request.source,
+            request.id,
+            program,
+            request.context_digest,
+            budget,
+        )
+    }
+
+    fn admit_id(
+        &self,
+        id: &CompiledObjectiveId,
+        budget: &mut Budget,
+    ) -> Result<(), CertificationSessionError> {
+        budget.checkpoint()?;
+        if self.programs.contains_key(id) {
+            return Err(CertificationSessionError::DuplicateObject);
+        }
+        if self.programs.len() >= MAX_SESSION_COMPILED_OBJECTIVES {
+            return Err(CertificationSessionError::ObjectLimit);
+        }
+        Ok(())
+    }
+
+    fn publish(
+        &mut self,
+        source: ObjectiveId,
+        id: CompiledObjectiveId,
+        program: VerifiedObjective,
+        context_digest: [u8; 32],
+        budget: &mut Budget,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
         charge(
             budget,
             program.variables().len() + program.hessian_pattern().len(),
@@ -131,6 +185,50 @@ impl CompiledObjectiveState {
                 program,
             },
         );
+        Ok(response)
+    }
+
+    pub(super) fn export_bytes(
+        &self,
+        id: &CompiledObjectiveId,
+        budget: &mut Budget,
+    ) -> Result<Vec<u8>, CertificationSessionError> {
+        budget.checkpoint()?;
+        let resident = self
+            .programs
+            .get(id)
+            .ok_or(CertificationSessionError::UnknownCompiledObjective)?;
+        Ok(export_objective_program(
+            &resident.program,
+            resident.context_digest,
+            budget,
+        )?)
+    }
+
+    pub(super) fn export(
+        &self,
+        id: CompiledObjectiveId,
+        budget: &mut Budget,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        let bytes = self.export_bytes(&id, budget)?;
+        if bytes.len() > MAX_SESSION_ROOT_ARTIFACT_BYTES {
+            return Err(CertificationSessionError::ArtifactLimit);
+        }
+        let resident = self
+            .programs
+            .get(&id)
+            .ok_or(CertificationSessionError::UnknownCompiledObjective)?;
+        charge(budget, 1, resident.source.as_str().len())?;
+        let artifact = String::from_utf8(bytes).map_err(|_| {
+            CertificationSessionError::Serialization("invalid program artifact UTF-8".into())
+        })?;
+        let response = CertificationResponse::CompiledObjectiveExported {
+            schema_version: CERTIFICATION_REQUEST_SCHEMA,
+            objective: resident.source.clone(),
+            program: id,
+            artifact,
+        };
+        admit_response(&response, budget)?;
         Ok(response)
     }
 

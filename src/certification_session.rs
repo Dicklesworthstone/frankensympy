@@ -35,6 +35,7 @@ use fsym_calculus::box_optimization::{
     BoxOptimizationCounters, BoxOptimizationOptions, BoxOptimizationProgress,
     BoxOptimizationSearch, BoxOptimizationSearchStatus, MAX_BOX_OPTIMIZATION_ADVANCE_SPLITS,
 };
+use fsym_calculus::program_artifact::{ProgramAdmissionError, ProgramArtifactError};
 use fsym_calculus::quadrature::QuadratureOptions;
 use fsym_calculus::root_isolation::{
     MAX_ROOT_ISOLATION_ADVANCE_CELLS, RootIsolationOptions, RootIsolationProgress,
@@ -394,6 +395,8 @@ pub enum ArtifactSource {
     BoxOptimization(BoxOptimizationId),
     BoxOptimizationSearch(BoxOptimizationSearchId),
     ParametricFamily(ParametricFamilyId),
+    CompiledResidualSystem(CompiledResidualSystemId),
+    CompiledObjective(CompiledObjectiveId),
 }
 
 /// Bounded certification operations accepted by the native session and NDJSON
@@ -407,6 +410,23 @@ pub enum CertificationRequest {
         schema_version: u32,
         objective: ObjectiveId,
         program: CompiledObjectiveId,
+    },
+    ExportCompiledObjective {
+        schema_version: u32,
+        program: CompiledObjectiveId,
+    },
+    /// Independently verify an untrusted program against a registered objective.
+    ReplayCompiledObjective {
+        schema_version: u32,
+        objective: ObjectiveId,
+        program: CompiledObjectiveId,
+        artifact: String,
+    },
+    ReplayCompiledObjectiveFromArtifact {
+        schema_version: u32,
+        objective: ObjectiveId,
+        program: CompiledObjectiveId,
+        transfer: ArtifactTransferId,
     },
     /// Reuse an admitted objective for approximate binary64 evaluation.
     EvaluateObjective {
@@ -431,6 +451,24 @@ pub enum CertificationRequest {
         schema_version: u32,
         system: ResidualSystemId,
         program: CompiledResidualSystemId,
+    },
+    ExportCompiledResidualSystem {
+        schema_version: u32,
+        program: CompiledResidualSystemId,
+    },
+    /// Decode without trusting receipts, then independently admit the proposal
+    /// against the receiver's original source, typed coordinates and context.
+    ReplayCompiledResidualSystem {
+        schema_version: u32,
+        system: ResidualSystemId,
+        program: CompiledResidualSystemId,
+        artifact: String,
+    },
+    ReplayCompiledResidualSystemFromArtifact {
+        schema_version: u32,
+        system: ResidualSystemId,
+        program: CompiledResidualSystemId,
+        transfer: ArtifactTransferId,
     },
     /// Finite decimal inputs are rounded to binary64. The returned values are
     /// approximate; exact interval/root operations retain separate contracts.
@@ -824,10 +862,16 @@ impl CertificationRequest {
     fn schema_version(&self) -> u32 {
         match self {
             Self::CompileObjective { schema_version, .. }
+            | Self::ExportCompiledObjective { schema_version, .. }
+            | Self::ReplayCompiledObjective { schema_version, .. }
+            | Self::ReplayCompiledObjectiveFromArtifact { schema_version, .. }
             | Self::EvaluateObjective { schema_version, .. }
             | Self::EvaluateHessianVectorProduct { schema_version, .. }
             | Self::ReleaseCompiledObjective { schema_version, .. }
             | Self::CompileResidualSystem { schema_version, .. }
+            | Self::ExportCompiledResidualSystem { schema_version, .. }
+            | Self::ReplayCompiledResidualSystem { schema_version, .. }
+            | Self::ReplayCompiledResidualSystemFromArtifact { schema_version, .. }
             | Self::EvaluateResidualJacobian { schema_version, .. }
             | Self::EvaluateJacobianVectorProduct { schema_version, .. }
             | Self::EvaluateJacobianTransposeVectorProduct { schema_version, .. }
@@ -935,6 +979,12 @@ pub(crate) fn decode_request(
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CertificationResponse {
+    CompiledObjectiveExported {
+        schema_version: u32,
+        objective: ObjectiveId,
+        program: CompiledObjectiveId,
+        artifact: String,
+    },
     ObjectiveCompiled {
         schema_version: u32,
         objective: ObjectiveId,
@@ -988,6 +1038,12 @@ pub enum CertificationResponse {
         proofs_verified: usize,
         stored_operations: usize,
         context_digest: [u8; 32],
+    },
+    CompiledResidualSystemExported {
+        schema_version: u32,
+        system: ResidualSystemId,
+        program: CompiledResidualSystemId,
+        artifact: String,
     },
     ResidualJacobianEvaluated {
         schema_version: u32,
@@ -1381,7 +1437,7 @@ pub enum CertificationSessionError {
     #[error("box endpoints are reversed or dimensions are inconsistent")]
     InvalidDomain,
     #[error(
-        "certificate exceeds the bounded single-frame session transport; use chunked artifact transfer"
+        "artifact exceeds the bounded single-frame session transport; use chunked artifact transfer"
     )]
     ArtifactLimit,
     #[error("certification response exceeds its output limit")]
@@ -1400,6 +1456,10 @@ pub enum CertificationSessionError {
     ObjectiveCompilation(#[from] fsym_calculus::sparse_hessian::ObjectiveCompilationError),
     #[error("objective evaluation refused: {0}")]
     ObjectiveEvaluation(#[from] fsym_calculus::sparse_hessian::ObjectiveEvaluationError),
+    #[error("compiled program transport refused: {0}")]
+    ProgramTransport(#[from] crate::program_transport::ProgramTransportError),
+    #[error("compiled program admission refused: {0}")]
+    ProgramAdmission(#[from] ProgramAdmissionError),
     #[error("integral certification refused: {0}")]
     Integration(#[from] IntegrationError),
     #[error("global box optimization refused: {0}")]
@@ -1452,6 +1512,22 @@ impl CertificationSessionError {
             Self::Evaluation(error) => compiled::evaluation_error_code(error),
             Self::ObjectiveCompilation(error) => compiled_objective::compilation_error_code(error),
             Self::ObjectiveEvaluation(error) => compiled_objective::evaluation_error_code(error),
+            Self::ProgramTransport(error) => match error {
+                crate::program_transport::ProgramTransportError::Envelope(error) => {
+                    certification_error_code(error)
+                }
+                crate::program_transport::ProgramTransportError::Candidate(error) => {
+                    program_artifact_error_code(error)
+                }
+            },
+            Self::ProgramAdmission(error) => match error {
+                ProgramAdmissionError::Transport(error) => program_artifact_error_code(error),
+                ProgramAdmissionError::SourceMismatch(_) => "source_mismatch",
+                ProgramAdmissionError::Residual(error) => compiled::compilation_error_code(error),
+                ProgramAdmissionError::Objective(error) => {
+                    compiled_objective::compilation_error_code(error)
+                }
+            },
             Self::Integration(error) => integration_error_code(error),
             Self::Optimization(error) => optimization_error_code(error),
             Self::Parametric(error) => parametric::error_code(error),
@@ -1459,6 +1535,22 @@ impl CertificationSessionError {
             Self::DurableSearch(error) => durable_search_error_code(error),
             Self::RepairableSearch(error) => repairable_search_error_code(error),
         }
+    }
+}
+
+fn program_artifact_error_code(error: &ProgramArtifactError) -> &'static str {
+    match error {
+        ProgramArtifactError::Budget(MeterError::Cancelled) => "cancelled",
+        ProgramArtifactError::Budget(MeterError::Budget(_)) => "budget_exhausted",
+        ProgramArtifactError::ByteLimit { .. }
+        | ProgramArtifactError::DepthLimit { .. }
+        | ProgramArtifactError::ResourceLimit { .. }
+        | ProgramArtifactError::AllocationFailure => "resource_limit_exceeded",
+        ProgramArtifactError::UnsupportedVersion { .. } => "unsupported_schema",
+        ProgramArtifactError::WrongKind { .. } => "artifact_kind_mismatch",
+        ProgramArtifactError::Encoding(_)
+        | ProgramArtifactError::NonCanonical
+        | ProgramArtifactError::NonFiniteBytecode => "invalid_artifact",
     }
 }
 
@@ -2586,6 +2678,64 @@ impl CertificationState {
                     lease,
                 )
             }
+            CertificationRequest::ExportCompiledObjective { program, .. } => {
+                self.compiled_objectives.export(program, budget)
+            }
+            CertificationRequest::ReplayCompiledObjective {
+                objective,
+                program,
+                artifact,
+                ..
+            } => {
+                if artifact.len() > MAX_SESSION_ROOT_ARTIFACT_BYTES {
+                    return Err(CertificationSessionError::ArtifactLimit);
+                }
+                let problem = self
+                    .objectives
+                    .get(&objective)
+                    .ok_or(CertificationSessionError::UnknownObjective)?;
+                self.compiled_objectives.replay(
+                    compiled_objective::ObjectiveReplay {
+                        source: objective,
+                        id: program,
+                        problem,
+                        context_digest,
+                        bytes: artifact.as_bytes(),
+                    },
+                    budget,
+                    lease,
+                )
+            }
+            CertificationRequest::ReplayCompiledObjectiveFromArtifact {
+                objective,
+                program,
+                transfer,
+                ..
+            } => {
+                let problem = self
+                    .objectives
+                    .get(&objective)
+                    .ok_or(CertificationSessionError::UnknownObjective)?;
+                let import = match self.transfers.get(&transfer) {
+                    Some(ResidentArtifact::Import(import)) => import,
+                    Some(ResidentArtifact::Export(_)) => {
+                        return Err(CertificationSessionError::WrongTransferMode);
+                    }
+                    None => return Err(CertificationSessionError::UnknownTransfer),
+                };
+                let bytes = import.checked_bytes(ArtifactKind::CompiledObjective, budget)?;
+                self.compiled_objectives.replay(
+                    compiled_objective::ObjectiveReplay {
+                        source: objective,
+                        id: program,
+                        problem,
+                        context_digest,
+                        bytes,
+                    },
+                    budget,
+                    lease,
+                )
+            }
             CertificationRequest::EvaluateObjective { program, point, .. } => {
                 self.compiled_objectives.evaluate(program, &point, budget)
             }
@@ -2609,6 +2759,64 @@ impl CertificationState {
                     .ok_or(CertificationSessionError::UnknownSystem)?;
                 self.compiled
                     .compile(system, program, problem, context_digest, budget, lease)
+            }
+            CertificationRequest::ExportCompiledResidualSystem { program, .. } => {
+                self.compiled.export(program, budget)
+            }
+            CertificationRequest::ReplayCompiledResidualSystem {
+                system,
+                program,
+                artifact,
+                ..
+            } => {
+                if artifact.len() > MAX_SESSION_ROOT_ARTIFACT_BYTES {
+                    return Err(CertificationSessionError::ArtifactLimit);
+                }
+                let problem = self
+                    .systems
+                    .get(&system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                self.compiled.replay(
+                    compiled::ResidualReplay {
+                        source: system,
+                        id: program,
+                        problem,
+                        context_digest,
+                        bytes: artifact.as_bytes(),
+                    },
+                    budget,
+                    lease,
+                )
+            }
+            CertificationRequest::ReplayCompiledResidualSystemFromArtifact {
+                system,
+                program,
+                transfer,
+                ..
+            } => {
+                let problem = self
+                    .systems
+                    .get(&system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                let import = match self.transfers.get(&transfer) {
+                    Some(ResidentArtifact::Import(import)) => import,
+                    Some(ResidentArtifact::Export(_)) => {
+                        return Err(CertificationSessionError::WrongTransferMode);
+                    }
+                    None => return Err(CertificationSessionError::UnknownTransfer),
+                };
+                let bytes = import.checked_bytes(ArtifactKind::CompiledResidualSystem, budget)?;
+                self.compiled.replay(
+                    compiled::ResidualReplay {
+                        source: system,
+                        id: program,
+                        problem,
+                        context_digest,
+                        bytes,
+                    },
+                    budget,
+                    lease,
+                )
             }
             CertificationRequest::EvaluateResidualJacobian { program, point, .. } => {
                 self.compiled.evaluate(program, &point, budget)
@@ -3867,6 +4075,14 @@ impl CertificationState {
             } => {
                 self.admit_transfer_id(&transfer, budget)?;
                 let (kind, bytes) = match source {
+                    ArtifactSource::CompiledResidualSystem(program) => (
+                        ArtifactKind::CompiledResidualSystem,
+                        self.compiled.export_bytes(&program, budget)?,
+                    ),
+                    ArtifactSource::CompiledObjective(program) => (
+                        ArtifactKind::CompiledObjective,
+                        self.compiled_objectives.export_bytes(&program, budget)?,
+                    ),
                     ArtifactSource::ParametricFamily(family) => {
                         let (_, bytes) = self.parametric.export_bytes(&family, budget)?;
                         (ArtifactKind::ParametricFamily, bytes)

@@ -7,7 +7,8 @@ complete finite-box root sets, objective/gradient/Hessian enclosures, locally
 classified stationary points, global box optimum value bounds, proper finite real
 definite integrals, complete parameter-root families and implicit sensitivities.
 Portable artifacts cover local roots, root isolation, stationary points, global
-optimization, integrals and candidate search checkpoints. This interface does not close the complete Certified
+optimization, integrals, candidate search checkpoints and compiled derivative
+programs. This interface does not close the complete Certified
 Jacobian campaign or certify a SymPy compatibility profile.
 
 ## Run an exact root check
@@ -189,7 +190,9 @@ nonfinite values, dimension mismatches and strings longer than 512 bytes refuse.
 Original residual and derivative domains are rechecked on every execution,
 including zero directions or zero weights. Overflow refuses the whole result.
 
-Programs are session-local and immutable even after workspace rebinding. At
+Program handles are session-local and immutable even after workspace rebinding.
+Their source-bound candidates can be exported and independently replayed in a
+fresh session, as described below. At
 most 32 residual programs may be resident. Compilation uses ordinary resources
 for generation and protected resources for independent acceptance. Repeated
 evaluation and response admission consume the same cumulative session budget.
@@ -255,6 +258,89 @@ and verifier meters. `VerifiedObjective::try_compile_with_meter` is a convenienc
 entry point using one cumulative meter for both phases. Charges represent
 logical work and storage; bounded synchronous derivative and proof kernels
 retain their declared cancellation boundaries.
+
+## Export and independently replay compiled derivative programs
+
+A residual/Jacobian or objective/gradient/Hessian program can be transferred to
+another process without asking that process to generate new symbolic
+derivatives. The receiver registers its own expected original expression(s) and
+ordered coordinates, then independently checks the imported derivative proofs,
+sparse coverage and bytecode provenance. Only successful admission produces a
+new resident program handle and freshly computed verification receipt.
+
+For a residual program, send these lines to the producing session:
+
+```json
+{"id":"register","type":"RegisterResidualSystem","payload":{"schema_version":1,"system":"system:source","residuals":["x^2+y","sin(y)","7"],"variables":["y","x"]}}
+{"id":"compile","type":"CompileResidualSystem","payload":{"schema_version":1,"system":"system:source","program":"program:source"}}
+{"id":"export","type":"ExportCompiledResidualSystem","payload":{"schema_version":1,"program":"program:source"}}
+```
+
+Retain the exact `result.artifact` string. In a new process, register the expected
+source and replay it under new session-local names:
+
+```json
+{"id":"register","type":"RegisterResidualSystem","payload":{"schema_version":1,"system":"system:expected","residuals":["x^2+y","sin(y)","7"],"variables":["y","x"]}}
+{"id":"replay","type":"ReplayCompiledResidualSystem","payload":{"schema_version":1,"system":"system:expected","program":"program:received","artifact":"<the exact result.artifact string, JSON-escaped by your client>"}}
+{"id":"evaluate","type":"EvaluateJacobianVectorProduct","payload":{"schema_version":1,"program":"program:received","point":["0","2"],"direction":["3","-2"]}}
+```
+
+The product is `[-5,3,0]`. The received handle also supports
+`EvaluateResidualJacobian`, `EvaluateJacobianTransposeVectorProduct`, reexport,
+and `ReleaseCompiledResidualSystem` just like a locally compiled program.
+
+For an objective, use `ExportCompiledObjective` with `program`, followed by
+`ReplayCompiledObjective` with `objective`, a new `program`, and `artifact`.
+The receiving objective must already be registered. Replay returns the ordinary
+`objective_compiled` response, and the new handle supports `EvaluateObjective`,
+`EvaluateHessianVectorProduct`, reexport, and `ReleaseCompiledObjective`.
+
+Inline artifacts are limited to 24 KiB. Both kinds also use the existing 1 MiB
+chunked transfer route:
+
+| Export source | Receiving request | Required receiving fields |
+| --- | --- | --- |
+| `{"compiled_residual_system":"program:source"}` | `ReplayCompiledResidualSystemFromArtifact` | `system`, new `program`, completed `transfer` |
+| `{"compiled_objective":"objective_program:source"}` | `ReplayCompiledObjectiveFromArtifact` | `objective`, new `program`, completed `transfer` |
+
+Each request also requires `schema_version: 1`. Forward the manifest and every
+chunk without rewriting the artifact. Transfer digests prove byte integrity;
+they do not authorize execution. The input frame remains limited to 64 KiB,
+each chunk carries at most 16 KiB, and the existing eight-transfer bound applies.
+An imported transfer remains available after successful or failed replay until
+explicitly released; an accepted program remains valid after transfer release.
+
+The canonical envelope binds the program's frozen compilation context. The
+receiver must match that context and the complete original typed source,
+including held operand order and multiplicity, exact scalar variants, residual
+order, and symbol identities. A source that differs only by a cancelled pole
+still differs: `x^2+0*(1/x)` cannot replace `x^2`. Original source and derivative
+domain checks run on every numerical execution, including zero-vector products.
+
+Decoding and canonicalization consume ordinary cumulative resources. Source
+binding, derivative proof replay, omitted-zero checking, bytecode admission and
+reconstruction of derived evaluation plans consume the protected verifier pool
+on the same ledger. Response admission and the final cancellation check precede
+handle publication. Wrong kind/schema, unknown or duplicate fields, altered
+proofs, noncanonical encodings, resource exhaustion and context/source mismatches
+leave no new compiled handle. A failed import never refunds spent resources.
+
+The format contains untrusted source, derivative and bytecode candidates. It
+does not transport trusted receipts, accepted flags, shared evaluation plans or
+numeric caches. Its bounded proof profile admits the current single-step
+definitional derivative certificates. Receiving derivative proofs and bytecode
+are checked directly; original residual bytecode and local shared evaluation
+plans are rebuilt as part of independent admission. All numerical outputs
+remain explicitly `approximate` / `binary64`. Replay does not grant an interval,
+root, rounding-error, smoothness-on-a-box or optimization certificate.
+
+Rust callers can use `export_residual_program` / `export_objective_program` and
+`decode_residual_program` / `decode_objective_program` with a caller-owned meter
+and expected context. Decoding returns only an untrusted candidate. Complete
+the boundary with `fsym_calculus::program_artifact::admit_residual_candidate` or
+`admit_objective_candidate`, supplying the receiver's raw expressions and
+ordered typed variables and an independent verifier meter. The typed Session
+requests perform those stages and publication together.
 
 ## Enclose an objective and certify a stationary point
 
@@ -722,7 +808,7 @@ string through their JSON encoder without parsing and rewriting its contents.
 
 ## Transfer certificates and checkpoints larger than one frame
 
-All certificate, root-checkpoint and optimization-checkpoint artifact kinds support a chunked route up to the native 1 MiB artifact
+All certificate, derivative-program, root-checkpoint and optimization-checkpoint artifact kinds support a chunked route up to the native 1 MiB artifact
 limit. This route preserves the 64 KiB input frame limit. Each chunk carries
 at most 16 KiB of bytes encoded as at most 32 KiB of lowercase hexadecimal;
 schema 1 has at most 64 chunks. Clients can forward the returned manifest and
@@ -748,6 +834,8 @@ Select the source and receiving operation for the object being transferred:
 | `{"stationary_certificate":"stationary:minimum"}` | `stationary_certificate` | `ReplayStationaryCertificateFromArtifact` |
 | `{"box_optimization":"optimization:minimum"}` | `box_optimization` | `ReplayBoxOptimizationFromArtifact` |
 | `{"parametric_family":"family:affine"}` | `parametric_family` | `ReplayParametricFamilyFromArtifact` |
+| `{"compiled_residual_system":"program:source"}` | `compiled_residual_system` | `ReplayCompiledResidualSystemFromArtifact` |
+| `{"compiled_objective":"objective_program:source"}` | `compiled_objective` | `ReplayCompiledObjectiveFromArtifact` |
 
 The begin response's `result.manifest` contains `schema_version`, `kind`,
 `total_bytes` and `content_id`. The read response's `result.chunk` contains
@@ -795,7 +883,8 @@ The complete content ID is checked before replay or restoration.
 Per-chunk digests bind the full content ID, chunk index and chunk bytes; the
 content ID binds the artifact kind, length and bytes. Neither successful
 transfer nor a matching digest creates a certificate or a search handle.
-Root, integral, stationary-point, global-optimization and parameter-family replay require protected independent verification of
+Root, integral, stationary-point, global-optimization, parameter-family and
+compiled-program replay require protected independent verification of
 the canonical artifact and its expected statement. Checkpoint restoration
 rechecks the candidate prefix on ordinary resources; protected finish remains
 necessary for acceptance. Using a checkpoint transfer as a proof fails with

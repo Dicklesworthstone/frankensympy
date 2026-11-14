@@ -118,6 +118,8 @@ pub enum ArtifactKind {
     BoxOptimization,
     ParametricFamily,
     BoxOptimizationCheckpoint,
+    CompiledResidualSystem,
+    CompiledObjective,
 }
 
 impl ArtifactKind {
@@ -131,6 +133,8 @@ impl ArtifactKind {
             Self::BoxOptimization => 6,
             Self::ParametricFamily => 7,
             Self::BoxOptimizationCheckpoint => 8,
+            Self::CompiledResidualSystem => 9,
+            Self::CompiledObjective => 10,
         }
     }
 }

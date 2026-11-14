@@ -6,12 +6,14 @@
 
 use super::{
     CERTIFICATION_REQUEST_SCHEMA, CertificationResponse, CertificationSessionError,
-    ResidualSystemId, admit_response, charge, valid_label,
+    MAX_SESSION_ROOT_ARTIFACT_BYTES, ResidualSystemId, admit_response, charge, valid_label,
 };
 use crate::certification::ResidualProblem;
+use crate::program_transport::{decode_residual_program, export_residual_program};
 use fsym_budget::{Budget, BudgetError, BudgetMeter, MeterError, VerifierLease};
 use fsym_calculus::VerifiedResidualSystem;
 use fsym_calculus::compile::{CompileError, EvalError};
+use fsym_calculus::program_artifact::admit_residual_candidate;
 use fsym_calculus::sparse_jacobian::{JacobianVerificationError, SparseJacobian};
 use fsym_calculus::verified::{ResidualEvaluationError, VerifiedCompilationError};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -59,6 +61,14 @@ pub(super) struct CompiledState {
     programs: BTreeMap<CompiledResidualSystemId, ResidentProgram>,
 }
 
+pub(super) struct ResidualReplay<'a> {
+    pub source: ResidualSystemId,
+    pub id: CompiledResidualSystemId,
+    pub problem: &'a ResidualProblem,
+    pub context_digest: [u8; 32],
+    pub bytes: &'a [u8],
+}
+
 impl CompiledState {
     pub(super) fn system(&self, id: &CompiledResidualSystemId) -> Option<&VerifiedResidualSystem> {
         self.programs.get(id).map(|resident| &resident.program)
@@ -73,15 +83,8 @@ impl CompiledState {
         budget: &mut Budget,
         lease: Option<&VerifierLease>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
-        budget.checkpoint()?;
-        if self.programs.contains_key(&id) {
-            return Err(CertificationSessionError::DuplicateObject);
-        }
-        if self.programs.len() >= MAX_SESSION_COMPILED_SYSTEMS {
-            return Err(CertificationSessionError::ObjectLimit);
-        }
+        self.admit_id(&id, budget)?;
         let lease = lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
-        // Reserve bounded map/identifier metadata before creating a candidate.
         charge(budget, 1, 4096)?;
         let candidate =
             SparseJacobian::try_build_with_meter(problem.residuals(), problem.variables(), budget)
@@ -90,6 +93,59 @@ impl CompiledState {
             candidate,
             &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
         )?;
+        self.publish(source, id, program, context_digest, budget)
+    }
+
+    pub(super) fn replay(
+        &mut self,
+        request: ResidualReplay<'_>,
+        budget: &mut Budget,
+        lease: Option<&VerifierLease>,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        self.admit_id(&request.id, budget)?;
+        let lease = lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+        charge(budget, 1, 4096)?;
+        // Untrusted byte parsing uses ordinary resources. Exact source binding,
+        // derivative proof replay and bytecode admission have protected fuel.
+        let candidate = decode_residual_program(request.bytes, request.context_digest, budget)?;
+        let program = admit_residual_candidate(
+            request.problem.residuals(),
+            request.problem.variables(),
+            candidate,
+            &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+        )?;
+        self.publish(
+            request.source,
+            request.id,
+            program,
+            request.context_digest,
+            budget,
+        )
+    }
+
+    fn admit_id(
+        &self,
+        id: &CompiledResidualSystemId,
+        budget: &mut Budget,
+    ) -> Result<(), CertificationSessionError> {
+        budget.checkpoint()?;
+        if self.programs.contains_key(id) {
+            return Err(CertificationSessionError::DuplicateObject);
+        }
+        if self.programs.len() >= MAX_SESSION_COMPILED_SYSTEMS {
+            return Err(CertificationSessionError::ObjectLimit);
+        }
+        Ok(())
+    }
+
+    fn publish(
+        &mut self,
+        source: ResidualSystemId,
+        id: CompiledResidualSystemId,
+        program: VerifiedResidualSystem,
+        context_digest: [u8; 32],
+        budget: &mut Budget,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
         charge(
             budget,
             program.num_vars() + program.jacobian_pattern().len(),
@@ -124,6 +180,51 @@ impl CompiledState {
                 program,
             },
         );
+        Ok(response)
+    }
+
+    pub(super) fn export_bytes(
+        &self,
+        id: &CompiledResidualSystemId,
+        budget: &mut Budget,
+    ) -> Result<Vec<u8>, CertificationSessionError> {
+        budget.checkpoint()?;
+        let resident = self
+            .programs
+            .get(id)
+            .ok_or(CertificationSessionError::UnknownCompiledSystem)?;
+        // Export the program's frozen context, even after session rebinding.
+        Ok(export_residual_program(
+            &resident.program,
+            resident.context_digest,
+            budget,
+        )?)
+    }
+
+    pub(super) fn export(
+        &self,
+        id: CompiledResidualSystemId,
+        budget: &mut Budget,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        let bytes = self.export_bytes(&id, budget)?;
+        if bytes.len() > MAX_SESSION_ROOT_ARTIFACT_BYTES {
+            return Err(CertificationSessionError::ArtifactLimit);
+        }
+        let resident = self
+            .programs
+            .get(&id)
+            .ok_or(CertificationSessionError::UnknownCompiledSystem)?;
+        charge(budget, 1, resident.source.as_str().len())?;
+        let artifact = String::from_utf8(bytes).map_err(|_| {
+            CertificationSessionError::Serialization("invalid program artifact UTF-8".into())
+        })?;
+        let response = CertificationResponse::CompiledResidualSystemExported {
+            schema_version: CERTIFICATION_REQUEST_SCHEMA,
+            system: resident.source.clone(),
+            program: id,
+            artifact,
+        };
+        admit_response(&response, budget)?;
         Ok(response)
     }
 
