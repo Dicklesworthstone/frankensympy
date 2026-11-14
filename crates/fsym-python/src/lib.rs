@@ -2063,6 +2063,7 @@ mod finite_field_groebner;
 mod finite_field_ideal;
 mod finite_field_multivariate;
 mod finite_field_polynomial;
+mod forward_mellin;
 mod fourier;
 pub mod geometry;
 mod ideal_operations;
@@ -2246,6 +2247,10 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(
         rational_mellin::inverse_rational_mellin_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        forward_mellin::mellin_transform_native,
         m
     )?)?;
     m.add_function(wrap_pyfunction!(fourier_expr, m)?)?;

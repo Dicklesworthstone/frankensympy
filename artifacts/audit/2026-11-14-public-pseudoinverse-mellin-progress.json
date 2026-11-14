@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-11-14 20:40:07 UTC",
+  "scope": "Public exact sparse pseudoinverses and checked forward Mellin gamma/beta transforms",
+  "base_commit": "11800027d7ec8d347b1ed321fbb57635d779435c",
+  "native_feature_commits": {
+    "sparse": "0162ce38f362c9fb290e41c43d28a77123a9dd9a",
+    "mellin": "5a10af13bacd8fd38304b6fa25d8a1502f14fcc4"
+  },
+  "reviewed_source_git_blobs": [
+    {
+      "path": "crates/fsym-python/src/matrix.rs",
+      "blob_sha": "9dbfb8fd56d96d8df2e693bdec194c681f592cfe"
+    },
+    {
+      "path": "crates/fsym-python/src/lib.rs",
+      "blob_sha": "3d6ad5132773042bc374892315f02f7dbb77a45b"
+    },
+    {
+      "path": "crates/fsym-python/src/fourier.rs",
+      "blob_sha": "23cd4b5fe7777c5f70a657a3439bcfc1ff9dc9e4"
+    },
+    {
+      "path": "crates/fsym-python/src/forward_mellin.rs",
+      "blob_sha": "ba99c5572ea943bf48675ef5d76607b2599c2c6f"
+    },
+    {
+      "path": "python/sympy/matrices/sparse.py",
+      "blob_sha": "4c022c6ead9eff49b3285a613ac5f9bbac808750"
+    },
+    {
+      "path": "python/tests/test_sparse_pseudoinverse.py",
+      "blob_sha": "cc0e74b9c0d128c79f66f074258f4914515aefdc"
+    },
+    {
+      "path": "python/sympy/integrals/transforms.py",
+      "blob_sha": "f7013969c096a5178dc3f2d6c6378a87bdd566e6"
+    },
+    {
+      "path": "python/tests/test_forward_mellin.py",
+      "blob_sha": "a7491068a7e0ff403439df66a0f0f61a2316206e"
+    },
+    {
+      "path": "python/sympy/__init__.py",
+      "blob_sha": "b973d3b446e03ce673e15453126b1e2631a07d39"
+    }
+  ],
+  "source_provenance": "All nine complete source/test files were read from the frozen active worktree and uploaded before the production extension build. Publication independently reads each blob back and compares its entire content with those retained source buffers. No post-loss reconstructed source is substituted.",
+  "functionality": {
+    "sparse": {
+      "entry_points": [
+        "SparseMatrix.pinv(method='RD')",
+        "ImmutableSparseMatrix.pinv(method='RD')",
+        "native SparseMatrix.minimum_norm_least_squares(rhs)"
+      ],
+      "exact_domain": "literal rational original inputs; original retained surface/native snapshots must agree",
+      "result_classes": "nonzero mutable SparseMatrix returns Matrix; immutable input returns ImmutableSparseMatrix; exact zero/zero-area input keeps its sparse class before method inspection",
+      "terminal_limits": [
+        "nonzero ED is explicitly unsupported",
+        "native dimension/coefficient/work/fill bounds",
+        "dense final-output bound for nonzero mutable results"
+      ],
+      "guards": [
+        "original native descriptors and scalar/class ownership",
+        "exact input snapshot before and after native work and lifting",
+        "original result constructor admission",
+        "transposed output shape",
+        "no dense coefficient/intermediate fallback"
+      ]
+    },
+    "mellin": {
+      "entry_points": [
+        "sympy.mellin_transform",
+        "sympy.integrals.transforms.mellin_transform",
+        "MellinTransform.doit",
+        "native mellin_transform_native"
+      ],
+      "scope": "Exact rational gamma/beta kernels with rational shifts, positive scales/order and nonzero integer kernel powers up to absolute16, including reciprocal powers; bounds and independent source checks are in the native progress artifact",
+      "default_result": "Python tuple (F, (lower, upper), singleton sympy.true); noconds=True returns F",
+      "unsupported": "admitted unsupported sources remain a whole formal MellinTransform; needeval=True raises IntegralTransformError",
+      "terminal_failures": "held undefined sources, owner/payload mutation, resource limits and independent verifier errors do not become formal fallback",
+      "canonical_form_limit": "Beta answers may retain gamma products where upstream uses equivalent trigonometric forms; no broad structural/string parity claim"
+    }
+  },
+  "validation": {
+    "native": {
+      "sparse_new_tests": 17,
+      "sparse_adjacent_tests": 10,
+      "mellin_new_tests": 13,
+      "strict_scoped_clippy": "passed for both native features",
+      "artifacts": [
+        "artifacts/audit/2026-11-14-sparse-pseudoinverse-progress.json",
+        "artifacts/audit/2026-11-14-forward-mellin-progress.json"
+      ]
+    },
+    "public": {
+      "execution": "not completed; no pass claimed",
+      "authored_tests": [
+        "python/tests/test_sparse_pseudoinverse.py",
+        "python/tests/test_forward_mellin.py"
+      ],
+      "mellin_static_inventory": {
+        "functions": 20,
+        "parametrized_cases": 41,
+        "note": "AST inventory, not collected/executed"
+      },
+      "python_ast": "passed on all five changed Python files before execution-service loss",
+      "rust_format": "pinned selected bridge formatting passed before loss",
+      "independent_review": "Sparse native API/class/source/result checks and Mellin formulas/bindings/defaults/owners reviewed independently with no remaining blocker; review is distinct from execution",
+      "ci": "both new public modules are selected in the existing full-extension regression job; run result must be read independently"
+    },
+    "production_build": {
+      "command": "cargo build --offline --locked -p fsym-python --features extension-module -j1",
+      "cwd": "/workspace/scratch/cdfae34e00d3/frankensympy-active",
+      "executor_session": 51756,
+      "rust_toolchain": "nightly-2026-08-20",
+      "rustflags": "-Zunstable-options --jobs-backend=1 --jobs-frontend=1 -Cdebuginfo=0 -Ccodegen-units=256",
+      "other_environment": "one Cargo job; dev/test debug=0; incremental=0; original production Cargo.lock; pinned asupersync/numpy/scipy sibling cohort",
+      "outcome": "unknown; exec-server transport disconnected and environment became unavailable before terminal status",
+      "last_observed_stage": "dependency compilation, including pyo3 v0.27.2 and fsci-runtime v0.2.0; no fsym-python completion was observed",
+      "raw_log": "written locally, but unavailable after execution-service loss; no recovered complete raw log is asserted",
+      "exit_code": null,
+      "source_or_test_edits_after_loss": "none; publication uses the complete preserved pre-build public source blobs"
+    },
+    "supplementary_component": {
+      "stage": "prepared but not built or executed in this continuation",
+      "scope": "same six omitted runtime helpers as the previous math component, no replacement functions",
+      "original_bridge_files": 40,
+      "byte_identical_whole_files": 38,
+      "registry_packages_matching_production_lock": 56,
+      "original_math_path_packages": 23,
+      "omitted_helpers": [
+        "lib.rs::eval_error",
+        "lib.rs::eval_region",
+        "lib.rs::simplify_expr",
+        "lib.rs::expand_expr",
+        "expr.rs::PyExpr.simplify",
+        "expr.rs::PyExpr.expand"
+      ],
+      "claim": "no supplementary component public pass is claimed"
+    }
+  },
+  "publication_policy": "No task closure, status/priority/dependency change, comparator weakening, profile/gate promotion, upstream production fallback or performance claim.",
+  "concurrent_work_preserved": [
+    {
+      "sha": "11800027d7ec8d347b1ed321fbb57635d779435c",
+      "scope": "Compiled-program numerical consumer Session/CLI feature and recovered replay evidence; not authored or runtime-validated by this public integration. Current CI and bead changes merged additively; no overlapping public source edits."
+    }
+  ]
+}

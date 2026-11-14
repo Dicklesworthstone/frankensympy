@@ -115,7 +115,9 @@ fn retained_equal(left: &Expr, right: &Expr, budget: &mut Budget) -> PyResult<bo
     Ok(true)
 }
 
-fn check_retained(records: &Bound<'_, PyList>, budget: &mut Budget) -> PyResult<()> {
+// Also used by the Mellin bridge: this compares source storage, independently
+// of the transform catalog, without copying native expression subtrees.
+pub(crate) fn check_retained(records: &Bound<'_, PyList>, budget: &mut Budget) -> PyResult<()> {
     if records.len() > 4096 {
         return Err(PyValueError::new_err(
             "Fourier retained source exceeds its node bound",

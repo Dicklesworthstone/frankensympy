@@ -1029,6 +1029,23 @@ impl PySparseMatrix {
         })
     }
 
+    /// Exact rational Moore-Penrose inverse, independently checked in the kernel.
+    pub fn pinv(&self) -> PyResult<Self> {
+        Ok(Self {
+            inner: self.inner.pseudoinverse().map_err(matrix_err)?,
+        })
+    }
+
+    /// Unique minimum-norm least-squares solution, including deficient rank.
+    pub fn minimum_norm_least_squares(&self, rhs: &Self) -> PyResult<Self> {
+        Ok(Self {
+            inner: self
+                .inner
+                .minimum_norm_least_squares(&rhs.inner)
+                .map_err(matrix_err)?,
+        })
+    }
+
     /// Complete checked affine family, rendered under the same native budget.
     pub fn gauss_jordan_solve(&self, rhs: &Self) -> PyResult<Option<SparseAffineSolutionParts>> {
         self.inner

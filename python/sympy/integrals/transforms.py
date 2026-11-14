@@ -195,11 +195,36 @@ class InverseHankelTransform(Transform):
         return inverse_hankel_transform(F, k, r, nu, **hints)
 
 
+class IntegralTransformError(NotImplementedError):
+    """A requested transform could not be evaluated with ``needeval=True``."""
+
+    def __init__(self, transform, function, message):
+        super().__init__(f"{transform} Transform could not be computed: {message}.")
+        self.function = function
+
+
 class MellinTransform(Transform):
     """Unevaluated Mellin transform."""
 
     def __new__(cls, f: Any, x: Any, s: Any, **kwargs: Any) -> Any:
         return super().__new__(cls, f, x, s)
+
+    @property
+    def function(self):
+        return self.args[0]
+
+    @property
+    def function_variable(self):
+        return self.args[1]
+
+    @property
+    def transform_variable(self):
+        return self.args[2]
+
+    @property
+    def free_symbols(self):
+        function, variable, transform_variable = self.args
+        return (function.free_symbols - {variable}) | transform_variable.free_symbols
 
     def doit(self, **hints: Any) -> Any:
         f, x, s = self.args
@@ -903,22 +928,126 @@ def inverse_hankel_transform(F: Any, k: Any, r: Any, nu: Any, noconds: bool = Tr
     return InverseHankelTransform(F, k, r, nu) if noconds else (InverseHankelTransform(F, k, r, nu), True)
 
 
-def mellin_transform(f: Any, x: Any, s: Any, noconds: bool = True, **kwargs: Any) -> Any:
-    """Compute the Mellin transform: int_0^oo f(x) x^(s-1) dx."""
-    from .. import integrate
-    from ..simplify import simplify
+from ..core import Add, AssocOp, Atom, AtomicExpr, Float, Half, Mul, NegativeOne, Number, One, Zero
+from ..core._function_capabilities import _implementation, _owner_matches, _owner_record
+from ..functions import gamma
 
-    f = sympify(f)
-    x = Symbol(str(x)) if not isinstance(x, Symbol) else x
-    s = Symbol(str(s)) if not isinstance(s, Symbol) else s
+_MELLIN_ABSENT = object()
+_MELLIN_DICT = type.__dict__["__dict__"]
+_MELLIN_MRO = type.__dict__["__mro__"]
+_mellin_owner_classes = []
+for _mellin_class in (Basic, Atom, AtomicExpr, Expr, Number, Rational, Integer,
+                      Zero, One, NegativeOne, Half, Float, Symbol, Dummy, AssocOp,
+                      Add, Mul, Pow, Transform, MellinTransform, exp, gamma):
+    for _mellin_owner in _MELLIN_MRO.__get__(_mellin_class):
+        if _mellin_owner is not object and not any(_mellin_owner is old for old in _mellin_owner_classes):
+            _mellin_owner_classes.append(_mellin_owner)
+_MELLIN_OWNERS = tuple((owner, _owner_record(owner), _MELLIN_MRO.__get__(owner))
+                       for owner in _mellin_owner_classes)
+_MELLIN_METADATA_NAMES = (
+    "name", "p", "q", "free_symbols", "__str__", "__int__", "__index__",
+    "_assumptions", "_dummy_name", "_dummy_number", "_dps", "_decimal",
+)
+_MELLIN_METADATA = tuple(
+    (owner, name, _implementation(_MELLIN_DICT.__get__(owner).get(name, _MELLIN_ABSENT)))
+    for owner, _, _ in _MELLIN_OWNERS for name in _MELLIN_METADATA_NAMES
+)
+_MELLIN_NATIVE_API = tuple(
+    (name, getattr(_native, name)) for name in (
+        "Expr", "SymbolBinding", "Add", "Mul", "Pow", "py_integer", "py_rational",
+        "py_function", "py_eval_function", "py_pow",
+    )
+)
+_MELLIN_NATIVE_TRANSFORM = _native.mellin_transform_native
 
+
+def _mellin_original_implementations():
+    """Check scalar hooks before typed binding or lifting can consult them."""
+    for owner, record, mro in _MELLIN_OWNERS:
+        current = _MELLIN_MRO.__get__(owner)
+        if (not _owner_matches(owner, record) or len(current) != len(mro)
+                or any(a is not b for a, b in zip(current, mro))):
+            raise NotImplementedError("Mellin transforms require original built-in scalar classes")
+    for owner, name, expected in _MELLIN_METADATA:
+        actual = _implementation(_MELLIN_DICT.__get__(owner).get(name, _MELLIN_ABSENT))
+        if len(actual) != len(expected) or any(a is not b for a, b in zip(actual, expected)):
+            raise NotImplementedError("Mellin transforms require original scalar metadata")
+    if any(getattr(_native, name) is not original for name, original in _MELLIN_NATIVE_API):
+        raise NotImplementedError("Mellin transforms require original native scalar interfaces")
+
+
+def mellin_transform(f: Any, x: Any, s: Any, noconds: bool = False, **kwargs: Any) -> Any:
+    """Return a checked ordinary Mellin transform and its fundamental strip.
+
+    The positive real integration axis admits exact rational multiples of
+    ``x**a*exp(-b*x**p)`` and ``x**a*(A+B*x**p)**(-q)``. Here b, A, B, q are
+    positive rationals, a is rational, and p is a nonzero integer with
+    abs(p) <= 16. Original rational powers are bounded by 16 in magnitude;
+    node/depth, scalar growth, and work limits also apply. Reciprocal powers
+    are included. A native checker independently binds the source through
+    logarithmic differentiation and its value at one before checking the
+    gamma/beta formula and maximal open convergence strip.
+
+    By default return ``(F, (lower, upper), true)`` with Python tuples and the
+    symbolic BooleanTrue singleton. ``noconds=True`` returns F. Unsupported
+    ordinary transforms remain bare MellinTransform objects; operational,
+    undefined-source, and verifier failures propagate. Beta expressions may
+    retain gamma products rather than the pinned oracle's trig reductions.
+    No upstream runtime, numerical integration, or broad compatibility claim
+    is involved.
+    """
+    from fractions import Fraction
+
+    from ..core import Float
+    from ..logic.boolalg import true
+
+    _mellin_original_implementations()
+    simplify_result = kwargs.pop("simplify", True)
+    needeval = kwargs.pop("needeval", False)
+    if (type(noconds) is not bool or type(simplify_result) is not bool
+            or type(needeval) is not bool):
+        raise TypeError("Mellin transform hints must be exact bools")
+    if kwargs:
+        raise TypeError("unsupported Mellin transform options")
+    if type(f) is int:
+        if f.bit_length() > 4096:
+            raise ValueError("Mellin coefficient exceeds 4096 bits")
+        f = Integer(f)
+    elif type(f) is Fraction:
+        if max(abs(f.numerator).bit_length(), f.denominator.bit_length()) > 4096:
+            raise ValueError("Mellin coefficient exceeds 4096 bits")
+        f = Rational(f.numerator, f.denominator)
+    elif type(f) is float:
+        f = Float(f)
+    elif not any(base is Basic for base in type.__dict__["__mro__"].__get__(type(f))):
+        raise TypeError("Mellin transforms require exact built-in symbolic sources")
+    x, s = _mellin_symbol(x), _mellin_symbol(s)
+    # The Fourier bridge's retained-owner guard is transform-independent:
+    # it reads original slots, checks exact built-in capabilities and binds
+    # every retained argument tuple to its borrowed native representation.
+    snapshot = _FourierSource(f, x, s)
     try:
-        res = integrate(f * (x ** (s - 1)), (x, 0, oo))
-        if res is not None and not _has_integral(res):
-            return simplify(res) if noconds else (simplify(res), True)
-    except Exception:
-        pass
-    return MellinTransform(f, x, s) if noconds else (MellinTransform(f, x, s), True)
+        raw, lower, upper = _MELLIN_NATIVE_TRANSFORM(
+            _native_expr(f), _symbol_binding(x), _symbol_binding(s), snapshot.records(),
+        )
+    except NotImplementedError:
+        _mellin_original_implementations()
+        snapshot.unchanged()
+        if needeval:
+            raise IntegralTransformError("Mellin", f, "needeval") from None
+        return MellinTransform(f, x, s)
+    _mellin_original_implementations()
+    snapshot.unchanged()
+    result = _lift_native_result(raw, f, x, s)
+    lower = _lift_native_result(lower, x, s)
+    upper = _lift_native_result(upper, x, s)
+    if simplify_result:
+        from ..simplify import simplify
+
+        result = simplify(result)
+    _mellin_original_implementations()
+    snapshot.unchanged()
+    return result if noconds else (result, (lower, upper), true)
 
 
 def _mellin_strip(strip: Any) -> tuple[Any, Any]:
@@ -989,6 +1118,7 @@ def inverse_mellin_transform(F: Any, s: Any, x: Any, strip: Any = None,
 
 
 __all__ = [
+    "IntegralTransformError",
     "CosineTransform",
     "FourierTransform",
     "HankelTransform",

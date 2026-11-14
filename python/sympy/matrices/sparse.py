@@ -35,9 +35,9 @@ _AFFINE_SYMBOL_ASSUMPTIONS = Symbol.__dict__["_assumptions"]
 _REDUCTION_NATIVE_MEMBERS = {
     name: _REDUCTION_DICT.__get__(_NativeSparseMatrix)[name]
     for name in (
-        "shape", "is_exact_rational", "todok", "to_dense",
+        "shape", "nnz", "is_exact_rational", "todok", "to_dense",
         "rref", "rank", "nullspace", "columnspace", "solve", "gauss_jordan_solve",
-        "solve_least_squares",
+        "solve_least_squares", "pinv", "minimum_norm_least_squares",
     )
 }
 _SOLVE_NATIVE_DENSE = _native.Matrix
@@ -1078,6 +1078,44 @@ class SparseMatrix(MatrixBase):
         each RHS receives its own independent row-major tau parameters.
         """
         return _checked_gauss_jordan_solve(self, B, freevar)
+
+    def pinv(self, method="RD"):
+        """Return the checked exact-rational Moore-Penrose pseudoinverse.
+
+        Sparse rank decomposition and all four independent Penrose checks
+        support singular and rectangular matrices without dense coefficient
+        storage. As in the pinned profile, RD returns a mutable dense result
+        for a nonzero mutable sparse matrix, and an immutable sparse result
+        for immutable input. A zero matrix retains its sparse class.
+        """
+        if not any(type(self) is cls for cls in (SparseMatrix, ImmutableSparseMatrix)):
+            raise NotImplementedError("custom matrix subclasses require a supervised override lane")
+        captured = _rational_source_snapshot(self, context="sparse pseudoinverse")
+        if captured is None:
+            raise ValueError("sparse pseudoinverse supports exact rational entries only")
+        coefficients, source_snapshot = captured
+        is_zero = _REDUCTION_NATIVE_MEMBERS["nnz"].__get__(coefficients, _NativeSparseMatrix) == 0
+        # The upstream zero-matrix case precedes method selection, including
+        # for zero-dimensional matrices. Avoid inspecting a supplied method
+        # object in that case.
+        if not is_zero:
+            if type(method) is not str:
+                raise ValueError("invalid pinv method")
+            if method == "ED":
+                raise NotImplementedError("sparse pseudoinverse currently supports the RD method")
+            if method != "RD":
+                raise ValueError(f"invalid pinv method {method!r}")
+        _check_rational_source(source_snapshot)
+        inverse = _REDUCTION_NATIVE_MEMBERS["pinv"](coefficients)
+        _check_rational_source(source_snapshot)
+        rows, columns = source_snapshot[4]
+        if (_REDUCTION_NATIVE_MEMBERS["shape"].__get__(inverse, _NativeSparseMatrix)
+                != (columns, rows)):
+            raise RuntimeError("native sparse pseudoinverse has an invalid shape")
+        result_class = type(self) if is_zero or type(self) is ImmutableSparseMatrix else Matrix
+        result = _checked_sparse_lift(inverse, result_class)
+        _check_rational_source(source_snapshot)
+        return result
 
     def rref(self, iszerofunc=None, simplify=False, pivots=True, normalize_last=True):
         """Checked rational reduction, with the profile's dense final result.

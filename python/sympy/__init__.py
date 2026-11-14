@@ -998,7 +998,7 @@ def inverse_hankel_transform(F, k, r, nu, noconds=True, **kwargs):
     return _iht(F, k, r, nu, noconds=noconds, **kwargs)
 
 
-def mellin_transform(f, x, s, noconds=True, **kwargs):
+def mellin_transform(f, x, s, noconds=False, **kwargs):
     from .integrals.transforms import mellin_transform as _mt
     return _mt(f, x, s, noconds=noconds, **kwargs)
 
