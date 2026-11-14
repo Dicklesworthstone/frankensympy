@@ -1603,7 +1603,9 @@ class SparseMatrix(MatrixBase):
 
     def __matmul__(self, other: Any) -> Any:
         if isinstance(other, Matrix):
-            return self.to_dense() @ other
+            from ._mixed_products import matmul
+
+            return matmul(self, other)
         if not isinstance(other, SparseMatrix):
             raise TypeError(f"Cannot matmul SparseMatrix and {type(other)}")
         if self.cols != other.rows:
@@ -1706,6 +1708,10 @@ class SparseMatrix(MatrixBase):
             left, right = self.todok(), other.todok()
             return all(left.get(key, _ZERO) == right.get(key, _ZERO) for key in left.keys() | right.keys())
         if isinstance(other, MatrixBase):
+            if isinstance(other, Matrix):
+                from ._mixed_products import equal
+
+                return equal(self, other)
             if hasattr(other, "to_dense"):
                 return self.to_dense() == other.to_dense()
             return self.to_dense() == other

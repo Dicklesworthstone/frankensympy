@@ -2021,6 +2021,12 @@ class Matrix(MatrixBase):
         return self * -1
 
     def __matmul__(self, other):
+        from .sparse import SparseMatrix
+
+        if isinstance(other, SparseMatrix):
+            from ._mixed_products import matmul
+
+            return matmul(self, other)
         if not isinstance(other, Matrix):
             raise TypeError(f"Cannot matmul Matrix and {type(other)}")
         if self._native_storage is None or other._native_storage is None:
@@ -2037,7 +2043,9 @@ class Matrix(MatrixBase):
         return self._new(self._native @ other._native)
 
     def __mul__(self, other):
-        if isinstance(other, Matrix):
+        from .sparse import SparseMatrix
+
+        if isinstance(other, (Matrix, SparseMatrix)):
             return self.__matmul__(other)
         if isinstance(other, (Expr, Basic, int, float)):
             from ..core._opaque_arithmetic import contains_opaque
@@ -2300,6 +2308,12 @@ class Matrix(MatrixBase):
                 return all(self[i] == other[i] for i in range(len(self)))
             return self._native.flat() == other._native.flat()
         if isinstance(other, MatrixBase):
+            from .sparse import SparseMatrix
+
+            if isinstance(other, SparseMatrix):
+                from ._mixed_products import equal
+
+                return equal(self, other)
             if hasattr(other, "to_dense"):
                 return self == other.to_dense()
         return False
