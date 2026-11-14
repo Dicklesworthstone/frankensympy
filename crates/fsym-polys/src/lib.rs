@@ -23,6 +23,7 @@ pub mod finite_field_multivariate_gcd;
 pub mod finite_field_multivariate_source;
 pub mod finite_field_quotient_algebra;
 pub mod finite_field_quotient_minpoly;
+pub mod finite_field_radical;
 pub mod finite_field_recursive_division;
 mod finite_field_resultant;
 pub mod finite_field_source;
@@ -75,6 +76,7 @@ pub use finite_field_multivariate_source::{
 };
 pub use finite_field_quotient_algebra::*;
 pub use finite_field_quotient_minpoly::*;
+pub use finite_field_radical::*;
 pub use finite_field_recursive_division::{
     PrimeFieldRecursiveDivisionCertificate, VerifiedPrimeFieldRecursiveDivision,
     bounded_prime_field_recursive_division_certificate, checked_prime_field_recursive_division,
