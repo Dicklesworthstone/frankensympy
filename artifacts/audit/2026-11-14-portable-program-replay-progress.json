@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "recorded_at_utc": "2026-11-14T18:12:17.376877+00:00",
+  "recorded_at_utc": "2026-11-14 18:24:14 UTC",
   "scope": "Source-bound portable residual/Jacobian and objective/gradient/Hessian admission and Session/NDJSON replay",
   "work_item": "fra-campaign-jacobian-bundle-ukp",
   "base_commit": "7c91d51f88d434f4ec4f6783786b4abf29aaaeec",
@@ -131,7 +131,7 @@
         "command": "cargo build --locked -p fsym-calculus --lib",
         "executor_session": 30176,
         "exit_code": 0,
-        "duration_seconds": 2.0,
+        "duration_seconds": 2,
         "environment": "Same exact environment above"
       },
       "log_path": "artifacts/audit/reproduction/2026-11-14-portable-program-replay/native-tests.txt",
@@ -142,11 +142,164 @@
       ]
     },
     "session_and_cli": {
-      "status": "In progress; no execution pass claimed yet.",
-      "command": "cargo test --locked -p frankensympy --test compiled_program_transport --test compiled_program_cli --test compiled_artifacts --test compiled_residual_session --test compiled_residual_products --test compiled_objective_session --test artifact_transfer --test artifact_transfer_session -j1 -- --test-threads=1"
+      "scope": "Unchanged-source synchronous Session/CLI component; not the complete asynchronous production dependency graph.",
+      "environment": {
+        "PATH_prefix": "/home/agent/.cargo/bin",
+        "RUSTUP_HOME": "/workspace/scratch/be76fc747855/rustup",
+        "CARGO_HOME": "/workspace/scratch/be76fc747855/cargo-cache",
+        "CARGO_TARGET_DIR": "/workspace/scratch/be76fc747855/frankensympy/target",
+        "CARGO_BUILD_JOBS": "1",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "RUSTFLAGS_override": null,
+        "incremental_override": null,
+        "codegen_override": null
+      },
+      "working_directory": "/workspace/scratch/be76fc747855/session-source-component-current",
+      "command": "cargo test --offline --locked -p frankensympy-session-source-component-check --test compiled_program_transport --test compiled_program_cli --test compiled_artifacts --test compiled_residual_session --test compiled_residual_products --test compiled_objective_session --test artifact_transfer --test artifact_transfer_session -- --test-threads=1",
+      "exit_code": 0,
+      "results": [
+        {
+          "target": "artifact_transfer",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "artifact_transfer_session",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_artifacts",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_objective_session",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_program_cli",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_program_transport",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_residual_products",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        },
+        {
+          "target": "compiled_residual_session",
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 0
+        }
+      ],
+      "total_passed": 57,
+      "composition": {
+        "source": "Actual complete root library, CLI binary and selected test files, with original mathematical crates.",
+        "complete_original_path_packages": 20,
+        "unchanged_runtime_modules": [
+          "workspace",
+          "protocol",
+          "fmap",
+          "publication",
+          "repair"
+        ],
+        "unchanged_donor_source_files": 14,
+        "omitted_runtime_files": 12,
+        "omitted_donor_files": 1535,
+        "matched_registry_package_identities_and_checksums": 46,
+        "original_source_hash_entries": 533,
+        "source_comparison": "All 533 pre-run and post-test source hashes matched; this equality was observed before executor loss.",
+        "substituted_functions": 0
+      },
+      "prior_attempt": {
+        "exit_code": 101,
+        "error": "E0004 in the existing artifact_transfer_session test helper: exhaustive ArtifactSource match omitted BoxOptimizationSearch and the two compiled-program variants.",
+        "correction": "Added explicit matching export requests; preserved all existing cases and assertions.",
+        "tests_executed": 0
+      },
+      "warnings": "Seven existing component donor dead-code/unused-feature warnings were visible; no full-workspace warning-free result is claimed.",
+      "evidence_retention": {
+        "observations": "The test-running agent observed terminal exit 0. Root independently inspected all eight per-target result lines and the final target output before disconnection.",
+        "raw_root_logs_available_in_commit": false,
+        "full_533_hash_inventory_available_in_commit": false,
+        "limitation": "Root test/Clippy logs and the full source/module inventories remained in scratch when the executor disconnected. No reconstructed full transcript or invented hash list is presented as original evidence.",
+        "reconstruction": "The committed reproduction recipe is reconstructed after the loss from the existing tracked whole-module templates and observed actual commands. The reconstructed recipe itself was not executed in this session."
+      }
     },
     "source_review": "Separate source reviewers checked native admission and the merged canonical transport, expected-context/source binding, protected accounting, and response-before-publication boundaries. No remaining blocker was reported.",
-    "formatting": "Pinned rustfmt was applied to changed replay files, including the concurrently added convenience API imports and test target. This is not a whole-workspace formatting pass."
+    "formatting": "Changed replay sources and tests, including the explicit artifact-export helper arms, passed pinned rustfmt and git diff --check before executor loss. Whole-workspace formatting was not clean because of pre-existing unrelated donor/optimization differences.",
+    "production_graph_attempt": {
+      "command": "cargo test --locked -p frankensympy --test compiled_program_transport --test compiled_program_cli --test compiled_artifacts --test compiled_residual_session --test compiled_residual_products --test compiled_objective_session --test artifact_transfer --test artifact_transfer_session -- --test-threads=1",
+      "exit_code": 130,
+      "status": "Intentionally interrupted after roughly nine minutes while additional runtime prerequisites compiled under shared host memory pressure, before asupersync itself. No selected test executed; this is neither an observed asupersync SIGKILL nor a failed mathematical test.",
+      "environment": "Same pinned compiler, Cargo cache, single build job and debug=0 profiles as the component run, with no CARGO_TARGET_DIR override."
+    },
+    "clippy": {
+      "component_command": "cargo clippy --offline --locked -p frankensympy-session-source-component-check --no-deps --lib --bin frankensympy --test compiled_program_transport --test compiled_program_cli --test compiled_artifacts --test compiled_residual_session --test compiled_residual_products --test compiled_objective_session --test artifact_transfer --test artifact_transfer_session -- -D warnings",
+      "component_status": "Started, but no terminal result was observed before executor disconnection.",
+      "native_status": "Not started.",
+      "full_workspace_status": "Not passed in this session."
+    },
+    "planning": {
+      "command": "python tools/validate_planning.py",
+      "result_at_commit_d924e69": "Passed before the final evidence and bead updates; 24 required artifacts, 103 Markdown files, 157 links, 2 profiles, 7 evidence classes, 24 workstreams, 9 milestones and 27 claims.",
+      "final_result": "Not rerun after executor loss; no final planning-gate pass is claimed."
+    }
   },
-  "status": "Bounded implementation and native execution evidence. Session/CLI execution remains in progress; no campaign, compatibility profile, performance or workstream gate is promoted."
+  "status": "Scoped implementation with 21 actual original-workspace native tests and 57 unchanged-source Session/CLI component tests passing. Full runtime/workspace, final Clippy, compatibility profile, performance and complete campaign gates remain open; no bead status/dependency or claim-tier promotion.",
+  "validated_source": {
+    "base_commit": "5f4a5d4c5ab816869586efa44fac86229af02b52",
+    "delta_path": "tests/artifact_transfer_session.rs",
+    "delta": "Eighteen explicit export-request lines covering BoxOptimizationSearch and both compiled program kinds; no existing cases or assertions changed.",
+    "delta_blob": "303cb43587939f731193b139270b587a53fabfde",
+    "recovery": "After executor disconnection, the exact reviewed complete diff was applied to the pinned GitHub file. The resulting blob matches the observed local diff prefix 303cb43. All production source already belonged to the base commit."
+  },
+  "reproduction_recipe": "artifacts/audit/reproduction/2026-11-14-portable-program-replay/README.md",
+  "pinned_donors": [
+    {
+      "path": "../asupersync",
+      "commit": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f"
+    },
+    {
+      "path": "../franken_numpy-pin",
+      "commit": "d5d29c9da36141f611d1414b4c6ef434ab31ea24"
+    },
+    {
+      "path": "../frankenscipy-pin",
+      "commit": "213a417c739025ed865a3875c89a7d86726ecb5a"
+    }
+  ],
+  "pinned_donor_observation": "All three checkouts were inspected at the exact pins with no tracked changes before validation; the component uses the enumerated asupersync modules rather than the full donor graph."
 }

@@ -727,10 +727,28 @@ fn fresh_cli_exchanges_both_proof_kinds_above_the_inline_limit_in_bounded_frames
                             optimization: optimization.clone(),
                         }
                     }
+                    ArtifactSource::BoxOptimizationSearch(search) => {
+                        CertificationRequest::ExportBoxOptimizationSearch {
+                            schema_version: 1,
+                            search: search.clone(),
+                        }
+                    }
                     ArtifactSource::ParametricFamily(family) => {
                         CertificationRequest::ExportParametricFamily {
                             schema_version: 1,
                             family: family.clone(),
+                        }
+                    }
+                    ArtifactSource::CompiledResidualSystem(program) => {
+                        CertificationRequest::ExportCompiledResidualSystem {
+                            schema_version: 1,
+                            program: program.clone(),
+                        }
+                    }
+                    ArtifactSource::CompiledObjective(program) => {
+                        CertificationRequest::ExportCompiledObjective {
+                            schema_version: 1,
+                            program: program.clone(),
                         }
                     }
                 };
