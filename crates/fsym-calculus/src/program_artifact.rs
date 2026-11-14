@@ -1,9 +1,9 @@
 //! Bounded, canonical transport for independently checkable program candidates.
 //!
-//! Decoding returns an untrusted candidate, never a verified program. Callers
-//! must bind their original source and ordered typed variables, then use the
-//! independent metered admission constructor. Receipts, shared evaluation plans
-//! and numeric caches are not part of this format. The portable proof profile
+//! Decoding returns an untrusted candidate, never a verified program. The
+//! admission helpers bind the caller's original source and ordered typed
+//! variables before independent metered verification. Receipts, shared evaluation
+//! plans and numeric caches are not part of this format. The portable proof profile
 //! is the generator's single definitional equality, not arbitrary proof trees.
 //! Parsing and encoding consume the supplied cumulative meter; these logical
 //! charges do not describe allocator RSS or hard cancellation latency.
@@ -11,14 +11,14 @@
 #![forbid(unsafe_code)]
 
 use crate::compile::{CompiledExpr, CompiledOp, MAX_COMPILE_OPS};
-use crate::sparse_hessian::{ObjectiveCandidate, VerifiedObjective};
+use crate::sparse_hessian::{ObjectiveCandidate, ObjectiveCompilationError, VerifiedObjective};
 use crate::sparse_jacobian::{MAX_SPARSE_AXES, SparseJacobian};
 use crate::verified::{
     MAX_VERIFIED_EXPRESSION_NODES, MAX_VERIFIED_NONZERO_ENTRIES, MAX_VERIFIED_SOURCE_DEPTH,
-    MAX_VERIFIED_STORED_OPS, VerifiedResidualSystem,
+    MAX_VERIFIED_STORED_OPS, VerifiedCompilationError, VerifiedResidualSystem,
 };
 use fsym_budget::{BudgetMeter, Dimension, MeterError};
-use fsym_core::{BigRational, Constant, Expr};
+use fsym_core::{BigRational, Constant, Expr, Symbol};
 use fsym_proof_kernel::{Claim, ProofRule, StepId};
 use serde::de::{Error as _, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
@@ -59,6 +59,21 @@ pub enum ProgramArtifactError {
     NonFiniteBytecode,
     #[error("program candidate transport allocation refused")]
     AllocationFailure,
+}
+
+/// A failed source binding or independent check never produces an accepted
+/// program. Error variants retain the underlying transport, budget and verifier
+/// failures so callers can distinguish exhaustion/cancellation from rejection.
+#[derive(Debug, Error)]
+pub enum ProgramAdmissionError {
+    #[error("program source admission stopped: {0}")]
+    Transport(#[from] ProgramArtifactError),
+    #[error("program candidate does not match the caller's {0}")]
+    SourceMismatch(&'static str),
+    #[error("residual program verification failed: {0}")]
+    Residual(#[from] VerifiedCompilationError),
+    #[error("objective program verification failed: {0}")]
+    Objective(#[from] ObjectiveCompilationError),
 }
 
 fn charge<M: BudgetMeter + ?Sized>(
@@ -1046,4 +1061,194 @@ pub fn decode_objective_candidate<M: BudgetMeter + ?Sized>(
     };
     canonical(&candidate, "objective", bytes, meter)?;
     Ok(candidate)
+}
+
+/// Compare already preflighted expressions without simplification, printing or
+/// numeric sampling. In particular, held operand order/multiplicity and scalar
+/// variants remain part of the source binding. Each visited node and payload is
+/// charged before comparison; the preflight bounds recursion independently of
+/// whether the candidate came through the portable decoder.
+fn source_expressions_match<M: BudgetMeter + ?Sized>(
+    expected: &Expr,
+    candidate: &Expr,
+    meter: &mut M,
+) -> Result<bool, ProgramArtifactError> {
+    charge(meter, 1, 0, 0)?;
+    Ok(match (expected, candidate) {
+        (Expr::Sym(expected), Expr::Sym(candidate)) => {
+            charge(meter, expected.name.len() + candidate.name.len() + 65, 0, 0)?;
+            expected == candidate
+        }
+        (Expr::Integer(expected), Expr::Integer(candidate)) => {
+            let limbs = expected.bits().div_ceil(64) + candidate.bits().div_ceil(64);
+            charge(meter, limbs as usize + 1, 0, 0)?;
+            expected == candidate
+        }
+        (Expr::Rational(expected), Expr::Rational(candidate)) => {
+            let limbs = expected.numer().bits().div_ceil(64)
+                + expected.denom().bits().div_ceil(64)
+                + candidate.numer().bits().div_ceil(64)
+                + candidate.denom().bits().div_ceil(64);
+            charge(meter, limbs as usize + 1, 0, 0)?;
+            expected == candidate
+        }
+        (Expr::Const(expected), Expr::Const(candidate)) => expected == candidate,
+        (Expr::Pow(expected_base, expected_exp), Expr::Pow(candidate_base, candidate_exp)) => {
+            source_expressions_match(expected_base, candidate_base, meter)?
+                && source_expressions_match(expected_exp, candidate_exp, meter)?
+        }
+        (Expr::Add(expected), Expr::Add(candidate))
+        | (Expr::Mul(expected), Expr::Mul(candidate)) => {
+            source_lists_match(expected, candidate, meter)?
+        }
+        (Expr::Function(expected_name, expected), Expr::Function(candidate_name, candidate)) => {
+            charge(meter, expected_name.len() + candidate_name.len() + 1, 0, 0)?;
+            expected_name == candidate_name && source_lists_match(expected, candidate, meter)?
+        }
+        _ => false,
+    })
+}
+
+fn source_lists_match<M: BudgetMeter + ?Sized>(
+    expected: &[Expr],
+    candidate: &[Expr],
+    meter: &mut M,
+) -> Result<bool, ProgramArtifactError> {
+    charge(meter, 1, 0, 0)?;
+    if expected.len() != candidate.len() {
+        return Ok(false);
+    }
+    for (expected, candidate) in expected.iter().zip(candidate) {
+        if !source_expressions_match(expected, candidate, meter)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn bind_sources<M: BudgetMeter + ?Sized>(
+    expected_sources: &[Expr],
+    expected_variables: &[Symbol],
+    candidate_sources: &[Expr],
+    candidate_variables: &[Symbol],
+    meter: &mut M,
+) -> Result<(), ProgramAdmissionError> {
+    charge(meter, 1, 0, 0)?;
+    for (length, resource) in [
+        (expected_sources.len(), "expected source count"),
+        (candidate_sources.len(), "candidate source count"),
+        (expected_variables.len(), "expected variable count"),
+        (candidate_variables.len(), "candidate variable count"),
+    ] {
+        limit(length, MAX_SPARSE_AXES, resource)?;
+    }
+    if expected_variables.len() != candidate_variables.len() {
+        return Err(ProgramAdmissionError::SourceMismatch(
+            "ordered typed variables",
+        ));
+    }
+    for (expected, candidate) in expected_variables.iter().zip(candidate_variables) {
+        charge(meter, 1, 0, 0)?;
+        limit(
+            expected.name.len(),
+            MAX_PROGRAM_CANDIDATE_NAME_BYTES,
+            "name bytes",
+        )?;
+        limit(
+            candidate.name.len(),
+            MAX_PROGRAM_CANDIDATE_NAME_BYTES,
+            "name bytes",
+        )?;
+        charge(meter, expected.name.len() + candidate.name.len() + 65, 0, 0)?;
+        if expected != candidate {
+            return Err(ProgramAdmissionError::SourceMismatch(
+                "ordered typed variables",
+            ));
+        }
+    }
+    if expected_sources.len() != candidate_sources.len() {
+        return Err(ProgramAdmissionError::SourceMismatch(
+            "ordered residual sources",
+        ));
+    }
+    // Source expectations are a separate trust boundary: the transport
+    // decoder inspected only the candidate, never these borrowed caller inputs.
+    for sources in [expected_sources, candidate_sources] {
+        let mut total_nodes = 0;
+        for source in sources {
+            let mut nodes = 0;
+            retained_expression(source, 0, &mut nodes, false, meter)?;
+            total_nodes += nodes;
+            limit(
+                total_nodes,
+                MAX_VERIFIED_EXPRESSION_NODES,
+                "source expression nodes",
+            )?;
+        }
+    }
+    if !source_lists_match(expected_sources, candidate_sources, meter)? {
+        return Err(ProgramAdmissionError::SourceMismatch(
+            "ordered residual sources",
+        ));
+    }
+    charge(meter, 1, 0, 0)?;
+    Ok(())
+}
+
+/// Bind an untrusted derivative proposal to the caller's exact original
+/// residuals and ordered typed axes, then independently verify its sparse
+/// coverage, supplied derivative proofs and supplied derivative bytecode.
+///
+/// Decode with an ordinary transport meter, then call this function with a
+/// protected verifier meter when the caller separates those budgets. This
+/// function neither creates a budget nor generates replacement derivatives.
+/// Original residual bytecode and the derived shared evaluation plan are
+/// rebuilt only after the candidate's independent checks succeed. The caller
+/// owns the surrounding assumptions/context universe; no context or accepted
+/// status is imported here. Results are formal derivatives on their common
+/// smooth domain, with approximate finite binary64 evaluation.
+pub fn admit_residual_candidate<M: BudgetMeter + ?Sized>(
+    residuals: &[Expr],
+    variables: &[Symbol],
+    candidate: SparseJacobian,
+    meter: &mut M,
+) -> Result<VerifiedResidualSystem, ProgramAdmissionError> {
+    bind_sources(
+        residuals,
+        variables,
+        &candidate.residuals,
+        &candidate.vars,
+        meter,
+    )?;
+    let verified =
+        VerifiedResidualSystem::try_from_owned_sparse_jacobian_with_meter(candidate, meter)?;
+    charge(meter, 1, 0, 0)?;
+    Ok(verified)
+}
+
+/// Bind a portable objective proposal to the caller's raw source and ordered
+/// typed axes, then independently replay both derivative stages and all
+/// bytecode provenance. Supplied objective, gradient and Hessian programs are
+/// checked rather than regenerated; derived plans are rebuilt locally.
+///
+/// The meter, context ownership and evidence boundaries are the same as for
+/// [`admit_residual_candidate`]. Exhaustion or cancellation returns no partially
+/// accepted objective and does not reset any caller accounting.
+pub fn admit_objective_candidate<M: BudgetMeter + ?Sized>(
+    source: &Expr,
+    variables: &[Symbol],
+    candidate: ObjectiveCandidate,
+    meter: &mut M,
+) -> Result<VerifiedObjective, ProgramAdmissionError> {
+    bind_sources(
+        std::slice::from_ref(source),
+        variables,
+        &candidate.gradient.residuals,
+        &candidate.gradient.vars,
+        meter,
+    )?;
+    let verified =
+        VerifiedObjective::try_from_candidate_with_meter(source, variables, candidate, meter)?;
+    charge(meter, 1, 0, 0)?;
+    Ok(verified)
 }
