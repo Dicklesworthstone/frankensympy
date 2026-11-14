@@ -2,7 +2,8 @@
 
 This development interface connects the root Rust library and the `frankensympy`
 NDJSON command to the existing original-source numerical and exact algebraic
-checkers. Its scope is complete real rational equations and inequalities,
+checkers. Its scope is complete real rational equations, inequalities and Boolean
+constraint combinations,
 exact real residual/Jacobian enclosures, unique nonsingular local roots and
 complete finite-box root sets, objective/gradient/Hessian enclosures, locally
 classified stationary points, global box optimum value bounds, proper finite real
@@ -125,6 +126,57 @@ a verifier view never replenishes fuel. Complete rendering and response
 admission must succeed before any set is returned, and repeated failed requests
 retain their consumed work. These operations preserve the separate finite-box
 Krawczyk claims above and leave campaign/profile certification gates open.
+
+### Combine exact constraints into one complete feasibility region
+
+`SolveRealConstraints` combines up to 32 registered rational residuals over one
+variable. `relations` supplies one comparison with zero per residual, in the
+original registration order: `eq`, `ne`, `lt`, `le`, `gt`, or `ge`. A `formula`
+references these comparisons by zero-based atom index and combines them with
+`all` (intersection) and `any` (union). Nesting is allowed; empty `all` is true
+and empty `any` is false.
+
+For example, solve `x^2 <= 2` or `x >= 2`:
+
+```json
+{"id":"register-region","type":"RegisterResidualSystem","payload":{"schema_version":1,"system":"system:region","residuals":["x^2-2","x-2"],"variables":["x"]}}
+{"id":"solve-region","type":"SolveRealConstraints","payload":{"schema_version":1,"system":"system:region","relations":["le","ge"],"formula":{"any":[{"atom":0},{"atom":1}]}}}
+```
+
+The complete result is `[-sqrt(2), sqrt(2)] union [2, infinity)`. The response
+has `kind: "real_constraints_solved"`, `evidence: "exact_cross_checked"`,
+`completeness: "complete"`, and the claim
+`complete_real_solution_set_of_original_rational_constraints`. It echoes the
+ordered relations and formula and uses the same exact `solution_set` fields
+described above. In this example the three ordered roots are `-sqrt(2)`,
+`sqrt(2)`, and `2`; gap flags are `[false,true,false,true]` and point flags
+are `[true,true,true]`. The shared critical polynomial may retain boundaries
+that do not change final membership. These extra cells do not approximate or
+weaken the set.
+
+Every comparison is evaluated on its own original domain. At a pole, that
+atom is false for every relation, including `ne`. Union may still include the
+point through another defined atom: `(x/x-1 == 0) OR (x == 0)` includes every
+real number, whereas `x/x-1 != 0` has no solutions. There is no implicit
+Boolean negation that converts undefined values into true. All supplied
+sources are admitted even when unused or behind an already decisive branch;
+unsupported syntax and resource failures remain terminal.
+
+The native engine independently checks each original-source atom, builds a
+square-free least common multiple of their critical polynomials, and isolates
+the complete common real root set. Exact factor ownership maps every local
+root into that partition. A separate Boolean evaluator checks membership of
+every common open gap and algebraic point, including points introduced by a
+different atom. Generator and verifier work remain cumulative across the whole
+formula. Bounds include 32 atoms, 256 formula nodes, depth 32, fanout 64, common
+critical degree 64, and 4096-bit critical coefficients.
+
+Rust callers use `CertificationRequest::SolveRealConstraints`, `RealRelation`
+and `RealFormula` through `Session::certification_request`. The lower-level
+`fsym_solvers::metered_solve_real_constraints` accepts typed `RealConstraint`
+sources and separate meters, returning an immutable `VerifiedRealConstraints`
+receipt. These are in-process exact checks, not portable solver certificates,
+multivariate quantifier elimination, or a certified compatibility profile.
 
 ## Certify a solution for every parameter and bound its sensitivity
 

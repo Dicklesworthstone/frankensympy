@@ -16,8 +16,9 @@ use fsym_budget::{Budget, BudgetError, BudgetMeter, Dimension, MeterError, Verif
 use fsym_core::real_roots::{RealRootError, VerifiedRealRoots};
 use fsym_solvers::inequality::IneqOp;
 use fsym_solvers::real_equation::{
-    RealEquationError, VerifiedRealEquation, VerifiedRealInequality, metered_solve_real_equation,
-    metered_solve_real_inequality,
+    MAX_REAL_CONSTRAINTS, RealConstraint, RealEquationError, RealFormula, RealRelation,
+    VerifiedRealEquation, VerifiedRealInequality, metered_solve_real_constraints,
+    metered_solve_real_equation, metered_solve_real_inequality,
 };
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -274,6 +275,97 @@ pub(super) fn error_code(error: &RealEquationError) -> &'static str {
         | RealEquationError::Roots(RealRootError::ResourceLimit(_)) => "resource_limit_exceeded",
         RealEquationError::InvalidReduction(_) | RealEquationError::Roots(_) => "refused",
     }
+}
+
+/// Compose complete atom sets without dropping unsupported branches or changing
+/// their original domains. The native engine checks a common exact critical
+/// root partition; this boundary renders its accepted cells only after both
+/// ordinary and protected phases have spent the same session ledger.
+pub(super) fn solve_constraints(
+    system: ResidualSystemId,
+    problem: &ResidualProblem,
+    relations: Vec<RealRelation>,
+    formula: RealFormula,
+    context_digest: [u8; 32],
+    budget: &mut Budget,
+    lease: Option<&VerifierLease>,
+) -> Result<CertificationResponse, CertificationSessionError> {
+    if problem.variables().len() != 1
+        || problem.residuals().len() != relations.len()
+        || relations.len() > MAX_REAL_CONSTRAINTS
+    {
+        return Err(CertificationSessionError::InvalidRealConstraintsProblem);
+    }
+    let lease = lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+    budget
+        .verifier_meter(lease)
+        .map_err(MeterError::from)?
+        .checkpoint()?;
+    // Registration already freezes a bounded source. Charge the retained
+    // source copies before constructing the owned native atom request.
+    crate::certification::check_problem_sources(problem.residuals(), problem.variables(), budget)?;
+    charge(
+        budget,
+        relations.len(),
+        relations.len() * size_of::<RealConstraint>(),
+    )?;
+    let constraints: Vec<_> = problem
+        .residuals()
+        .iter()
+        .zip(&relations)
+        .map(|(expression, &relation)| RealConstraint {
+            expression: expression.clone(),
+            relation,
+        })
+        .collect();
+    let receipt = {
+        let ledger = RefCell::new(&mut *budget);
+        let mut generator = LedgerView {
+            ledger: &ledger,
+            verifier: None,
+        };
+        let mut verifier = LedgerView {
+            ledger: &ledger,
+            verifier: Some(lease),
+        };
+        metered_solve_real_constraints(
+            &constraints,
+            &problem.variables()[0],
+            &formula,
+            &mut generator,
+            &mut verifier,
+        )?
+        .ok_or(CertificationSessionError::UnsupportedRealSolverSource)?
+    };
+    let (polynomial, roots) = root_basis(receipt.roots(), budget)?;
+    charge(
+        budget,
+        receipt.gap_inclusions().len() + receipt.point_inclusions().len(),
+        receipt.gap_inclusions().len()
+            + receipt.point_inclusions().len()
+            + problem.variables()[0].name.len()
+            + size_of::<fsym_core::Symbol>(),
+    )?;
+    let response = CertificationResponse::RealConstraintsSolved {
+        schema_version: CERTIFICATION_REQUEST_SCHEMA,
+        system,
+        variable: problem.variables()[0].clone(),
+        relations,
+        formula,
+        evidence: "exact_cross_checked",
+        claim: "complete_real_solution_set_of_original_rational_constraints",
+        completeness: "complete",
+        domain: "real",
+        solution_set: ExactRealSolutionSet {
+            polynomial,
+            roots,
+            gap_inclusions: receipt.gap_inclusions().to_vec(),
+            point_inclusions: receipt.point_inclusions().to_vec(),
+        },
+        context_digest,
+    };
+    admit_response(&response, budget)?;
+    Ok(response)
 }
 
 #[cfg(test)]

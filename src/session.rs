@@ -1127,6 +1127,7 @@ impl Session {
                 "RegisterResidualSystem"
                     | "SolveRealEquation"
                     | "SolveRealInequality"
+                    | "SolveRealConstraints"
                     | "CompileResidualSystem"
                     | "ExportCompiledResidualSystem"
                     | "ReplayCompiledResidualSystem"

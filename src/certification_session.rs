@@ -63,6 +63,7 @@ pub use compiled_solvers::{
     CompiledLeastSquaresBackend, CompiledRootBackend, CompiledRootSolveOptions,
     CompiledStationarityOptions,
 };
+pub use fsym_solvers::real_equation::{RealFormula, RealRelation};
 pub use parametric::{
     ExactParametricRootWitness, ParametricFamilyId, ParametricFamilyReceipt, ParametricProblemId,
     ParametricSensitivityId,
@@ -719,6 +720,14 @@ pub enum CertificationRequest {
         system: ResidualSystemId,
         relation: RealInequalityRelation,
     },
+    /// Complete intersection/union of original rational comparisons over one axis.
+    /// Each relation corresponds to the residual at the same zero-based index.
+    SolveRealConstraints {
+        schema_version: u32,
+        system: ResidualSystemId,
+        relations: Vec<RealRelation>,
+        formula: RealFormula,
+    },
     EncloseResidualJacobian {
         schema_version: u32,
         system: ResidualSystemId,
@@ -954,6 +963,7 @@ impl CertificationRequest {
             | Self::RegisterResidualSystem { schema_version, .. }
             | Self::SolveRealEquation { schema_version, .. }
             | Self::SolveRealInequality { schema_version, .. }
+            | Self::SolveRealConstraints { schema_version, .. }
             | Self::EncloseResidualJacobian { schema_version, .. }
             | Self::CertifyRootBox { schema_version, .. }
             | Self::IsolateRealRootsInBox { schema_version, .. }
@@ -1047,6 +1057,19 @@ pub enum CertificationResponse {
         system: ResidualSystemId,
         variable: Symbol,
         relation: RealInequalityRelation,
+        evidence: &'static str,
+        claim: &'static str,
+        completeness: &'static str,
+        domain: &'static str,
+        solution_set: ExactRealSolutionSet,
+        context_digest: [u8; 32],
+    },
+    RealConstraintsSolved {
+        schema_version: u32,
+        system: ResidualSystemId,
+        variable: Symbol,
+        relations: Vec<RealRelation>,
+        formula: RealFormula,
         evidence: &'static str,
         claim: &'static str,
         completeness: &'static str,
@@ -1556,6 +1579,8 @@ pub enum CertificationSessionError {
     InvalidNumericPoint,
     #[error("exact real solving requires one original residual and one variable")]
     InvalidRealSolverProblem,
+    #[error("exact real constraints require one variable and one relation per bounded residual")]
+    InvalidRealConstraintsProblem,
     #[error("exact real solving requires an admitted original rational expression")]
     UnsupportedRealSolverSource,
     #[error("box endpoints are reversed or dimensions are inconsistent")]
@@ -1614,6 +1639,7 @@ impl CertificationSessionError {
             | Self::InvalidScalar
             | Self::InvalidNumericPoint
             | Self::InvalidRealSolverProblem
+            | Self::InvalidRealConstraintsProblem
             | Self::InvalidDomain
             | Self::InvalidSearchQuantum => "invalid_input",
             Self::DuplicateObject => "duplicate_object",
@@ -2874,6 +2900,26 @@ impl CertificationState {
                     system,
                     problem,
                     Some(relation),
+                    context_digest,
+                    budget,
+                    lease,
+                )
+            }
+            CertificationRequest::SolveRealConstraints {
+                system,
+                relations,
+                formula,
+                ..
+            } => {
+                let problem = self
+                    .systems
+                    .get(&system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                real_solver::solve_constraints(
+                    system,
+                    problem,
+                    relations,
+                    formula,
                     context_digest,
                     budget,
                     lease,
