@@ -424,9 +424,61 @@ Rust callers use `ObjectiveProblem::begin_box_optimization_search` or
 `BoxOptimizationSearch::new`, then `advance(max_splits, meter)`, `progress()` and
 `counters()`. `completed_witness()` returns only a candidate for
 `verify_box_optimization`. The blocking proposal API drives the same search
-engine. Session getters expose read-only progress and counters. Continuations
-remain in memory for the life of that search; no optimization checkpoint
-serialization or disk restoration is provided by these operations.
+engine. Session getters expose read-only progress and counters.
+
+## Save and restore a global optimization
+
+A candidate search can be exported before the process exits:
+
+```json
+{"id":"checkpoint","type":"ExportBoxOptimizationSearch","payload":{"schema_version":1,"search":"optimization-search:well"}}
+```
+
+Save the response's `result.artifact` string unchanged. In a fresh session,
+register the same original objective and ordered variables, then send:
+
+```json
+{"id":"resume","type":"RestoreBoxOptimizationSearch","payload":{"schema_version":1,"objective":"objective:well","search":"optimization-search:continued","domain":[{"lower":"-2","upper":"2"}],"extremum":"minimum","absolute_tolerance":"1/1000","precision_digits":16,"max_leaves":1024,"artifact":"<the unchanged exported artifact string>"}}
+{"id":"continue","type":"AdvanceBoxOptimization","payload":{"schema_version":1,"search":"optimization-search:continued","max_splits":4}}
+```
+
+The client must insert the artifact through its JSON encoder. Restoration binds
+the exact original expression, typed coordinate order, box, minimum/maximum
+direction, tolerance, precision, leaf limit and assumption context. It checks
+the complete dyadic topology, preserves chronological tie-breaking, recomputes
+every leaf enclosure and reevaluates the proposed feasible point. Cached bounds,
+priority queues and accepted flags are not serialized. An unresolved source
+domain remains unresolved after restoration.
+
+Restored progress carries `evidence: "heuristic_candidate"`, including when
+its status is `complete`. Continue with `FinishBoxOptimization` to obtain
+independent protected verification. Importing a checkpoint never inserts an
+accepted `optimization:` object. Failed imports leave their requested label
+available; existing live searches are never overwritten.
+
+For artifacts exceeding the inline limit, export with
+`BeginArtifactExport` and
+`"source":{"box_optimization_search":"optimization-search:well"}`, then use
+the existing bounded chunk transfer. `RestoreBoxOptimizationSearchFromArtifact`
+takes the same expected statement and a completed `transfer:` reference
+instead of inline bytes. The distinct `box_optimization_checkpoint` artifact
+kind cannot be used as an accepted optimization proof.
+
+Rust callers use `export_box_optimization_checkpoint(search, context, meter)`
+and `restore_box_optimization_checkpoint(bytes, problem, domain, kind,
+tolerance, options, context, meter)`. The lower-level normalized checkpoint
+type has no unrestricted deserializer. Copying a checkpoint consumes intrinsic
+search work; encoding, decoding and restoration also consume the caller's
+ordinary ledger. Prior intrinsic counters are retained and restoration costs
+are added, so repeated resumptions can exhaust the lifetime limits. Sender
+counters do not authenticate its complete resource history or enlarge the
+receiver's allowance. Clients own persistence of these portable bytes; the
+host-managed root-search stores and RaptorQ repair APIs remain root-specific.
+
+The optimization checkpoint implementation and source-review evidence are
+recorded in `artifacts/audit/2026-11-14-optimization-checkpoint-progress.json`.
+Current-source execution remains pending after the development executor
+disconnected; this interface does not close campaign or compatibility gates.
 
 ## Certify a proper real definite integral
 
@@ -670,7 +722,7 @@ string through their JSON encoder without parsing and rewriting its contents.
 
 ## Transfer certificates and checkpoints larger than one frame
 
-All certificate and root-checkpoint artifact kinds support a chunked route up to the native 1 MiB artifact
+All certificate, root-checkpoint and optimization-checkpoint artifact kinds support a chunked route up to the native 1 MiB artifact
 limit. This route preserves the 64 KiB input frame limit. Each chunk carries
 at most 16 KiB of bytes encoded as at most 32 KiB of lowercase hexadecimal;
 schema 1 has at most 64 chunks. Clients can forward the returned manifest and

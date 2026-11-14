@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "scope": "Portable bounded global-box optimization candidate checkpoints across Rust, Session, NDJSON and chunked transfer",
+  "base_commit": "b2892e2b9d2b5308d3954a7c32dbf5afaf821025",
+  "implementation_blobs": {
+    "crates/fsym-calculus/src/box_optimization.rs": "977a12e16df12163ea786043d327e8ddb0d49b7d",
+    "crates/fsym-core/src/root_certificate/box_optimization.rs": "cbafa43dabdccb54a2d3d913748abf5ab713eb18",
+    "crates/fsym-calculus/src/box_optimization/checkpoint.rs": "ebed3e16a512b83e451418a53448b16d0d690e03",
+    "crates/fsym-calculus/tests/box_optimization_checkpoint.rs": "574b001d7a5e8d240f8452e581020901812948bd",
+    "src/optimization_checkpoint.rs": "a54c161d8c033eaf3f51dd5ed524b40953d77660",
+    "src/optimization.rs": "6faf156824200d3f876620634e06f6c479196c22",
+    "src/certification_session.rs": "92c653d3fa3ed8fc774148cf05d4c6266d816384",
+    "src/session.rs": "dfe0e9faa89423124b33f2b7f8ed254a6727d335",
+    "src/lib.rs": "8ae7b32bc28b1275e16ad10fe1ef95d7a513b8ad",
+    "src/artifact_stream.rs": "79f5285e77734179f3115f47680b0dcb83ffe819",
+    "tests/optimization_checkpoints.rs": "f8fb15240889f324fc6aa647d2971227d9db3d11"
+  },
+  "functionality": [
+    "Canonical exact objective, ordered typed axes, domain, extremum, tolerance, options and context binding before imported arithmetic",
+    "Complete dyadic topology with chronological split ordering; leaf bounds and incumbent reevaluated from original source",
+    "Distinct inline/chunked candidate artifact kind; no imported accepted status or cached bounds",
+    "Cumulative intrinsic search accounting plus receiver-side restoration charges; protected independent Finish still required",
+    "Atomic response admission and search publication; failed import leaves requested label available"
+  ],
+  "regression_functions_authored": {
+    "native": 9,
+    "facade_session_cli": 9
+  },
+  "validation": {
+    "independent_production_source_review": "completed; counter-decoding charge added during review",
+    "regression_source_review": "reviewed API, mathematical expectations, error codes and candidate/verification boundaries; CLI process test uses explicit resource limits",
+    "remote_blob_readback": "byte-exact; final commit and main ref independently fetched after publication",
+    "rustfmt": "not executed after executor disconnection",
+    "workspace_check": "initial attempt failed during pinned component installation due to full disk; retry has no observed terminal result before executor disconnected",
+    "tests": "authored but not executed",
+    "clippy": "not executed",
+    "ci_selection": "Added native box_optimization_checkpoint and root optimization_checkpoints targets to existing G3 optimization lane; queued runs are not passing evidence"
+  },
+  "limits": [
+    "Checkpoint bytes are caller-persisted; automatic host-owned stores and RaptorQ recovery remain root-search-specific.",
+    "Serialized counters do not authenticate the sender's entire history or increase receiver allowances.",
+    "No compatibility, profile, campaign, performance or full-runtime validation result is claimed.",
+    "Bead status, priority and dependency edges remain unchanged."
+  ]
+}

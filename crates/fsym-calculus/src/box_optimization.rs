@@ -12,8 +12,11 @@ use fsym_core::{
     Expr, MAX_BOX_OPTIMIZATION_DEPTH, MAX_BOX_OPTIMIZATION_LEAVES, RealBall, RootBoxError, Symbol,
 };
 use num_traits::{Signed, Zero};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
+
+mod checkpoint;
+pub use checkpoint::BoxOptimizationSearchCheckpoint;
 
 type Result<T> = std::result::Result<T, BoxOptimizationError>;
 
@@ -25,7 +28,8 @@ pub const MAX_BOX_OPTIMIZATION_ADVANCE_SPLITS: usize = MAX_BOX_OPTIMIZATION_LEAV
 
 /// Absolute accuracy is checked independently from these search limits.
 /// Raising the leaf cap never relaxes the requested global value gap.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BoxOptimizationOptions {
     pub precision_digits: u32,
     pub max_leaves: usize,

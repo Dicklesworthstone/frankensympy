@@ -132,8 +132,8 @@ jobs:
       - name: Certified global optimization and portable native receipts
         run: |
           cargo test --locked -p fsym-core --test box_optimization --test box_optimization_transport --test box_optimization_monotonicity -j1
-          cargo test --locked -p fsym-calculus --test certified_box_optimization --test certified_monotone_optimization --test box_optimization_search -j1
-          cargo test --locked -p frankensympy --test native_optimization --test optimization_transport --test optimization_session --test optimization_cli --test optimization_search_session -j1
+          cargo test --locked -p fsym-calculus --test certified_box_optimization --test certified_monotone_optimization --test box_optimization_search --test box_optimization_checkpoint -j1
+          cargo test --locked -p frankensympy --test native_optimization --test optimization_transport --test optimization_session --test optimization_cli --test optimization_search_session --test optimization_checkpoints -j1
       - name: Complete parameter families and implicit sensitivities
         run: |
           cargo test --locked -p fsym-core --test parametric_root --test parametric_cover --test parametric_sensitivity -j1

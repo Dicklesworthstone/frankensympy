@@ -180,7 +180,7 @@ fn charge_number(
     )
 }
 
-fn charge_statement(
+pub(crate) fn charge_statement(
     domain: &[RealBall],
     dimensions: usize,
     absolute_tolerance: &BigRational,

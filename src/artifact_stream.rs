@@ -117,6 +117,7 @@ pub enum ArtifactKind {
     StationaryCertificate,
     BoxOptimization,
     ParametricFamily,
+    BoxOptimizationCheckpoint,
 }
 
 impl ArtifactKind {
@@ -129,6 +130,7 @@ impl ArtifactKind {
             Self::StationaryCertificate => 5,
             Self::BoxOptimization => 6,
             Self::ParametricFamily => 7,
+            Self::BoxOptimizationCheckpoint => 8,
         }
     }
 }

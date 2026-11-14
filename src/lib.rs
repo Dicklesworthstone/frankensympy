@@ -23,6 +23,7 @@ pub mod isolation_transport;
 pub mod objective;
 pub mod objective_transport;
 pub mod optimization;
+pub mod optimization_checkpoint;
 pub mod parametric;
 pub mod parametric_transport;
 pub mod repairable_search;
@@ -56,7 +57,8 @@ pub use durable_search::{
 pub use fsym_budget::{Budget, BudgetLimits, BudgetMeter, BudgetSnapshot, Dimension, MeterError};
 pub use fsym_calculus::box_optimization::{
     BoxOptimizationCounters, BoxOptimizationOptions, BoxOptimizationProgress,
-    BoxOptimizationSearch, BoxOptimizationSearchStatus, MAX_BOX_OPTIMIZATION_ADVANCE_SPLITS,
+    BoxOptimizationSearch, BoxOptimizationSearchCheckpoint, BoxOptimizationSearchStatus,
+    MAX_BOX_OPTIMIZATION_ADVANCE_SPLITS,
 };
 pub use fsym_calculus::parametric_cover::ParametricRootCoverOptions;
 pub use fsym_calculus::quadrature::QuadratureOptions;
@@ -101,6 +103,10 @@ pub use objective_transport::{
 pub use optimization::{
     BOX_OPTIMIZATION_ARTIFACT_SCHEMA_VERSION, MAX_BOX_OPTIMIZATION_ARTIFACT_BYTES,
     OptimizationError, export_box_optimization, replay_box_optimization,
+};
+pub use optimization_checkpoint::{
+    BOX_OPTIMIZATION_CHECKPOINT_SCHEMA_VERSION, MAX_BOX_OPTIMIZATION_CHECKPOINT_BYTES,
+    export_box_optimization_checkpoint, restore_box_optimization_checkpoint,
 };
 pub use parametric::{ParametricError, ParametricProblem};
 pub use parametric_transport::{

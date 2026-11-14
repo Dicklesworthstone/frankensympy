@@ -193,7 +193,8 @@ pub struct BoxOptimizationWorkspace<'a, M> {
 
 /// Intrinsic consumption retained by an in-memory optimization search.
 /// These counters describe attempted work, not a transferable allowance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BoxOptimizationCounters {
     pub steps: u64,
     pub allocation_bytes: u64,
@@ -293,6 +294,48 @@ impl BoxOptimizationPrepared {
 
     pub fn counters(&self) -> BoxOptimizationCounters {
         self.counters
+    }
+
+    /// Retain prior candidate work in addition to this receiver's preparation.
+    ///
+    /// Imported counters are consumption, never transferable allowance or
+    /// proof of remote history. Callers also check structural lower bounds;
+    /// unauthenticated checkpoints cannot attest every attempted operation.
+    /// No value credits the receiving meter, and validation and future search
+    /// continue consuming the same unchanged intrinsic limits.
+    pub fn include_prior_work(&mut self, prior: BoxOptimizationCounters) -> Result<()> {
+        if prior.source_bytes != self.counters.source_bytes
+            || prior.steps < self.counters.steps
+            || prior.allocation_bytes < self.counters.allocation_bytes
+        {
+            return Err(BoxOptimizationError::InvalidPartition(
+                "checkpoint understates preparation work or changes source accounting",
+            ));
+        }
+        let steps = prior
+            .steps
+            .checked_add(self.counters.steps)
+            .filter(|total| *total <= super::MAX_ROOT_BOX_STEPS)
+            .ok_or(RootBoxError::ResourceLimit("cumulative arithmetic work"))?;
+        let allocation_bytes = prior
+            .allocation_bytes
+            .checked_add(self.counters.allocation_bytes)
+            .filter(|total| *total <= super::MAX_ROOT_BOX_ALLOCATION_BYTES)
+            .ok_or(RootBoxError::ResourceLimit("cumulative allocation"))?;
+        let evaluations = prior
+            .evaluations
+            .checked_add(self.counters.evaluations)
+            .filter(|total| *total <= MAX_EVALUATIONS)
+            .ok_or(RootBoxError::ResourceLimit(
+                "box-optimization evaluation count",
+            ))?;
+        self.counters = BoxOptimizationCounters {
+            steps,
+            allocation_bytes,
+            source_bytes: self.counters.source_bytes,
+            evaluations,
+        };
+        Ok(())
     }
 
     /// Reuse only this object's immutable, preflighted source and all admitted
