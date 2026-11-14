@@ -42,6 +42,7 @@ pub const RULE_DIFF_ATANH: &str = "diff_atanh";
 pub const RULE_DIFF_ERF: &str = "diff_erf";
 pub const RULE_DIFF_ERFC: &str = "diff_erfc";
 pub const RULE_DIFF_SINC: &str = "diff_sinc";
+pub const RULE_DIFF_SQRT: &str = "diff_sqrt";
 pub const RULE_DIFF_GENERAL: &str = "diff_general";
 
 /// Constructs the canonical diff application node: $\frac{\partial}{\partial \text{var}}(\text{expr})$.
@@ -87,6 +88,7 @@ pub fn classify_diff_rule(expr: &Expr, var: &Symbol) -> &'static str {
             ("erf", 1) => RULE_DIFF_ERF,
             ("erfc", 1) => RULE_DIFF_ERFC,
             ("sinc", 1) => RULE_DIFF_SINC,
+            ("sqrt", 1) => RULE_DIFF_SQRT,
             _ => RULE_DIFF_GENERAL,
         },
     }
@@ -419,6 +421,14 @@ fn reference_unsimplified_diff(expr: &Expr, var: &Symbol) -> Expr {
                         du,
                     ])
                 }
+                "sqrt" => Expr::Mul(vec![
+                    Expr::Rational(BigRational::new(1.into(), 2.into())),
+                    Expr::pow(
+                        u.clone(),
+                        Expr::Rational(BigRational::new((-1).into(), 2.into())),
+                    ),
+                    du,
+                ]),
                 "log" | "ln" => Expr::Mul(vec![
                     Expr::Pow(Arc::new(u.clone()), Arc::new(Expr::from_i64(-1))),
                     du,
@@ -1072,6 +1082,29 @@ fn verify_rule_reduction_semantics(
                 return Err(KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected sinc(u) for diff_sinc".to_string(),
+                });
+            }
+        }
+        RULE_DIFF_SQRT => {
+            if let Expr::Function(name, args) = expr
+                && name == "sqrt"
+                && args.len() == 1
+            {
+                // This is the principal-root formal derivative, not a claim
+                // that its real value is defined at zero or across a branch
+                // boundary. Numeric admission checks those original domains.
+                let expected_rhs = reference_unsimplified_diff(expr, var);
+                if deriv != &expected_rhs {
+                    return Err(KernelError::InvalidDefinitionalReduction {
+                        rule_name: rule_name.to_string(),
+                        reason: "Square-root derivative disagrees with the independent chain rule"
+                            .to_string(),
+                    });
+                }
+            } else {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Expected unary sqrt expression for diff_sqrt".to_string(),
                 });
             }
         }

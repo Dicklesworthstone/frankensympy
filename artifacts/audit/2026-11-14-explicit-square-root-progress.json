@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "scope": "Explicit unary sqrt through the existing verified differentiation and numeric compilation pipeline",
+  "base_commit": "266caa82464771065b5d70a8d71bb349baeb46fe",
+  "implementation_blobs": {
+    "crates/fsym-calculus/src/lib.rs": "044ad9b92932d1d0860b8f94b976a30885187427",
+    "crates/fsym-calculus/src/proof.rs": "580527df78e6f9102306c2cfc7824fb32f958873",
+    "crates/fsym-calculus/tests/square_root_programs.rs": "15c18dc1b4d93ca55ec68cf61f5f61a4e2ee17dd"
+  },
+  "regression_functions_authored": 7,
+  "validation": {
+    "source_review": "completed",
+    "independent_arithmetic_review": "completed",
+    "remote_blob_readback": "byte-exact",
+    "pinned_toolchain_installation": "completed",
+    "initial_workspace_check": "failed while rustup installed additional pinned components: no space left on device",
+    "retry_workspace_check": "no terminal result before executor disconnection",
+    "rustfmt": "no observed completion",
+    "native_tests": "not executed",
+    "clippy": "not executed",
+    "ci": "new test selected in G3; full workspace test discovery retained"
+  },
+  "limits": [
+    "Formal derivative rule does not assert unconditional real definedness.",
+    "Original-source and derivative numeric domain checks remain in force.",
+    "No compatibility, campaign, performance or workstream certification is claimed."
+  ]
+}

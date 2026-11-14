@@ -213,6 +213,21 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
                     ]),
                     du,
                 ])
+            } else if name == "sqrt" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                // The explicit principal-square-root node follows the same
+                // formal rule as u^(1/2). Its inverse half power retains the
+                // singularity at zero; real evaluators must still admit the
+                // original source and every derivative at the requested point.
+                Expr::Mul(vec![
+                    Expr::Rational(BigRational::new(1.into(), 2.into())),
+                    Expr::pow(
+                        u.clone(),
+                        Expr::Rational(BigRational::new((-1).into(), 2.into())),
+                    ),
+                    du,
+                ])
             } else if (name == "log" || name == "ln") && args.len() == 1 {
                 let u = &args[0];
                 let du = diff(u, var);
