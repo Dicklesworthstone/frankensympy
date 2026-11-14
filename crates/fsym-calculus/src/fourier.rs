@@ -1,12 +1,15 @@
 //! Bounded ordinary Fourier transforms in the cycles-per-unit convention.
 //!
-//! This catalog applies two closed real-line integral identities, with their
+//! This catalog applies three closed real-line integral identities, with their
 //! convergence premises checked using exact rational arithmetic:
-//! exp(-a*x^2+b*x+c), a > 0, and exp(c-a*abs(b*x+d)), a > 0, b != 0.
+//! exp(-a*x^2+b*x+c), a > 0; exp(c-a*abs(b*x+d)), a > 0, b != 0;
+//! and 1/(a*x^2+b*x+c), a > 0, 4*a*c-b^2 > 0.
 //! Finite sums and rational multiples compose these absolutely integrable
 //! functions. Nonzero constants and other distributions are deliberately not
 //! ordinary integrals. The angular-frequency catalog in transforms retains
 //! its separate API and convention.
+//! Forward and inverse directions use exp(-2*pi*I*k*x) and
+//! exp(+2*pi*I*k*x), respectively; the direction remains typed in the result.
 //!
 //! Original syntax is inspected before normalization, including every child
 //! of zero products and powers. No numerical sampling or assumed sign admits
@@ -58,24 +61,35 @@ impl From<RationalArithmeticError> for FourierError {
 type Result<T> = std::result::Result<T, FourierError>;
 type Polynomial = Vec<BigRational>;
 
+/// The sign of the oscillatory kernel in the cycles-per-unit convention.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FourierDirection {
+    Forward,
+    Inverse,
+}
+
 struct Work<'a, M> {
     meter: &'a mut M,
+    direction: FourierDirection,
     compute: u64,
     memory: u64,
     terms: usize,
     output_nodes: usize,
     used_bilateral_identity: bool,
+    used_cauchy_identity: bool,
 }
 
 impl<'a, M: BudgetMeter> Work<'a, M> {
-    fn new(meter: &'a mut M) -> Self {
+    fn new(meter: &'a mut M, direction: FourierDirection) -> Self {
         Self {
             meter,
+            direction,
             compute: 0,
             memory: 0,
             terms: 0,
             output_nodes: 0,
             used_bilateral_identity: false,
+            used_cauchy_identity: false,
         }
     }
 
@@ -195,6 +209,19 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
         }
         self.output(1)?;
         Ok(Expr::Function("exp".into(), vec![argument]))
+    }
+
+    fn absolute(&mut self, argument: Expr) -> Result<Expr> {
+        self.output(1)?;
+        Ok(Expr::Function("Abs".into(), vec![argument]))
+    }
+
+    fn catalog_term(&mut self) -> Result<()> {
+        self.terms += 1;
+        if self.terms > MAX_TERMS {
+            return Err(FourierError::Refused("more than sixty-four catalog terms"));
+        }
+        Ok(())
     }
 }
 
@@ -565,7 +592,11 @@ fn phase<M: BudgetMeter>(
     frequency: &Symbol,
     work: &mut Work<'_, M>,
 ) -> Result<Expr> {
-    let scale = work.mul(&BigRational::from(-2), center)?;
+    let sign = match work.direction {
+        FourierDirection::Forward => -2,
+        FourierDirection::Inverse => 2,
+    };
+    let scale = work.mul(&BigRational::from(sign), center)?;
     let scale = work.scalar(&scale)?;
     let pi = work.constant(Constant::Pi)?;
     let imaginary = work.constant(Constant::I)?;
@@ -644,6 +675,84 @@ fn bilateral_exponential<M: BudgetMeter>(
     work.product(vec![numerator, reciprocal, amplitude, shift])
 }
 
+/// Check a completed-square proposal by reconstructing every original
+/// coefficient. Positivity establishes both absence of real poles and the
+/// integrable quadratic tail. This is a direct exact catalog check, not a
+/// portable transform certificate or a numerical pole test.
+fn check_cauchy_parameters<M: BudgetMeter>(
+    coefficients: &[BigRational],
+    center: &BigRational,
+    radius_squared: &BigRational,
+    work: &mut Work<'_, M>,
+) -> Result<()> {
+    if coefficients.len() != 3 || !coefficients[2].is_positive() || !radius_squared.is_positive() {
+        return Err(FourierError::Refused("invalid Cauchy convergence proposal"));
+    }
+    let leading = &coefficients[2];
+    let twice_leading = work.mul(&BigRational::from(-2), leading)?;
+    let linear = work.mul(&twice_leading, center)?;
+    let center_squared = work.mul(center, center)?;
+    let constant = work.add(&center_squared, radius_squared)?;
+    let constant = work.mul(leading, &constant)?;
+    if linear.metered_cmp(&coefficients[1], work)?.is_ne()
+        || constant.metered_cmp(&coefficients[0], work)?.is_ne()
+    {
+        return Err(FourierError::Refused(
+            "Cauchy proposal differs from its original quadratic",
+        ));
+    }
+    Ok(())
+}
+
+fn cauchy<M: BudgetMeter>(
+    coefficients: &[BigRational],
+    frequency: &Symbol,
+    work: &mut Work<'_, M>,
+) -> Result<Expr> {
+    if coefficients.len() != 3 || !coefficients[2].is_positive() {
+        return Err(FourierError::Unsupported(
+            "a Cauchy denominator without positive quadratic growth",
+        ));
+    }
+    let leading = &coefficients[2];
+    let twice_leading = work.mul(&BigRational::from(2), leading)?;
+    let center = -work.div(&coefficients[1], &twice_leading)?;
+    let leading_squared = work.mul(leading, leading)?;
+    let four_leading_squared = work.mul(&BigRational::from(4), &leading_squared)?;
+    let product = work.mul(leading, &coefficients[0])?;
+    let four_product = work.mul(&BigRational::from(4), &product)?;
+    let linear_squared = work.mul(&coefficients[1], &coefficients[1])?;
+    let discriminant = work.add(&four_product, &(-linear_squared))?;
+    if !discriminant.is_positive() {
+        return Err(FourierError::Unsupported(
+            "a Cauchy denominator with a real pole",
+        ));
+    }
+    let radius_squared = work.div(&discriminant, &four_leading_squared)?;
+    check_cauchy_parameters(coefficients, &center, &radius_squared, work)?;
+    work.used_cauchy_identity = true;
+
+    // The positive real square root fixes the branch. The ordinary integral
+    // is pi/(a*r) * exp(-2*pi*r*abs(k)) * exp(sign*2*pi*I*k*center).
+    let radius_squared_expr = work.scalar(&radius_squared)?;
+    let radius = work.power(radius_squared_expr, BigRational::new(1.into(), 2.into()))?;
+    let negative_two = work.scalar(&BigRational::from(-2))?;
+    let pi = work.constant(Constant::Pi)?;
+    let k = work.symbol(frequency)?;
+    let absolute_k = work.absolute(k)?;
+    let argument = work.product(vec![negative_two, pi, radius, absolute_k])?;
+    let decay = work.exp(argument)?;
+    let amplitude_squared_inverse = work.mul(&leading_squared, &radius_squared)?;
+    let amplitude_squared_inverse = work.scalar(&amplitude_squared_inverse)?;
+    let amplitude = work.power(
+        amplitude_squared_inverse,
+        BigRational::new((-1).into(), 2.into()),
+    )?;
+    let pi = work.constant(Constant::Pi)?;
+    let shift = phase(&center, frequency, work)?;
+    work.product(vec![pi, amplitude, decay, shift])
+}
+
 fn transform<M: BudgetMeter>(
     source: &Expr,
     variable: &Symbol,
@@ -689,10 +798,7 @@ fn transform<M: BudgetMeter>(
             work.product(vec![coefficient, value])
         }
         Expr::Function(name, arguments) if name == "exp" && arguments.len() == 1 => {
-            work.terms += 1;
-            if work.terms > MAX_TERMS {
-                return Err(FourierError::Refused("more than sixty-four catalog terms"));
-            }
+            work.catalog_term()?;
             match polynomial(&arguments[0], variable, work) {
                 Ok(coefficients) => gaussian(&coefficients, frequency, work),
                 Err(FourierError::Unsupported(_)) => {
@@ -702,6 +808,12 @@ fn transform<M: BudgetMeter>(
                 Err(error) => Err(error),
             }
         }
+        Expr::Pow(base, exponent) if matches!(exponent.as_ref(), Expr::Integer(power) if power.to_i64() == Some(-1)) =>
+        {
+            work.catalog_term()?;
+            let coefficients = polynomial(base, variable, work)?;
+            cauchy(&coefficients, frequency, work)
+        }
         _ => Err(FourierError::Unsupported("this original source grammar")),
     }
 }
@@ -710,10 +822,15 @@ fn transform<M: BudgetMeter>(
 #[derive(Debug)]
 pub struct OrdinaryFourierTransform {
     pub value: Expr,
+    /// The actual kernel direction used to construct this result.
+    pub direction: FourierDirection,
     /// Which closed integral identity was used, not a convergence condition.
     /// Public compatibility layers may retain a more restrictive oracle
     /// condition than this catalog's exact real-frequency theorem requires.
     pub used_bilateral_identity: bool,
+    /// A positive quadratic reciprocal was integrated on the real line.
+    /// Its result is asserted only for real output coordinates.
+    pub used_cauchy_identity: bool,
 }
 
 /// Ordinary real-line Fourier transform with kernel exp(-2*pi*I*k*x).
@@ -732,16 +849,102 @@ pub fn metered_fourier_transform_l1<M: BudgetMeter>(
     frequency: &Symbol,
     meter: &mut M,
 ) -> Result<OrdinaryFourierTransform> {
-    let mut work = Work::new(meter);
+    metered_transform_l1(
+        source,
+        variable,
+        frequency,
+        FourierDirection::Forward,
+        meter,
+    )
+}
+
+fn metered_transform_l1<M: BudgetMeter>(
+    source: &Expr,
+    variable: &Symbol,
+    frequency: &Symbol,
+    direction: FourierDirection,
+    meter: &mut M,
+) -> Result<OrdinaryFourierTransform> {
+    let mut work = Work::new(meter, direction);
     preflight(source, variable, frequency, &mut work)?;
     let value = transform(source, variable, frequency, &mut work)?;
     work.checkpoint()?;
     Ok(OrdinaryFourierTransform {
         value,
+        direction,
         used_bilateral_identity: work.used_bilateral_identity,
+        used_cauchy_identity: work.used_cauchy_identity,
     })
 }
 
 pub fn fourier_transform_l1(source: &Expr, variable: &Symbol, frequency: &Symbol) -> Result<Expr> {
     Ok(metered_fourier_transform_l1(source, variable, frequency, &mut Unbounded)?.value)
+}
+
+/// Ordinary inverse Fourier integral with kernel exp(+2*pi*I*k*x).
+///
+/// The input is integrated over the real line using the same exact L1
+/// premises as the forward catalog. The result is not a distribution, and
+/// neither direction asserts inversion of an unrelated transform receipt.
+/// Bilateral-exponential and Cauchy outputs require a real output coordinate.
+pub fn metered_inverse_fourier_transform_l1<M: BudgetMeter>(
+    source: &Expr,
+    variable: &Symbol,
+    coordinate: &Symbol,
+    meter: &mut M,
+) -> Result<OrdinaryFourierTransform> {
+    metered_transform_l1(
+        source,
+        variable,
+        coordinate,
+        FourierDirection::Inverse,
+        meter,
+    )
+}
+
+pub fn inverse_fourier_transform_l1(
+    source: &Expr,
+    variable: &Symbol,
+    coordinate: &Symbol,
+) -> Result<Expr> {
+    Ok(metered_inverse_fourier_transform_l1(source, variable, coordinate, &mut Unbounded)?.value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cauchy_reconstruction_rejects_wrong_center_width_and_original_source() {
+        let source = [
+            BigRational::from(3),
+            BigRational::from(4),
+            BigRational::from(2),
+        ];
+        let center = BigRational::from(-1);
+        let radius_squared = BigRational::new(1.into(), 2.into());
+        let mut meter = Unbounded;
+        let mut work = Work::new(&mut meter, FourierDirection::Inverse);
+        check_cauchy_parameters(&source, &center, &radius_squared, &mut work).unwrap();
+        for (changed_center, changed_radius) in [
+            (BigRational::from(1), radius_squared.clone()),
+            (center.clone(), BigRational::from(1)),
+            (center.clone(), BigRational::zero()),
+            (center.clone(), -radius_squared.clone()),
+        ] {
+            assert!(matches!(
+                check_cauchy_parameters(&source, &changed_center, &changed_radius, &mut work),
+                Err(FourierError::Refused(_)),
+            ));
+        }
+        let changed_source = [
+            BigRational::from(4),
+            BigRational::from(4),
+            BigRational::from(2),
+        ];
+        assert!(matches!(
+            check_cauchy_parameters(&changed_source, &center, &radius_squared, &mut work),
+            Err(FourierError::Refused(_)),
+        ));
+    }
 }
