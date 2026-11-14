@@ -2403,6 +2403,14 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
         real_inequality::solve_real_rational_inequality_native,
         m
     )?)?;
+    m.add_function(wrap_pyfunction!(
+        real_inequality::real_constraint_source_preflight_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        real_inequality::solve_real_rational_constraints_native,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(quadrature::certified_integral_native, m)?)?;
     m.add_function(wrap_pyfunction!(
         exact_integral::exact_rational_integral_native,

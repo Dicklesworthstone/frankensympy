@@ -178,6 +178,23 @@ sources and separate meters, returning an immutable `VerifiedRealConstraints`
 receipt. These are in-process exact checks, not portable solver certificates,
 multivariate quantifier elimination, or a certified compatibility profile.
 
+The Python `reduce_inequalities` facade also uses this common partition for
+flat conjunctions of supported univariate rational comparisons, including
+`Eq` and `Ne`. It can therefore decide contradictory algebraic bounds without
+asking the generic set normalizer to order separately constructed root objects:
+
+```python
+from sympy import symbols, reduce_inequalities
+
+x = symbols("x", real=True)
+reduce_inequalities([x**2 <= 2, x**2 >= 3], x)  # False
+```
+
+The Python path retains held source domains and typed symbol identities and
+admits every supplied source before a Boolean short circuit. It returns the
+usual relational result. Nested `all`/`any` formulas remain available through
+the native and Session APIs; this Python entry point accepts conjunctions.
+
 ## Certify a solution for every parameter and bound its sensitivity
 
 `RegisterParametricProblem` freezes original residuals and two separate ordered

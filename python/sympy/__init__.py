@@ -2158,39 +2158,53 @@ def _inequality_symbol(rels: list, symbols: Any) -> Any:
 def reduce_inequalities(inequalities: Any, symbols: Any = None) -> Any:
     """Reduce a univariate system of inequalities to a relational form.
 
-    The real solution set of each inequality comes from the native exact
-    inequality solver; their intersection is returned as relationals
-    (upstream ``reduce_inequalities`` shape). Unsupported systems raise.
+    Rational equalities, disequalities and inequalities share one complete
+    checked algebraic partition. Other supported elementary inequalities keep
+    their scalar solver. Unsupported systems raise explicitly.
     """
-    from .logic.boolalg import BooleanAtom
-    from .sets import Intersection, Reals
+    from .logic.boolalg import BooleanFalse, BooleanTrue
+    from .sets import ConditionSet, EmptySet, Intersection, Reals, Union
+    from .solvers.inequalities import _solve_rational_constraints
 
-    if not isinstance(inequalities, (list, tuple, set)):
+    if type(inequalities) not in (list, tuple, set):
         inequalities = [inequalities]
+    if len(inequalities) > 256:
+        raise NotImplementedError("real constraint resource limit: too many inputs")
     rels = []
+    conjunction_false = False
     for ineq in inequalities:
-        ineq = sympify(ineq) if not isinstance(ineq, (Relational, BooleanAtom)) else ineq
-        if isinstance(ineq, BooleanAtom):
-            if not ineq:
-                from .logic.boolalg import false
-                return false
+        if type(ineq) in (int, float, str):
+            ineq = sympify(ineq)
+        if ineq is False or type(ineq) is BooleanFalse:
+            conjunction_false = True
             continue
-        if type(ineq) is Eq or (isinstance(ineq, Relational) and ineq.rel_op == "=="):
-            rels.append(ineq)
+        if ineq is True or type(ineq) is BooleanTrue:
             continue
-        if not _is_inequality(ineq):
-            raise NotImplementedError(f"reduce_inequalities cannot handle {ineq}")
+        if type(ineq) not in (Eq, Ne, Lt, Le, Gt, Ge):
+            raise NotImplementedError("reduce_inequalities requires a flat list of built-in relations")
         rels.append(ineq)
     if not rels:
-        from .logic.boolalg import true
-        return true
+        from .logic.boolalg import false, true
+        return false if conjunction_false else true
+    checked = _solve_rational_constraints(rels, symbols, conjunction_false)
+    if checked is not None:
+        return checked
     x = _inequality_symbol(rels, (symbols,) if symbols is not None else ())
-    sol = Reals()
+    sol = EmptySet() if conjunction_false else Reals()
     for r in rels:
         if _is_inequality(r):
             part = _solve_inequality_set(r, x)
+        elif type(r) is Ne:
+            raise NotImplementedError("nonrational disequality systems are not supported")
         else:
             part = solveset(r, x, Reals())
+        pending = [part]
+        while pending:
+            node = pending.pop()
+            if isinstance(node, ConditionSet):
+                raise NotImplementedError("constraint fallback did not complete an original relation")
+            if isinstance(node, (Intersection, Union)):
+                pending.extend(node.args)
         sol = Intersection(sol, part)
     return _set_as_relational(sol, x)
 
