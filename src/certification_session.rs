@@ -55,12 +55,14 @@ use thiserror::Error;
 mod compiled;
 mod compiled_objective;
 mod parametric;
+mod real_solver;
 pub use compiled::{CompiledResidualSystemId, MAX_SESSION_COMPILED_SYSTEMS};
 pub use compiled_objective::{CompiledObjectiveId, MAX_SESSION_COMPILED_OBJECTIVES};
 pub use parametric::{
     ExactParametricRootWitness, ParametricFamilyId, ParametricFamilyReceipt, ParametricProblemId,
     ParametricSensitivityId,
 };
+pub use real_solver::{ExactRealSolutionSet, RealInequalityRelation};
 
 pub const CERTIFICATION_REQUEST_SCHEMA: u32 = 1;
 /// The single-frame CLI subset leaves room for JSON escaping and the envelope.
@@ -672,6 +674,17 @@ pub enum CertificationRequest {
         residuals: Vec<String>,
         variables: Vec<String>,
     },
+    /// Complete real roots or a cofinite real set for one original rational source.
+    SolveRealEquation {
+        schema_version: u32,
+        system: ResidualSystemId,
+    },
+    /// Complete real sign decomposition, preserving every original pole.
+    SolveRealInequality {
+        schema_version: u32,
+        system: ResidualSystemId,
+        relation: RealInequalityRelation,
+    },
     EncloseResidualJacobian {
         schema_version: u32,
         system: ResidualSystemId,
@@ -902,6 +915,8 @@ impl CertificationRequest {
             | Self::ReplayBoxOptimization { schema_version, .. }
             | Self::ReplayBoxOptimizationFromArtifact { schema_version, .. }
             | Self::RegisterResidualSystem { schema_version, .. }
+            | Self::SolveRealEquation { schema_version, .. }
+            | Self::SolveRealInequality { schema_version, .. }
             | Self::EncloseResidualJacobian { schema_version, .. }
             | Self::CertifyRootBox { schema_version, .. }
             | Self::IsolateRealRootsInBox { schema_version, .. }
@@ -979,6 +994,29 @@ pub(crate) fn decode_request(
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CertificationResponse {
+    RealEquationSolved {
+        schema_version: u32,
+        system: ResidualSystemId,
+        variable: Symbol,
+        evidence: &'static str,
+        claim: &'static str,
+        completeness: &'static str,
+        domain: &'static str,
+        solution_set: ExactRealSolutionSet,
+        context_digest: [u8; 32],
+    },
+    RealInequalitySolved {
+        schema_version: u32,
+        system: ResidualSystemId,
+        variable: Symbol,
+        relation: RealInequalityRelation,
+        evidence: &'static str,
+        claim: &'static str,
+        completeness: &'static str,
+        domain: &'static str,
+        solution_set: ExactRealSolutionSet,
+        context_digest: [u8; 32],
+    },
     CompiledObjectiveExported {
         schema_version: u32,
         objective: ObjectiveId,
@@ -1434,6 +1472,10 @@ pub enum CertificationSessionError {
     InvalidScalar,
     #[error("numerical point requires one bounded finite binary64 decimal per variable")]
     InvalidNumericPoint,
+    #[error("exact real solving requires one original residual and one variable")]
+    InvalidRealSolverProblem,
+    #[error("exact real solving requires an admitted original rational expression")]
+    UnsupportedRealSolverSource,
     #[error("box endpoints are reversed or dimensions are inconsistent")]
     InvalidDomain,
     #[error(
@@ -1450,6 +1492,8 @@ pub enum CertificationSessionError {
     Certification(#[from] CertificationError),
     #[error("residual compilation refused: {0}")]
     Compilation(#[from] fsym_calculus::verified::VerifiedCompilationError),
+    #[error("exact real solving refused: {0}")]
+    RealSolver(#[from] fsym_solvers::real_equation::RealEquationError),
     #[error("residual evaluation refused: {0}")]
     Evaluation(#[from] fsym_calculus::verified::ResidualEvaluationError),
     #[error("objective compilation refused: {0}")]
@@ -1483,6 +1527,7 @@ impl CertificationSessionError {
             Self::InvalidLabel
             | Self::InvalidScalar
             | Self::InvalidNumericPoint
+            | Self::InvalidRealSolverProblem
             | Self::InvalidDomain
             | Self::InvalidSearchQuantum => "invalid_input",
             Self::DuplicateObject => "duplicate_object",
@@ -1501,6 +1546,7 @@ impl CertificationSessionError {
             | Self::UnknownParametricFamily
             | Self::UnknownTransfer => "unknown_object",
             Self::SearchNotReady => "search_not_ready",
+            Self::UnsupportedRealSolverSource => "unsupported_operation",
             Self::WrongTransferMode => "wrong_transfer_mode",
             Self::ObjectLimit | Self::ArtifactLimit => "resource_limit_exceeded",
             Self::OutputLimit => "output_limit_exceeded",
@@ -1509,6 +1555,7 @@ impl CertificationSessionError {
             Self::Meter(MeterError::Budget(_)) => "budget_exhausted",
             Self::Certification(error) => certification_error_code(error),
             Self::Compilation(error) => compiled::compilation_error_code(error),
+            Self::RealSolver(error) => real_solver::error_code(error),
             Self::Evaluation(error) => compiled::evaluation_error_code(error),
             Self::ObjectiveCompilation(error) => compiled_objective::compilation_error_code(error),
             Self::ObjectiveEvaluation(error) => compiled_objective::evaluation_error_code(error),
@@ -2662,6 +2709,29 @@ impl CertificationState {
             ));
         }
         match request {
+            CertificationRequest::SolveRealEquation { system, .. } => {
+                let problem = self
+                    .systems
+                    .get(&system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                real_solver::solve(system, problem, None, context_digest, budget, lease)
+            }
+            CertificationRequest::SolveRealInequality {
+                system, relation, ..
+            } => {
+                let problem = self
+                    .systems
+                    .get(&system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                real_solver::solve(
+                    system,
+                    problem,
+                    Some(relation),
+                    context_digest,
+                    budget,
+                    lease,
+                )
+            }
             CertificationRequest::CompileObjective {
                 objective, program, ..
             } => {

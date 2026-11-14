@@ -1,7 +1,8 @@
 # Native certification and search sessions
 
 This development interface connects the root Rust library and the `frankensympy`
-NDJSON command to the existing original-source interval checker. Its scope is
+NDJSON command to the existing original-source numerical and exact algebraic
+checkers. Its scope is complete real rational equations and inequalities,
 exact real residual/Jacobian enclosures, unique nonsingular local roots and
 complete finite-box root sets, objective/gradient/Hessian enclosures, locally
 classified stationary points, global box optimum value bounds, proper finite real
@@ -42,6 +43,88 @@ outside that box. For this example the contraction bound is `1/15`.
 The rational matrix is an untrusted preconditioner proposal. Its entries, a
 small residual, a solver convergence flag or a previously stored acceptance
 flag cannot authorize a root certificate.
+
+## Solve complete real rational equations and inequalities
+
+`SolveRealEquation` solves the single registered residual equal to zero over
+the entire real line. `SolveRealInequality` solves the original residual
+`relation` zero, with `relation` equal to `lt`, `le`, `gt`, or `ge`. Both require
+exactly one residual and one registered variable. Their bounded exact rational
+lane handles high-degree algebraic roots, repeated roots, rational poles,
+identities with excluded points, and complete real sign decompositions.
+
+For example, solve a quintic and a rational inequality in the same process:
+
+```json
+{"id":"register-quintic","type":"RegisterResidualSystem","payload":{"schema_version":1,"system":"system:quintic","residuals":["x^5-x+1"],"variables":["x"]}}
+{"id":"solve-quintic","type":"SolveRealEquation","payload":{"schema_version":1,"system":"system:quintic"}}
+{"id":"register-rational","type":"RegisterResidualSystem","payload":{"schema_version":1,"system":"system:rational","residuals":["(x^2-2)/(x^2-3)"],"variables":["x"]}}
+{"id":"solve-rational","type":"SolveRealInequality","payload":{"schema_version":1,"system":"system:rational","relation":"ge"}}
+```
+
+Successful responses have `kind: "real_equation_solved"` or
+`kind: "real_inequality_solved"`, `evidence: "exact_cross_checked"`,
+`completeness: "complete"`, and `domain: "real"`. Their claims are
+`complete_real_solution_set_of_original_rational_equation` and
+`complete_real_solution_set_of_original_rational_inequality`, respectively.
+Each response includes its registered `system`, typed `variable`, current
+immutable `context_digest`, and an exact `solution_set`:
+
+| Field | Exact meaning |
+| --- | --- |
+| `polynomial` | Rational coefficient strings in ascending degree, defining a nonzero monic square-free polynomial. |
+| `roots` | All distinct real roots of that polynomial, in increasing order, each identified by exact rational `lower` and `upper` isolating bounds. Each item denotes one exact algebraic point. |
+| `point_inclusions` | Whether each indexed root belongs to the solution set. |
+| `gap_inclusions` | Whether each open gap belongs to the solution set, including the unbounded gaps before the first root and after the last root. There is one more gap flag than root. |
+
+The quintic example has one real root, all gap flags false, and its one point
+flag true. No radical formula or floating-point approximation is needed to
+identify the answer. For the inequality, the defining polynomial has coefficients
+`["6","0","-5","0","1"]`; its ordered roots are
+`-sqrt(3), -sqrt(2), sqrt(2), sqrt(3)`. The gap flags are
+`[true,false,true,false,true]`, and point flags are
+`[false,true,true,false]`. Thus both irrational denominator poles remain excluded,
+while both zeros belong to this weak inequality. The `roots` bounds themselves
+are isolators, not entire solution intervals or error tolerances.
+
+Registration preserves the original held source. For example:
+
+```json
+{"id":"register-holes","type":"RegisterResidualSystem","payload":{"schema_version":1,"system":"system:holes","residuals":["0*(1/x)"],"variables":["x"]}}
+{"id":"solve-holes","type":"SolveRealEquation","payload":{"schema_version":1,"system":"system:holes"}}
+```
+
+This returns the real line with zero excluded: polynomial `["0","1"]`, gap
+flags `[true,true]`, and point flags `[false]`. The same exclusion survives
+`x/x-1` and `0*((1/x)^0)`. In contrast, `0/(x-x)` is nowhere defined and has an
+empty solution set. With no critical roots, `gap_inclusions: [true]` denotes
+the entire real line and `[false]` denotes the empty set. Repeated polynomial
+roots occur once in the set; this interface makes no multiplicity or
+nonsingularity claim. Later workspace bindings do not change a registered
+source or its coordinate.
+
+Polynomial reductions, complete root counts and endpoint/sign decisions use the
+existing independent exact checkers. The response is a checked set description;
+it is not a portable solver certificate and creates no resident certificate
+handle. Rust callers use `CertificationRequest::SolveRealEquation` or
+`CertificationRequest::SolveRealInequality` through `Session::certification_request`,
+with exported `RealInequalityRelation` and `ExactRealSolutionSet` types.
+
+The solver admits bounded rational arithmetic with literal integer powers.
+The final root/critical polynomial has degree at most 64 and coefficient height
+at most 4096 bits; source, intermediate growth, work and allocation bounds also
+apply. Transcendental, fractional-power or foreign-parameter sources return
+`unsupported_operation`, including unsupported children hidden behind a zero.
+Unsupported syntax and exhausted resources never become an empty set. Request
+payloads cannot override the registered source, variable, real domain, or
+accepted membership flags.
+
+Generation spends ordinary resources; the interleaved independent checks spend
+the protected verifier pool on the same cumulative session ledger. Reacquiring
+a verifier view never replenishes fuel. Complete rendering and response
+admission must succeed before any set is returned, and repeated failed requests
+retain their consumed work. These operations preserve the separate finite-box
+Krawczyk claims above and leave campaign/profile certification gates open.
 
 ## Certify a solution for every parameter and bound its sensitivity
 

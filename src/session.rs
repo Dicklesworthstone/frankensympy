@@ -1125,6 +1125,8 @@ impl Session {
             value.get("type").and_then(serde_json::Value::as_str),
             Some(
                 "RegisterResidualSystem"
+                    | "SolveRealEquation"
+                    | "SolveRealInequality"
                     | "CompileResidualSystem"
                     | "ExportCompiledResidualSystem"
                     | "ReplayCompiledResidualSystem"

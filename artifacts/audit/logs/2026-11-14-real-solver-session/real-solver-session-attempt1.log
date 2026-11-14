@@ -1,0 +1,123 @@
+   Compiling syn v3.0.3
+   Compiling serde_derive v1.0.229
+   Compiling serde v1.0.229
+   Compiling num-bigint v0.4.8
+   Compiling fsym-budget v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-budget)
+   Compiling fsym-bigint v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-bigint)
+   Compiling thiserror-impl v2.0.20
+   Compiling thiserror v2.0.20
+   Compiling fsym-modular v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-modular)
+   Compiling num-rational v0.4.2
+   Compiling fsym-rational v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-rational)
+   Compiling fsym-id v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-id)
+   Compiling fsym-outcome v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-outcome)
+   Compiling fsym-core v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-core)
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-assumptions)
+   Compiling typenum v1.20.1
+   Compiling hybrid-array v0.4.14
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-proof-kernel)
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-evidence)
+   Compiling zeroize v1.9.0
+   Compiling parking_lot_core v0.9.12
+   Compiling block-buffer v0.12.1
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-polys)
+   Compiling crypto-common v0.2.2
+   Compiling scopeguard v1.2.0
+   Compiling smallvec v1.15.2
+   Compiling const-oid v0.10.2
+   Compiling digest v0.11.3
+   Compiling lock_api v0.4.14
+   Compiling fsym-simplify v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-simplify)
+   Compiling franken-evidence v0.6.0 (/tmp/frankensympy-asupersync/franken_evidence)
+   Compiling franken-kernel v0.6.0 (/tmp/frankensympy-asupersync/franken_kernel)
+   Compiling franken-decision v0.6.0 (/tmp/frankensympy-asupersync/franken_decision)
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-calculus)
+   Compiling parking_lot v0.12.5
+   Compiling sha2 v0.11.0
+   Compiling fsym-sets v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-sets)
+   Compiling asupersync-macros v0.6.0 (/tmp/frankensympy-asupersync/asupersync-macros)
+   Compiling asupersync-codec-source-component v0.6.0 (/tmp/frankensympy-session-component/codec)
+warning: static `EPHEMERAL_REGION_COUNTER` is never used
+  --> /tmp/frankensympy-asupersync/src/types/id.rs:21:8
+   |
+21 | static EPHEMERAL_REGION_COUNTER: AtomicU32 = AtomicU32::new(1);
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: static `EPHEMERAL_TASK_COUNTER` is never used
+  --> /tmp/frankensympy-asupersync/src/types/id.rs:22:8
+   |
+22 | static EPHEMERAL_TASK_COUNTER: AtomicU32 = AtomicU32::new(1);
+   |        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `next_bootstrap_region_id` is never used
+  --> /tmp/frankensympy-asupersync/src/types/id.rs:32:15
+   |
+32 | pub(crate) fn next_bootstrap_region_id() -> RegionId {
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `next_bootstrap_task_id` is never used
+  --> /tmp/frankensympy-asupersync/src/types/id.rs:41:15
+   |
+41 | pub(crate) fn next_bootstrap_task_id() -> TaskId {
+   |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated function `from_arena` is never used
+  --> /tmp/frankensympy-asupersync/src/types/id.rs:57:25
+   |
+52 | impl RegionId {
+   | ------------- associated function in this implementation
+...
+57 |     pub(crate) const fn from_arena(index: ArenaIndex) -> Self {
+   |                         ^^^^^^^^^^
+
+warning: feature `try_trait_v2` is declared but not used
+ --> codec/lib.rs:3:54
+  |
+3 | #![cfg_attr(feature = "nightly-outcome-try", feature(try_trait_v2))]
+  |                                                      ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_features)]` (part of `#[warn(unused)]`) on by default
+
+warning: feature `try_trait_v2_residual` is declared but not used
+ --> codec/lib.rs:4:54
+  |
+4 | #![cfg_attr(feature = "nightly-outcome-try", feature(try_trait_v2_residual))]
+  |                                                      ^^^^^^^^^^^^^^^^^^^^^
+
+warning: `asupersync-codec-source-component` (lib) generated 7 warnings
+   Compiling fsym-solvers v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-solvers)
+   Compiling fsym-runtime-session-source-component v0.1.0 (/tmp/frankensympy-session-component/runtime)
+   Compiling fsym-durable v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-durable)
+   Compiling frankensympy-session-source-component-check v0.1.0 (/tmp/frankensympy-session-component)
+    Finished `test` profile [unoptimized] target(s) in 59.29s
+     Running /workspace/scratch/cdfae34e00d3/frankensympy-active/tests/real_solver_session.rs (/tmp/frankensympy-active-target/debug/build/frankensympy-session-source-component-check/868dc20e3d57b558/out/real_solver_session-868dc20e3d57b558)
+
+running 12 tests
+test ordinary_exhaustion_cannot_spend_reserved_compute_or_reset_shared_resources ... ok
+test singular_polynomial_roots_are_returned_once_without_a_nonsingularity_claim ... ok
+test unknown_sources_wrong_dimensions_and_unsupported_grammar_never_mean_empty_sets ... ok
+test strict_wire_rejects_forged_acceptance_masks_unknown_relations_and_duplicate_keys ... ok
+
+thread 'zero_verifier_fuel_never_accepts_and_failed_retries_keep_ordinary_costs' (3300) panicked at /workspace/scratch/cdfae34e00d3/frankensympy-active/tests/real_solver_session.rs:327:13:
+assertion failed: after.dimensions[Dimension::ComputeSteps.index()] <
+    before.dimensions[Dimension::ComputeSteps.index()]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test finite_sets_empty_sets_and_everywhere_defined_identities_remain_distinct ... ok
+test zero_verifier_fuel_never_accepts_and_failed_retries_keep_ordinary_costs ... FAILED
+test quintic_solutions_are_complete_and_bound_to_the_frozen_source_and_context ... ok
+test all_four_relations_retain_even_multiplicity_endpoint_ownership ... ok
+test fresh_cli_returns_exact_complete_sets_and_remains_usable_after_refusal ... ok
+test rational_inequalities_distinguish_irrational_zeros_from_excluded_poles ... ok
+test identities_keep_original_poles_including_nested_and_zero_power_sources ... ok
+test response_admission_failure_does_not_return_a_partially_checked_set ... ok
+
+failures:
+
+failures:
+    zero_verifier_fuel_never_accepts_and_failed_retries_keep_ordinary_costs
+
+test result: FAILED. 11 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+error: test failed, to rerun pass `--test real_solver_session`

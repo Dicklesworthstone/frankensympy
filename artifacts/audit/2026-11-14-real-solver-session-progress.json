@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-14T20:30:57.677479+00:00",
+  "feature": "typed complete exact real rational equations and inequalities in native Session/NDJSON",
+  "bead_progress": {
+    "id": "fra-7kf",
+    "workstream": "WS19",
+    "status_change": null,
+    "scope": "note-only bounded feature progress; no gate or profile closure"
+  },
+  "source_root": "/workspace/scratch/cdfae34e00d3/frankensympy-active",
+  "repository_head_during_checks": "12f6c9864eb72157297d146c21f11f3fd20db6b9",
+  "production_scope": "existing original-source rational equation/sign-chart backends; no native solver algorithm changes; additive typed operations only",
+  "new_requests": [
+    "SolveRealEquation",
+    "SolveRealInequality"
+  ],
+  "evidence": "exact_cross_checked",
+  "mathematical_scope": "complete real finite/cofinite rational-equation sets and real rational inequality sign decompositions, with original denominator exclusions; distinct algebraic points, not approximate intervals or multiplicities",
+  "public_types": [
+    "RealInequalityRelation",
+    "ExactRealSolutionSet"
+  ],
+  "result_encoding": "ascending rational defining-polynomial coefficients, complete ordered algebraic-root isolators, separate root and open-gap inclusion masks",
+  "resource_model": "one cumulative Budget, private synchronous RefCell meter views; ordinary generator work and exact lease-authorized protected verification; all output rendering/admission charged before returning a set",
+  "test_limits": {
+    "ordinary_compute_steps": 100000000,
+    "verifier_steps": 100000000,
+    "memory_bytes": 1073741824,
+    "rust_test_other_dimensions": 100000000,
+    "fresh_cli_allocations": 4000000,
+    "fresh_cli_depth_limit": 256,
+    "default_cli_budget_coverage_claimed": false
+  },
+  "checks": [
+    {
+      "command": "cargo test --offline --locked --test real_solver_session -- --nocapture",
+      "cwd": "/tmp/frankensympy-session-component",
+      "exit_code": 0,
+      "passed": 12,
+      "failed": 0,
+      "log": "artifacts/audit/logs/2026-11-14-real-solver-session/real-solver-session-final.log",
+      "includes_fresh_cli": true
+    },
+    {
+      "command": "cargo test --offline --locked --lib certification_session::real_solver::tests -- --nocapture",
+      "cwd": "/tmp/frankensympy-session-component",
+      "exit_code": 0,
+      "passed": 3,
+      "failed": 0,
+      "filtered_out": 7,
+      "log": "artifacts/audit/logs/2026-11-14-real-solver-session/real-solver-private-final.log"
+    },
+    {
+      "command": "cargo clippy --offline --locked -p frankensympy-session-source-component-check --no-deps --lib --test real_solver_session -- -D warnings",
+      "cwd": "/tmp/frankensympy-session-component",
+      "exit_code": 0,
+      "scope": "root library and new test target only; dependency lints excluded",
+      "log": "artifacts/audit/logs/2026-11-14-real-solver-session/real-solver-clippy-scoped.log",
+      "normal_donor_warnings": 7
+    },
+    {
+      "command": "pinned rustfmt --edition 2024 --config skip_children=true --check <five owned Rust files>",
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": "git diff --check -- <six owned source/test/documentation files>",
+      "exit_code": 0,
+      "output": ""
+    }
+  ],
+  "observed_failures_and_corrections": [
+    {
+      "log": "artifacts/audit/logs/2026-11-14-real-solver-session/real-solver-session-attempt1.log",
+      "exit_code": 101,
+      "passed": 11,
+      "failed": 1,
+      "cause": "test incorrectly expected ordinary work to be charged with an initial zero verifier pool; Budget intentionally issues no lease at zero, and production correctly refused before work",
+      "correction": "fixture now checks no charges with zero initial pool and separately checks retained generator costs on retries with a tiny valid verifier allowance",
+      "production_change": false
+    },
+    {
+      "log": "artifacts/audit/logs/2026-11-14-real-solver-session/real-solver-clippy.log",
+      "exit_code": 101,
+      "cause": "initial component-wide strict Clippy stopped at 30 unchanged/scope-induced pinned donor errors, including dead-code, collapsible-if, argument-count and chunks-exact lints; root was not reached",
+      "correction": "explicit package and --no-deps scope retains strict root/test checking; no donor or harness source/lint-policy edits"
+    },
+    {
+      "cause": "a separately reviewed forward-Mellin correction changed dependency source during earlier checks",
+      "correction": "reran both final test targets after source freeze with matched pre/post source hashes"
+    }
+  ],
+  "source_component_scope": {
+    "root_library_and_cli_sources_unchanged_by_harness": true,
+    "source_functions_modified_or_substituted": [],
+    "registry_identities_match_original_lock": true,
+    "registry_packages": 46,
+    "original_path_packages": 20,
+    "hashed_source_files": 539,
+    "selected_runtime_modules": 5,
+    "omitted_runtime_modules": 12,
+    "selected_donor_modules": 14,
+    "omitted_donor_modules": 1535,
+    "pre_record": "artifacts/audit/logs/2026-11-14-real-solver-session/real-solver-final-pre.json",
+    "post_record": "artifacts/audit/logs/2026-11-14-real-solver-session/real-solver-final-post.json",
+    "source_drift": [],
+    "harness_drift": [],
+    "not_covered": [
+      "full production Cargo dependency graph",
+      "asynchronous runtime scheduling/cancellation implementation",
+      "donor runtime transport/security",
+      "omitted runtime modules and their tests",
+      "workspace CI gates",
+      "compatibility profiles"
+    ]
+  },
+  "Cargo.lock_unchanged": true,
+  "owned_file_sha256": {
+    "src/certification_session/real_solver.rs": "610d486141388886b7fb582b16d8d1fabee8d9c8240228aa5fb754331590b956",
+    "src/certification_session.rs": "3a61eb12394b1b875d47c9feb0713e9d767c57021dd5ee7750b1bbf153699212",
+    "src/session.rs": "0233fe169311502187db96bbf37edfc8e94e2ea532d085e840230567d841caca",
+    "src/lib.rs": "6a5933b5f10f02e9fbdfeb249a30182d8f4c58d180f971d32fa84b0bb32d7fd3",
+    "tests/real_solver_session.rs": "4615e5b89e0813f1003450599c60f6ea9cffe7d8b775f582cdd56e702ec2b0b0",
+    "docs/NATIVE_CERTIFICATION_SESSION.md": "0182b178f706f078f2a012d11c175208f4a1392f48092e774b0995a4de439039"
+  },
+  "record_file_sha256": {
+    "artifacts/audit/logs/2026-11-14-real-solver-session/real-solver-session-attempt1.log": "4cfa80ab57b8f93ae556028fe58e02a8363c26cfbd0a39eff0078d49b373fcf1",
+    "artifacts/audit/logs/2026-11-14-real-solver-session/real-solver-session-attempt2.log": "bf0539553180fd3c39fa1ed60df7991130e503fca1c632a1e3067c1350b124d6",
+    "artifacts/audit/logs/2026-11-14-real-solver-session/real-solver-private-tests.log": "818a7f2ad166705b7e143bcd3dd5c4829718e83e8f95065b1c9737a7988364a1",
+    "artifacts/audit/logs/2026-11-14-real-solver-session/real-solver-session-final.log": "070673cdb8e86324d77e5c67d3f5a662f7e3ee4d32cb2d4175350474d3c050ab",
+    "artifacts/audit/logs/2026-11-14-real-solver-session/real-solver-private-final.log": "349633ac10f778f800061844164f742a75536a0115dbc6f8440eccae3820e860",
+    "artifacts/audit/logs/2026-11-14-real-solver-session/real-solver-clippy.log": "759f8c5a370f95c36ceebe92b07e813673cb0654760e77a1656515dfb3a0fa58",
+    "artifacts/audit/logs/2026-11-14-real-solver-session/real-solver-clippy-scoped.log": "0064fad91b5bc27d65aeae8ac5e7b65f236a7a016897b8fdce09768e98e2d5bc",
+    "artifacts/audit/logs/2026-11-14-real-solver-session/real-solver-final-pre.json": "8a5298db1e8187022715a5b58b47c91a1c21cd84d57cdc606638ca8136ecb013",
+    "artifacts/audit/logs/2026-11-14-real-solver-session/real-solver-final-post.json": "344be1b14dce2273c4a5ba610aefc51984ca93bd810458123a9b716b8c0242a8",
+    "artifacts/audit/logs/2026-11-14-real-solver-session/metadata.json": "b6210c3dd4732194ce5f20b0c0408db04a444e7fd3a9ca0bd5fc77ed58b048af"
+  },
+  "reproduction_recipe": "artifacts/audit/reproduction/2026-11-14-portable-program-replay/prepare_component.py",
+  "reproduction_target_additions": "The committed recipe discovers current root tests, including real_solver_session. Execute the commands in checks using the exact recorded component scope and pinned dependencies.",
+  "review": "Independent native agent and root reviewed typed source binding, complete root/point/gap representation, protected meter views and output admission; no remaining blocker. Static review is distinct from execution."
+}

@@ -1,0 +1,73 @@
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-calculus)
+warning: static `EPHEMERAL_REGION_COUNTER` is never used
+  --> /tmp/frankensympy-asupersync/src/types/id.rs:21:8
+   |
+21 | static EPHEMERAL_REGION_COUNTER: AtomicU32 = AtomicU32::new(1);
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: static `EPHEMERAL_TASK_COUNTER` is never used
+  --> /tmp/frankensympy-asupersync/src/types/id.rs:22:8
+   |
+22 | static EPHEMERAL_TASK_COUNTER: AtomicU32 = AtomicU32::new(1);
+   |        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `next_bootstrap_region_id` is never used
+  --> /tmp/frankensympy-asupersync/src/types/id.rs:32:15
+   |
+32 | pub(crate) fn next_bootstrap_region_id() -> RegionId {
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `next_bootstrap_task_id` is never used
+  --> /tmp/frankensympy-asupersync/src/types/id.rs:41:15
+   |
+41 | pub(crate) fn next_bootstrap_task_id() -> TaskId {
+   |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated function `from_arena` is never used
+  --> /tmp/frankensympy-asupersync/src/types/id.rs:57:25
+   |
+52 | impl RegionId {
+   | ------------- associated function in this implementation
+...
+57 |     pub(crate) const fn from_arena(index: ArenaIndex) -> Self {
+   |                         ^^^^^^^^^^
+
+warning: feature `try_trait_v2` is declared but not used
+ --> codec/lib.rs:3:54
+  |
+3 | #![cfg_attr(feature = "nightly-outcome-try", feature(try_trait_v2))]
+  |                                                      ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_features)]` (part of `#[warn(unused)]`) on by default
+
+warning: feature `try_trait_v2_residual` is declared but not used
+ --> codec/lib.rs:4:54
+  |
+4 | #![cfg_attr(feature = "nightly-outcome-try", feature(try_trait_v2_residual))]
+  |                                                      ^^^^^^^^^^^^^^^^^^^^^
+
+warning: `asupersync-codec-source-component` (lib) generated 7 warnings
+   Compiling fsym-solvers v0.1.0 (/workspace/scratch/cdfae34e00d3/frankensympy-active/crates/fsym-solvers)
+   Compiling fsym-runtime-session-source-component v0.1.0 (/tmp/frankensympy-session-component/runtime)
+   Compiling frankensympy-session-source-component-check v0.1.0 (/tmp/frankensympy-session-component)
+    Finished `test` profile [unoptimized] target(s) in 26.81s
+     Running /workspace/scratch/cdfae34e00d3/frankensympy-active/tests/real_solver_session.rs (/tmp/frankensympy-active-target/debug/build/frankensympy-session-source-component-check/868dc20e3d57b558/out/real_solver_session-868dc20e3d57b558)
+
+running 12 tests
+test ordinary_exhaustion_cannot_spend_reserved_compute_or_reset_shared_resources ... ok
+test missing_and_exhausted_verifier_allowances_never_accept_or_reset_consumed_work ... ok
+test quintic_solutions_are_complete_and_bound_to_the_frozen_source_and_context ... ok
+test finite_sets_empty_sets_and_everywhere_defined_identities_remain_distinct ... ok
+test unknown_sources_wrong_dimensions_and_unsupported_grammar_never_mean_empty_sets ... ok
+test strict_wire_rejects_forged_acceptance_masks_unknown_relations_and_duplicate_keys ... ok
+test all_four_relations_retain_even_multiplicity_endpoint_ownership ... ok
+test singular_polynomial_roots_are_returned_once_without_a_nonsingularity_claim ... ok
+test fresh_cli_returns_exact_complete_sets_and_remains_usable_after_refusal ... ok
+test rational_inequalities_distinguish_irrational_zeros_from_excluded_poles ... ok
+test identities_keep_original_poles_including_nested_and_zero_power_sources ... ok
+test response_admission_failure_does_not_return_a_partially_checked_set ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
