@@ -6,6 +6,8 @@
 //! the dependency-separated proof kernel checks all four Penrose identities
 //! against the exact original source. Minimum-norm solves additionally check
 //! `X = P B` in that kernel, including rank-deficient and inconsistent systems.
+//! Complete least-squares families retain `N = I - P A`, independently checked
+//! against the original source, so every minimizer is `X + N W`.
 //!
 //! Every matrix stays sparse. Generation, admission, reference replay, retained
 //! evidence and result lifting share the structured lane's cumulative Work.
@@ -22,15 +24,16 @@ use crate::generate_sparse_rref_candidate;
 use fsym_budget::{BudgetMeter, Unbounded};
 use fsym_core::{BigRational, Expr};
 use fsym_proof_kernel::sparse_pseudoinverse::{
-    SPARSE_MINIMUM_NORM_SCHEMA_VERSION, SPARSE_PSEUDOINVERSE_SCHEMA_VERSION,
-    SparseMinimumNormReceipt, SparseMinimumNormWitness, SparsePseudoinverseError,
-    SparsePseudoinverseReceipt, SparsePseudoinverseWitness, verify_sparse_minimum_norm,
-    verify_sparse_pseudoinverse,
+    SPARSE_LEAST_SQUARES_FAMILY_SCHEMA_VERSION, SPARSE_MINIMUM_NORM_SCHEMA_VERSION,
+    SPARSE_PSEUDOINVERSE_SCHEMA_VERSION, SparseLeastSquaresFamilyReceipt,
+    SparseLeastSquaresFamilyWitness, SparseMinimumNormReceipt, SparseMinimumNormWitness,
+    SparsePseudoinverseError, SparsePseudoinverseReceipt, SparsePseudoinverseWitness,
+    verify_sparse_least_squares_family, verify_sparse_minimum_norm, verify_sparse_pseudoinverse,
 };
 use fsym_proof_kernel::sparse_rref::{
     MAX_SPARSE_RREF_COEFFICIENT_BITS, RationalSparseMatrix, SparseRationalEntry, SparseRrefError,
 };
-use num_traits::Zero;
+use num_traits::{One, Zero};
 use std::collections::BTreeMap;
 
 const MAX_PSEUDOINVERSE_WORK: u64 = 20_000_000;
@@ -48,6 +51,13 @@ pub struct SparseMinimumNormCandidate {
     pub source: RationalSparseMatrix,
     pub rhs: RationalSparseMatrix,
     pub witness: SparseMinimumNormWitness,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SparseLeastSquaresFamilyCandidate {
+    pub source: RationalSparseMatrix,
+    pub rhs: RationalSparseMatrix,
+    pub witness: SparseLeastSquaresFamilyWitness,
 }
 
 /// Original source, portable four-identity proof, and independently accepted P.
@@ -107,6 +117,44 @@ impl VerifiedSparseMinimumNorm {
     }
     pub fn into_solution(self) -> SparseMatrix {
         self.solution
+    }
+}
+
+/// Complete exact least-squares family `minimum_norm + projector * W`.
+/// W has `source.columns` rows and `rhs.columns` columns. All stored matrices
+/// remain sparse; a zero projector establishes uniqueness. Construction is
+/// private and requires independent original-source proof-kernel acceptance.
+#[derive(Debug)]
+pub struct VerifiedSparseLeastSquaresFamily {
+    source: RationalSparseMatrix,
+    rhs: RationalSparseMatrix,
+    witness: SparseLeastSquaresFamilyWitness,
+    receipt: SparseLeastSquaresFamilyReceipt,
+    minimum_norm: SparseMatrix,
+    projector: SparseMatrix,
+}
+
+impl VerifiedSparseLeastSquaresFamily {
+    pub fn source(&self) -> &RationalSparseMatrix {
+        &self.source
+    }
+    pub fn rhs(&self) -> &RationalSparseMatrix {
+        &self.rhs
+    }
+    pub fn witness(&self) -> &SparseLeastSquaresFamilyWitness {
+        &self.witness
+    }
+    pub fn receipt(&self) -> &SparseLeastSquaresFamilyReceipt {
+        &self.receipt
+    }
+    pub fn minimum_norm(&self) -> &SparseMatrix {
+        &self.minimum_norm
+    }
+    pub fn projector(&self) -> &SparseMatrix {
+        &self.projector
+    }
+    pub fn into_parts(self) -> (SparseMatrix, SparseMatrix) {
+        (self.minimum_norm, self.projector)
     }
 }
 
@@ -445,6 +493,73 @@ fn accept_solve<M: BudgetMeter>(
     })
 }
 
+fn generate_family<M: BudgetMeter>(
+    matrix: &SparseMatrix,
+    rhs: &SparseMatrix,
+    work: &mut Work<'_, M>,
+) -> Result<SparseLeastSquaresFamilyCandidate, MatrixError> {
+    let candidate = generate_solve(matrix, rhs, work)?;
+    let p = rows(&candidate.witness.pseudoinverse.pseudoinverse, work)?;
+    let a = rows(&candidate.source, work)?;
+    let pa = product(&p, &a, work)?;
+    let mut projector = empty_rows(candidate.source.columns, work)?;
+    let mut count = 0;
+    work.reserve(128)?;
+    let zero = BigRational::zero();
+    let one = BigRational::one();
+    for (index, row) in pa.into_iter().enumerate() {
+        work.tick(1)?;
+        for (column, value) in row {
+            let value = work.arithmetic(&zero, &value, Arithmetic::Subtract)?;
+            store(&mut projector[index], column, value, &mut count, work)?;
+        }
+        let value = match projector[index].get(&index) {
+            Some(prior) => work.arithmetic(prior, &one, Arithmetic::Add)?,
+            None => work.clone_value(&one)?,
+        };
+        store(&mut projector[index], index, value, &mut count, work)?;
+    }
+    let projector = portable_rows(projector, candidate.source.columns, work)?;
+    work.tick(1)?;
+    Ok(SparseLeastSquaresFamilyCandidate {
+        source: candidate.source,
+        rhs: candidate.rhs,
+        witness: SparseLeastSquaresFamilyWitness {
+            schema_version: SPARSE_LEAST_SQUARES_FAMILY_SCHEMA_VERSION,
+            minimum_norm: candidate.witness,
+            projector,
+        },
+    })
+}
+
+fn accept_family<M: BudgetMeter>(
+    matrix: &SparseMatrix,
+    rhs: &SparseMatrix,
+    candidate: SparseLeastSquaresFamilyCandidate,
+    work: &mut Work<'_, M>,
+) -> Result<VerifiedSparseLeastSquaresFamily, MatrixError> {
+    bind(matrix, &candidate.source, work)?;
+    bind(rhs, &candidate.rhs, work)?;
+    let receipt = verify_sparse_least_squares_family(
+        &candidate.source,
+        &candidate.rhs,
+        &candidate.witness,
+        work,
+    )
+    .map_err(verification_error)?;
+    let minimum_norm = lift(&candidate.witness.minimum_norm.solution, work)?;
+    let projector = lift(&candidate.witness.projector, work)?;
+    work.tick(1)?;
+    Ok(VerifiedSparseLeastSquaresFamily {
+        source: candidate.source,
+        rhs: candidate.rhs,
+        witness: candidate.witness,
+        receipt,
+        minimum_norm,
+        projector,
+    })
+}
+
 pub fn generate_sparse_pseudoinverse_candidate<M: BudgetMeter>(
     matrix: &SparseMatrix,
     meter: &mut M,
@@ -493,7 +608,54 @@ pub fn verify_sparse_minimum_norm_candidate<M: BudgetMeter>(
     )
 }
 
+pub fn generate_sparse_least_squares_family_candidate<M: BudgetMeter>(
+    matrix: &SparseMatrix,
+    rhs: &SparseMatrix,
+    meter: &mut M,
+) -> Result<SparseLeastSquaresFamilyCandidate, MatrixError> {
+    generate_family(
+        matrix,
+        rhs,
+        &mut Work::with_step_limit(meter, MAX_PSEUDOINVERSE_WORK),
+    )
+}
+
+pub fn verify_sparse_least_squares_family_candidate<M: BudgetMeter>(
+    matrix: &SparseMatrix,
+    rhs: &SparseMatrix,
+    candidate: SparseLeastSquaresFamilyCandidate,
+    meter: &mut M,
+) -> Result<VerifiedSparseLeastSquaresFamily, MatrixError> {
+    accept_family(
+        matrix,
+        rhs,
+        candidate,
+        &mut Work::with_step_limit(meter, MAX_PSEUDOINVERSE_WORK),
+    )
+}
+
 impl SparseMatrix {
+    /// All exact least-squares minimizers, with a unique minimum-norm particular
+    /// and the complete orthogonal projector onto the original kernel.
+    pub fn least_squares_family(
+        &self,
+        rhs: &Self,
+    ) -> Result<VerifiedSparseLeastSquaresFamily, MatrixError> {
+        self.metered_least_squares_family(rhs, &mut Unbounded)
+    }
+
+    /// Generation, independent replay, retained evidence and output lifting
+    /// share one cumulative caller meter and the existing 20M/256 MiB limits.
+    pub fn metered_least_squares_family<M: BudgetMeter>(
+        &self,
+        rhs: &Self,
+        meter: &mut M,
+    ) -> Result<VerifiedSparseLeastSquaresFamily, MatrixError> {
+        let mut work = Work::with_step_limit(meter, MAX_PSEUDOINVERSE_WORK);
+        let candidate = generate_family(self, rhs, &mut work)?;
+        accept_family(self, rhs, candidate, &mut work)
+    }
+
     pub fn pseudoinverse(&self) -> Result<Self, MatrixError> {
         self.metered_pseudoinverse(&mut Unbounded)
     }

@@ -5,6 +5,8 @@
 //! factorization, pivot list, or claimed rank. The solve additionally checks
 //! `X = P B`. These identities establish the unique pseudoinverse and the
 //! unique minimum-Euclidean-norm least-squares solution over real rationals.
+//! Complete-family witnesses additionally establish `N + P A = I`: all
+//! least-squares minimizers are exactly `X + N W` for arbitrary parameter W.
 //!
 //! Reference products merge sorted sparse row vectors. This crate has no
 //! dependency on the matrix generator, LU, or rank-factorization algorithms.
@@ -17,11 +19,13 @@ use crate::sparse_rref::{
 };
 use fsym_budget::BudgetMeter;
 use fsym_core::BigRational;
+use num_traits::One;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub const SPARSE_PSEUDOINVERSE_SCHEMA_VERSION: u32 = 1;
 pub const SPARSE_MINIMUM_NORM_SCHEMA_VERSION: u32 = 1;
+pub const SPARSE_LEAST_SQUARES_FAMILY_SCHEMA_VERSION: u32 = 1;
 
 /// Untrusted proposal. The original source is a separate verifier input.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,6 +42,17 @@ pub struct SparseMinimumNormWitness {
     pub schema_version: u32,
     pub pseudoinverse: SparsePseudoinverseWitness,
     pub solution: RationalSparseMatrix,
+}
+
+/// A complete least-squares family `minimum_norm.solution + projector * W`.
+/// W has `source.columns` rows and `rhs.columns` columns. Completeness needs
+/// the exact complementary projector, not merely any matrix annihilated by A.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SparseLeastSquaresFamilyWitness {
+    pub schema_version: u32,
+    pub minimum_norm: SparseMinimumNormWitness,
+    pub projector: RationalSparseMatrix,
 }
 
 /// Accepted four-identity relation. Digests are bindings, not standalone proofs;
@@ -86,6 +101,23 @@ impl SparseMinimumNormReceipt {
     }
     pub fn solution_digest(&self) -> [u8; 32] {
         self.solution_digest
+    }
+}
+
+/// Accepted complete family. A stored receipt is not independent authority;
+/// replay requires the original A/B and the full witness.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SparseLeastSquaresFamilyReceipt {
+    minimum_norm: SparseMinimumNormReceipt,
+    projector_digest: [u8; 32],
+}
+
+impl SparseLeastSquaresFamilyReceipt {
+    pub fn minimum_norm(&self) -> &SparseMinimumNormReceipt {
+        &self.minimum_norm
+    }
+    pub fn projector_digest(&self) -> [u8; 32] {
+        self.projector_digest
     }
 }
 
@@ -237,7 +269,15 @@ pub fn verify_sparse_minimum_norm<M: BudgetMeter>(
     witness: &SparseMinimumNormWitness,
     meter: &mut M,
 ) -> Result<SparseMinimumNormReceipt> {
-    let mut work = Reference::new(meter);
+    verify_minimum_norm(source, rhs, witness, &mut Reference::new(meter))
+}
+
+fn verify_minimum_norm<M: BudgetMeter>(
+    source: &RationalSparseMatrix,
+    rhs: &RationalSparseMatrix,
+    witness: &SparseMinimumNormWitness,
+    work: &mut Reference<'_, M>,
+) -> Result<SparseMinimumNormReceipt> {
     work.tick(1)?;
     if witness.schema_version != SPARSE_MINIMUM_NORM_SCHEMA_VERSION {
         return Err(SparsePseudoinverseError::Invalid("unknown solve schema"));
@@ -251,14 +291,14 @@ pub fn verify_sparse_minimum_norm<M: BudgetMeter>(
             "minimum-norm solve shape",
         ));
     }
-    let pseudoinverse = verify(source, &witness.pseudoinverse, &mut work)?;
+    let pseudoinverse = verify(source, &witness.pseudoinverse, work)?;
     let p = work.rows(&witness.pseudoinverse.pseudoinverse)?;
     let b = work.rows(rhs)?;
     equal(
-        &product(&p, &b, &mut work)?,
+        &product(&p, &b, work)?,
         &witness.solution,
         "solution != P B",
-        &mut work,
+        work,
     )?;
     let rhs_digest = work.digest(rhs)?;
     let solution_digest = work.digest(&witness.solution)?;
@@ -268,5 +308,50 @@ pub fn verify_sparse_minimum_norm<M: BudgetMeter>(
         rhs_columns: rhs.columns,
         rhs_digest,
         solution_digest,
+    })
+}
+
+/// Independently verify all minimizers, including the original minimum-norm
+/// claim and the full complementary projector `N = I - P A`. Checking only
+/// `A N = 0`, symmetry, or idempotence would also accept incomplete subspaces.
+/// Neither empty RHS columns nor zero rows/columns skip source/proof checks.
+pub fn verify_sparse_least_squares_family<M: BudgetMeter>(
+    source: &RationalSparseMatrix,
+    rhs: &RationalSparseMatrix,
+    witness: &SparseLeastSquaresFamilyWitness,
+    meter: &mut M,
+) -> Result<SparseLeastSquaresFamilyReceipt> {
+    let mut work = Reference::new(meter);
+    work.tick(1)?;
+    if witness.schema_version != SPARSE_LEAST_SQUARES_FAMILY_SCHEMA_VERSION {
+        return Err(SparsePseudoinverseError::Invalid("unknown family schema"));
+    }
+    work.check_matrix(&witness.projector)?;
+    if (witness.projector.rows, witness.projector.columns) != (source.columns, source.columns) {
+        return Err(SparsePseudoinverseError::Invalid("family projector shape"));
+    }
+    let minimum_norm = verify_minimum_norm(source, rhs, &witness.minimum_norm, &mut work)?;
+    let p = work.rows(&witness.minimum_norm.pseudoinverse.pseudoinverse)?;
+    let a = work.rows(source)?;
+    let pa = product(&p, &a, &mut work)?;
+    let n = work.rows(&witness.projector)?;
+    work.storage(64)?;
+    let one = BigRational::one();
+    for (index, (left, right)) in pa.iter().zip(&n).enumerate() {
+        work.tick(1)?;
+        let sum = work.add_row(left, right, &one, MAX_SPARSE_RREF_ENTRIES)?;
+        if sum.len() != 1 || sum[0].0 != index {
+            return Err(SparsePseudoinverseError::Invalid("projector + P A != I"));
+        }
+        work.tick(sum[0].1.numer().limb_count() + sum[0].1.denom().limb_count())?;
+        if !sum[0].1.is_one() {
+            return Err(SparsePseudoinverseError::Invalid("projector + P A != I"));
+        }
+    }
+    let projector_digest = work.digest(&witness.projector)?;
+    work.tick(1)?;
+    Ok(SparseLeastSquaresFamilyReceipt {
+        minimum_norm,
+        projector_digest,
     })
 }
