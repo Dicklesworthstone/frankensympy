@@ -2471,6 +2471,10 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(
+        ideal_operations::ideal_radical_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
         polynomial_relations::polynomial_syzygies_native,
         m
     )?)?;

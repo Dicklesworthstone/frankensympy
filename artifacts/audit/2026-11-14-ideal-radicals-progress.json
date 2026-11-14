@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-14",
+  "feature": "complete zero-dimensional ideal radicals over QQ and GF(p)",
+  "implementation": {
+    "native_commit": "01ed74014f44c9eb73ae3a37c4d3d09e282b07ff",
+    "native_scope": "Exact finite-dimensional prime-field ideals, including Frobenius inseparability and extension-field geometric roots; immutable in-process composition receipts, not portable proof transport.",
+    "public_api": [
+      "GroebnerBasis.radical()",
+      "GroebnerBasis.is_radical"
+    ],
+    "public_scope": "Complete reduced Lex radical in the original typed variable order; ZZ extends to QQ; GF(p) retains characteristic, signed residue and polys output policies.",
+    "acceptance": "Complete source and augmented bases, all separable coordinate annihilators, and independently reconstructed powered-coordinate membership in the original ideal.",
+    "limits": {
+      "variables": 8,
+      "modular_original_and_augmented_generators": 32,
+      "modular_degree_and_powered_witness_degree": 64,
+      "terms": 4096,
+      "phase_compute": 20000000,
+      "phase_memory_bytes": 134217728
+    },
+    "refusals": [
+      "positive-dimensional nonconstant ideals",
+      "original held poles and invalid sources",
+      "resource exhaustion",
+      "verification failure"
+    ],
+    "broad_claims_promoted": false
+  },
+  "observed_native_validation": {
+    "source_base": "6a5505089aae516b76a3690f548694e4da217e1a",
+    "toolchain": "nightly-2026-08-20",
+    "test_command": "cargo test --offline --locked -p fsym-polys --test finite_field_radical --test radical",
+    "tests": {
+      "new_modular": 17,
+      "unchanged_rational": 8,
+      "failed": 0
+    },
+    "test_exit": 0,
+    "clippy_command": "cargo clippy --offline --locked -p fsym-polys --lib --test finite_field_radical --test radical -- -D warnings",
+    "clippy_exit": 0,
+    "scoped_rustfmt_exit": 0,
+    "source_sha256": {
+      "crates/fsym-polys/src/finite_field_radical.rs": "2c0abf0d0d04927d4a576fb3ed4ef52eeec01f800e53be51943d04c54f22f9a9",
+      "crates/fsym-polys/src/lib.rs": "73de08c192566f3fc74b2c7f0e69eece29c6611f0b1a44557479f22bc18c61cf",
+      "crates/fsym-polys/tests/finite_field_radical.rs": "4e734ba3eff383aa896aea4434363a671bb01da5dded18fedb48cfcadc848def"
+    },
+    "independent_reviewer": "calculus_next2",
+    "initial_failures": "API-arity fixture/implementation typos and a test-fixture Clippy warning were fixed before the final passing commands, without changing mathematical assertions.",
+    "raw_log_availability": "Raw logs were recorded in scratch; execution environment loss made them unavailable. This record preserves observed terminal results, not reconstructed stdout."
+  },
+  "public_validation": {
+    "regression_function_count": 29,
+    "regression_files": [
+      "python/tests/test_ideal_radical.py",
+      "python/tests/test_finite_field_radical.py"
+    ],
+    "independent_reviewer": "algebra_next2",
+    "observed_before_environment_loss": [
+      "Python AST parsing",
+      "scoped bridge formatting",
+      "git diff --check",
+      "independent source review"
+    ],
+    "runtime_status": "pending",
+    "attempted_command": "cargo build --offline --locked --features extension-module",
+    "attempted_scope": "Actual-source mathematical/PyO3 component: 40 bridge files, 38 unchanged whole files, exactly six async helper omissions; 23 original native packages, 427 source/manifests, 83 production-lock dependency identities including 56 registry checksums.",
+    "omitted_members": [
+      "lib.rs::eval_error",
+      "lib.rs::eval_region",
+      "lib.rs::simplify_expr",
+      "lib.rs::expand_expr",
+      "expr.rs::PyExpr.simplify",
+      "expr.rs::PyExpr.expand"
+    ],
+    "terminal_exit": null,
+    "obstruction": "Execution service disconnected before a terminal build or public-test result was observed.",
+    "no_replacement_implementation": true,
+    "full_runtime_or_profile_pass": false
+  },
+  "recovery": {
+    "remote_base": "6a5505089aae516b76a3690f548694e4da217e1a",
+    "method": "Existing files recovered by exact authored semantic patches on remote base; new public tests recovered from complete frozen reviewed source snapshots.",
+    "recorded_git_diff_prefixes": {
+      "crates/fsym-python/src/ideal_operations.rs": "34cdb64",
+      "python/sympy/polys/polytools.py": "6bc1f50",
+      "python/sympy/polys/_finitefield_ideals.py": "084c70d"
+    },
+    "modular_bridge_matches_full_pre_loss_sha256": "7b386ec9f7b09d6d5d7ae752fba396f973c2ab29e35d8189d9dde02874ae166e",
+    "full_remote_blob_readbacks": true,
+    "files": [
+      {
+        "path": "crates/fsym-python/src/ideal_operations.rs",
+        "git_blob": "34cdb64578738e3cdad48eac9c736a7ade4aa30d"
+      },
+      {
+        "path": "crates/fsym-python/src/lib.rs",
+        "git_blob": "351bb18b380f0ed92675d5a40f900c84cf2c6b9d"
+      },
+      {
+        "path": "python/sympy/polys/polytools.py",
+        "git_blob": "6bc1f5021c6f0605ef9cdd97f5fa044a38216c18"
+      },
+      {
+        "path": "python/sympy/polys/_finitefield_ideals.py",
+        "git_blob": "084c70d74a4f8dba4be84e54963267b0edc7ee2b"
+      },
+      {
+        "path": "crates/fsym-python/src/finite_field_ideal.rs",
+        "git_blob": "525bbf05652762953788bf745acb1ca0c2c01f31",
+        "sha256": "7b386ec9f7b09d6d5d7ae752fba396f973c2ab29e35d8189d9dde02874ae166e"
+      },
+      {
+        "path": "python/tests/test_ideal_radical.py",
+        "git_blob": "7b75621b4142e9dda1523908a8529704af4025db",
+        "sha256": "d2419da21a2a8f6171a0ca42312dcf7f5a5ce1a6ccd3a1332ab89f57dd8cb8be"
+      },
+      {
+        "path": "python/tests/test_finite_field_radical.py",
+        "git_blob": "bdba2a0fd0e00d0cecd6c4613a39dd0f62411b04",
+        "sha256": "5312547fc70efec380a2a4f5b65fa8125205e6d84f24f6ebb18d7980c00e6f78"
+      },
+      {
+        "path": ".github/workflows/ci.yml",
+        "git_blob": "694420649cc87d577c06d1efee6c004f92f92e1b"
+      }
+    ],
+    "new_execution_after_recovery": false
+  },
+  "concurrent_parent_preserved": "f832f8788abc2e52f14bc46eedd6a6a829203c96"
+}

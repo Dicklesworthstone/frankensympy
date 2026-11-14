@@ -71,6 +71,28 @@ def eliminate(basis, generators):
     return _publish(raw, remaining, (state,), (request,), retained)
 
 
+def radical(basis, *, only_test=False):
+    """Remove nilpotents using complete separable coordinate witnesses."""
+    state = _BasisState(basis)
+    expressions, polys, declared = _unpack(state.expressions, 32)
+    retained = _retained(expressions, state.gens, polys, (state.expressions,))
+    _ring_states(polys, state.gens, state.prime)
+    request = _request(expressions, state.gens, polys, declared)
+    _unchanged((state,), (request,), retained)
+    try:
+        raw, changed = _native.prime_field_ideal_radical_native(
+            request.raw, request.bindings, state.prime, state.symmetric,
+            request.source_bindings)
+    except _native.PrimeFieldCoefficientError as error:
+        raise CoercionFailed("prime-field ideal coefficients must be integers") from error
+    _unchanged((state,), (request,), retained)
+    if type(changed) is not bool:
+        raise RuntimeError("checked ideal radical returned an invalid change flag")
+    if only_test:
+        return not changed
+    return _publish(raw, state.gens, (state,), (request,), retained)
+
+
 def _binary_inputs(basis, other, operation):
     """Retain both complete source lists before any native source preflight."""
     left = _BasisState(basis)

@@ -16,7 +16,7 @@ use fsym_core::Symbol;
 use fsym_polys::{
     PrimeFieldMultivariatePolynomial as Polynomial, checked_prime_field_elimination_ideal,
     checked_prime_field_ideal_intersection, checked_prime_field_ideal_quotient,
-    checked_prime_field_ideal_saturation,
+    checked_prime_field_ideal_saturation, checked_prime_field_zero_dimensional_radical,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -53,6 +53,51 @@ fn publish(
     generator.checkpoint().map_err(to_value_error)?;
     verifier.checkpoint().map_err(to_value_error)?;
     Ok(result)
+}
+
+/// Remove all nilpotents from a finite quotient without restricting geometric
+/// solutions to F_p-valued points. Every retained source is admitted before
+/// unit-ideal or dimension decisions; results use the complete reduced Lex basis.
+#[pyfunction]
+#[pyo3(signature = (sources, variables, prime, symmetric=true, source_variables=None))]
+pub fn prime_field_ideal_radical_native(
+    sources: &Bound<'_, PyList>,
+    variables: &Bound<'_, PyList>,
+    prime: u64,
+    symmetric: bool,
+    source_variables: Option<&Bound<'_, PyList>>,
+) -> PyResult<(Vec<PyExpr>, bool)> {
+    if sources.len() > 32 {
+        return Err(PyValueError::new_err(
+            "prime-field radical requires at most 32 source polynomials",
+        ));
+    }
+    let (mut generator, mut verifier) = (budget(), budget());
+    let variables = ring(variables, prime, &mut generator)?;
+    let inputs = admit_sources(
+        sources,
+        &variables,
+        prime,
+        source_variables,
+        &mut generator,
+        &mut verifier,
+    )?;
+    let receipt = checked_prime_field_zero_dimensional_radical(
+        &variables,
+        prime,
+        &inputs,
+        &mut generator,
+        &mut verifier,
+    )
+    .map_err(polynomial_error)?;
+    let changed = receipt.changed_ideal();
+    let result = publish(
+        receipt.basis().basis(),
+        symmetric,
+        &mut generator,
+        &mut verifier,
+    )?;
+    Ok((result, changed))
 }
 
 /// Complete elimination in the requested typed variables, including the
@@ -230,6 +275,7 @@ pub fn prime_field_ideal_saturation_native(
 }
 
 pub fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(prime_field_ideal_radical_native, module)?)?;
     module.add_function(wrap_pyfunction!(
         prime_field_ideal_eliminate_native,
         module

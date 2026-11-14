@@ -2533,6 +2533,33 @@ class GroebnerBasis:
         snapshot.unchanged()
         return GroebnerBasis(values, gens, "QQ", "lex")
 
+    def radical(self) -> GroebnerBasis:
+        """Return the radical of this bounded zero-dimensional ideal.
+
+        This FrankenSymPy extension removes nilpotent multiplicities while
+        preserving every algebraic point. Independent native checks establish
+        nilpotence membership and square-free annihilators in every coordinate.
+        The result is a complete reduced lexicographic basis with the original
+        typed variable order. ZZ coefficients extend to QQ. Retained GF(p)
+        ideals keep their characteristic, signed residue and polys policies;
+        their radical preserves algebraic-closure points, not just F_p points.
+
+        The current expression list is admitted as the generating ideal; it
+        need not already be a valid Groebner basis. The unit ideal is supported.
+        Positive-dimensional ideals, including the zero ideal in a nonempty
+        ring, and exhausted resource bounds raise without a partial result.
+        """
+        return _ideal_radical_result(self, only_test=False)
+
+    @property
+    def is_radical(self) -> bool:
+        """Test radicality by complete checked radical computation.
+
+        This bounded extension has the same domain as :meth:`radical`.
+        Unsupported or exhausted requests raise; they do not become False.
+        """
+        return _ideal_radical_result(self, only_test=True)
+
     def syzygies(self) -> list:
         """Return generators of all polynomial relations on the current exprs.
 
@@ -2954,6 +2981,31 @@ class _IdealQuotientSnapshot:
                     and current.is_symbol and previous.is_symbol and current == previous):
                 continue
             raise RuntimeError("ideal quotient source mutated during exact evaluation")
+
+
+def _ideal_radical_result(basis: GroebnerBasis, *, only_test: bool):
+    """Retain the original ideal through checked computation and publication."""
+    from . import _finitefield_groebner as finite
+
+    if finite.has_field_marker(basis):
+        from . import _finitefield_ideals
+        return _finitefield_ideals.radical(basis, only_test=only_test)
+    snapshot = _IdealQuotientSnapshot(basis)
+    (source_data,) = snapshot.inputs()
+    sources, generators, equations, bindings = source_data
+    raw, changed = _native.ideal_radical_native(equations, bindings)
+    snapshot.unchanged()
+    if type(changed) is not bool:
+        raise RuntimeError("checked ideal radical returned an invalid change flag")
+    if only_test:
+        return not changed
+    values = []
+    for value in raw:
+        values.append(_lift_native_result(value, *sources, *generators))
+        snapshot.unchanged()
+    result = GroebnerBasis(values, generators, "QQ", "lex")
+    snapshot.unchanged()
+    return result
 
 
 def _quotient_operator_data(basis: GroebnerBasis, element: Any) -> tuple:

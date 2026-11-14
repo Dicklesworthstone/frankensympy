@@ -224,13 +224,14 @@ fn lift(
 }
 
 pub(crate) fn lift_basis(
-    basis: Vec<MultivariatePoly>,
+    basis: impl AsRef<[MultivariatePoly]>,
     ring_bytes: usize,
     generator: &mut Budget,
     verifier: &mut Budget,
 ) -> PyResult<Vec<PyExpr>> {
+    let basis = basis.as_ref();
     let mut total = 0usize;
-    for polynomial in &basis {
+    for polynomial in basis {
         let nodes = 1 + polynomial
             .terms()
             .keys()
@@ -250,7 +251,7 @@ pub(crate) fn lift_basis(
         .ok_or_else(|| PyValueError::new_err("ideal output allocation overflow"))?;
     charge(generator, total, bytes)?;
     let values = basis
-        .into_iter()
+        .iter()
         .map(|polynomial| {
             polynomial
                 .to_expr()
@@ -261,6 +262,38 @@ pub(crate) fn lift_basis(
     charge(generator, 1, 1)?;
     charge(verifier, 1, 1)?;
     Ok(values)
+}
+
+/// The complete radical of a bounded zero-dimensional ideal over QQ.
+///
+/// The immutable native receipt checks nilpotence membership, square-free
+/// coordinate annihilators and the exact augmented ideal before publication.
+/// The returned flag reports whether the ideal changed, not whether its
+/// algebraic zero set changed. Positive-dimensional ideals remain unsupported.
+#[pyfunction]
+pub fn ideal_radical_native(
+    equations: &Bound<'_, PyList>,
+    variables: &Bound<'_, PyList>,
+) -> PyResult<(Vec<PyExpr>, bool)> {
+    let (mut generator, mut verifier) = (budget(), budget());
+    let variables = symbols(variables, &mut generator)?;
+    let inputs = polynomials(equations, &variables, &mut generator)?;
+    let result = fsym_polys::checked_zero_dimensional_radical(
+        &inputs,
+        &variables,
+        &mut generator,
+        &mut verifier,
+    )
+    .map_err(to_value_error)?;
+    let changed = result.changed_ideal();
+    let ring_bytes = variables.iter().map(|symbol| symbol.name.len() + 128).sum();
+    let values = lift_basis(
+        result.basis().basis(),
+        ring_bytes,
+        &mut generator,
+        &mut verifier,
+    )?;
+    Ok((values, changed))
 }
 
 /// Complete elimination ideal in the retained variables' original order.
