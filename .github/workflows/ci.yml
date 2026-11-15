@@ -392,6 +392,7 @@ jobs:
               "python/tests/test_piecewise_integrals.py",
               "python/tests/test_piecewise_primitives.py",
               "python/tests/test_generalized_series.py",
+              "python/tests/test_fourier_series_exact.py",
               "python/tests/test_directional_series.py",
               "python/tests/test_complex_modulus_series.py",
               "python/tests/test_inverse_branch_series.py",
