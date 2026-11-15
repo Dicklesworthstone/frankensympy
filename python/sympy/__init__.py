@@ -2074,9 +2074,9 @@ def expand_func(expr: Any, deep: bool = True) -> Any:
     """Expand special functions into elementary ones where possible."""
     return expand(expr, func=True, power_exp=False, log=False)
 
-from .core.lambdify_subs import Lambda, Subs
+from .core.lambdify_subs import BadArgumentsError, BadSignatureError, Lambda, Subs
 import sys as _sys
-for _obj in (Lambda, Subs):
+for _obj in (BadArgumentsError, BadSignatureError, Lambda, Subs):
     _obj.__module__ = "sympy.core.function"
     setattr(_sys.modules["sympy.core.function"], _obj.__name__, _obj)
 
