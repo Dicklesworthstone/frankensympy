@@ -45,6 +45,7 @@ _ODE_FUNCTION_OWNERS = tuple(
 )
 _ODE_VALUE_SLOT = _OdeBasic.__dict__["_value"]
 _ODE_DERIVATIVE_ARGS = _OdeDerivative.__dict__["_derivative_args"]
+_VOP_ASSUMPTIONS = Symbol.__dict__["_assumptions"]
 
 
 def _checkodesol_function_protocol():
@@ -950,21 +951,213 @@ def _odesimp(rhs, cs, exclude=()):
     return _constant_renumber(rhs, cs & rhs.free_symbols, exclude)
 
 
-def _particular_vop(basis, g, lead, x):
-    """Variation of parameters for order 1 or 2."""
+class _VopWork:
+    """Bound the exact local VOP lane and retain its original Python sources."""
+
+    def __init__(self, sources):
+        from ..core import Dummy, _surface_binding_key, _symbol_binding
+        from ..core._opaque_arithmetic import stored_args
+        from ._ode_system import _require_original_surface
+
+        _require_original_surface()
+        self.remaining = 262_144
+        self.sources = tuple(sources)
+        self.snapshots = []
+        self.symbols = []
+        for source in self.sources:
+            if not _checkodesol_surface(source):
+                raise NotImplementedError("dsolve: variation of parameters cannot discard original source domains")
+            self.check(source)
+            for node in _preorder(source):
+                retained = (_ODE_DERIVATIVE_ARGS.__get__(node, _OdeDerivative)
+                            if type(node) is _OdeDerivative else stored_args(node))
+                self.snapshots.append((
+                    node, _ODE_VALUE_SLOT.__get__(node, _OdeBasic), retained,
+                ))
+                if type(node) in (Symbol, Dummy):
+                    facts = _VOP_ASSUMPTIONS.__get__(node, Symbol)
+                    if (type(facts) is not dict or len(facts) > 64
+                            or any(type(key) is not str or len(key) > 1024
+                                   or type(value) not in (bool, type(None))
+                                   for key, value in facts.items())):
+                        raise ValueError("dsolve: variation-of-parameters symbols require bounded original facts")
+                    native = _ODE_VALUE_SLOT.__get__(node, _OdeBasic)
+                    if (_surface_binding_key(_symbol_binding(node))
+                            != _surface_binding_key(native.symbol_binding)):
+                        raise ValueError("dsolve: variation-of-parameters symbol declarations changed their native identity")
+                    self.symbols.append((node, facts, tuple(facts.items())))
+
+    def check(self, expression):
+        """Preflight expansion, scalar growth, and undefined original atoms."""
+        from ..core import (
+            Add, Float, Integer, Mul, Pow, Rational, S,
+            _charge_nested_if_active, _is_closed_function_class,
+        )
+
+        pending = [(expression, 0, None)]
+        costs, nodes = {}, 0
+        numbers = (Integer, Rational, type(S.Zero), type(S.One),
+                   type(S.NegativeOne), type(S.Half))
+        while pending:
+            node, depth, children = pending.pop()
+            if children is not None:
+                count = 1
+                if type(node) is Add:
+                    count = sum(costs[id(child)] for child in children)
+                elif type(node) is Mul:
+                    for child in children:
+                        count *= costs[id(child)]
+                        if count > 4096:
+                            break
+                elif type(node) is Pow and type(children[1]) in numbers:
+                    exponent = children[1]
+                    if exponent.q == 1 and exponent.p > 0:
+                        for _ in range(exponent.p):
+                            count *= costs[id(children[0])]
+                            if count > 4096:
+                                break
+                if count > 4096:
+                    raise ValueError("dsolve: variation-of-parameters expansion exceeds 4096 terms")
+                costs[id(node)] = count
+                continue
+            nodes += 1
+            self.remaining -= 1
+            # Source, generator, and verifier traversals share both this
+            # intrinsic cap and any caller-owned symbolic work allowance.
+            _charge_nested_if_active(1)
+            if nodes > 2048 or depth > 64 or self.remaining < 0:
+                raise ValueError("dsolve: variation of parameters exceeds its expression/work bound")
+            kind = type(node)
+            if Float in _ODE_MRO.__get__(kind):
+                raise NotImplementedError("dsolve: variation of parameters requires exact sources")
+            if kind in numbers:
+                if abs(node.p).bit_length() > 4096 or node.q.bit_length() > 4096:
+                    raise ValueError("dsolve: variation-of-parameters coefficients exceed 4096 bits")
+            if node is S.NaN or node is S.Infinity or node is S.NegativeInfinity or node is S.ComplexInfinity:
+                raise ValueError("dsolve: variation of parameters requires finite source expressions")
+            children = _checkodesol_children(node)
+            if nodes + len(pending) + len(children) > 4096:
+                raise ValueError("dsolve: variation of parameters exceeds its expression/work bound")
+            if kind is Pow:
+                base, exponent = children
+                if type(exponent) in numbers:
+                    if abs(exponent.p) > 64 or exponent.q > 64:
+                        raise ValueError("dsolve: variation-of-parameters powers exceed their bound")
+                    if type(base) in numbers and base.p == 0 and exponent.p <= 0:
+                        raise ValueError("dsolve: variation of parameters contains an undefined power")
+            elif _is_closed_function_class(kind):
+                if (_ODE_NAME.__get__(kind) in ("log", "ln") and len(children) == 1
+                        and type(children[0]) in numbers and children[0].p == 0):
+                    raise ValueError("dsolve: variation of parameters contains an undefined logarithm")
+                if node.is_finite is False:
+                    raise ValueError("dsolve: variation of parameters contains an undefined function")
+            pending.append((node, depth, children))
+            pending.extend((child, depth + 1, None) for child in reversed(children))
+        return expression
+
+    def normal(self, expression):
+        from ..core import expand
+        from ..simplify import simplify
+
+        self.check(expression)
+        expanded = self.check(expand(expression))
+        return self.check(simplify(expanded))
+
+    def unchanged(self):
+        from ..core._opaque_arithmetic import stored_args
+        from ._ode_system import _require_original_surface
+
+        _require_original_surface()
+        for node, native, retained in self.snapshots:
+            current = (_ODE_DERIVATIVE_ARGS.__get__(node, _OdeDerivative)
+                       if type(node) is _OdeDerivative else stored_args(node))
+            if (_ODE_VALUE_SLOT.__get__(node, _OdeBasic) is not native
+                    or current is not retained):
+                raise ValueError("dsolve: variation-of-parameters source changed during evaluation")
+        for symbol, facts, entries in self.symbols:
+            current = _VOP_ASSUMPTIONS.__get__(symbol, Symbol)
+            if (current is not facts or type(current) is not dict or len(current) != len(entries)
+                    or any(key is not old_key or value is not old_value
+                           for (key, value), (old_key, old_value) in zip(dict.items(current), entries))):
+                raise ValueError("dsolve: variation-of-parameters symbol changed during evaluation")
+        for source in self.sources:
+            if not _checkodesol_surface(source):
+                raise ValueError("dsolve: variation-of-parameters source domains changed during evaluation")
+
+
+def _vop_cofactors(rows, work):
+    """One adjugate column, sharing all division-free minor subproblems.
+
+    The first n-1 rows determine the last-row cofactors. Subset dynamic
+    programming needs O(n*2**n) scalar products and never introduces an
+    intermediate symbolic pivot or its otherwise spurious singularities.
+    """
+    from ..core import Integer
+
+    dimension = len(rows)
+    minors = {0: Integer(1)}
+    for row in rows[:-1]:
+        following = {}
+        for mask, minor in minors.items():
+            for column, entry in enumerate(row):
+                if mask & (1 << column) or entry == 0:
+                    continue
+                new_mask = mask | (1 << column)
+                # Expanding along the last selected row gives one sign for
+                # every already selected column to the right of this entry.
+                sign = -1 if (mask >> (column + 1)).bit_count() % 2 else 1
+                term = sign * entry * minor
+                following[new_mask] = work.normal(following.get(new_mask, Integer(0)) + term)
+        minors = following
+    full = (1 << dimension) - 1
+    return [(-1 if (dimension - 1 + column) % 2 else 1)
+            * minors.get(full ^ (1 << column), Integer(0))
+            for column in range(dimension)]
+
+
+def _vop_nonzero(expression):
+    """Exact nonvanishing on the admitted common finite smooth domain."""
+    from ..core import Mul, Pow, Rational
+    from ..functions.elementary.exponential import exp
+
+    zero = expression.is_zero
+    if zero is True:
+        return False
+    if zero is False or expression.is_positive is True or expression.is_negative is True:
+        return True
+    if type(expression) is exp:
+        return True
+    if type(expression) is Mul:
+        return all(_vop_nonzero(value) for value in expression.args)
+    if type(expression) is Pow:
+        base, exponent = expression.args
+        if isinstance(exponent, Rational) and exponent.q == 1:
+            return _vop_nonzero(base)
+    return False
+
+
+def _particular_vop(basis, g, lead, x, *, coefficients=None, source=None):
+    """Variation of parameters, with checked bounded orders three through eight.
+
+    The higher-order lane returns a local particular solution on the common
+    smooth domain of the original equation and its primitives. It requires
+    a provably nonzero leading coefficient and Wronskian; it neither crosses
+    a singularity nor asserts a global domain or a portable proof certificate.
+    """
     from ..core import Integer, diff, expand
     from ..simplify import simplify
     from .. import integrate as _integrate
     from ..integrals import Integral
 
-    g = g / lead
     if len(basis) == 1:
+        g = g / lead
         y1 = basis[0]
         integral = _integrate(simplify(g / y1), x)
         if isinstance(integral, Integral):
             raise NotImplementedError("dsolve: particular integral not found")
         return simplify(expand(y1 * integral))
     if len(basis) == 2:
+        g = g / lead
         y1, y2 = basis
         w = simplify(y1 * diff(y2, x) - y2 * diff(y1, x))
         i1 = _integrate(simplify(y2 * g / w), x)
@@ -972,7 +1165,72 @@ def _particular_vop(basis, g, lead, x):
         if isinstance(i1, Integral) or isinstance(i2, Integral):
             raise NotImplementedError("dsolve: particular integral not found")
         return simplify(expand(-y1 * i1 + y2 * i2))
-    raise NotImplementedError("dsolve: inhomogeneous equations of order > 2")
+    dimension = len(basis)
+    if not 3 <= dimension <= 8:
+        raise NotImplementedError("dsolve: variation of parameters supports orders three through eight")
+    if coefficients is None or len(coefficients) != dimension + 1 or coefficients[-1] != lead:
+        raise ValueError("dsolve: variation of parameters requires the complete original operator")
+
+    def exact(value):
+        if type(value) is int:
+            if value.bit_length() > 4096:
+                raise ValueError("dsolve: variation-of-parameters coefficients exceed 4096 bits")
+            return Integer(value)
+        return value
+
+    basis = tuple(exact(value) for value in basis)
+    coefficients = tuple(exact(value) for value in coefficients)
+    g, lead = exact(g), exact(lead)
+    sources = [*basis, g, lead, x, *coefficients]
+    if source is not None:
+        sources.append(source)
+    work = _VopWork(sources)
+    if not _vop_nonzero(lead):
+        raise NotImplementedError("dsolve: variation of parameters requires a provably nonzero leading coefficient")
+    rows = [list(basis)]
+    for _ in range(dimension - 1):
+        rows.append([work.normal(diff(value, x)) for value in rows[-1]])
+    for column in range(dimension):
+        residual = sum((coefficient * rows[order][column]
+                        for order, coefficient in enumerate(coefficients[:-1])), Integer(0))
+        residual += lead * diff(rows[-1][column], x)
+        if work.normal(residual) != 0:
+            raise ValueError("dsolve: proposed homogeneous basis failed its original-operator residual")
+    cofactors = _vop_cofactors(rows, work)
+    determinant = work.normal(sum((entry * cofactor for entry, cofactor in zip(rows[-1], cofactors)), Integer(0)))
+    if not _vop_nonzero(determinant):
+        raise NotImplementedError("dsolve: variation of parameters requires a provably nonzero Wronskian")
+    forcing = work.normal(g / lead)
+    rates = [work.normal(cofactor * forcing / determinant) for cofactor in cofactors]
+    for order, row in enumerate(rows):
+        target = forcing if order == dimension - 1 else Integer(0)
+        residual = sum((entry * rate for entry, rate in zip(row, rates)), Integer(0)) - target
+        if work.normal(residual) != 0:
+            raise ValueError("dsolve: variation-of-parameters linear solve failed its exact residual")
+    primitives = []
+    for rate in rates:
+        primitive = _integrate(rate, x)
+        work.unchanged()
+        if type(primitive) is Integral:
+            raise NotImplementedError("dsolve: particular integral not found")
+        if not _checkodesol_surface(primitive):
+            raise ValueError("dsolve: variation-of-parameters primitive has unresolved source domains")
+        work.check(primitive)
+        if not primitive.free_symbols.issubset(rate.free_symbols | {x}):
+            raise ValueError("dsolve: variation-of-parameters primitive introduced an unrelated symbol")
+        if work.normal(diff(primitive, x) - rate) != 0:
+            raise ValueError("dsolve: variation-of-parameters primitive failed its derivative residual")
+        primitives.append(primitive)
+    candidate = work.normal(sum((value * primitive for value, primitive in zip(basis, primitives)), Integer(0)))
+    derivative = candidate
+    residual = work.normal(coefficients[0] * candidate - g)
+    for coefficient in coefficients[1:]:
+        derivative = work.normal(diff(derivative, x))
+        residual = work.normal(residual + coefficient * derivative)
+    if residual != 0:
+        raise ValueError("dsolve: variation-of-parameters candidate failed its original-operator residual")
+    work.unchanged()
+    return candidate
 
 
 def _euler_coefficients(coeffs, x):
@@ -1535,6 +1793,14 @@ def dsolve(eq, func=None, hint="default", ics=None, **kwargs):
     or the order inferred from the source. Value initial conditions may fix any
     subset of coordinates at one rational time; otherwise the constants
     parameterize normalized initial coordinates.
+
+    Scalar constant-coefficient and Cauchy-Euler equations also have a bounded
+    variation-of-parameters path through order eight. Orders three through
+    eight require exact sources, nonvanishing leading coefficient/Wronskian
+    and evaluated, derivative-checked primitives. Solutions apply on the
+    common smooth domain; Euler singularities are not crossed. The standard
+    constant-coefficient and Euler variation-of-parameters hints select this
+    path explicitly, including resonant forcing.
     """
     from ..core import AppliedUndef, Eq
 
@@ -1662,8 +1928,8 @@ def _dsolve_general(eq, func=None, hint="default", _constant_exclude=(), **kwarg
     """Solve an ordinary differential equation for ``func`` (upstream ``dsolve``).
 
     Supported classes: linear equations with constant coefficients of any
-    order (homogeneous; inhomogeneous through variation of parameters up to
-    order 2), first-order linear equations (integrating factor) and
+    order (homogeneous and supported undetermined coefficients), with bounded
+    variation of parameters through order eight, first-order linear equations (integrating factor) and
     separable first-order equations. Returns ``Eq(f(x), solution)`` with
     constants ``C1, C2, ...``; other equations raise NotImplementedError.
     """
@@ -1674,6 +1940,12 @@ def _dsolve_general(eq, func=None, hint="default", _constant_exclude=(), **kwarg
     from ..functions import exp
 
     source = eq
+    constant_vop = hint == "nth_linear_constant_coeff_variation_of_parameters"
+    euler_vop = hint == "nth_linear_euler_eq_nonhomogeneous_variation_of_parameters"
+    if constant_vop or euler_vop:
+        # Explicit requests can preflight the unnormalized equation before
+        # held arithmetic or derivative substitution changes its surface.
+        _VopWork([source])
     constant_exclude = set(getattr(source, "free_symbols", ())) | set(_constant_exclude)
     if hint != "1st_exact" and type(eq) is _Eq:
         # Preserve the established default inference after normalization;
@@ -1703,31 +1975,43 @@ def _dsolve_general(eq, func=None, hint="default", _constant_exclude=(), **kwarg
     if linear:
         rest = simplify(expand(E - sum((c * y for c, y in zip(coeffs, ys)), Integer(0))))
         linear = not (rest.free_symbols & set(ys))
+    if (constant_vop or euler_vop) and not linear:
+        raise ValueError("dsolve: equation does not match the requested linear variation-of-parameters hint")
     if linear:
         g = -rest
         if all(x not in c.free_symbols for c in coeffs) and (n > 1 or g == 0 or _uc_test(g, x)):
+            if euler_vop:
+                raise ValueError("dsolve: equation does not match the Euler variation-of-parameters hint")
             gensols, collectterms = _char_solutions(coeffs, x)
             consts = _constants(1, len(gensols), constant_exclude)
             hom = sum((c * b for c, b in zip(consts, gensols)), Integer(0))
             sol = hom
             if g != 0:
-                trial = _uc_trial_set(g, x, coeffs)
+                trial = None if constant_vop else _uc_trial_set(g, x, coeffs)
                 if trial is not None:
                     sol = hom + _particular_uc(trial, g, coeffs, x)
                 else:
-                    sol = hom + _particular_vop(gensols, g, coeffs[-1], x)
+                    sol = hom + _particular_vop(
+                        gensols, g, coeffs[-1], x, coefficients=coeffs, source=source,
+                    )
             sol = _simplified_linear(sol, x, collectterms)
             return _Eq(f, _odesimp(sol, set(consts), constant_exclude))
         euler = _euler_coefficients(coeffs, x)
         if euler is not None:
+            if constant_vop:
+                raise ValueError("dsolve: equation does not match the constant-coefficient variation-of-parameters hint")
             gensols = _euler_solutions(euler, x)
             consts = _constants(1, len(gensols), constant_exclude)
             sol = sum((c * b for c, b in zip(consts, gensols)), Integer(0))
             if g != 0:
-                sol = sol + _particular_vop(gensols, g, coeffs[-1], x)
+                sol = sol + _particular_vop(
+                    gensols, g, coeffs[-1], x, coefficients=coeffs, source=source,
+                )
                 sol = simplify(sol)
             return _Eq(f, _odesimp(sol, set(consts), constant_exclude))
         if n == 1:
+            if constant_vop or euler_vop:
+                raise ValueError("dsolve: equation does not match the requested variation-of-parameters hint")
             p = simplify(coeffs[0] / coeffs[1])
             q = simplify(g / coeffs[1])
             ip = _integrate(p, x)

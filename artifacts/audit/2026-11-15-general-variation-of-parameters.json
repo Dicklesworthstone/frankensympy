@@ -1,0 +1,38 @@
+{
+  "workstream": "WS19",
+  "bead": "fra-7kf",
+  "base_commit": "f66073e919cb15fa003e7eb06bbaa5174e9b6e15",
+  "feature": "Bounded scalar variation of parameters for orders three through eight",
+  "implementation": {
+    "equations": "Supported scalar constant-coefficient and Cauchy-Euler ODEs; default fallback and both explicit variation-of-parameters hints.",
+    "algorithm": "One adjugate column from shared subset minors in O(n*2**n) scalar products; no intermediate symbolic pivots.",
+    "independent_checks": [
+      "Every homogeneous basis function against the original operator",
+      "Provably nonzero leading coefficient and Wronskian",
+      "Every Wronskian linear-system row",
+      "Every primitive by exact differentiation",
+      "Final particular solution against the original operator"
+    ],
+    "source_integrity": "Typed native symbols, retained surface operands and bounded assumption dictionaries remain unchanged; unknown source domains or foreign values refuse.",
+    "bounds": {
+      "maximum_order": 8,
+      "expression_nodes": 2048,
+      "depth": 64,
+      "expansion_terms": 4096,
+      "coefficient_bits": 4096,
+      "total_traversal_units": 262144
+    },
+    "scope": "Local solutions on a common finite smooth domain; unresolved integrals, unknown nonvanishing, excessive work and failed exact residuals refuse. Existing order-one/two paths remain. No global domain or portable proof is asserted."
+  },
+  "validation": {
+    "syntax": "passed: python3 -m py_compile python/sympy/solvers/ode.py python/tests/test_general_vop.py",
+    "isolated_math": "SymPy 1.14.0: six independent matrix-cofactor comparisons at dimensions 3-8 and eight exact ODE residual examples passed. The source-admission class was substituted for the oracle environment; these checks do not execute the production FrankenSymPy shell.",
+    "independent_review": "Cofactor signs, linear and differential residual checks, local nonvanishing and original source checks reviewed. Assumption-mutation checks now bound length and compare by identity without foreign equality callbacks.",
+    "actual_engine": "pending: pinned full production extension build is still running at this incremental checkpoint; no actual public regression pass is claimed.",
+    "regressions": [
+      "python/tests/test_general_vop.py"
+    ],
+    "ci": "Both native Python test inventories select the new suite."
+  },
+  "status": "implemented_uncertified; fra-7kf remains open"
+}
