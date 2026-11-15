@@ -1,0 +1,125 @@
+NATIVE FINITE RATIONAL PRODUCT VALIDATION EVIDENCE
+Repository: Dicklesworthstone/frankensympy
+Workspace used: /workspace/scratch/4a3a39075b27/frankensympy
+Prepared: 2026-11-15 UTC
+Packaging HEAD observed: 845b206da01d42563420f4f83eb471b96d307e47
+
+PROVENANCE AND SCOPE
+This compact record was assembled from observed tool output and the retained
+conversation summary. It is not a shell-tee raw log. The focused test transcript
+below is copied from the actual visible exec/write_stdin stdout. The earlier
+cargo-check result is retained metadata only; its full stdout is unavailable in
+the current context. Packaging HEAD records the checkout during packaging, not
+a claim that an entire commit or workspace passed all tests. The source hashes
+below identify the native feature files, which did not change after the passing
+test run. The test-only Counting::charge_batch correction is included.
+
+No full-workspace, full-extension, Python-shell, benchmark, broad-profile, or
+strict-Clippy pass is claimed here. The broad WS18 Bead remains open. The local
+environment became unavailable after these runs and hash collection. An
+attempted scratch-file write was not confirmed; this record was preserved
+directly as a GitHub blob from the observed transcript, without filesystem use.
+
+COMMAND ENVIRONMENT
+Working directory: /workspace/scratch/4a3a39075b27/frankensympy
+Pinned repository Rust toolchain; shell first sourced "$HOME/.cargo/env".
+Command-local variables:
+  CARGO_BUILD_JOBS=1
+  CARGO_INCREMENTAL=0
+  CARGO_PROFILE_DEV_DEBUG=0
+  CARGO_PROFILE_TEST_DEBUG=0
+No RUSTFLAGS or alternate target directory was set by these commands.
+
+NATIVE LIBRARY CHECK: OBSERVED RESULT METADATA, NOT A RECONSTRUCTED RAW LOG
+Command:
+  cargo check --locked -p fsym-proof-kernel -p fsym-calculus
+Exec session: 40186
+Observed exit status: 0
+Elapsed compilation time retained in conversation summary: 9m 27s
+Both changed native libraries compiled successfully. This was not a runtime
+test execution and is not represented as one.
+
+FOCUSED NATIVE TESTS: ACTUAL OBSERVED STDOUT TRANSCRIPT
+Command:
+  cargo test --locked -p fsym-proof-kernel -p fsym-calculus --test rational_product
+Exec session: 10081
+Observed exit status: 0
+Result: 19 calculus tests + 12 independent proof-kernel tests = 31 passed.
+The next block joins the initial exec stdout and the final write_stdin stdout.
+
+--- BEGIN OBSERVED TEST STDOUT ---
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-calculus)
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-proof-kernel)
+    Finished `test` profile [unoptimized] target(s) in 1.63s
+     Running tests/rational_product.rs (target/debug/build/fsym-calculus/0d21401ee9b7f613/out/rational_product-0d21401ee9b7f613)
+
+running 19 tests
+test empty_range_still_requires_a_well_formed_original_source ... ok
+test exhausted_either_phase_never_publishes_a_product ... ok
+test arbitrary_precision_integer_endpoints_are_exact ... ok
+test a_zero_factor_is_valid_only_after_all_original_domains_are_checked ... ok
+test missing_source_guard_and_altered_value_certificates_are_rejected ... ok
+test long_rational_products_telescope_without_enumerating_the_range ... ok
+test fractional_offsets_and_higher_multiplicity_are_retained ... ok
+test negative_pole_free_intervals_are_supported ... ok
+test long_range_cost_is_independent_of_the_integer_count ... ok
+test scalar_growth_and_original_hidden_expansion_are_terminal_refusals ... ok
+test irreducible_quadratic_shift_orbits_telescope_exactly ... ok
+test mixed_positive_and_negative_shift_multiplicities_are_complete ... ok
+test unsupported_long_nontelescoping_products_and_symbols_stay_unevaluated ... ok
+test held_cancellation_zero_products_and_zero_powers_do_not_erase_poles ... ok
+test signed_machine_word_boundaries_never_overflow ... ok
+test finite_rational_products_use_exact_direct_evaluation ... ok
+test reversed_and_empty_ranges_follow_reciprocal_conventions ... ok
+test scalar_powers_are_part_of_the_checked_identity ... ok
+test generator_and_verifier_cancellation_remain_terminal ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/rational_product.rs (target/debug/build/fsym-proof-kernel/1ad2df7d7fa0d702/out/rational_product-1ad2df7d7fa0d702)
+
+running 12 tests
+test checker_budget_refusal_never_accepts_a_stored_candidate ... ok
+test empty_range_requires_the_unit_witness_and_valid_shape ... ok
+test irreducibility_labels_do_not_hide_rational_quadratic_zeros ... ok
+test complete_domain_witness_still_rejects_an_actual_input_pole ... ok
+test missing_and_substituted_domain_factors_are_rejected ... ok
+test oversized_factor_multiplicity_and_direct_range_refuse_before_expansion ... ok
+test missing_and_reordered_original_guards_are_rejected ... ok
+test direct_zero_does_not_mask_a_later_domain_failure ... ok
+test original_source_coefficients_are_independent_checker_inputs ... ok
+test changed_scale_or_polynomial_cannot_pass_the_identity ... ok
+test independently_supplied_telescoper_checks_exact_value_and_reverse ... ok
+test zero_witness_requires_an_actual_forward_factor ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+--- END OBSERVED TEST STDOUT ---
+
+EARLIER TEST ATTEMPTS (NOT PASSES)
+- Session 62761 exited 101: test-only Counting meter omitted the required
+  BudgetMeter::charge_batch method (E0046). Added its nine-line forwarding
+  implementation and formatted that test file; production source was unchanged.
+- Session 39513 exited 101: ENOSPC while creating the calculus test compiler's
+  rmeta temporary directory. No Product runtime tests ran in that attempt.
+- After compiler temporary storage was released, the unchanged corrected source
+  passed all 31 tests in session 10081 above.
+- The optional upstream SymPy oracle process was cancelled (session 72824,
+  exit 130) with no result; no oracle validation is claimed for this feature.
+
+FORMATTING AND REMAINING GATE
+Scoped rustfmt passed on the edited source/test files. The Counting meter fix
+was formatted with:
+  rustfmt --edition 2024 crates/fsym-calculus/tests/rational_product.rs
+Strict native Clippy was not run before the local environment became
+unavailable. The intended command, never executed in this unit, was:
+  cargo clippy --locked -p fsym-proof-kernel -p fsym-calculus --lib --test rational_product -- -D warnings
+
+SOURCE SHA256 INVENTORY (ACTUAL sha256sum OUTPUT BEFORE ENVIRONMENT LOSS)
+3fcf0ea2b3fa5d543c685e2d7fcd446e561f2c57e11374b5454b92de85537c78  crates/fsym-calculus/src/rational_product.rs
+05d1a75ebbdd86ecadb55761dfe178982d380ddf006b97740c8d37a8ca0becce  crates/fsym-calculus/src/summation.rs
+45d45f5a569969af5ae0a5332c88d0a5ea84bad03934731eb24336739c0a7fc5  crates/fsym-calculus/src/lib.rs
+688fccb272ef6be383a602a2651d15b5d15c3f800ea7aa97ebb554b626fa5386  crates/fsym-calculus/tests/rational_product.rs
+edc714cd2421c28234a07424ea63ec1d563bb458465d5e9f6d9cee9b98c8665f  crates/fsym-proof-kernel/src/rational_product.rs
+f5a7324161d45f7e8a9e7f4f031c76e32e31a0d8f77070d13885a7ceaf32e5b2  crates/fsym-proof-kernel/src/rational_sum.rs
+cae822926ec5d528aa959aba71bf91b33359aa877e9834a0a17c64e9dde8333e  crates/fsym-proof-kernel/src/lib.rs
+b1012ad1d62cb4cf8f06e16323fe3bdacbd3b753d06975b76e28529fffb1fac5  crates/fsym-proof-kernel/tests/rational_product.rs

@@ -1,0 +1,210 @@
+{
+  "schema_version": 1,
+  "recorded_date_utc": "2026-11-15",
+  "feature": "SolveAndCertifyCompiledResidualSystem",
+  "status": "Implemented; bounded native consumer and exact-source synchronous Session validation passed. Full workspace, asynchronous runtime, and strict scoped Clippy are not established by this record.",
+  "evidence_kind": "Summary of observed completed tool executions. This file is not a reconstructed raw log or source-hash inventory.",
+  "implementation": {
+    "request": "SolveAndCertifyCompiledResidualSystem",
+    "ordinary_work": "The selected existing numerical backend proposes a root and rational preconditioner; caller-supplied positive decimal/rational radii are retained exactly.",
+    "acceptance": "The separately registered original residual sources are independently verified with protected verifier fuel. Numerical convergence never substitutes for proof.",
+    "publication": "A source-bound RootBoxCertified receipt and portable certificate handle are inserted only after verification and complete response admission succeed.",
+    "scope": "Square systems of 1 through 16 variables, explicit precision_digits from 8 through 128, the four existing numerical backends, no implicit radius widening or backend fallback.",
+    "production_files": [
+      "crates/fsym-numeric-consumer/src/systems.rs",
+      "src/certification_session.rs",
+      "src/certification_session/compiled.rs",
+      "src/certification_session/compiled_solvers.rs",
+      "src/session.rs"
+    ],
+    "new_integration_test_files": [
+      "crates/fsym-numeric-consumer/tests/root_box_proposal.rs",
+      "tests/compiled_root_certification.rs"
+    ]
+  },
+  "validation": {
+    "distinct_cases": 82,
+    "count_explanation": "27 native consumer cases plus 55 synchronous Session component cases. Initial executions and repeated regression executions are not additional cases.",
+    "native_consumer": {
+      "original_workspace_targets": true,
+      "existing_analytic_system_consumers_passed": 13,
+      "existing_generic_system_consumers_passed": 10,
+      "final_root_box_proposal_passed": 4,
+      "final_root_box_proposal_failed": 0,
+      "final_exit_code": 0,
+      "final_tool_session_id": 39417,
+      "existing_tests_observed_in_initial_log": "/workspace/scratch/4a3a39075b27/root-box-proposal-tests.log",
+      "final_log_observed": "/workspace/scratch/4a3a39075b27/root-box-proposal-final-tests.log",
+      "final_result_line": "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "coverage": [
+        "Exact caller radii and candidate-only construction consume no protected verifier fuel.",
+        "Actual independent verification accepts the valid original-source witness.",
+        "A forged zero inverse is rejected with exact RootBoxError::NotContractive; resource exhaustion cannot satisfy that assertion.",
+        "A constructible candidate box need not contain a root.",
+        "Cancellation at every witness-construction safe point returns no candidate and preserves protected fuel.",
+        "Existing generic and analytic donor, resource, cancellation, original-domain, and portable-proof regressions remain passing."
+      ]
+    },
+    "session_source_component": {
+      "package": "frankensympy-session-source-component-check",
+      "final_exit_code": 0,
+      "final_tool_session_id": 39417,
+      "passed": 55,
+      "failed": 0,
+      "targets": [
+        {
+          "target": "--lib",
+          "passed": 15
+        },
+        {
+          "target": "certification_session",
+          "passed": 12
+        },
+        {
+          "target": "compiled_program_transport",
+          "passed": 9
+        },
+        {
+          "target": "compiled_root_certification",
+          "passed": 7
+        },
+        {
+          "target": "compiled_solver_session",
+          "passed": 12
+        }
+      ],
+      "final_log_observed": "/workspace/scratch/4a3a39075b27/compiled-root-session-retest.log",
+      "coverage": [
+        "All four numerical backends certify both locally compiled and independently replayed programs in frozen variable order.",
+        "Workspace rebinding cannot change the original source certified by an existing program.",
+        "A stale compiled context refuses before charging resources or publishing a certificate.",
+        "A tiny exp(x) residual and a deliberately loose solver tolerance cannot prove nonexistent or excluded roots.",
+        "Whole-box logarithm and reciprocal domains are retained; failed certification keeps the certificate ID retryable and the compiled program available.",
+        "Singular-root proposals, invalid exact radii, precision, shape, and backend controls retain typed refusals.",
+        "Exactly one protected unit remaining after compilation, and one unit below measured proof cost, both refuse without borrowing ordinary compute.",
+        "Exhaustion at final publication in compute, memory, or allocation allowance leaves no orphan certificate after successful proof work.",
+        "Three actual fresh CLI processes compile/export a program, replay/solve/certify/export a root proof, and independently replay that proof."
+      ],
+      "composition": {
+        "complete_original_root_library": true,
+        "complete_original_root_cli": true,
+        "complete_original_path_packages": 25,
+        "whole_original_synchronous_runtime_modules": 5,
+        "whole_original_pinned_codec_modules": 14,
+        "actual_pinned_numpy_scipy_consumer_closure_active": true,
+        "component_source_function_substitutions": false,
+        "registry_package_identities_and_checksums_match_original_lock": 58,
+        "omitted": [
+          "Full asynchronous runtime and transport graph",
+          "Full-workspace validation",
+          "Asynchronous cancellation end-to-end behavior",
+          "Performance claims",
+          "Compatibility-profile or campaign completion"
+        ],
+        "observed_dependency_warnings": "Seven unused/dead-code or unused-feature warnings arose from the whole pinned codec modules after omission of their asynchronous callers. No successful strict Clippy result is claimed."
+      }
+    },
+    "additional_direct_execution": {
+      "target": "compiled_solver_session",
+      "exit_code": 0,
+      "passed": 12,
+      "counted_again": false,
+      "purpose": "The initial component run stopped on a fixture assertion before executing this already compiled target. It was run directly, then included again in the final 55-case passing run.",
+      "binary_sha256": "b68b9ec013a124b5d47659742561785fc044c1df4cc8b199ae0d456bddbd2c8a",
+      "test_source_sha256": "88cf4dbdb6f1130e27ab08d3cd35904ec03f791e0d6e03a479485945d72d6b98",
+      "local_log_observed": "/workspace/scratch/4a3a39075b27/compiled-solver-regression-direct.log",
+      "local_hash_record_observed": "/workspace/scratch/4a3a39075b27/compiled-solver-regression-direct.sha256"
+    },
+    "other_checks": [
+      "The final owned fixtures were formatted with pinned rustfmt before the passing run.",
+      "git diff --check completed with exit code 0 after the passing run.",
+      "Strict scoped Clippy was scheduled but was not run before the execution environment became unavailable."
+    ]
+  },
+  "bookend_comparison_observed": {
+    "before_record": "/workspace/scratch/4a3a39075b27/session-root-certification-component/scope-before-final-validation.json",
+    "after_record": "/workspace/scratch/4a3a39075b27/session-root-certification-component/scope-after-final-validation.json",
+    "source_sha256_entries": 690,
+    "source_sha256_equal": true,
+    "harness_sha256_entries": 8,
+    "harness_sha256_equal": true,
+    "registry_packages_equal": true,
+    "original_path_packages_equal": true,
+    "resolved_features_equal": true,
+    "registry_identities_match_original_lock": true,
+    "only_differing_top_level_fields": [
+      "recorded_at"
+    ],
+    "observation": "A completed Python comparison inspected the two actual JSON inventories after the final run. Every other top-level field, including repository/donor heads and scope descriptions, matched. The complete hash values were not emitted to the tool transcript and are not reconstructed here."
+  },
+  "initial_failures_and_corrections": [
+    {
+      "scope": "Initial native consumer run",
+      "result": "13 analytic and 10 generic cases passed; root_box_proposal had 3 passing cases and one undersized fixture failure.",
+      "observed_failure": "Meter(Budget(Exhausted { dimension: MemoryBytes, requested: 67108864, remaining: 9950064 }))",
+      "correction": "The valid-proof fixture now grants 256 MiB ordinary memory for two independent verifications. The core checker's real 64 MiB reservation remains unchanged; compute and protected-fuel limits were retained."
+    },
+    {
+      "scope": "Corrected native fixture expectation",
+      "result": "The real valid proof passed, but an assertion incorrectly expected SingularPreconditioner for a forged zero inverse.",
+      "correction": "The generic checker proves nonsingularity through the strict contraction bound and returns NotContractive when R=0. SingularPreconditioner belongs to the legacy 2x2 determinant check. The final test asserts exact Err(NotContractive), not an arbitrary error."
+    },
+    {
+      "scope": "Initial Session component run",
+      "result": "Root library 15, certification_session 12, transport 9 and six of seven new Session cases passed before an exact error-code fixture mismatch.",
+      "correction": "log(x) over [1 ± 2] expects domain_not_certified; x-1+0*(1/x) over that box expects refused for division by a ball containing zero. The actual CLI confirmed both existing contracts. Retry, no-certificate, program-retention and duplicate-ID assertions were kept."
+    },
+    {
+      "scope": "Protected-fuel fixture reviewed before execution",
+      "correction": "Compilation itself consumes protected fuel. The tiny-budget case measures setup cost and leaves exactly one unit at solve-and-certify entry."
+    },
+    {
+      "scope": "Intermediate native retest",
+      "result": "Compilation stopped with ENOSPC while creating a test rmeta temporary directory. No test pass was claimed for that attempt. After compiler exits restored capacity, the final serial retest passed."
+    },
+    {
+      "scope": "Normal full extension builds",
+      "result": "The coordinator observed two builds terminate with SIGKILL in unchanged pinned asupersync. This synchronous component does not establish the missing full-runtime gate."
+    }
+  ],
+  "commands_actually_executed": {
+    "common_environment": {
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_TARGET_DIR": "/workspace/scratch/4a3a39075b27/frankensympy/target"
+    },
+    "toolchain": "nightly-2026-08-20",
+    "metadata": "cargo +nightly-2026-08-20 metadata --locked --offline --filter-platform x86_64-unknown-linux-gnu --format-version 1 > metadata.json",
+    "initial_native": "cargo test --locked --offline -p fsym-numeric-consumer --test root_box_proposal --test generic_system_consumers --test analytic_system_consumers -j1",
+    "final_native": "cargo +nightly-2026-08-20 test --manifest-path /workspace/scratch/4a3a39075b27/frankensympy/Cargo.toml --locked --offline -p fsym-numeric-consumer --test root_box_proposal -j1",
+    "final_component": "cargo +nightly-2026-08-20 test --locked --offline -p frankensympy-session-source-component-check --lib --test compiled_root_certification --test compiled_solver_session --test certification_session --test compiled_program_transport -j1 -- --test-threads=1",
+    "bookends": [
+      "python record_scope.py scope-before-final-validation.json",
+      "python record_scope.py scope-after-final-validation.json"
+    ],
+    "execution_order": "Final native tests and component tests ran serially in one set -e shell; the shell exited 0 only after both test commands and the post-run inventory completed."
+  },
+  "reproduction": {
+    "existing_recipe": "artifacts/audit/reproduction/2026-11-14-compiled-solvers/",
+    "method": [
+      "Use the final corrected production sources and the original pinned donors. Copy the existing recipe outside the repository and substitute only repository/donor/scratch path prefixes, as its README describes.",
+      "Retain its Cargo.lock, wrappers, original path-package closure, and features. No source function replacement is required or authorized by this record.",
+      "The executed new composition added only the two test manifest entries below to the prior recipe, after path substitution.",
+      "Regenerate locked target-filtered metadata.json and run the unchanged record_scope.py before and after the selected tests.",
+      "Use the pinned toolchain, debug=0, incremental=0 and one build job; serialize commands and reuse the same target.",
+      "Run the final native and component commands above. The two existing native regression targets can be reproduced using the original-workspace --test generic_system_consumers and --test analytic_system_consumers selectors.",
+      "A future strict Clippy or full-runtime result must be recorded separately; neither follows from these passing tests."
+    ],
+    "added_test_manifest_entries": "[[test]]\nname = \"compiled_root_certification\"\npath = \"/workspace/scratch/4a3a39075b27/frankensympy/tests/compiled_root_certification.rs\"\n\n[[test]]\nname = \"certification_session\"\npath = \"/workspace/scratch/4a3a39075b27/frankensympy/tests/certification_session.rs\"\n"
+  },
+  "artifact_availability": {
+    "environment_lost_after_successful_validation": true,
+    "observed_error": "exec-server transport disconnected; recovery timed out; the environment subsequently reported unavailable",
+    "planned_new_reproduction_directory_created": false,
+    "complete_local_raw_logs_and_hash_inventories_recovered_into_this_blob": false,
+    "limitation": "The local log and inventory paths above identify files actually observed before environment loss. They are not links to files included in this commit. Only the recorded summaries, exact observed result/count fields, known hashes, commands, and the existing committed recipe are preserved here. No complete raw transcript or 690-entry inventory has been fabricated."
+  },
+  "campaign_claim": "This is bounded implementation progress for the compiled-Jacobian/root-certification pipeline. It does not close the campaign, full-workspace, asynchronous-runtime, compatibility, or broader release gates."
+}

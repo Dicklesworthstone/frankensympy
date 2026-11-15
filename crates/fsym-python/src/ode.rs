@@ -46,7 +46,10 @@ fn bernoulli_native(
     let p = scalar(p)?;
     let q = q
         .iter()
-        .map(|value| scalar(&value.extract::<PyRef<'_, PyExpr>>()?))
+        .map(|value| {
+            let value: PyRef<'_, PyExpr> = value.extract()?;
+            scalar(&value)
+        })
         .collect::<PyResult<Vec<_>>>()?;
     let result =
         fsym_solvers::ode::bernoulli::bernoulli(&p, &q, n, &x.to_symbol(), &c1.to_symbol())

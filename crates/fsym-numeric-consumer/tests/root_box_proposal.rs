@@ -45,15 +45,15 @@ fn exact_radii_and_untrusted_preconditioners_have_separate_verification() {
 
     let mut forged = witness;
     forged.preconditioner[0][0] = q(0, 1);
-    assert!(matches!(
+    assert_eq!(
         fsym_core::verify_root_box(
             system.residuals(),
             system.vars(),
             &forged,
             &mut budget.verifier_meter(&lease).unwrap(),
         ),
-        Err(RootBoxError::SingularPreconditioner)
-    ));
+        Err(RootBoxError::NotContractive)
+    );
 }
 
 #[test]

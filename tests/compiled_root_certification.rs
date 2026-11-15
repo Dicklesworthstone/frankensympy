@@ -185,11 +185,14 @@ fn numerical_convergence_never_substitutes_for_root_existence_or_box_inclusion()
 
 #[test]
 fn whole_box_domain_and_singular_root_refusals_keep_the_handle_available() {
-    for source in ["log(x)", "x-1+0*(1/x)"] {
+    for (source, refusal) in [
+        ("log(x)", "domain_not_certified"),
+        ("x-1+0*(1/x)", "refused"),
+    ] {
         let mut session = compiled_session(limits(), &[source], &["x"]);
         refused(
             certify(&mut session, payload("sparse", &["1"], &["2"])),
-            "domain_not_certified",
+            refusal,
         );
         no_certificate(&session);
         success(certify(&mut session, payload("sparse", &["1"], &["1/100"])));

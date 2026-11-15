@@ -55,7 +55,7 @@ pub fn polynomial_syzygies_native(
     charge(&mut generator, cells, storage)?;
     // One flattened lift enforces the aggregate expression and allocation
     // bounds across every row; no row restarts either cumulative budget.
-    let flat = rows.into_iter().flatten().collect();
+    let flat: Vec<MultivariatePoly> = rows.into_iter().flatten().collect();
     let mut lifted =
         lift_basis(flat, ring_bytes(&variables), &mut generator, &mut verifier)?.into_iter();
     let output = (0..row_count)

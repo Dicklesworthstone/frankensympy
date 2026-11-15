@@ -1707,6 +1707,15 @@ class _ConcreteOperator(Function):
         current = self.function
         limits = self.limits
         deep = hints.get("deep", True)
+        if (deep and type(self) is Product and limits
+                and isinstance(limits[0][1], Integer)
+                and isinstance(limits[0][2], Integer)):
+            # The checked finite-product lane must see every original inverse,
+            # including ones hidden under held cancellation, zero, or **0.
+            # Rebuilding the source through Basic.doit would erase those
+            # domains before the independent product verifier could check them.
+            # Later symbolic limits do not weaken the first finite obligation.
+            deep = False
         if deep and type(self) is Sum and any(b == oo for _, _, b in limits):
             from .core import _contains_opaque
 

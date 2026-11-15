@@ -163,7 +163,9 @@ fn product_expr(src: &str, var: &str, a: &str, b: &str) -> PyResult<Option<Strin
     let e = parse_expr(src)?;
     let lo = parse_expr(a)?;
     let hi = parse_expr(b)?;
-    Ok(fsym_calculus::summation::product(&e, &Symbol::new(var), &lo, &hi).map(|v| v.to_string()))
+    fsym_calculus::summation::checked_product(&e, &Symbol::new(var), &lo, &hi)
+        .map(|value| value.map(|v| v.to_string()))
+        .map_err(to_value_error)
 }
 
 /// `digits` correctly rounded significant digits of a real constant as
@@ -1259,10 +1261,9 @@ fn product_native(
     b: &PyExpr,
 ) -> PyResult<Option<PyExpr>> {
     let sym = extract_symbol_arg(var)?;
-    Ok(
-        fsym_calculus::summation::product(&expr.inner, &sym, &a.inner, &b.inner)
-            .map(PyExpr::from_expr),
-    )
+    fsym_calculus::summation::checked_product(&expr.inner, &sym, &a.inner, &b.inner)
+        .map(|value| value.map(PyExpr::from_expr))
+        .map_err(to_value_error)
 }
 
 /// Structured complex value probe `(re, im)` for a symbol-free `PyExpr`.
