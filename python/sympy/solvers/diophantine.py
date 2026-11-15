@@ -6,7 +6,9 @@ Supported, exactly, with upstream's parametrizations:
   and upstream's coefficient-gcd chain; parameters ``t_0, t_1, ...``);
 * ``a*x*y = n``: every divisor pair;
 * homogeneous binary quadratics that factor over QQ into lines;
-* positive-definite binary quadratics (bounded): every lattice point;
+* definite binary quadratics within explicit integer-work bounds: every
+  lattice point, including arbitrarily large translations within the
+  coefficient-height limit;
 * the Pythagorean equation ``x**2 + y**2 = z**2``: ``(2*p*q, p**2 - q**2,
   p**2 + q**2)``.
 
@@ -17,6 +19,109 @@ from __future__ import annotations
 
 from math import gcd, isqrt
 from typing import Any
+
+
+_MAX_DIOPHANTINE_COEFFICIENT_BITS = 4096
+_MAX_DIOPHANTINE_SCAN_POINTS = 100_000
+_MAX_DIOPHANTINE_SCAN_BIT_WORK = 20_000_000
+
+
+def _check_quadratic_coefficients(coefficients: tuple[int, ...]) -> None:
+    if any(type(value) is not int for value in coefficients):
+        raise NotImplementedError("diophantine: exact integer coefficients required")
+    if any(abs(value).bit_length() > _MAX_DIOPHANTINE_COEFFICIENT_BITS
+           for value in coefficients):
+        raise NotImplementedError("diophantine: quadratic coefficient height exceeds the bounded exact lane")
+
+
+def _definite_axis_bounds(a: int, b: int, c: int, d: int, e: int, f: int):
+    """Exact integer projection of a definite conic onto its first axis.
+
+    A real second coordinate requires
+    ``(b*x + e)**2 - 4*c*(a*x**2 + d*x + f) >= 0``. Completing the
+    square gives ``(2*q*x - B)**2 <= D`` for positive ``q``. Since the
+    squared quantity is integral, ``isqrt(D)`` gives exact integer bounds
+    even when the two real endpoints are irrational or have huge offsets.
+    """
+    q = 4*a*c - b*b
+    linear = 2*b*e - 4*c*d
+    constant = e*e - 4*c*f
+    discriminant = linear*linear + 4*q*constant
+    if discriminant < 0:
+        return None
+    radius = isqrt(discriminant)
+    denominator = 2*q
+    lower = -((radius - linear) // denominator)
+    upper = (linear + radius) // denominator
+    return None if lower > upper else (lower, upper)
+
+
+def _definite_binary_integer_points(
+    a: int, b: int, c: int, d: int, e: int, f: int,
+) -> set[tuple[int, int]]:
+    """All integer points on one bounded definite binary quadratic.
+
+    This shell-only exact lane makes no portable certificate claim. It
+    enumerates the shorter exact coordinate projection, proves integral
+    second coordinates with integer square roots and divisibility, and
+    checks each candidate in the original coefficient equation. All scan
+    and arithmetic-height admission happens before the enumeration; a
+    refused request cannot return a partial set.
+    """
+    coefficients = (a, b, c, d, e, f)
+    _check_quadratic_coefficients(coefficients)
+    if b*b - 4*a*c >= 0:
+        raise NotImplementedError("diophantine: the finite quadratic lane requires a definite form")
+    x_bounds = _definite_axis_bounds(a, b, c, d, e, f)
+    y_bounds = _definite_axis_bounds(c, b, a, e, d, f)
+    if x_bounds is None or y_bounds is None:
+        return set()
+    x_width = x_bounds[1] - x_bounds[0] + 1
+    y_width = y_bounds[1] - y_bounds[0] + 1
+    swapped = y_width < x_width
+    lower, upper = y_bounds if swapped else x_bounds
+    width = upper - lower + 1
+    coordinate_bits = max(abs(bound).bit_length() for bound in (*x_bounds, *y_bounds))
+    coefficient_bits = max(abs(value).bit_length() for value in coefficients)
+    # Bound both the number of rows and their integer arithmetic heights.
+    # Quadratic residuals have at most coefficient_bits + 2*coordinate_bits
+    # magnitude bits, plus a small sum/sign allowance.
+    bit_work = width * (coefficient_bits + 2*coordinate_bits + 8)
+    if (width > _MAX_DIOPHANTINE_SCAN_POINTS
+            or bit_work > _MAX_DIOPHANTINE_SCAN_BIT_WORK):
+        raise NotImplementedError("diophantine: exact quadratic enumeration exceeds the bounded work limit")
+    if swapped:
+        a, c, d, e = c, a, e, d
+
+    out = set()
+    # Use exact finite differences of the discriminant instead of
+    # reconstructing its large translated quadratic at every scan point.
+    quadratic = b*b - 4*a*c
+    linear = 2*b*e - 4*c*d
+    constant = e*e - 4*c*f
+    discriminant = (quadratic*lower + linear)*lower + constant
+    delta = quadratic*(2*lower + 1) + linear
+    second_linear = b*lower + e
+    denominator = 2*c
+    for first in range(lower, upper + 1):
+        if discriminant >= 0:
+            root = isqrt(discriminant)
+            if root*root == discriminant:
+                numerators = (-second_linear + root,) if root == 0 else (
+                    -second_linear - root, -second_linear + root,
+                )
+                for numerator in numerators:
+                    if numerator % denominator == 0:
+                        second = numerator // denominator
+                        x, y = (second, first) if swapped else (first, second)
+                        aa, bb, cc, dd, ee, ff = coefficients
+                        if x*(aa*x + bb*y + dd) + y*(cc*y + ee) + ff != 0:
+                            raise ArithmeticError("diophantine: exact quadratic residual check failed")
+                        out.add((x, y))
+        discriminant += delta
+        delta += 2*quadratic
+        second_linear += b
+    return out
 
 
 def _igcdex(a: int, b: int) -> tuple:
@@ -145,6 +250,7 @@ def _diop_quadratic(coeffs: dict, x: Any, y: Any) -> set:
     from ..core import Integer
 
     a, b, c, d, e, f = (int(coeffs.get(k, 0)) for k in ("xx", "xy", "yy", "x", "y", "1"))
+    _check_quadratic_coefficients((a, b, c, d, e, f))
     # x*y = n
     if a == 0 and c == 0 and d == 0 and e == 0 and b != 0:
         if f % b:
@@ -184,33 +290,8 @@ def _diop_quadratic(coeffs: dict, x: Any, y: Any) -> set:
             out.add(base_solution_linear(0, den, -num, t))
         return out
     if disc < 0:
-        # bounded ellipse: enumerate x where the quadratic in y has roots
-        out = set()
-        # c*y**2 + (b*x + e)*y + (a*x**2 + d*x + f) = 0 has real y iff
-        # (b*x + e)**2 - 4*c*(a*x**2 + d*x + f) >= 0
-        A2 = b * b - 4 * a * c
-        B2 = 2 * b * e - 4 * c * d
-        C2 = e * e - 4 * c * f
-        # A2 < 0: real x range from the roots of A2*x**2 + B2*x + C2
-        D2 = B2 * B2 - 4 * A2 * C2
-        if D2 < 0:
-            return set()
-        lo = int((-B2 + D2 ** 0.5) / (2 * A2)) - 2
-        hi = int((-B2 - D2 ** 0.5) / (2 * A2)) + 2
-        for xv in range(min(lo, hi), max(lo, hi) + 1):
-            qa, qb, qc = c, b * xv + e, a * xv * xv + d * xv + f
-            if qa == 0:
-                continue
-            dd = qb * qb - 4 * qa * qc
-            if dd < 0:
-                continue
-            s = isqrt(dd)
-            if s * s != dd:
-                continue
-            for root_num in {-qb + s, -qb - s}:
-                if root_num % (2 * qa) == 0:
-                    out.add((Integer(xv), Integer(root_num // (2 * qa))))
-        return out
+        return {(Integer(xv), Integer(yv))
+                for xv, yv in _definite_binary_integer_points(a, b, c, d, e, f)}
     raise NotImplementedError("diophantine: this binary quadratic class (Pell-type) is not supported")
 
 

@@ -248,6 +248,8 @@ jobs:
               "python/tests/test_assumptions_context_adversaries.py",
               "python/tests/test_solve_assumptions.py",
               "python/tests/test_checksol_domains.py",
+              "python/tests/test_diophantine_exact.py",
+              "python/tests/test_surface.py::SurfaceTests::test_diophantine",
               "python/tests/test_solve_system_assumptions.py",
               "python/tests/test_nroots_convergence.py",
               "python/tests/test_surface.py::SurfaceTests::test_nroots_matrix_exp_complex_parts_and_assumptions",
