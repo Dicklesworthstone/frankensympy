@@ -1,0 +1,53 @@
+{
+  "workstream": "WS19",
+  "bead": "fra-7kf",
+  "base_commit": "4a52c7aca251fc7a10066f8fee0f515386b73bd5",
+  "feature": "Exact rational initial conditions for bounded Bernoulli ODE families",
+  "implementation": {
+    "nonzero_exponents": [
+      2,
+      3,
+      -1
+    ],
+    "maximum_observations": 16,
+    "observations": "Built-in dictionary of exact rational function values; transformed values bounded to 1024 bits before exponentiation.",
+    "branch_selection": "Reciprocal or signed quadratic graph checked at every supplied original observation. Quadratic initial conditions require simplify=True.",
+    "zero_solution": "Positive nonlinear exponents admit y=0 only when every observation is zero and no reciprocal occurs in the original retained source.",
+    "refusals": [
+      "Derivative, symbolic, approximate or foreign observations",
+      "Conflicting data or an unverified transcendental comparison",
+      "Implicit higher-power relations that cannot identify the prescribed nonzero branch"
+    ],
+    "scope": "Local solutions only; no global interval, complete profile, portable proof or claim-tier promotion."
+  },
+  "validation": {
+    "python_syntax": "passed: python3 -m py_compile python/sympy/solvers/_bernoulli.py python/tests/test_bernoulli_initial_conditions.py python/tests/test_bernoulli_ode.py",
+    "isolated_math": {
+      "oracle": "SymPy 1.14.0",
+      "cases": 27,
+      "exponents": [
+        2,
+        3,
+        -1
+      ],
+      "initial_points": [
+        "0",
+        "1/2",
+        "1"
+      ],
+      "initial_values": [
+        "-2",
+        "1",
+        "2/3"
+      ],
+      "result": "Exact original nonlinear ODE and initial-value residuals are zero for the centered transformed-family formula. This does not execute FrankenSymPy."
+    },
+    "actual_engine": "pending: full production extension is building with nightly-2026-08-20 and registry-pinned donors; no public Python test pass is claimed by this checkpoint.",
+    "regressions": [
+      "python/tests/test_bernoulli_initial_conditions.py",
+      "python/tests/test_bernoulli_ode.py"
+    ],
+    "review": "Independent source/math review corrected implicit quadratic branch ambiguity before commit; both CI test inventories select the new suite."
+  },
+  "status": "implemented_uncertified; fra-7kf remains open"
+}

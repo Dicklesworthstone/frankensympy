@@ -1518,7 +1518,12 @@ def dsolve(eq, func=None, hint="default", ics=None, **kwargs):
     describe nonzero local branches: n=2 gives a reciprocal, n=3 and n=-1
     give both quadratic branches, and other exponents stay implicit. Zeros
     of the transformed family are excluded; no global interval is selected.
-    Bernoulli initial conditions are outside this bounded lane.
+    Exact rational value initial conditions bind the transformed family and
+    select the reciprocal/quadratic branch through the prescribed value.
+    Zero data select the separate zero solution only when the original source
+    admits it. Nonzero initial data require n=2,3,-1 and an explicit graph for
+    the quadratic cases; an implicit power relation would lose the selected
+    initial branch. Derivative and symbolic initial data remain unsupported.
 
     A list or tuple of one through eight first-order equations may describe a
     coupled system with exact rational constant coefficients and an invertible

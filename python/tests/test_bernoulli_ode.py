@@ -154,10 +154,11 @@ def test_native_boundary_rejects_nonrational_sources_and_constant_aliases():
                                      _symbol_binding(x), _symbol_binding(constant))
 
 
-def test_initial_conditions_are_explicitly_outside_the_current_lane():
+def test_initial_condition_fixes_the_checked_nonlinear_family():
     x, y, source = equation()
-    with pytest.raises(NotImplementedError, match="initial conditions"):
-        dsolve(source, y, hint="Bernoulli", ics={y.func(0): 1})
+    result = dsolve(source, y, hint="Bernoulli", ics={y.func(0): 1})
+    assert result == Eq(y, 1/(Rational(3, 4)*exp(2*x) + x/2 + Rational(1, 4)))
+    assert result.rhs.subs(x, 0) == 1
 
 
 def test_existing_linear_and_separable_routes_do_not_need_the_new_native_api():

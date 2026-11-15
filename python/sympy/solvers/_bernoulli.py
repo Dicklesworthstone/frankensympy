@@ -4,6 +4,11 @@ Only a rational constant linear coefficient and a rational polynomial forcing
 of degree at most 16 enter this lane. Integer nonlinear exponents are bounded
 by 16 in magnitude. Its implicit relation is valid on nonzero local branches;
 explicit reciprocal and paired quadratic roots do not assert a global domain.
+Exact rational value initial conditions fix the transformed family. Quadratic
+graphs retain only the branch through the prescribed nonzero value; zero data
+use the separate zero solution only when the original equation permits it.
+Nonzero initial data require a reciprocal or explicit quadratic graph; an
+implicit power relation cannot identify the prescribed original value branch.
 """
 
 from fractions import Fraction
@@ -15,6 +20,7 @@ from ..core import (
 from ._ode_system import (
     _NUMBERS, _bounded, _functions, _rational, _require_original_surface, _surface,
 )
+from ..functions.elementary.exponential import exp as _BernoulliExp
 
 _ASSUMPTIONS = Symbol.__dict__["_assumptions"]
 _DUMMY_NAME = Dummy.__dict__["_dummy_name"]
@@ -63,6 +69,7 @@ class _Source:
         self.nonzero = False
         self.axis = _axis_state(variable)
         self.constants = []
+        self.initial_state = None
 
     def step(self, count=1):
         self.operations += count
@@ -160,15 +167,27 @@ class _Source:
             _checkodesol_children, _checkodesol_function, _checkodesol_function_protocol,
             _ODE_VALUE_SLOT, _OdeBasic,
         )
-        from ..core import _require_default_function_identity
+        from ..core import _is_closed_function_class, _require_default_function_identity
 
         _require_original_surface()
         _require_default_function_identity()
+        if not _is_closed_function_class(_BernoulliExp):
+            raise NotImplementedError("dsolve: Bernoulli requires the original exponential implementation")
         _checkodesol_function_protocol()
         _checkodesol_function(self.function)
         _same_axis(self.variable, self.axis)
         for constant, state in self.constants:
             _same_axis(constant, state)
+        if self.initial_state is not None:
+            mapping, observations = self.initial_state
+            if len(mapping) != len(observations):
+                raise ValueError("dsolve: Bernoulli initial conditions changed during evaluation")
+            current = tuple(dict.items(mapping))
+            if len(current) != len(observations) or any(
+                key is not old_key or value is not old_value
+                for (key, value), (old_key, old_value) in zip(current, observations)
+            ):
+                raise ValueError("dsolve: Bernoulli initial conditions changed during evaluation")
         for node, native, children in self.snapshots:
             if _ODE_VALUE_SLOT.__get__(node, _OdeBasic) is not native:
                 raise ValueError("dsolve: Bernoulli source changed during evaluation")
@@ -179,6 +198,87 @@ class _Source:
                 from ..core._opaque_arithmetic import stored_args
                 if stored_args(node) is not None or type(node) is Derivative:
                     raise ValueError("dsolve: Bernoulli retained source changed during evaluation")
+
+
+def _initial_data(source, ics):
+    """Freeze exact value observations without invoking user conversion hooks."""
+    from .ode import _checkodesol_children, _ODE_VALUE_SLOT, _OdeBasic
+
+    if ics is None:
+        return ()
+    if type(ics) is not dict:
+        raise TypeError("dsolve: Bernoulli initial conditions require a built-in dictionary")
+    if len(ics) > 16:
+        raise ValueError("dsolve: Bernoulli initial conditions exceed 16 observations")
+    observations = tuple(dict.items(ics))
+    source.initial_state = ics, observations
+    result = []
+    for key, raw_value in observations:
+        if type(key) is not type(source.function):
+            raise NotImplementedError("dsolve: Bernoulli supports value initial conditions only")
+        children = _checkodesol_children(key)
+        if type(children) is not tuple or len(children) != 1:
+            raise ValueError("dsolve: invalid Bernoulli initial-condition function")
+        point = children[0]
+        if type(point) not in _NUMBERS or type(raw_value) not in (*_NUMBERS, int):
+            raise NotImplementedError("dsolve: Bernoulli initial data must be exact rational values")
+        time, value = _rational(point), _rational(raw_value)
+        source.snapshots.append((key, _ODE_VALUE_SLOT.__get__(key, _OdeBasic), children))
+        source.visit(point)
+        if type(raw_value) is not int:
+            source.visit(raw_value)
+        result.append((time, value))
+    source.recheck()
+    return tuple(result)
+
+
+def _initial_power(value, exponent):
+    # The source exponent is at most 16, so this preflight bounds even the
+    # unreduced temporary rational before exponentiation.
+    bits = max(abs(value.numerator).bit_length(), value.denominator.bit_length())
+    if bits * abs(exponent) > 1024:
+        raise ValueError("dsolve: Bernoulli transformed initial value exceeds 1024 bits")
+    return _bounded(value**exponent)
+
+
+def _bind_initial_data(source, transformed, constant, p, n, observations):
+    """Specialize the checked linear family without a nonlinear root search.
+
+    Native generation has independently verified u = C*exp((n-1)*p*x)+P(x).
+    Centering its nonvanishing homogeneous factor at the first observation
+    avoids introducing a division by a symbolic exponential. The original
+    value observations are checked again after explicit branch selection.
+    """
+    point, value = observations[0]
+    particular = transformed.subs(constant, 0)
+    at_point = _rational(particular.subs(source.variable, _surface(point)))
+    target = _initial_power(value, 1-n)
+    offset = _bounded(target-at_point)
+    rate = _bounded((n-1)*p)
+    bound = particular + _surface(offset)*_BernoulliExp(
+        _surface(rate)*(source.variable-_surface(point)))
+    for time, observed in observations:
+        expected = _initial_power(observed, 1-n)
+        actual = bound.subs(source.variable, _surface(time))
+        if type(actual) not in _NUMBERS:
+            # Distinct rational times with nonzero homogeneous coefficient
+            # can require a transcendental identity. Unknown is not equality.
+            raise NotImplementedError("dsolve: cannot verify Bernoulli initial conditions exactly")
+        if _rational(actual) != expected:
+            raise ValueError("Couldn't solve for initial conditions")
+    source.recheck()
+    return bound
+
+
+def _check_initial_graph(source, candidate, observations):
+    """A transformed observation must also select the original value branch."""
+    for point, value in observations:
+        observed = candidate.subs(source.variable, _surface(point))
+        if type(observed) not in _NUMBERS:
+            raise NotImplementedError("dsolve: cannot verify the Bernoulli initial branch exactly")
+        if _rational(observed) != value:
+            raise ValueError("Couldn't solve for initial conditions")
+    source.recheck()
 
 
 def solve_bernoulli(equation, function, hint, ics, simplify):
@@ -246,8 +346,23 @@ def solve_bernoulli(equation, function, hint, ics, simplify):
         if source.nonzero:
             raise ValueError("dsolve: original Bernoulli reciprocal domains require the explicit Bernoulli hint")
         return None
-    if ics:
-        raise NotImplementedError("dsolve: Bernoulli initial conditions are not yet supported")
+    observations = _initial_data(source, ics)
+    if any(not value for _, value in observations):
+        # y -> y^(1-n) is undefined at zero for n>1, but the original
+        # polynomial equation has the separate identically-zero solution.
+        # A reciprocal anywhere in the retained source keeps its exclusion,
+        # even if its coefficient cancelled during bounded classification.
+        if n < 0 or source.nonzero:
+            raise ValueError("dsolve: zero initial value is outside the original Bernoulli domain")
+        if any(value for _, value in observations):
+            raise ValueError("Couldn't solve for initial conditions")
+        result = Eq(function, Integer(0), evaluate=False)
+        source.recheck()
+        return result
+    if observations and (n not in (2, 3, -1) or (not simplify and n != 2)):
+        raise NotImplementedError("dsolve: Bernoulli initial conditions require an unambiguous explicit branch")
+    for _, value in observations:
+        _initial_power(value, 1-n)
     (constant,) = _constants(1, 1, {variable})
     source.constants.append((constant, _axis_state(constant)))
     source.recheck()
@@ -257,8 +372,21 @@ def solve_bernoulli(equation, function, hint, ics, simplify):
     )
     source.recheck()
     transformed = _lift_native_result(native, variable, constant)
+    if observations:
+        transformed = _bind_initial_data(source, transformed, constant, p, n, observations)
+    selected = None
+    if observations and n in (2, 3, -1):
+        from ..core import sqrt
+        if n == 2:
+            selected = 1/transformed
+        else:
+            root = sqrt(1/transformed if n == 3 else transformed)
+            selected = root if observations[0][1] > 0 else -root
+        _check_initial_graph(source, selected, observations)
     if not simplify or n not in (2, 3, -1):
         result = Eq(function**(1-n), transformed, evaluate=False)
+    elif selected is not None:
+        result = Eq(function, selected, evaluate=False)
     elif n == 2:
         result = Eq(function, 1/transformed, evaluate=False)
     else:
