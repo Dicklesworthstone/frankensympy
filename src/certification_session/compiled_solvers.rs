@@ -6,11 +6,12 @@
 //! Returned proposals remain approximate; root and extremum certification are
 //! separate original-source operations.
 
-use super::CertificationSessionError;
 use super::compiled::numeric_values;
 use super::compiled_objective;
+use super::{CertificationSessionError, charge, parse_scalar};
 use fsym_budget::{Budget, BudgetMeter};
 use fsym_calculus::{VerifiedObjective, VerifiedResidualSystem};
+use fsym_core::{BigRational, RootBoxWitness};
 use fsym_numeric_consumer::{
     LeastSquaresOptions, LeastSquaresProposal, MAX_CONSUMER_NEWTON_ITERATIONS,
     MAX_CONSUMER_VARIABLES, MAX_LEAST_SQUARES_RESIDUALS, MAX_MINIMIZE_ITERATIONS,
@@ -19,7 +20,7 @@ use fsym_numeric_consumer::{
     ObjectiveConsumerError, RootProposal, SystemConsumerError,
     frankenscipy_analytic_system_with_meter, frankenscipy_fsolve_system_with_meter,
     least_squares_with_meter, minimize_with_meter, newton_refine_with_meter,
-    sparse_least_squares_with_meter, sparse_newton_refine_with_meter,
+    propose_root_box_with_meter, sparse_least_squares_with_meter, sparse_newton_refine_with_meter,
 };
 use serde::{Deserialize, Serialize};
 
@@ -88,6 +89,66 @@ pub struct CompiledStationarityOptions {
     pub max_iterations: Option<usize>,
     pub gradient_tolerance: Option<String>,
     pub max_step_norm: Option<String>,
+}
+
+/// Construct a candidate using ordinary resources. Only the caller's separate
+/// original-source verification may turn this witness into an accepted root.
+pub(super) fn propose_root_witness(
+    system: &VerifiedResidualSystem,
+    initial: &[String],
+    backend: CompiledRootBackend,
+    options: &CompiledRootSolveOptions,
+    radii: &[String],
+    precision_digits: u32,
+    budget: &mut Budget,
+) -> Result<RootBoxWitness, CertificationSessionError> {
+    budget.checkpoint()?;
+    let variables = system.num_vars();
+    let residuals = system.num_residuals();
+    // The exact checker retains its own bound even when the selected numerical
+    // backend can solve a larger sparse system.
+    if !(1..=MAX_CONSUMER_VARIABLES).contains(&variables) || residuals != variables {
+        return Err(SystemConsumerError::UnsupportedShape {
+            variables,
+            residuals,
+        }
+        .into());
+    }
+    if radii.len() != variables {
+        return Err(SystemConsumerError::Dimension {
+            input: "radii",
+            expected: variables,
+            actual: radii.len(),
+        }
+        .into());
+    }
+    if !(8..=fsym_core::MAX_ROOT_BOX_PRECISION).contains(&precision_digits) {
+        return Err(SystemConsumerError::InvalidRequest("precision must be 8..=128").into());
+    }
+    charge(
+        budget,
+        variables,
+        variables * std::mem::size_of::<BigRational>(),
+    )?;
+    let mut exact_radii = Vec::new();
+    exact_radii
+        .try_reserve_exact(variables)
+        .map_err(|_| crate::certification::CertificationError::AllocationFailure)?;
+    for radius in radii {
+        let radius = parse_scalar(radius, budget)?;
+        if radius.numer().is_negative() || radius.numer().is_zero() {
+            return Err(SystemConsumerError::InvalidRequest("radii must be positive").into());
+        }
+        exact_radii.push(radius);
+    }
+    let proposal = solve_root(system, initial, backend, options, budget)?;
+    Ok(propose_root_box_with_meter(
+        system,
+        &proposal.root,
+        &exact_radii,
+        precision_digits,
+        budget,
+    )?)
 }
 
 pub(super) fn solve_root(

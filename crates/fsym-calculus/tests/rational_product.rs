@@ -271,6 +271,15 @@ impl BudgetMeter for Counting {
         }
         Ok(())
     }
+    fn charge_batch(
+        &mut self,
+        charges: &[(Dimension, u64)],
+    ) -> std::result::Result<(), MeterError> {
+        for &(dimension, amount) in charges {
+            self.charge(dimension, amount)?;
+        }
+        Ok(())
+    }
     fn checkpoint(&mut self) -> std::result::Result<(), MeterError> {
         if self.cancel_at == Some(self.steps) {
             return Err(MeterError::Cancelled);

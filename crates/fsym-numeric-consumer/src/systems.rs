@@ -581,6 +581,63 @@ pub fn certify_root_with_meter<M: BudgetMeter>(
     meter: &mut M,
 ) -> Result<CertifiedRootOutcome, SystemConsumerError> {
     let n = admit_root_request(system, approximation, radii, precision_digits, meter)?;
+    let mut exact_radii = buffer(n, meter)?;
+    for &radius in radii {
+        exact_radii.push(exact_coordinate(radius, meter)?);
+    }
+    let witness =
+        propose_root_box_with_meter(system, approximation, &exact_radii, precision_digits, meter)?;
+    let approximation = copy_values(approximation, meter)?;
+    let certificate =
+        fsym_core::verify_root_box(system.residuals(), system.vars(), &witness, meter)?;
+    publication_checkpoint(n, meter)?;
+    Ok(CertifiedRootOutcome {
+        approximation,
+        certificate,
+    })
+}
+
+/// Propose an exact box and rational preconditioner around a numerical point.
+///
+/// The supplied radii are retained exactly. The center and inverse are exact
+/// encodings of binary64 proposals, and carry no mathematical acceptance. A
+/// coordinator can charge this construction to ordinary resources, then use a
+/// protected verifier meter to check the original sources independently.
+/// As with the certified dense consumer, this route accepts square systems of
+/// 1..=16 variables. No radius widening, solver retry, or fallback is implicit.
+pub fn propose_root_box_with_meter<M: BudgetMeter>(
+    system: &VerifiedResidualSystem,
+    approximation: &[f64],
+    radii: &[BigRational],
+    precision_digits: u32,
+    meter: &mut M,
+) -> Result<RootBoxWitness, SystemConsumerError> {
+    let n = admit_point(system, approximation, meter)?;
+    if radii.len() != n {
+        return Err(SystemConsumerError::Dimension {
+            input: "radii",
+            expected: n,
+            actual: radii.len(),
+        });
+    }
+    if !(8..=fsym_core::MAX_ROOT_BOX_PRECISION).contains(&precision_digits) {
+        return Err(SystemConsumerError::InvalidRequest(
+            "precision must be 8..=128",
+        ));
+    }
+    for radius in radii {
+        charge(meter, 1, 0, 0)?;
+        if radius.numer().is_negative() || radius.numer().is_zero() {
+            return Err(SystemConsumerError::InvalidRequest(
+                "radii must be positive",
+            ));
+        }
+        if radius.numer().limb_count() > fsym_core::MAX_ROOT_BOX_LIMBS
+            || radius.denom().limb_count() > fsym_core::MAX_ROOT_BOX_LIMBS
+        {
+            return Err(RootBoxError::ResourceLimit("root-box radius height").into());
+        }
+    }
     let mut values = zeros(n, meter)?;
     let mut jacobian = zeros(n * n, meter)?;
     evaluate_system(system, approximation, &mut values, &mut jacobian, meter)?;
@@ -603,7 +660,9 @@ pub fn certify_root_with_meter<M: BudgetMeter>(
         // Both exact conversions are charged: the ball owns its midpoint,
         // while the witness separately retains its proposed center.
         let midpoint = exact_coordinate(approximation[coordinate], meter)?;
-        let radius = exact_coordinate(radii[coordinate], meter)?;
+        let limbs = radii[coordinate].numer().limb_count() + radii[coordinate].denom().limb_count();
+        charge(meter, limbs + 1, limbs * 8 + 128, 2)?;
+        let radius = radii[coordinate].clone();
         domain.push(RealBall::new(midpoint, radius).map_err(RootBoxError::from)?);
         let mut row = buffer(n, meter)?;
         for column in 0..n {
@@ -611,21 +670,14 @@ pub fn certify_root_with_meter<M: BudgetMeter>(
         }
         preconditioner.push(row);
     }
-    let approximation = copy_values(approximation, meter)?;
     let witness = RootBoxWitness {
         domain,
         center,
         preconditioner,
         precision_digits,
     };
-    meter.checkpoint()?;
-    let certificate =
-        fsym_core::verify_root_box(system.residuals(), system.vars(), &witness, meter)?;
     publication_checkpoint(n, meter)?;
-    Ok(CertifiedRootOutcome {
-        approximation,
-        certificate,
-    })
+    Ok(witness)
 }
 
 pub fn newton_refine_root_box(

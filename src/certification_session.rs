@@ -521,6 +521,21 @@ pub enum CertificationRequest {
         #[serde(default)]
         options: CompiledRootSolveOptions,
     },
+    /// Propose a numerical root, then independently check its original sources
+    /// on an exact box. Positive decimal/rational radii and precision are explicit;
+    /// no widening or backend fallback occurs. Only a successful protected check
+    /// publishes a RootBoxCertified response and portable certificate handle.
+    SolveAndCertifyCompiledResidualSystem {
+        schema_version: u32,
+        program: CompiledResidualSystemId,
+        certificate: RootCertificateId,
+        initial: Vec<String>,
+        backend: CompiledRootBackend,
+        #[serde(default)]
+        options: CompiledRootSolveOptions,
+        radii: Vec<String>,
+        precision_digits: u32,
+    },
     /// Seek approximate stationarity of half the squared residual norm.
     /// Inconsistent and rank-deficient systems retain explicit backend limits.
     SolveCompiledLeastSquares {
@@ -941,6 +956,7 @@ impl CertificationRequest {
             | Self::EvaluateJacobianVectorProduct { schema_version, .. }
             | Self::EvaluateJacobianTransposeVectorProduct { schema_version, .. }
             | Self::SolveCompiledResidualSystem { schema_version, .. }
+            | Self::SolveAndCertifyCompiledResidualSystem { schema_version, .. }
             | Self::SolveCompiledLeastSquares { schema_version, .. }
             | Self::ReleaseCompiledResidualSystem { schema_version, .. }
             | Self::RegisterParametricProblem { schema_version, .. }
@@ -3138,6 +3154,63 @@ impl CertificationState {
             } => self
                 .compiled
                 .solve(program, &initial, backend, &options, budget),
+            CertificationRequest::SolveAndCertifyCompiledResidualSystem {
+                program,
+                certificate,
+                initial,
+                backend,
+                options,
+                radii,
+                precision_digits,
+                ..
+            } => {
+                self.admit_certificate_id(&certificate)?;
+                let (system, frozen_context, compiled) = self
+                    .compiled
+                    .source_record(&program)
+                    .ok_or(CertificationSessionError::UnknownCompiledSystem)?;
+                if frozen_context != context_digest {
+                    return Err(CertificationError::UniverseMismatch {
+                        found: frozen_context,
+                        expected: context_digest,
+                    }
+                    .into());
+                }
+                let problem = self
+                    .systems
+                    .get(system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                let lease =
+                    lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+                let witness = compiled_solvers::propose_root_witness(
+                    compiled,
+                    &initial,
+                    backend,
+                    &options,
+                    &radii,
+                    precision_digits,
+                    budget,
+                )?;
+                // The compiled Jacobian, numerical stopping criterion and donor
+                // inverse only propose this witness. Acceptance recomputes the
+                // separately registered originals with protected resources.
+                let receipt = problem.verify_root(
+                    &witness,
+                    &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+                )?;
+                charge(budget, 1, 4096 + system.as_str().len())?;
+                let system = system.clone();
+                let response = root_response(
+                    &receipt,
+                    system.clone(),
+                    certificate.clone(),
+                    frozen_context,
+                    budget,
+                )?;
+                admit_response(&response, budget)?;
+                self.certificates.insert(certificate, (system, receipt));
+                Ok(response)
+            }
             CertificationRequest::SolveCompiledLeastSquares {
                 program,
                 initial,
@@ -4709,5 +4782,67 @@ impl CertificationState {
                 self.publish_restored_search(system, search, restored, context_digest, budget)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod compiled_root_tests {
+    use super::*;
+
+    #[test]
+    fn a_compiled_source_cannot_be_certified_under_a_rebound_context() {
+        let mut state = CertificationState::default();
+        let mut budget = Budget::new(fsym_budget::BudgetLimits::uniform(1 << 40, 1 << 40));
+        let lease = budget.verifier_lease().unwrap();
+        let system = ResidualSystemId::new("system:frozen-context").unwrap();
+        let program = CompiledResidualSystemId::new("program:frozen-context").unwrap();
+        let certificate = RootCertificateId::new("certificate:frozen-context").unwrap();
+        state
+            .handle(
+                CertificationRequest::RegisterResidualSystem {
+                    schema_version: 1,
+                    system: system.clone(),
+                    residuals: vec!["x-1".into()],
+                    variables: vec!["x".into()],
+                },
+                [1; 32],
+                &mut budget,
+                Some(&lease),
+            )
+            .unwrap();
+        state
+            .handle(
+                CertificationRequest::CompileResidualSystem {
+                    schema_version: 1,
+                    system,
+                    program: program.clone(),
+                },
+                [1; 32],
+                &mut budget,
+                Some(&lease),
+            )
+            .unwrap();
+        let before = budget.snapshot();
+        let error = state
+            .handle(
+                CertificationRequest::SolveAndCertifyCompiledResidualSystem {
+                    schema_version: 1,
+                    program: program.clone(),
+                    certificate: certificate.clone(),
+                    initial: vec!["0".into()],
+                    backend: CompiledRootBackend::FrankenNumpy,
+                    options: CompiledRootSolveOptions::default(),
+                    radii: vec!["1/10".into()],
+                    precision_digits: 24,
+                },
+                [2; 32],
+                &mut budget,
+                Some(&lease),
+            )
+            .unwrap_err();
+        assert_eq!(error.code(), "universe_mismatch");
+        assert!(state.certificate(&certificate).is_none());
+        assert!(state.compiled_system(&program).is_some());
+        assert_eq!(budget.snapshot(), before);
     }
 }

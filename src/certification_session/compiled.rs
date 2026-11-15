@@ -77,6 +77,15 @@ impl CompiledState {
         self.programs.get(id).map(|resident| &resident.program)
     }
 
+    pub(super) fn source_record(
+        &self,
+        id: &CompiledResidualSystemId,
+    ) -> Option<(&ResidualSystemId, [u8; 32], &VerifiedResidualSystem)> {
+        self.programs
+            .get(id)
+            .map(|resident| (&resident.source, resident.context_digest, &resident.program))
+    }
+
     pub(super) fn compile(
         &mut self,
         source: ResidualSystemId,

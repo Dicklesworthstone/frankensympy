@@ -632,6 +632,40 @@ Use `CertifyRootBox` or `CertifyStationaryPoint` separately for their exact
 original-source interval claims. A numerical proposal does not bypass those
 independent checks.
 
+### Solve and certify an exact root box
+
+`SolveAndCertifyCompiledResidualSystem` composes numerical refinement with
+independent original-source root-box verification in one request. It consumes
+the same admitted compiled handle, including a replayed handle, and takes exact
+positive radii in the frozen variable order:
+
+```json
+{"id":"certified-solve","type":"SolveAndCertifyCompiledResidualSystem","payload":{"schema_version":1,"program":"program:solve","certificate":"certificate:solve","initial":["1","1"],"backend":"frankennumpy","radii":["1/1000","1/1000"],"precision_digits":24}}
+```
+
+After the registration and compilation example above, this request produces
+the existing `root_box_certified` response only if the independently checked
+box contains a unique nonsingular real root of the original residual system.
+The certificate can immediately be exported with `ExportRootCertificate` and
+independently replayed against the same source in a fresh session.
+
+The numerical center and donor inverse are proposals. Their exact binary64
+values are encoded as rational witnesses; the supplied rational radii are
+retained exactly. Source evaluation and interval differentiation are recomputed
+by the root verifier, so a loose numerical tolerance, a small residual, or a
+compiled derivative does not establish the root claim. Original logarithmic,
+reciprocal, and other supported source-domain restrictions still apply.
+
+All four root backends listed above are available, with their existing explicit
+controls. The combined operation is bounded to square systems of 1–16 variables
+and precision 8–128 decimal digits. Every radius must be positive. There is no
+automatic radius widening or fallback backend. A singular root, an uncertifiable
+box, a refused proposal, or resource exhaustion returns an error and creates no
+certificate handle. Generation consumes ordinary cumulative resources;
+independent acceptance consumes the protected verifier pool. The complete
+response is reserved before the certificate is published, and an existing
+certificate identifier cannot be overwritten.
+
 ### Controls, limits, and failure behavior
 
 The optional `options` object accepts `max_iterations`, `max_step_norm`, and
