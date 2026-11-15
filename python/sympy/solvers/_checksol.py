@@ -27,6 +27,7 @@ _SCALARS = (Basic, Atom, AtomicExpr, Expr, Number, Integer, Rational, Zero, One,
             Symbol, Dummy, Add, Mul, Pow, Eq)
 _OWNERS = tuple((owner, _owner_record(owner)) for owner in _SCALARS)
 _MRO = type.__dict__["__mro__"]
+_DICT = type.__dict__["__dict__"]
 _OWNER_MROS = tuple((owner, _MRO.__get__(owner)) for owner in _SCALARS)
 _READS = ("subs", "atoms", "free_symbols", "p", "q", "__sub__", "__rsub__", "__neg__")
 # The shared function capabilities cover symbolic hooks, but these public
@@ -36,7 +37,7 @@ _METHOD_OWNERS = {}
 for _class in (*_SCALARS, *_closed_function_classes):
     for _owner in _MRO.__get__(_class):
         _METHOD_OWNERS[id(_owner)] = _owner
-_METHODS = tuple((owner, name, _implementation(owner.__dict__.get(name)))
+_METHODS = tuple((owner, name, _implementation(_DICT.__get__(owner).get(name)))
                  for owner in _METHOD_OWNERS.values() for name in _READS)
 _ENTIRE_NAMES = frozenset({
     "sin", "cos", "exp", "sinh", "cosh", "erf", "erfc", "Abs", "abs",
@@ -70,7 +71,7 @@ def _require_original():
         if len(current) != len(expected) or any(a is not b for a, b in zip(current, expected)):
             raise _Unsupported
     for owner, name, expected in _METHODS:
-        current = _implementation(owner.__dict__.get(name))
+        current = _implementation(_DICT.__get__(owner).get(name))
         if len(current) != len(expected) or any(a is not b for a, b in zip(current, expected)):
             raise _Unsupported
 

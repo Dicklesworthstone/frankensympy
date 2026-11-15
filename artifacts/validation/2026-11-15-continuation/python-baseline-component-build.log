@@ -1,0 +1,7 @@
+   Compiling pyo3-macros-backend v0.27.2
+   Compiling pyo3 v0.27.2
+   Compiling pyo3-macros v0.27.2
+   Compiling pyo3-ffi v0.27.2
+   Compiling fsym-budget-source-component v0.1.0 (/workspace/scratch/4a3a39075b27/python-continuation-component/runtime)
+   Compiling fsym-python-math-source-component v0.1.0 (/workspace/scratch/4a3a39075b27/python-continuation-component)
+    Finished `dev` profile [unoptimized] target(s) in 23.86s

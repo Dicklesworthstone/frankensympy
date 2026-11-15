@@ -127,6 +127,52 @@ class ChecksolOriginalDomainTests(unittest.TestCase):
                 self.assertIs(checksol(source, x, constant), True)
         self.assertIs(checksol(x*x + x - x*(x + 1), {}), True)
 
+    def test_nonreal_zero_facts_keep_constant_and_symbol_identities(self):
+        from sympy import Catalan, E, EulerGamma, GoldenRatio, I, pi
+
+        x = self.x
+        reciprocal = self.reciprocal(x)
+        source = Eq(reciprocal, reciprocal, evaluate=False)
+        for value in (I, 1 + I, 2*I, Symbol("checksol_imaginary", imaginary=True),
+                      Symbol("checksol_nonreal", real=False)):
+            with self.subTest(value=value):
+                self.assertIs(value.is_zero, False)
+                self.assertIs(value.is_nonzero, False)
+                self.assertIs(checksol(source, x, value), True)
+        numeric_facts = ("integer", "rational", "irrational", "even", "odd", "imaginary", "finite")
+        for name in ("I", "pi", "E", "EulerGamma", "GoldenRatio", "Catalan", "oo", "-oo", "zoo", "nan"):
+            plain = Symbol(name)
+            for value in (plain, Expr(plain)):
+                self.assertIsNone(value.is_real)
+                self.assertIsNone(value.is_positive)
+                self.assertIsNone(value.is_zero)
+                self.assertIsNone(value.is_nonzero)
+                for fact in numeric_facts:
+                    self.assertIsNone(getattr(value, "is_" + fact))
+                self.assertIsNone(checksol(source, x, value))
+        # These exports still have ordinary native Symbol representations;
+        # their names alone cannot establish a sign or exclude zero.
+        for value in (EulerGamma, GoldenRatio, Catalan):
+            self.assertIsNone(value.is_positive)
+            self.assertIsNone(value.is_zero)
+            for fact in numeric_facts:
+                self.assertIsNone(getattr(value, "is_" + fact))
+        for value in (E, pi, I):
+            self.assertIs(value.is_finite, True)
+            self.assertIs(value.is_integer, False)
+            self.assertIs(value.is_rational, False)
+        for value in (Expr("oo"), Expr("-oo"), Expr("zoo")):
+            self.assertIs(value.is_finite, False)
+            self.assertIs(value.is_integer, False)
+            self.assertIs(value.is_rational, False)
+        self.assertIs(checksol(source, x, Symbol("I", zero=True)), False)
+        for facts, explicit in (({"imaginary": True, "positive": True}, "positive"),
+                                ({"real": False, "zero": True}, "zero")):
+            inconsistent = Symbol("checksol_inconsistent", **facts)
+            self.assertIs(getattr(inconsistent, "is_" + explicit), True)
+            with self.assertRaisesRegex(ValueError, "inconsistent symbol assumptions"):
+                _ = inconsistent.is_nonzero
+
     def test_existing_residual_comparison_and_fuzzy_conjunction(self):
         x, y = self.x, self.y
         self.assertIs(checksol(x*x - 9, x, 3), True)
@@ -165,6 +211,11 @@ class ChecksolOriginalDomainTests(unittest.TestCase):
         self.assertIsNone(checksol(PretendSymbol(), self.x, 0))
         self.assertIsNone(checksol(self.x, self.x, PretendSymbol()))
         self.assertEqual(calls, [])
+        builtin = sin(self.x)
+        with patch.object(type(Function), "__getattribute__",
+                          side_effect=AssertionError("modified function metaclass")) as changed:
+            self.assertIsNone(checksol(builtin, self.x, 0))
+            changed.assert_not_called()
 
     def test_modified_builtin_substitution_is_not_invoked(self):
         for owner, source in ((Basic, self.x - 1), (Function, sin(self.x)),

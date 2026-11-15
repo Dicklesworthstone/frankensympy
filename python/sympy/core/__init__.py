@@ -1751,15 +1751,14 @@ def _num_facts(e: Any, depth: int = 0) -> dict:
             out["finite"] = True if out["finite"] is None else out["finite"]
         return out
     if type(e) is Expr and not e.args:
-        text = str(e._value)
-        if text in ("pi", "E", "EulerGamma", "GoldenRatio", "Catalan"):
-            irr = text in ("pi", "E", "GoldenRatio")
-            out.update(integer=False, rational=False if irr else None, even=False, odd=False,
-                       irrational=True if irr else None, imaginary=False, finite=True)
-        elif text == "I":
+        value = e._value
+        if value == _native.Expr("pi") or value == _native.Expr("E"):
+            out.update(integer=False, rational=False, even=False, odd=False,
+                       irrational=True, imaginary=False, finite=True)
+        elif value == _native.Expr("I"):
             out.update(integer=False, rational=False, even=False, odd=False,
                        irrational=False, imaginary=True, finite=True)
-        elif text in ("oo", "-oo", "zoo"):
+        elif any(value == _native.Expr(literal) for literal in ("oo", "-oo", "zoo")):
             out.update(integer=False, rational=False, even=False, odd=False,
                        irrational=False, imaginary=False, finite=False)
         return out
@@ -1881,10 +1880,11 @@ def _sign_info(e: Any, depth: int = 0) -> tuple:
             # accepted sign through a simpler structural fallback.
             return (None, None)
     if t is Expr and not e.args:
-        name = str(e._value)
-        if name in ("pi", "E", "EulerGamma", "GoldenRatio", "Catalan"):
+        # Printed names cannot distinguish mathematical constants from
+        # ordinary symbols. Only the native constant identities admit facts.
+        if e._value == _native.Expr("pi") or e._value == _native.Expr("E"):
             return (True, _SIGN_POS)
-        if name == "I":
+        if e._value == _native.Expr("I"):
             return (False, None)
         return (None, None)
     if isinstance(e, Symbol):
@@ -2063,7 +2063,9 @@ def _sign_query(e: Any, prop: str) -> bool | None:
         real, signs = _sign_info(e)
     except Exception:
         return None
-    if prop in ("positive", "negative", "nonnegative", "nonpositive") and real is False:
+    # Zero is real. The sign predicates, including SymPy's real-only
+    # "nonzero", are also false for values known to be nonreal.
+    if prop in ("positive", "negative", "nonnegative", "nonpositive", "zero", "nonzero") and real is False:
         return False
     if signs is None or real is not True:
         return None
@@ -3294,6 +3296,17 @@ class Symbol(AtomicExpr):
         val = self._assumptions.get(key)
         if val is not None:
             return val
+        if key in ("real", "zero", "nonzero", "positive", "negative", "nonnegative", "nonpositive"):
+            # The signed scalar closure already handles the nonreal
+            # partition and rejects conflicting declarations. "Imaginary"
+            # is not a predicate in the native real-assumption roster.
+            if self._assumptions.get("real") is False or self._assumptions.get("imaginary") is True:
+                try:
+                    return _function_assumption_closure(self._assumptions).get(key)
+                except ValueError as exc:
+                    if str(exc) == "inconsistent undefined-function assumptions":
+                        raise ValueError("inconsistent symbol assumptions") from exc
+                    raise
         if self._assumptions and _native is not None and hasattr(_native, "ask_expr"):
             facts = [(self.name, k) for k, v in self._assumptions.items() if v is True]
             if facts:

@@ -1,0 +1,61 @@
+{
+  "recorded_at": "2026-11-15T04:15:19.864533+00:00",
+  "base_commit": "c914c3ab0e59811c8839c4352a699a69b4542e0d",
+  "scope": "Functional continuation, implemented but not profile-certified; each observed check has its actual execution boundary.",
+  "predicate_and_checksol_fix": {
+    "behavior": [
+      "A declared nonreal scalar cannot be zero; the real-only nonzero/sign predicates stay false for nonreal values.",
+      "Native constant identity, rather than a printed name, controls sign and numeric facts. Wrapped ordinary Symbols named I, pi, E or infinity names keep their own identities.",
+      "EulerGamma, GoldenRatio and Catalan currently have Symbol-backed public representations; unsupported constant-only facts remain unknown until those representations acquire distinct native identities.",
+      "Existing signed assumption closure supplies nonreal Symbol consequences and refuses derived answers from conflicting declarations; explicit declared facts retain their existing behavior.",
+      "Bounded checksol owner checks bypass overridable metaclass dictionary getters."
+    ],
+    "source_sha256": {
+      "python/sympy/core/__init__.py": "f248067446ef1e8277ebd0d1900dc2be814ffa15536cc6fe13724109d4033a8f",
+      "python/sympy/solvers/_checksol.py": "005a59f1b110ed0584aeefb0bd3030bd40a9102bbb610aab2bf37cf5d2804bc1",
+      "python/tests/test_checksol_domains.py": "82afeb6ca2fe9d80250b7a73eb3ee6528ff078b7b3d5e9c9b976192ae9f08bb8"
+    },
+    "git_blobs": {
+      "python/sympy/core/__init__.py": "75e674aae523867b99bdeb905e45f5bab86084bd",
+      "python/sympy/solvers/_checksol.py": "2cf0c5c1d18f563a810cfe72102c1b3c67379d8f",
+      "python/tests/test_checksol_domains.py": "71614df335c59902f50168b568b3dd6823e807f7"
+    },
+    "syntax_and_whitespace": "passed",
+    "tests": {
+      "command": "FSYM_TEST_EXTENSION=/tmp/frankensympy-continuation-target/debug/libfsym_python.so testenv/bin/python run_python_tests.py python/tests/test_checksol_domains.py python/tests/test_assumptions_soundness.py plus the two existing predicate and three existing checksol surface methods (exact node list retained in source snapshot/log)",
+      "methods_passed": 45,
+      "subtests_passed": 73,
+      "methods_failed": 5,
+      "all_25_assumptions_soundness_methods_passed": true,
+      "failure_cause": "All five failed methods call the simplify helper explicitly omitted from this supplementary component. No test was skipped, xfailed or weakened; this run is not a clean full-suite pass.",
+      "log": "artifacts/validation/2026-11-15-continuation/checksol-predicate-tests.log"
+    },
+    "source_and_binary_binding": "Before/after inventories agree for all 332 Python files and the actual native extension; the exact source inventories are retained."
+  },
+  "build_scope": {
+    "production_extension": "Retry exited 101: rustc compiling the unchanged pinned asupersync dependency was killed by SIGKILL. The full production extension and workspace gate remain unvalidated.",
+    "supplementary_component": "Existing documented composition built successfully after the two previously published bridge compiler corrections. It copied all 40 bridge modules, retaining 38 complete and omitting only lib.rs eval_error/eval_region/simplify_expr/expand_expr and PyExpr.simplify/expand. No replacement functions or upstream production fallback.",
+    "native_extension_sha256": "fbc19995993dc1ae1b032820e6fe98494549b5263cfc366dd8c60087887f2bff",
+    "not_covered": [
+      "Full production dependency graph",
+      "Async runtime and its cancellation implementation",
+      "Six omitted runtime-dependent bridge helpers",
+      "Compatibility profiles or performance claims"
+    ]
+  },
+  "evidence_sha256": {
+    "artifacts/validation/2026-11-15-continuation/checksol-predicate-tests.log": "44ddb40351d1d0aa0c1dc995ca644541889e2d77e8c8795cfee044b5056c70ff",
+    "artifacts/validation/2026-11-15-continuation/checksol-source-before.json": "48c2b8f8b3c7bbf34f49c05a2e1548e732d90df35e986c7fe126414e0437490c",
+    "artifacts/validation/2026-11-15-continuation/checksol-source-after.json": "9141b1a90ef47943e2fc676a574f857b369b1aa94c630d084e986c2052af4df7",
+    "artifacts/validation/2026-11-15-continuation/python-baseline-composition.json": "38e67a87db03b4b458ae1c48d3a18cd03d4ebeca114a2e67f3657f43779fc1dd",
+    "artifacts/validation/2026-11-15-continuation/python-baseline-component-build.log": "8f7a7ce5df520f291ef2ad89b0caa9fdf8620b2bb3719be7f608504640acdb45",
+    "artifacts/validation/2026-11-15-continuation/production-python-build-refusal.log": "34127eed0e3bf33aeb62ed5291624800070bb96cd78ec9d7e1c108ca08340500"
+  },
+  "gates": {
+    "full_workspace_passed": false,
+    "profile_certified": false,
+    "broad_bead_closed": false,
+    "proof_class_promoted": false,
+    "upstream_sympy_production_fallback": false
+  }
+}
