@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "recorded_date_utc": "2026-11-15",
+  "purpose": "Functional continuation after reviewing the comprehensive plan, Beads and current source: checked finite products, solve-and-certify integration and original-domain solution checking.",
+  "repository": "Dicklesworthstone/frankensympy",
+  "original_head": "bd1f89ad417e80b8d1823e5be41798e1534729d0",
+  "concurrent_main_preserved": [
+    "9df397c",
+    "0ce0726813bd7ad70fba0fad465fedfba0ff0566",
+    "c43caaf18ea3c0572ed62d0ae3d1da189303c104"
+  ],
+  "independently_verified_publications": [
+    {
+      "sha": "5863b43d497d79a1cd042fcb0c51d5ab776f6418",
+      "tree": "5f190483fbd5cb80eace5c1fde25ecdce363e696",
+      "scope": "Native finite rational products and independent verifier",
+      "verification": "GitHub exact commit metadata, then git fetch/show and nine expected paths."
+    },
+    {
+      "sha": "fafd8ce90fa446e237e38103936233bb2cbb4c37",
+      "tree": "734d570f14b67b8ddeee72e603b8e3867537de28",
+      "scope": "Session solve-and-certify, candidate helper and regression fixtures",
+      "verification": "GitHub exact commit metadata, then git fetch/show and eleven expected paths."
+    },
+    {
+      "sha": "957e0b1622957100c6ad2424ef748d91792e2cc0",
+      "tree": "a14f098e6a85b70e0d4e72a224ac7234bd19f5d0",
+      "scope": "Public product wiring, two bridge compiler corrections, final tested refusal fixtures and recovered Rust evidence",
+      "verification": "GitHub exact commit metadata, twelve-file comparison and exact contents of both product entry points, ODE bridge, polynomial bridge, public Product implementation and public product tests."
+    }
+  ],
+  "native_validation": {
+    "passed_distinct_cases": 113,
+    "counts": {
+      "finite_product_calculus": 19,
+      "finite_product_independent_verifier": 12,
+      "analytic_numeric_consumers": 13,
+      "generic_numeric_consumers": 10,
+      "root_box_proposal": 4,
+      "session_component_root_library": 15,
+      "certification_session": 12,
+      "compiled_program_transport": 9,
+      "compiled_root_certification": 7,
+      "compiled_solver_session": 12
+    },
+    "repeated_runs_not_double_counted": true,
+    "toolchain": "nightly-2026-08-20",
+    "product_package_check_passed": true,
+    "evidence": [
+      "artifacts/validation/2026-11-15-rational-product-native.txt",
+      "artifacts/audit/2026-11-15-compiled-root-certification-progress.json"
+    ],
+    "session_scope": "Complete actual root library/CLI and numerical consumers with a synchronous source component; 25 complete original path packages, 5 whole runtime modules and 14 whole pinned codec modules. No source function replacement. Full asynchronous runtime is outside this scope.",
+    "session_source_bookends": {
+      "observed_equal_sources": 690,
+      "observed_equal_harness_files": 8,
+      "registry_identities_matching_production_lock": 58,
+      "complete_inventory_recovered": false
+    },
+    "formatting": {
+      "command": "cargo fmt --all -- --check",
+      "observed_exit_code": 0,
+      "repository_differences_reported": 0,
+      "external_pinned_donor_files_reporting_differences": 23,
+      "note": "The command reported external pinned-donor formatting differences; this is not a claim that every external dependency is format-clean. Scoped edited Rust files were separately formatted."
+    },
+    "strict_clippy": "Not run before execution environment loss.",
+    "full_workspace_gate": "Not passed or claimed."
+  },
+  "python_changes": {
+    "checked_product": {
+      "public_entry_points": [
+        "product",
+        "Product.doit"
+      ],
+      "bridge_entry_points": [
+        "product_expr",
+        "product_native"
+      ],
+      "original_source_rule": "Preserve the first literal finite range before deep reconstruction, including when a later limit is symbolic.",
+      "operational_errors": "Propagate checked-product failures as ValueError; no silent retry through the old unchecked rational path.",
+      "authored_public_cases": 20,
+      "runtime_executed": false
+    },
+    "checksol": {
+      "public_signature": "checksol(expression, symbol, val=None)",
+      "source_rule": "Retain original equation sides, inverse bases and candidate replacement sources before simplification/substitution can erase a pole.",
+      "inconclusive_rule": "Unresolved domains and unadmitted scalar/function owners remain None.",
+      "bounded_inputs": "Shared iterative conjunction allowance, cycle/depth limits, bounded exact integers and string tokens, every sequential exponent prefix checked before materializing the parent power.",
+      "non_goal": "This diagnostic is not a portable proof certificate or a complete SymPy compatibility profile. Arithmetic source strings are conservatively refused; structured symbolic objects retain the normal mathematical lane.",
+      "final_test_methods": 19,
+      "final_helper_blob": "6bc05635f31fa2de6a966b233f6a000d96d80489",
+      "final_tests_blob": "19a7e65edd999b75605af6b0f7c12237085f82ff",
+      "validation_before_last_patch": "The previous 17-test version passed py_compile and whitespace checks; isolated upstream SymPy 1.14 oracle checks informed the reported common expected outcomes.",
+      "final_syntax_execution": false,
+      "candidate_runtime_execution": false,
+      "preservation": "The last bounded collection/scalar-input patch applied locally before disconnection. Its exact source was recovered from the tool transcript and GitHub blob readback matched the recovered content. Readback is not syntax/runtime validation."
+    },
+    "bridge_compiler_corrections": [
+      {
+        "file": "crates/fsym-python/src/ode.rs",
+        "observed_diagnostic": "E0308: scalar(&value.extract::<PyRef<PyExpr>>()?) expected PyExpr, found PyRef<PyExpr>",
+        "change": "Bind the extracted PyRef to a local before borrowing it for scalar coercion.",
+        "post_fix_build_executed": false
+      },
+      {
+        "file": "crates/fsym-python/src/polynomial_relations.rs",
+        "observed_diagnostic": "E0283: rows.into_iter().flatten().collect() needs a concrete output type",
+        "change": "Use an explicit Vec<MultivariatePoly> for the flattened output.",
+        "post_fix_build_executed": false
+      }
+    ],
+    "component_scope": "The attempted math/PyO3 component copied all 40 actual bridge modules. It omitted only lib.rs eval_error/eval_region/simplify_expr/expand_expr and PyExpr.simplify/expand, with no replacement functions. Complete mathematical crates remained active. This component cannot establish tests that require those omitted runtime helpers.",
+    "build_attempts": [
+      {
+        "kind": "Normal production extension",
+        "count": 2,
+        "result": "Exit101: unchanged pinned asupersync rustc was killed with SIGKILL. A single-threaded/high-codegen-unit retry also failed."
+      },
+      {
+        "kind": "Exact-source math/PyO3 component",
+        "result": "Exit101: ENOSPC while compiling unchanged fsym-solvers. No public tests ran."
+      },
+      {
+        "kind": "Serialized component retry",
+        "result": "Exit101 after reaching the bridge: the two pre-existing type errors above. No libfsym_python.so or public test pass was produced."
+      }
+    ]
+  },
+  "interruption": {
+    "github_rate_limit": "Temporarily blocked publication; after normal API service resumed, lease-checked direct-main updates preserved the concurrent source changes. No force push or PR.",
+    "environment": "The executor disconnected after Rust validation and before the final bridge fixes or Python validation could execute; the environment was reported unavailable.",
+    "local_artifacts": "Some actual local raw logs and inventories became inaccessible. Native Product stdout and its eight-file source hashes were recovered; Session counts, commands and observed bookend equality were recovered as an explicit summary. Unavailable raw data was not fabricated.",
+    "source_preservation": "Remaining edits were reconstructed from exact source reads/patches, saved through the authorized GitHub connector and read back. No local-file availability is claimed."
+  },
+  "unchanged_gates": {
+    "workstream_or_campaign_closed": false,
+    "profile_certified": false,
+    "proof_class_promoted": false,
+    "performance_claim": false,
+    "bead_status_priority_or_dependencies_changed": false,
+    "dependency_added": false,
+    "upstream_sympy_production_fallback_added": false
+  },
+  "pending_validation": [
+    "Build the normal fsym-python extension with the pinned toolchain after the two bridge corrections.",
+    "Execute python/tests/test_rational_products.py and python/tests/test_checksol_domains.py against the checked-out shell and that actual extension, plus existing checksol regressions.",
+    "Run strict scoped Clippy and the required full-workspace checks in a functioning environment.",
+    "Observe the final GitHub Actions run; queued or dispatched CI is not a passing result."
+  ]
+}

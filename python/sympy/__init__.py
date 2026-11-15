@@ -889,63 +889,8 @@ def _is_positive_constant(e) -> bool:
 
 
 def checksol(expression, symbol, val=None):
-    """Check a solution, returning ``None`` when the result is inconclusive."""
-    if isinstance(expression, (list, tuple, set)):
-        if not expression:
-            raise ValueError("no functions to check")
-        inconclusive = False
-        for equation in expression:
-            result = checksol(equation, symbol, val)
-            if result is False:
-                return False
-            if result is None:
-                inconclusive = True
-        return None if inconclusive else True
-
-    if type(expression) is Eq:
-        expression = expression.lhs - expression.rhs
-    expr = _wrap(_native_expr(expression))
-    if isinstance(symbol, dict):
-        mapping = symbol
-    elif val is not None:
-        mapping = {symbol: val}
-    else:
-        raise ValueError("checksol requires either a mapping or (symbol, val)")
-    illegal = {S.NaN, S.ComplexInfinity, S.Infinity, S.NegativeInfinity}
-    if not expr.is_number:
-        # Validate the complete candidate before substitution can erase an
-        # unused entry or simplify an invalid value out of the residual.
-        for candidate in mapping.values():
-            if sympify(candidate).atoms() & illegal:
-                return False
-    subbed = expr
-    for sym, v in mapping.items():
-        subbed = subbed.subs(sym, v)
-    if subbed.atoms() & illegal:
-        return False
-    simplified = simplify(subbed)
-    if simplified.atoms() & illegal:
-        return False
-    if simplified == 0 or getattr(simplified, "is_zero", None) is True:
-        return True
-    expanded = expand(subbed)
-    if expanded == 0:
-        return True
-    zero_status = getattr(expanded, "is_zero", None)
-    if zero_status is not None:
-        return zero_status
-    # Failure to simplify a function or radical to zero is not a disproof.
-    # Keep the rational-expression negative lane, but leave these harder
-    # residuals inconclusive, as the compatibility checker requires.
-    pending = [expanded]
-    while pending:
-        node = pending.pop()
-        if isinstance(node, Function):
-            return None
-        if isinstance(node, Pow) and not isinstance(node.args[1], Integer):
-            return None
-        pending.extend(node.args)
-    return False
+    """Check the original source, retaining undefined subexpressions."""
+    return _checksol_impl(expression, symbol, val)
 
 
 def laplace_transform(expression, t, s, noconds=False, **kwargs):
@@ -2825,3 +2770,6 @@ __all__ += ["CRootOf", "ComplexRootOf", "RootOf", "real_roots", "rootof"]
 from .core import _freeze_builtin_function_classes as _freeze_functions  # noqa: E402
 
 _freeze_functions()
+
+# Snapshot trusted scalar and built-in function owners before extensions run.
+from .solvers._checksol import checksol as _checksol_impl  # noqa: E402
