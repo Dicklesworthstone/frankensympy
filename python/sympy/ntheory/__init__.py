@@ -344,27 +344,22 @@ def is_nthpow_residue(a: Any, n: Any, m: Any) -> bool:
 
 
 def discrete_log(n: Any, a: Any, b: Any, order: Any = None) -> int:
-    """Compute discrete logarithm x such that b**x == a (mod n) using baby-step giant-step."""
-    import math
-    n = int(n)
-    a = int(a) % n
-    b = int(b) % n
-    if a == 1:
-        return 0
-    m = int(math.isqrt(int(order) if order is not None else n)) + 1
-    tbl: dict[int, int] = {}
-    cur = 1
-    for j in range(m):
-        tbl[cur] = j
-        cur = (cur * b) % n
-    b_m = pow(b, m, n)
-    b_m_inv = pow(b_m, -1, n)
-    gamma = a
-    for i in range(m + 1):
-        if gamma in tbl:
-            return i * m + tbl[gamma]
-        gamma = (gamma * b_m_inv) % n
-    raise ValueError("Log does not exist")
+    """Return the least nonnegative x with b**x == a modulo positive n.
+
+    Unit and nonunit bases are supported. A supplied positive ``order``, when
+    needed, must annihilate the reduced unit base. It is reduced to an exact,
+    independently checked multiplicative order before bounding the search.
+    Moduli are bounded by 2**64 - 1. Native work or table exhaustion raises
+    RuntimeError; a fully established nonexistent logarithm raises ValueError.
+    """
+    n, a, b = _modular_integer(n), _modular_integer(a), _modular_integer(b)
+    if n < 1:
+        raise ValueError("n should be positive")
+    if order is not None:
+        order = _modular_integer(order)
+        if order <= 0:
+            raise ValueError("order should be positive")
+    return _native.discrete_log_fn(n, a % n, b % n, order)
 
 
 def npartitions(n: Any) -> int:

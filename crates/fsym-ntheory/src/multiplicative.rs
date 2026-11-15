@@ -133,7 +133,11 @@ pub fn multiplicative_order_with_work_limit(
     work_limit: u64,
 ) -> Result<u64, NTheoryError> {
     let mut work = Work::new(work_limit);
-    let a = admit_unit(a, n, &mut work)?;
+    order_with_work(a, n, &mut work)
+}
+
+pub(crate) fn order_with_work(a: u64, n: u64, work: &mut Work) -> Result<u64, NTheoryError> {
+    let a = admit_unit(a, n, work)?;
     if a == 1 {
         return Ok(1);
     }

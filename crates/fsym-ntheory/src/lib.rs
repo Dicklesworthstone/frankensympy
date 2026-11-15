@@ -6,9 +6,11 @@
 
 #![forbid(unsafe_code)]
 
+mod discrete_log;
 mod factorization;
 mod modular_roots;
 mod multiplicative;
+pub use discrete_log::{MAX_DISCRETE_LOG_TABLE, discrete_log, discrete_log_with_work_limit};
 pub use factorization::{
     MAX_FACTORIZATION_WORK, factorint, factorint_with_work_limit, verify_prime_factorization,
 };
@@ -53,6 +55,14 @@ pub enum NTheoryError {
     ModularGroupWorkLimitExceeded,
     #[error("Multiplicative-order verification failed: {0}")]
     MultiplicativeOrderVerificationFailed(&'static str),
+    #[error("Log does not exist")]
+    DiscreteLogDoesNotExist,
+    #[error("The supplied order is not a positive annihilating exponent for the unit base")]
+    InvalidDiscreteLogOrder,
+    #[error("Discrete logarithm requires {0} baby steps, exceeding the limit of 65536")]
+    DiscreteLogTableLimitExceeded(u64),
+    #[error("Discrete-logarithm verification failed: {0}")]
+    DiscreteLogVerificationFailed(&'static str),
     #[error("Modular square-root output contains {0} roots, exceeding the limit of 65536")]
     ModularRootCountExceeded(u64),
     #[error("Modular square-root work limit reached")]

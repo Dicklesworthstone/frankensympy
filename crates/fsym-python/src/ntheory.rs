@@ -6,6 +6,7 @@ use pyo3::prelude::*;
 pub(crate) fn group_error(error: fsym_ntheory::NTheoryError) -> PyErr {
     match error {
         fsym_ntheory::NTheoryError::ModularGroupWorkLimitExceeded
+        | fsym_ntheory::NTheoryError::DiscreteLogTableLimitExceeded(_)
         | fsym_ntheory::NTheoryError::FactorizationLimitExceeded(_) => {
             pyo3::exceptions::PyRuntimeError::new_err(error.to_string())
         }
@@ -23,6 +24,13 @@ pub fn multiplicative_order_fn(a: u64, modulus: u64) -> PyResult<u64> {
 #[pyfunction]
 pub fn primitive_root_fn(modulus: u64, smallest: bool) -> PyResult<Option<u64>> {
     fsym_ntheory::primitive_root(modulus, smallest).map_err(group_error)
+}
+
+/// Least nonnegative exponent, with exact order-hint validation and bounded work.
+#[pyfunction]
+#[pyo3(signature = (modulus, target, base, order=None))]
+pub fn discrete_log_fn(modulus: u64, target: u64, base: u64, order: Option<u64>) -> PyResult<u64> {
+    fsym_ntheory::discrete_log(modulus, target, base, order).map_err(group_error)
 }
 
 /// All distinct square roots modulo a positive `u64` modulus, in sorted order.

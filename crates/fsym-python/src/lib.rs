@@ -2510,6 +2510,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(is_primitive_root_fn, m)?)?;
     m.add_function(wrap_pyfunction!(ntheory::multiplicative_order_fn, m)?)?;
     m.add_function(wrap_pyfunction!(ntheory::primitive_root_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(ntheory::discrete_log_fn, m)?)?;
     m.add_function(wrap_pyfunction!(integer_nth_root_fn, m)?)?;
     m.add_function(wrap_pyfunction!(mod_inverse_fn, m)?)?;
     m.add_function(wrap_pyfunction!(crt_fn, m)?)?;
