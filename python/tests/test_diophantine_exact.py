@@ -5,7 +5,9 @@ from itertools import product
 import pytest
 
 from sympy import Eq, Integer, diophantine, symbols
-from sympy.solvers.diophantine import _definite_binary_integer_points
+from sympy.solvers.diophantine import (
+    _bilinear_integer_solutions, _definite_binary_integer_points,
+)
 
 
 def _residual(coefficients, x, y):
@@ -160,3 +162,133 @@ def test_exact_integer_lane_does_not_coerce_approximate_coefficients():
     with pytest.raises(NotImplementedError, match="exact integer coefficients"):
         _definite_binary_integer_points(1.0, 0, 1, 0, 0, -1)
 
+
+
+@pytest.mark.parametrize("coefficients, expected", [
+    ((1, 0, 0, -6), {
+        (-6, -1), (-3, -2), (-2, -3), (-1, -6),
+        (1, 6), (2, 3), (3, 2), (6, 1),
+    }),
+    ((1, 3, -2, -12), {
+        (-1, -5), (4, 0), (8, -2), (0, -6),
+        (5, -1), (1, -9), (3, 3), (-4, -4),
+    }),
+    ((2, 3, 4, -5), {(-3, -7), (-13, -2), (-1, 4), (9, -1)}),
+    ((-2, 3, -4, 5), {(-3, 2), (-1, 1)}),
+    ((2, 1, 1, -4), {(0, 4), (1, 1), (4, 0), (-1, -5), (-2, -2), (-5, -1)}),
+    ((2, 2, 2, 1), set()),
+    ((5, 2, 2, 1), set()),
+])
+def test_shifted_bilinear_equations_return_every_congruence_admitted_point(coefficients, expected):
+    b, d, e, f = coefficients
+    points, x_fixed, y_fixed = _bilinear_integer_solutions(b, d, e, f)
+    assert points == expected
+    assert x_fixed is y_fixed is None
+    x, y = symbols("diophantine_x diophantine_y", integer=True)
+    equation = b*x*y + d*x + e*y + f
+    assert diophantine(equation) == expected
+    assert diophantine(Eq(equation, 0, evaluate=False), syms=(y, x)) == {
+        (yv, xv) for xv, yv in expected
+    }
+
+
+@pytest.mark.parametrize("coefficients, fixed", [
+    ((1, 0, 0, 0), (0, 0)),
+    ((1, 3, -2, -6), (2, -3)),
+    ((2, 3, 4, 6), (-2, None)),
+    ((2, 4, 3, 6), (None, -2)),
+    ((6, 3, 2, 1), (None, None)),
+    ((-2, -3, -4, -6), (-2, None)),
+    ((5, 0, 5, 0), (-1, 0)),
+])
+def test_zero_product_retains_only_integral_affine_families(coefficients, fixed):
+    b, d, e, f = coefficients
+    points, x_fixed, y_fixed = _bilinear_integer_solutions(b, d, e, f)
+    assert points == set()
+    assert (x_fixed, y_fixed) == fixed
+    x, y = symbols("diophantine_x diophantine_y", integer=True)
+    parameter = symbols("n1", integer=True)
+    expected = set()
+    if x_fixed is not None:
+        expected.add((Integer(x_fixed), parameter))
+        assert b*x_fixed + e == 0 and d*x_fixed + f == 0
+    if y_fixed is not None:
+        expected.add((parameter, Integer(y_fixed)))
+        assert b*y_fixed + d == 0 and e*y_fixed + f == 0
+    equation = b*x*y + d*x + e*y + f
+    assert diophantine(equation) == expected
+    assert diophantine(equation, param=symbols("tau", integer=True)) == expected
+    assert diophantine(equation, syms=(y, x)) == {(yv, xv) for xv, yv in expected}
+
+
+def test_small_bilinear_forms_match_independent_complete_integer_search():
+    # For the finite cases in this corpus, abs(d*e-b*f) <= 10.
+    # Every integer factor has magnitude at most 10; inversion gives
+    # abs(x), abs(y) <= 12. Thus this fixed square covers the ENTIRE
+    # finite solution set, independently of the generator's divisor loop.
+    for b in (-3, -2, -1, 1, 2, 3):
+        for d, e, f in product(range(-2, 3), repeat=3):
+            coefficients = (0, b, 0, d, e, f)
+            expected = _brute_force(coefficients, 12)
+            points, x_fixed, y_fixed = _bilinear_integer_solutions(b, d, e, f)
+            if d*e - b*f:
+                assert x_fixed is y_fixed is None
+                assert points == expected, coefficients
+            else:
+                assert points == set()
+                represented = {
+                    (x, y)
+                    for x in range(-12, 13)
+                    for y in range(-12, 13)
+                    if (x_fixed is not None and x == x_fixed)
+                    or (y_fixed is not None and y == y_fixed)
+                }
+                assert represented == expected, coefficients
+                if x_fixed is not None:
+                    assert b*x_fixed + e == d*x_fixed + f == 0
+                if y_fixed is not None:
+                    assert b*y_fixed + d == e*y_fixed + f == 0
+
+
+@pytest.mark.parametrize("content", [1, -1, 10**200, -(10**200)])
+def test_bilinear_translation_and_content_do_not_expand_divisor_work(content):
+    x, y = symbols("diophantine_x diophantine_y", integer=True)
+    x_offset, y_offset = 10**400 + 7, -(10**300 + 11)
+    finite = {(-6, -1), (-3, -2), (-2, -3), (-1, -6),
+              (1, 6), (2, 3), (3, 2), (6, 1)}
+    expected = {(x_offset + u, y_offset + v) for u, v in finite}
+    equation = content*((x - x_offset)*(y - y_offset) - 6)
+    assert diophantine(equation) == expected
+
+
+def test_zero_product_families_do_not_require_divisor_enumeration():
+    offset = 1 << 4095
+    assert _bilinear_integer_solutions(1, 0, offset, 0) == (set(), -offset, 0)
+
+
+@pytest.mark.parametrize("coefficients", [
+    (1, 0, 0, -(10**30 + 1)),
+    (1, -(10**400), -(10**400), 10**800 - 10**8),
+])
+def test_bilinear_work_refusal_cannot_return_known_but_incomplete_points(coefficients):
+    with pytest.raises(NotImplementedError, match="bilinear.*bounded work limit"):
+        _bilinear_integer_solutions(*coefficients)
+    b, d, e, f = coefficients
+    x, y = symbols("diophantine_x diophantine_y", integer=True)
+    with pytest.raises(NotImplementedError, match="bilinear.*bounded work limit"):
+        diophantine(b*x*y + d*x + e*y + f)
+
+
+def test_bilinear_coefficient_and_shape_refusals_are_explicit():
+    with pytest.raises(NotImplementedError, match="coefficient height"):
+        _bilinear_integer_solutions(1, 0, 0, 1 << 4096)
+    with pytest.raises(NotImplementedError, match="exact integer coefficients"):
+        _bilinear_integer_solutions(1.0, 0, 0, -1)
+    with pytest.raises(NotImplementedError, match="nonzero mixed coefficient"):
+        _bilinear_integer_solutions(0, 1, 1, -1)
+
+
+def test_bilinear_expansion_does_not_misclassify_pell_equations():
+    x, y = symbols("diophantine_x diophantine_y", integer=True)
+    with pytest.raises(NotImplementedError, match="Pell-type"):
+        diophantine(x*x - 2*y*y - 1)

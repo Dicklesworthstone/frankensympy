@@ -4,7 +4,8 @@ Supported, exactly, with upstream's parametrizations:
 
 * linear equations in any number of variables (``base_solution_linear``
   and upstream's coefficient-gcd chain; parameters ``t_0, t_1, ...``);
-* ``a*x*y = n``: every divisor pair;
+* shifted bilinear equations: every congruence-admitted divisor pair
+  within the work bounds, or complete affine integer families;
 * homogeneous binary quadratics that factor over QQ into lines;
 * definite binary quadratics within explicit integer-work bounds: every
   lattice point, including arbitrarily large translations within the
@@ -234,35 +235,93 @@ def _scale_param(s: Any, p: Any) -> Any:
     return s if getattr(s, "free_symbols", None) else s * p
 
 
-def _divisors(n: int) -> list:
-    n = abs(n)
-    out = []
-    for d in range(1, isqrt(n) + 1):
-        if n % d == 0:
-            out.append(d)
-            if d != n // d:
-                out.append(n // d)
-    return sorted(out)
+def _bilinear_integer_solutions(
+    b: int, d: int, e: int, f: int,
+) -> tuple[set[tuple[int, int]], int | None, int | None]:
+    """Exact finite points or affine integer families of a bilinear equation.
+
+    The last two return values are the fixed x and fixed y coordinates
+    of complete vertical and horizontal families, respectively. A missing
+    family is None, so a zero coordinate remains distinguishable.
+
+    The identity (b*x + e)*(b*y + d) = d*e - b*f proves completeness:
+    a nonzero product has only signed divisor pairs, and a zero product
+    has only the two possible affine factors. This is a bounded shell
+    calculation, not a portable proof-certificate lane.
+    """
+    coefficients = (b, d, e, f)
+    _check_quadratic_coefficients(coefficients)
+    if b == 0:
+        raise NotImplementedError("diophantine: the bilinear lane requires a nonzero mixed coefficient")
+    content = gcd(gcd(b, d), e)
+    if f % content:
+        return set(), None, None
+    b, d, e, f = (value // content for value in coefficients)
+    if b < 0:
+        b, d, e, f = -b, -d, -e, -f
+    product_value = d*e - b*f
+    original_b, original_d, original_e, original_f = coefficients
+    if product_value == 0:
+        x_fixed = -e // b if e % b == 0 else None
+        y_fixed = -d // b if d % b == 0 else None
+        if x_fixed is not None and (
+            original_b*x_fixed + original_e != 0
+            or original_d*x_fixed + original_f != 0
+        ):
+            raise ArithmeticError("diophantine: exact bilinear family check failed")
+        if y_fixed is not None and (
+            original_b*y_fixed + original_d != 0
+            or original_e*y_fixed + original_f != 0
+        ):
+            raise ArithmeticError("diophantine: exact bilinear family check failed")
+        return set(), x_fixed, y_fixed
+
+    magnitude = abs(product_value)
+    limit = isqrt(magnitude)
+    coefficient_bits = max(abs(value).bit_length() for value in coefficients)
+    coordinate_bits = max(magnitude.bit_length(), abs(d).bit_length(), abs(e).bit_length()) + 1
+    # Every trial divisor produces at most four ordered signed pairs.
+    # The bound includes their coordinate conversion and original residuals.
+    bit_work = 4*limit*(coefficient_bits + 2*coordinate_bits + 8)
+    if (limit > _MAX_DIOPHANTINE_SCAN_POINTS
+            or bit_work > _MAX_DIOPHANTINE_SCAN_BIT_WORK):
+        raise NotImplementedError("diophantine: exact bilinear divisor enumeration exceeds the bounded work limit")
+
+    points = set()
+    for divisor in range(1, limit + 1):
+        if magnitude % divisor:
+            continue
+        partner = magnitude // divisor
+        absolute_factors = (divisor,) if divisor == partner else (divisor, partner)
+        for absolute_factor in absolute_factors:
+            for left in (-absolute_factor, absolute_factor):
+                right = product_value // left
+                if (left - e) % b or (right - d) % b:
+                    continue
+                x, y = (left - e) // b, (right - d) // b
+                if x*(original_b*y + original_d) + original_e*y + original_f != 0:
+                    raise ArithmeticError("diophantine: exact bilinear residual check failed")
+                points.add((x, y))
+    return points, None, None
 
 
 def _diop_quadratic(coeffs: dict, x: Any, y: Any) -> set:
     """a*x**2 + b*x*y + c*y**2 + d*x + e*y + f = 0."""
-    from ..core import Integer
+    from ..core import Integer, Symbol
 
     a, b, c, d, e, f = (int(coeffs.get(k, 0)) for k in ("xx", "xy", "yy", "x", "y", "1"))
     _check_quadratic_coefficients((a, b, c, d, e, f))
-    # x*y = n
-    if a == 0 and c == 0 and d == 0 and e == 0 and b != 0:
-        if f % b:
-            return set()
-        n = -f // b
-        if n == 0:
-            raise NotImplementedError("diophantine: x*y = 0 has infinitely many solutions")
-        out = set()
-        for dv in _divisors(n):
-            for s in (1, -1):
-                p = s * dv
-                out.add((Integer(p), Integer(n // p)))
+    if a == 0 and c == 0 and b != 0:
+        points, x_fixed, y_fixed = _bilinear_integer_solutions(b, d, e, f)
+        out = {(Integer(xv), Integer(yv)) for xv, yv in points}
+        if x_fixed is not None or y_fixed is not None:
+            # Pinned SymPy uses one free integer named n1 in these
+            # factor families, independently of the linear t_0 convention.
+            parameter = Symbol("n1", integer=True)
+            if x_fixed is not None:
+                out.add((Integer(x_fixed), parameter))
+            if y_fixed is not None:
+                out.add((parameter, Integer(y_fixed)))
         return out
     disc = b * b - 4 * a * c
     # homogeneous: lines through the origin
