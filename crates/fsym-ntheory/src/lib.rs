@@ -8,12 +8,18 @@
 
 mod factorization;
 mod modular_roots;
+mod multiplicative;
 pub use factorization::{
     MAX_FACTORIZATION_WORK, factorint, factorint_with_work_limit, verify_prime_factorization,
 };
 pub use modular_roots::{
     MAX_MODULAR_ROOTS, is_quadratic_residue, modular_square_root, modular_square_roots,
     verify_modular_square_roots,
+};
+pub use multiplicative::{
+    MAX_MODULAR_GROUP_WORK, is_primitive_root, multiplicative_order,
+    multiplicative_order_with_work_limit, primitive_root, primitive_root_with_work_limit,
+    verify_multiplicative_order,
 };
 
 #[cfg(test)]
@@ -39,6 +45,14 @@ pub enum NTheoryError {
     FactorizationVerificationFailed(&'static str),
     #[error("Modulus must be a positive integer")]
     InvalidModulus,
+    #[error("Modulus must be an integer greater than one")]
+    InvalidGroupModulus,
+    #[error("The two numbers should be relatively prime")]
+    NotCoprime,
+    #[error("Modular-group work limit reached")]
+    ModularGroupWorkLimitExceeded,
+    #[error("Multiplicative-order verification failed: {0}")]
+    MultiplicativeOrderVerificationFailed(&'static str),
     #[error("Modular square-root output contains {0} roots, exceeding the limit of 65536")]
     ModularRootCountExceeded(u64),
     #[error("Modular square-root work limit reached")]
@@ -349,25 +363,6 @@ pub fn mod_pow_u64(base: u64, mut exp: u64, modulus: u64) -> u64 {
         exp /= 2;
     }
     result as u64
-}
-
-/// Decides whether `g` is a primitive root modulo an odd prime `p`.
-pub fn is_primitive_root(g: u64, p: u64) -> Result<bool, NTheoryError> {
-    if p <= 2 || !is_prime(p) {
-        return Ok(false);
-    }
-    if g == 0 || g.is_multiple_of(p) {
-        return Ok(false);
-    }
-    let p_minus_1 = p - 1;
-    let factors = factorint(p_minus_1)?;
-    for q in factors.keys() {
-        let exp = p_minus_1 / q;
-        if mod_pow_u64(g, exp, p) == 1 {
-            return Ok(false);
-        }
-    }
-    Ok(true)
 }
 
 /// Extended Euclidean Algorithm returning (gcd, x, y) such that a*x + b*y = gcd(a, b).

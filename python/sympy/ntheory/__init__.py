@@ -61,8 +61,39 @@ reduced_totient = carmichael
 
 
 def is_primitive_root(g: Any, p: Any) -> bool:
-    """Return True if g is a primitive root modulo p, False otherwise."""
-    return _native.is_primitive_root_fn(int(g), int(p))
+    """Decide whether a unit generates the complete group modulo p.
+
+    Prime powers and twice odd prime powers are supported. Nonunits and
+    moduli <= 1 are domain errors; an exhausted native search raises an error.
+    """
+    g, p = _modular_integer(g), _modular_integer(p)
+    if p <= 1:
+        raise ValueError("p should be an integer greater than 1")
+    return _native.is_primitive_root_fn(g % p, p)
+
+
+def n_order(a: Any, n: Any) -> int:
+    """Return the least positive k with a**k == 1 modulo n.
+
+    The exact native lane admits n through 2**64 - 1 and requires a unit.
+    """
+    a, n = _modular_integer(a), _modular_integer(n)
+    if n <= 1:
+        raise ValueError("n should be an integer greater than 1")
+    return _native.multiplicative_order_fn(a % n, n)
+
+
+def primitive_root(p: Any, smallest: bool = True):
+    """Return a generator modulo p, or None when its unit group is noncyclic.
+
+    By default the least positive generator is returned. ``smallest=False``
+    permits faster lifting from an odd prime. Moduli are bounded by 2**64 - 1;
+    bounded search exhaustion raises an error instead of returning None.
+    """
+    p = _modular_integer(p)
+    if p <= 1:
+        raise ValueError("p should be an integer greater than 1")
+    return _native.primitive_root_fn(p, bool(smallest))
 
 
 def integer_nthroot(y: Any, n: Any):
@@ -384,6 +415,7 @@ __all__ = [
     "mobius",
     "mod_inverse",
     "multiplicity",
+    "n_order",
     "nextprime",
     "npartitions",
     "perfect_power",
@@ -396,6 +428,7 @@ __all__ = [
     "primeomega",
     "primepi",
     "primerange",
+    "primitive_root",
     "proper_divisors",
     "quadratic_residues",
     "reduced_totient",

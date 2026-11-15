@@ -245,6 +245,7 @@ jobs:
               "python/tests/test_set_membership.py",
               "python/tests/test_lambda_substitution.py",
               "python/tests/test_imageset_exact.py",
+              "python/tests/test_number_theory_multiplicative_groups.py",
               "python/tests/test_cse_integrity.py",
               "python/tests/test_surface.py::SurfaceTests::test_cse_parse_expr_utilities_and_term_order",
               "python/tests/test_assumptions_context_adversaries.py",

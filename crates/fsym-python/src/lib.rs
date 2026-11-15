@@ -2011,7 +2011,7 @@ fn carmichael_fn(n: u64) -> PyResult<u64> {
 /// Primitive root check: whether g is a primitive root modulo p.
 #[pyfunction]
 fn is_primitive_root_fn(g: u64, p: u64) -> PyResult<bool> {
-    fsym_ntheory::is_primitive_root(g, p).map_err(to_value_error)
+    fsym_ntheory::is_primitive_root(g, p).map_err(ntheory::group_error)
 }
 
 /// Integer floor of k-th root of n.
@@ -2508,6 +2508,8 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(is_perfect_number_fn, m)?)?;
     m.add_function(wrap_pyfunction!(carmichael_fn, m)?)?;
     m.add_function(wrap_pyfunction!(is_primitive_root_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(ntheory::multiplicative_order_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(ntheory::primitive_root_fn, m)?)?;
     m.add_function(wrap_pyfunction!(integer_nth_root_fn, m)?)?;
     m.add_function(wrap_pyfunction!(mod_inverse_fn, m)?)?;
     m.add_function(wrap_pyfunction!(crt_fn, m)?)?;

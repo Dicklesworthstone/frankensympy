@@ -3,6 +3,28 @@
 
 use pyo3::prelude::*;
 
+pub(crate) fn group_error(error: fsym_ntheory::NTheoryError) -> PyErr {
+    match error {
+        fsym_ntheory::NTheoryError::ModularGroupWorkLimitExceeded
+        | fsym_ntheory::NTheoryError::FactorizationLimitExceeded(_) => {
+            pyo3::exceptions::PyRuntimeError::new_err(error.to_string())
+        }
+        _ => crate::to_value_error(error),
+    }
+}
+
+/// Least positive exponent of a unit modulo any admitted composite or prime.
+#[pyfunction]
+pub fn multiplicative_order_fn(a: u64, modulus: u64) -> PyResult<u64> {
+    fsym_ntheory::multiplicative_order(a, modulus).map_err(group_error)
+}
+
+/// Complete cyclic-group classification followed by a bounded generator search.
+#[pyfunction]
+pub fn primitive_root_fn(modulus: u64, smallest: bool) -> PyResult<Option<u64>> {
+    fsym_ntheory::primitive_root(modulus, smallest).map_err(group_error)
+}
+
 /// All distinct square roots modulo a positive `u64` modulus, in sorted order.
 #[pyfunction]
 pub fn modular_square_roots_fn(a: u64, modulus: u64) -> PyResult<Vec<u64>> {
