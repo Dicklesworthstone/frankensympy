@@ -7,6 +7,24 @@ from typing import Any, Iterator
 from ..core import Basic, Expr, _native, _native_expr, _wrap, Integer, S
 
 
+def _membership_decision(value: Any) -> bool | None:
+    """Keep an undecided predicate separate from either Boolean answer.
+
+    Set subclasses may return the public Boolean atoms or a symbolic
+    predicate. Only the two exact atoms establish a decision; arbitrary
+    Python truthiness cannot establish membership or non-membership.
+    """
+    if value is True or value is False or value is None:
+        return value
+    from ..logic.boolalg import false, true
+
+    if value is true:
+        return True
+    if value is false:
+        return False
+    return None
+
+
 class Set(Basic):
     """Abstract base class for symbolic sets."""
 
@@ -94,7 +112,10 @@ class Set(Basic):
 
     def __contains__(self, other: Any) -> bool:
         res = self.contains(other)
-        return bool(res) if res is not None else False
+        decision = _membership_decision(res)
+        if decision is None:
+            raise TypeError("did not evaluate to a bool: %r" % (res,))
+        return decision
 
     def is_subset(self, other: Any) -> bool | None:
         """Check if self is a subset of other."""
@@ -497,22 +518,20 @@ class ProductSet(Set):
         return self._sets
 
     def contains(self, other: Any) -> bool | None:
-        if not isinstance(other, (tuple, list)) and type(other).__name__ != "Tuple":
+        from ..core import Tuple
+
+        if not isinstance(other, (tuple, list, Tuple)):
             return False
         if len(other) != len(self._sets):
             return False
         res = True
         for elem, s in zip(other, self._sets):
-            c = s.contains(elem)
+            c = _membership_decision(s.contains(elem))
             if c is False:
                 return False
             if c is None:
                 res = None
         return res
-
-    def __contains__(self, other: Any) -> bool:
-        res = self.contains(other)
-        return bool(res) if res is not None else False
 
     @property
     def is_empty(self) -> bool | None:
@@ -754,7 +773,7 @@ class Union(Set):
         if getattr(self, "_py_args", None) is not None:
             res = False
             for s in self._py_args:
-                c = s.contains(other)
+                c = _membership_decision(s.contains(other))
                 if c is True:
                     return True
                 if c is None:
@@ -838,7 +857,7 @@ class Intersection(Set):
         if getattr(self, "_py_args", None) is not None:
             res = True
             for s in self._py_args:
-                c = s.contains(other)
+                c = _membership_decision(s.contains(other))
                 if c is False:
                     return False
                 if c is None:
@@ -882,6 +901,20 @@ class Complement(Set):
         if getattr(self, "_py_args", None) is not None:
             return self._py_args
         return (self,)
+
+    def contains(self, other: Any) -> bool | None:
+        if getattr(self, "_py_args", None) is None:
+            return super().contains(other)
+        base, removed = self._py_args
+        inside = _membership_decision(base.contains(other))
+        if inside is False:
+            return False
+        excluded = _membership_decision(removed.contains(other))
+        if excluded is True:
+            return False
+        if inside is True and excluded is False:
+            return True
+        return None
 
 
 def _wrap_set(native_symset: Any) -> Set:
