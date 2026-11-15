@@ -12,7 +12,7 @@ use pyo3::exceptions::{
     PyIndexError, PyNotImplementedError, PyTypeError, PyValueError, PyZeroDivisionError,
 };
 use pyo3::prelude::*;
-use pyo3::types::{PyList, PyTuple};
+use pyo3::types::{PyInt, PyList, PyTuple};
 
 use crate::expr::{PyExpr, exact_python_integer};
 use crate::rational_laplace::validate_held_transform_domains;
@@ -473,6 +473,142 @@ impl PyMatrix {
         crate::ideal_operations::charge(&mut generator, 1, 1)?;
         crate::ideal_operations::charge(&mut verifier, 1, 1)?;
         Ok(values)
+    }
+
+    /// Select the bounded rational lane without copying source coefficients.
+    #[getter]
+    pub fn is_rational_jordan_input(&self) -> bool {
+        self.inner.rows() == self.inner.cols()
+            && self.inner.rows() <= fsym_matrices::MAX_RATIONAL_JORDAN_DIMENSION
+            && self.inner.data().iter().all(|entry| match entry {
+                Expr::Integer(integer) => integer.bits() <= 4096,
+                Expr::Rational(rational) => {
+                    rational.numer().bits() <= 4096 && rational.denom().bits() <= 4096
+                }
+                _ => false,
+            })
+    }
+
+    /// Bound the original rational source before any public spectral search.
+    pub fn validate_rational_jordan_source(&self) -> PyResult<()> {
+        if self.inner.rows() != self.inner.cols() {
+            return Err(PyValueError::new_err(
+                "Jordan form requires a square matrix",
+            ));
+        }
+        if self.inner.rows() > fsym_matrices::MAX_RATIONAL_JORDAN_DIMENSION {
+            return Err(PyValueError::new_err(
+                "rational Jordan dimension exceeds 16",
+            ));
+        }
+        for entry in self.inner.data() {
+            let (numerator_bits, denominator_bits) = match entry {
+                Expr::Integer(integer) => (integer.bits(), 1),
+                Expr::Rational(rational) => (rational.numer().bits(), rational.denom().bits()),
+                _ => {
+                    return Err(PyValueError::new_err(
+                        "rational Jordan requires literal rational entries",
+                    ));
+                }
+            };
+            if numerator_bits > 4096 || denominator_bits > 4096 {
+                return Err(PyValueError::new_err(
+                    "Jordan source coefficient exceeds 4096 bits",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Complete Jordan decomposition over a supplied rational spectrum.
+    /// Hints are proposals: the independent checker establishes A*P=P*J
+    /// and an exact inverse of P against the original matrix before return.
+    pub fn checked_rational_jordan(&self, spectrum: &Bound<'_, PyAny>) -> PyResult<(Self, Self)> {
+        self.validate_rational_jordan_source()?;
+        let dimension = self.inner.rows();
+        if !spectrum.is_exact_instance_of::<PyList>() && !spectrum.is_exact_instance_of::<PyTuple>()
+        {
+            return Err(PyTypeError::new_err(
+                "Jordan spectrum requires an exact list or tuple",
+            ));
+        }
+        let count = spectrum.len()?;
+        if count > dimension {
+            return Err(PyValueError::new_err(
+                "Jordan spectrum exceeds matrix dimension",
+            ));
+        }
+        // Borrow the entire bounded input before cloning arbitrary-precision
+        // values. Exact built-in containers cannot invoke iterator callbacks.
+        for item in spectrum.try_iter()? {
+            let item = item?;
+            if !item.is_exact_instance_of::<PyTuple>() || item.len()? != 2 {
+                return Err(PyTypeError::new_err(
+                    "Jordan spectrum entries must be pairs",
+                ));
+            }
+            let value = item.get_item(0)?;
+            if !value.is_exact_instance_of::<PyExpr>() {
+                return Err(PyTypeError::new_err(
+                    "Jordan eigenvalues require exact native atoms",
+                ));
+            }
+            let value = value.extract::<PyRef<'_, PyExpr>>()?;
+            let (numerator_bits, denominator_bits) = match &value.inner {
+                Expr::Integer(integer) => (integer.bits(), 1),
+                Expr::Rational(rational) => (rational.numer().bits(), rational.denom().bits()),
+                _ => {
+                    return Err(PyValueError::new_err(
+                        "Jordan eigenvalues must be literal rationals",
+                    ));
+                }
+            };
+            if numerator_bits > 4096 || denominator_bits > 4096 {
+                return Err(PyValueError::new_err("Jordan eigenvalue exceeds 4096 bits"));
+            }
+            let multiplicity = item.get_item(1)?;
+            if !multiplicity.is_exact_instance_of::<PyInt>() {
+                return Err(PyTypeError::new_err(
+                    "Jordan multiplicities require exact integers",
+                ));
+            }
+            let multiplicity = multiplicity.extract::<usize>()?;
+            if multiplicity == 0 || multiplicity > dimension {
+                return Err(PyValueError::new_err(
+                    "Jordan multiplicity is outside matrix dimension",
+                ));
+            }
+        }
+        let phase_budget = || {
+            let mut limits = BudgetLimits::uniform(512 * 1024 * 1024, 0);
+            limits.dimensions[Dimension::ComputeSteps.index()] = 200_000_000;
+            Budget::new(limits)
+        };
+        let mut generator = phase_budget();
+        let mut verifier = phase_budget();
+        crate::ideal_operations::charge(&mut generator, count, count * 2048)?;
+        let mut hints = Vec::with_capacity(count);
+        for item in spectrum.try_iter()? {
+            let item = item?;
+            let value = item.get_item(0)?;
+            let value = value.extract::<PyRef<'_, PyExpr>>()?;
+            let value = match &value.inner {
+                Expr::Integer(integer) => BigRational::from_integer(integer.clone()),
+                Expr::Rational(rational) => rational.clone(),
+                _ => unreachable!("all spectrum atoms were admitted before copying"),
+            };
+            hints.push((value, item.get_item(1)?.extract::<usize>()?));
+        }
+        let verified = self
+            .inner
+            .metered_rational_jordan(&hints, &mut generator, &mut verifier)
+            .map_err(matrix_err)?;
+        // Publication moves the checked matrices without recomputation or
+        // arbitrary Python scalar callbacks. Both phase meters remain live.
+        crate::ideal_operations::charge(&mut generator, dimension * dimension * 2, 4096)?;
+        crate::ideal_operations::charge(&mut verifier, 1, 1)?;
+        let (transform, jordan, _inverse) = verified.into_parts();
+        Ok((Self { inner: transform }, Self { inner: jordan }))
     }
 
     /// Independently checked bounded exact rational matrix exponential.

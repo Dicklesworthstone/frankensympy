@@ -963,6 +963,9 @@ class Matrix(MatrixBase):
         ``N**(s-1)*v, ..., N*v, v`` for a top vector ``v`` outside the
         smaller kernels and the chains already taken."""
         from ..core import expand
+        from ._jordan import RationalJordanSource
+
+        source = RationalJordanSource.select(self)
 
         if not self.is_square:
             raise ValueError("Only square matrices have a Jordan form")
@@ -972,15 +975,24 @@ class Matrix(MatrixBase):
         def clean(M):
             return M.applyfunc(lambda e: expand(e))
 
-        def independent(vectors):
+        def extends_span(vectors, vector):
             if not vectors:
                 return True
-            M = Matrix.hstack(*vectors)
-            return len(M._kernel()) == 0
+            # The smaller kernel and previously selected chains overlap.
+            # Requiring all these columns to be independent rejects valid
+            # repeated blocks. One new column raises rank precisely when
+            # it leaves the nullity unchanged.
+            before = len(Matrix.hstack(*vectors)._kernel())
+            after = len(Matrix.hstack(*vectors, vector)._kernel())
+            return after == before
 
         from ..polys.rootoftools import CRootOf
 
         spectrum = self.eigenvals()
+        if source is not None:
+            checked = source.decompose(spectrum, calc_transform)
+            if checked is not None:
+                return checked
         if any(type(value) is CRootOf for value in spectrum):
             raise _AlgebraicEigenspaceUnsupported(spectrum)
         blocks = []
@@ -1003,8 +1015,8 @@ class Matrix(MatrixBase):
                 count = at_least[size] - (at_least[size + 1] if size + 1 <= top else 0)
                 for _ in range(count):
                     for v in kernels[size]:
-                        cand = list(kernels[size - 1]) + taken + [v]
-                        if independent(cand):
+                        base = list(kernels[size - 1]) + taken
+                        if extends_span(base, v):
                             chain = [v]
                             for _k in range(size - 1):
                                 chain.insert(0, clean(N * chain[0]))
@@ -1024,6 +1036,8 @@ class Matrix(MatrixBase):
                 if i + 1 < size:
                     J[pos + i, pos + i + 1] = 1
             pos += size
+        if pos != n or len(chains) != n:
+            raise NotImplementedError("Jordan chains do not form a complete basis")
         if not calc_transform:
             return J
         return Matrix.hstack(*chains), J

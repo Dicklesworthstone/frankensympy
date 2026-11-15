@@ -36,6 +36,9 @@ from .sparse import (
     SparseMatrix,
 )
 
+# Capture the actual built-in owners before user code can alter the interfaces.
+from . import _jordan
+
 __all__ = [
     "DenseMatrix",
     "GramSchmidt",
