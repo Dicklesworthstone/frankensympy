@@ -7,6 +7,11 @@
 //! No generator, factor search, numerical sampling, gamma identity, analytic
 //! continuation, or infinite-product convergence assumption enters this checker.
 
+mod modular;
+
+use modular::check_factors;
+pub use modular::{MAX_PRODUCT_DOMAIN_PRIME, RationalProductModularFactor};
+
 use crate::rational_sum::{
     MAX_SUM_COEFFICIENT_BITS, RationalSumPole, RationalSumQuadratic, RationalSumVerificationError,
     Reference, validate,
@@ -20,12 +25,15 @@ pub const MAX_DIRECT_PRODUCT_TERMS: u64 = 2001;
 const MAX_GUARDS: usize = 128;
 const MAX_ENDPOINT_BITS: u64 = 4096;
 
-/// Complete rational-linear and irreducible-quadratic factorization witness.
+/// Complete factor product for an integer-domain check. Linear roots are
+/// retained explicitly; quadratic factors are checked for irreducibility;
+/// higher-degree factors have independent modular no-integer-root witnesses.
 /// The leading scalar is taken from the original polynomial, not this witness.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RationalProductFactors {
     pub roots: Vec<RationalSumPole>,
     pub quadratics: Vec<RationalSumQuadratic>,
+    pub modular: Vec<RationalProductModularFactor>,
 }
 
 /// Original-source domain obligations, in their original retained order.
@@ -87,15 +95,6 @@ fn has_integer_root(factors: &RationalProductFactors, lower: &BigInt, upper: &Bi
     factors.roots.iter().any(|root| {
         root.root.is_integer() && root.root.numer() >= lower && root.root.numer() <= upper
     })
-}
-
-fn check_factors(
-    polynomial: &[BigRational],
-    factors: &RationalProductFactors,
-    reference: &mut Reference<'_, impl BudgetMeter>,
-) -> Result<()> {
-    reference.check_denominator(polynomial, &factors.roots, &factors.quadratics)?;
-    Ok(())
 }
 
 fn check_domain(

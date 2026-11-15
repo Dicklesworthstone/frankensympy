@@ -21,17 +21,37 @@ product(k * (k + 2) / (k + 1)**2, (k, 1, 10**9))
 product(((k + 1)**2 + 1) / (k*k + 1), (k, 0, 10**9))
 # 1000000002000000002
 
+product(((k + 1)**4 + 1) / (k**4 + 1), (k, 0, 10**9))
+# (10**9 + 1)**4 + 1, as an exact Integer
+
 Product(k, (k, 5, 1)).doit()
 # Rational(1, 24)
 ```
 
 Short ranges are independently recomputed with exact rational arithmetic.
-Longer ranges use complete rational-linear and irreducible-quadratic
-factorizations to find a multiplicative telescope
+Longer ranges group exact rational polynomial factors into integer-shift
+orbits to find a multiplicative telescope
 `f(k) = c * R(k + 1) / R(k)`. The proof kernel checks the full polynomial
 identity by coefficient arithmetic, reconstructs every supplied factorization,
 excludes integer poles, and checks the endpoint quotient. A separate zero-factor
 witness proves that the entire source remains defined before returning zero.
+
+Linear factors retain their exact rational roots; quadratic factors retain the
+existing independent irreducibility check. A higher-degree factor must carry a
+small-prime witness that it has no integer roots. The generator searches primes
+through 97. The verifier independently checks primality, reduces the exact
+rational coefficients, refuses noninvertible coefficient denominators, and
+evaluates every residue in the finite field. It then reconstructs the complete
+original polynomial over `Q`, with its original leading coefficient and every
+multiplicity. Equal modular images alone cannot establish that source identity.
+
+This proves nonvanishing at integer points, not irreducibility over `Q` or the
+finite field. For example, `k**4 + 1` has no roots modulo 3 even though its
+reduction is reducible. Cubic and quartic telescopes, repeated higher-degree
+factors, rational coefficients and mixtures of factor degrees can therefore
+use the same endpoint formula. A factor for which no admitted prime supplies
+the required witness remains unsupported; this is not a complete algorithm
+for integer nonvanishing or all degree-64 products.
 
 Reversed ranges use `product(a, b) = 1 / product(b + 1, a - 1)`; adjacent
 endpoints give the empty product. A reversed range containing a zero factor is
@@ -56,6 +76,6 @@ unguarded retry. Python propagates those errors as `ValueError`. The receipt is
 an immutable in-process exact check, not a portable proof transport, an
 infinite-product convergence certificate, or a symbolic-bound theorem.
 
-Focused native targets are `rational_product` in both `fsym-calculus` and
-`fsym-proof-kernel`; public regressions are in
+Focused native targets are `rational_product` and `rational_product_modular`
+in both `fsym-calculus` and `fsym-proof-kernel`; public regressions are in
 `python/tests/test_rational_products.py`.

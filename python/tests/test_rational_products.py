@@ -29,6 +29,51 @@ def test_quadratic_shift_orbit_telescopes_without_factoring_over_reals():
     assert s.product(source, (k, 0, end)) == (end + 1)**2 + 1
 
 
+@pytest.mark.parametrize("degree", [3, 4])
+def test_billion_term_higher_degree_products_have_exact_checked_endpoints(degree):
+    k = s.Symbol("product_modular_k", integer=True)
+    end = 10**9
+
+    def polynomial(value):
+        return value**degree + (value if degree == 3 else 0) + 1
+
+    source = polynomial(k + 1) / polynomial(k)
+    expected = polynomial(end + 1)
+    assert s.product(source, (k, 0, end)) == expected
+    assert s.Product(source, (k, 0, end)).doit() == expected
+
+
+def test_repeated_rational_quartics_keep_their_full_shift_orbit():
+    k = s.Symbol("product_rational_quartic_k", integer=True)
+    end = 10000
+    source = (((k + 2)**4 - s.Rational(1, 2)) / (k**4 - s.Rational(1, 2)))**2
+    # Independent rational endpoint arithmetic, not another symbolic product.
+    expected = (
+        (Fraction((end + 1)**4) - Fraction(1, 2))
+        * (Fraction((end + 2)**4) - Fraction(1, 2))
+        / ((Fraction(0) - Fraction(1, 2)) * (Fraction(1) - Fraction(1, 2)))
+    )**2
+    assert s.product(source, (k, 0, end)) == s.Rational(
+        expected.numerator, expected.denominator
+    )
+
+
+@pytest.mark.parametrize("shape", ["cancellation", "zero", "zeroth_power"])
+@pytest.mark.parametrize("deep", [False, True])
+def test_higher_degree_guards_cannot_hide_a_real_integer_pole(shape, deep):
+    k = s.Symbol("product_modular_pole_k", integer=True)
+    base = (k - 5) * (k**4 + 1)
+    inverse = s.Pow(base, -1, evaluate=False)
+    if shape == "cancellation":
+        source = s.Mul(base, inverse, evaluate=False)
+    elif shape == "zero":
+        source = s.Mul(0, inverse, evaluate=False)
+    else:
+        source = s.Pow(inverse, 0, evaluate=False)
+    with pytest.raises(ValueError):
+        s.Product(source, (k, 1, 10000)).doit(deep=deep)
+
+
 @pytest.mark.parametrize("lower,upper", [(1, 7), (-5, 5), (8, 1), (4, 3)])
 def test_checked_finite_values_match_independent_fraction_products(lower, upper):
     k = s.Symbol("product_range_k", integer=True)

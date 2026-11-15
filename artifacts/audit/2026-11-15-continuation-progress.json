@@ -22,7 +22,7 @@
     },
     "syntax_and_whitespace": "passed",
     "tests": {
-      "command": "FSYM_TEST_EXTENSION=/tmp/frankensympy-continuation-target/debug/libfsym_python.so testenv/bin/python run_python_tests.py python/tests/test_checksol_domains.py python/tests/test_assumptions_soundness.py plus the two existing predicate and three existing checksol surface methods (exact node list retained in source snapshot/log)",
+      "command": "FSYM_TEST_EXTENSION=/tmp/frankensympy-continuation-target/debug/libfsym_python.so /workspace/scratch/4a3a39075b27/testenv/bin/python /workspace/scratch/4a3a39075b27/run_python_tests.py python/tests/test_checksol_domains.py python/tests/test_assumptions_soundness.py python/tests/test_surface.py::SurfaceTests::test_number_assumption_properties_match_oracle python/tests/test_surface.py::SurfaceTests::test_assumptions_and_deductive_predicates python/tests/test_surface.py::SurfaceTests::test_checksol_rejects_nonfinite_candidate_mappings python/tests/test_surface.py::SurfaceTests::test_checksol_preserves_inconclusive_results_and_fuzzy_conjunction python/tests/test_surface.py::SurfaceTests::test_solveset_and_checksol",
       "methods_passed": 45,
       "subtests_passed": 73,
       "methods_failed": 5,
@@ -49,7 +49,10 @@
     "artifacts/validation/2026-11-15-continuation/checksol-source-after.json": "9141b1a90ef47943e2fc676a574f857b369b1aa94c630d084e986c2052af4df7",
     "artifacts/validation/2026-11-15-continuation/python-baseline-composition.json": "38e67a87db03b4b458ae1c48d3a18cd03d4ebeca114a2e67f3657f43779fc1dd",
     "artifacts/validation/2026-11-15-continuation/python-baseline-component-build.log": "8f7a7ce5df520f291ef2ad89b0caa9fdf8620b2bb3719be7f608504640acdb45",
-    "artifacts/validation/2026-11-15-continuation/production-python-build-refusal.log": "34127eed0e3bf33aeb62ed5291624800070bb96cd78ec9d7e1c108ca08340500"
+    "artifacts/validation/2026-11-15-continuation/production-python-build-refusal.log": "34127eed0e3bf33aeb62ed5291624800070bb96cd78ec9d7e1c108ca08340500",
+    "artifacts/validation/2026-11-15-continuation/product-modular-first-build.log": "82dd79f05a3a8ead10f9403e017f6571a8f888b2958640643673153cadd2547f",
+    "artifacts/validation/2026-11-15-continuation/product-modular-first-tests.log": "00824dce93c4a7796394eb5bc03d2050a9b234dab54fb6f3cdd56d9a0a311065",
+    "artifacts/validation/2026-11-15-continuation/product-modular-tests.log": "2c730937526a7707b4164dd24212be05bf066b5246de6f105dadb66af096b8af"
   },
   "gates": {
     "full_workspace_passed": false,
@@ -57,5 +60,54 @@
     "broad_bead_closed": false,
     "proof_class_promoted": false,
     "upstream_sympy_production_fallback": false
+  },
+  "higher_degree_products": {
+    "behavior": "Bounded integer-shift telescopes now support higher-degree exact rational factors with independently checked small-prime no-integer-root witnesses. Whole-polynomial shifts and exact denominator-factor reuse avoid repeated QQ factor searches; coarse domain factors are refined for general mixed shift orbits.",
+    "independent_checker": "Bound and independently check prime modulus <=97; reduce signed original coefficients bytewise; require invertible coefficient denominators; inspect every residue; reconstruct every original polynomial over Q with leading scalar and multiplicities; check full telescoping identity, original inverse guards and exact endpoints.",
+    "non_goals": [
+      "No irreducibility conclusion from a no-root finite-field witness",
+      "No complete degree-64 product or integer-nonvanishing algorithm",
+      "No symbolic-bound or infinite-product theorem",
+      "No resource-cap increase or retry after refusal"
+    ],
+    "source_sha256": {
+      "crates/fsym-calculus/src/rational_product.rs": "a78857971ea4701cef61249a4ed3bd1ac17e55a633a8b3c428b651c360f9e137",
+      "crates/fsym-calculus/src/rational_product/modular.rs": "b049a8c68d18dc1bad3eed38a5681c16b338971b9a4efc3fc8e431d1458af8dd",
+      "crates/fsym-calculus/tests/rational_product.rs": "688fccb272ef6be383a602a2651d15b5d15c3f800ea7aa97ebb554b626fa5386",
+      "crates/fsym-calculus/tests/rational_product_modular.rs": "63fea15c22186b4a25c27e9e56fb60bd43da9180c83d638ff446b744b2d8dfce",
+      "crates/fsym-proof-kernel/src/rational_product.rs": "586f65083457c552723c5a40426f3ec078eaa3d0ac8698a32027ff23f07da165",
+      "crates/fsym-proof-kernel/src/rational_product/modular.rs": "1c30cfc50be9537ffcdfdcbfe70ce6df31e7d634e5d6bd5b9bacd8f6ba325315",
+      "crates/fsym-proof-kernel/tests/rational_product.rs": "478bc6048ef6235c9f2d39e34b2e6cc992d75d57f0ad93add7d9d3b389031d41",
+      "crates/fsym-proof-kernel/tests/rational_product_modular.rs": "d7a06f665a946ab15f1369fc5e3bba2babe6ecdeb987057460b2d9de4912643b",
+      "python/tests/test_rational_products.py": "e407c00456365f7f72edff1018361da0a308b55ed9b6d60b2070a7b1921eab32",
+      "docs/FINITE_RATIONAL_PRODUCTS.md": "cac631bc6dc8228d7a806dd82ace6d9ff8f3b8ec4603c4cfe5470e6b0488b9d2"
+    },
+    "native_tests": {
+      "command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_TARGET_DIR=/tmp/frankensympy-continuation-target cargo test --locked --offline -p fsym-proof-kernel -p fsym-calculus --test rational_product --test rational_product_modular -j1",
+      "toolchain": "nightly-2026-08-20",
+      "total_passed": 56,
+      "calculus_existing": 19,
+      "calculus_new": 13,
+      "kernel_existing": 12,
+      "kernel_new": 12,
+      "failures": 0,
+      "ignored": 0,
+      "scope": "Original locked workspace targets, not a substituted mathematical implementation",
+      "log": "artifacts/validation/2026-11-15-continuation/product-modular-tests.log"
+    },
+    "observed_corrections": [
+      "Owned BigInt does not implement From<usize>; convert already degree-bounded counters to u64 before construction.",
+      "Mixed/repeated factor cases initially exhausted the unchanged generator cap; exact whole shifts and source-bound factor reuse eliminate redundant factorization.",
+      "A large primorial missing-witness fixture actually exhausts factorization resources; retain that terminal-refusal regression and separately test unsupported proof with compact k^3+138*k+165.",
+      "Retain a mixed quadratic-orbit regression so a coarse modular witness does not reduce existing support."
+    ],
+    "independent_review": "Second agent reviewed frozen generator and verifier including negative shifts, original zero crossings, reconstruction, modular units, degree/multiplicity preflight and cumulative terminal errors; no concrete defect found. Root also reviewed both modules.",
+    "public_tests": {
+      "authored_cases": 29,
+      "new_cases": 9,
+      "runtime_execution_at_this_checkpoint": false,
+      "baseline_before_new_degree_support": "The previously published 20 public cases passed with the actual baseline mathematical/PyO3 component."
+    },
+    "strict_clippy": "Pending after Session and bridge validation; full workspace gate remains blocked."
   }
 }

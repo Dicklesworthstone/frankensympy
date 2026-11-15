@@ -1,0 +1,53 @@
+   Compiling fsym-core v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-core)
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-assumptions)
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-proof-kernel)
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-evidence)
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-polys)
+   Compiling fsym-simplify v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-simplify)
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-calculus)
+error[E0277]: the trait bound `BigInt: From<usize>` is not satisfied
+   --> crates/fsym-calculus/src/rational_product.rs:518:55
+    |
+518 |                 let ratio = BigRational::new(exponent.into(), (degree - exponent + 1).into());
+    |                                                       ^^^^ the trait `From<usize>` is not implemented for `BigInt`
+    |
+help: `BigInt` implements trait `From<T>`
+   --> crates/fsym-bigint/src/lib.rs:857:1
+    |
+857 | impl From<i64> for BigInt {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^ `From<i64>`
+...
+863 | impl From<u64> for BigInt {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^ `From<u64>`
+...
+869 | impl From<i32> for BigInt {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^ `From<i32>`
+...
+875 | impl From<u32> for BigInt {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^ `From<u32>`
+    = note: required for `usize` to implement `Into<BigInt>`
+
+error[E0277]: the trait bound `BigInt: From<usize>` is not satisfied
+   --> crates/fsym-calculus/src/rational_product.rs:518:87
+    |
+518 |                 let ratio = BigRational::new(exponent.into(), (degree - exponent + 1).into());
+    |                                                                                       ^^^^ the trait `From<usize>` is not implemented for `BigInt`
+    |
+help: `BigInt` implements trait `From<T>`
+   --> crates/fsym-bigint/src/lib.rs:857:1
+    |
+857 | impl From<i64> for BigInt {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^ `From<i64>`
+...
+863 | impl From<u64> for BigInt {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^ `From<u64>`
+...
+869 | impl From<i32> for BigInt {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^ `From<i32>`
+...
+875 | impl From<u32> for BigInt {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^ `From<u32>`
+    = note: required for `usize` to implement `Into<BigInt>`
+
+For more information about this error, try `rustc --explain E0277`.
+error: could not compile `fsym-calculus` (lib) due to 2 previous errors

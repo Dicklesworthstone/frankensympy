@@ -17,6 +17,7 @@ fn root(value: i64) -> RationalProductFactors {
             multiplicity: 1,
         }],
         quadratics: vec![],
+        modular: vec![],
     }
 }
 fn witness() -> RationalProductCertificate {
@@ -200,6 +201,7 @@ fn irreducibility_labels_do_not_hide_rational_quadratic_zeros() {
             linear: q(0),
             multiplicity: 1,
         }],
+        modular: vec![],
     };
     let candidate = RationalProductCertificate::Zero {
         at: 1.into(),
