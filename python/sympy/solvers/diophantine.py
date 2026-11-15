@@ -2,7 +2,7 @@
 
 Supported, exactly, with upstream's parametrizations:
 
-* linear equations in any number of variables (``base_solution_linear``
+* linear equations in a bounded number of variables (``base_solution_linear``
   and upstream's coefficient-gcd chain; parameters ``t_0, t_1, ...``);
 * shifted bilinear equations: every congruence-admitted divisor pair
   within the work bounds, or complete affine integer families;
@@ -362,16 +362,119 @@ def _line(b: int, c: int, t: Any) -> list:
     return [(Integer(c // g) * t if c else t, Integer(-b // g) * t)]
 
 
+def _diophantine_source(eq: Any):
+    """Retain and admit original domains before polynomial normalization."""
+    from ..core import Add, Dummy, Eq, Half, Integer, Mul, NegativeOne, One, Pow, Rational, Symbol, Zero
+    from ._checksol import _Unsupported, _Work, _require_original, _scalar, _source_nodes
+
+    work = _Work()
+    try:
+        _require_original()
+        # This bounded admission accepts structured expressions and simple
+        # literal/name tokens, without calling external sympification hooks.
+        source = _scalar(eq, work)
+        records = _source_nodes((source,), work)
+    except (_Unsupported, NotImplementedError, ValueError, TypeError, OverflowError, RecursionError) as error:
+        if work.failure is not None:
+            raise work.failure
+        raise NotImplementedError("diophantine: original source exceeds the supported domain-checking lane") from error
+    numbers = (Integer, Rational, Zero, One, NegativeOne, Half)
+    integer_atoms = (Integer, Zero, One, NegativeOne)
+    total = True
+    for node, children in records:
+        kind = type(node)
+        if kind in numbers or kind in (Symbol, Dummy, Add, Mul, Eq):
+            continue
+        if kind is Pow and type(children[1]) in integer_atoms and children[1].p >= 0:
+            continue
+        total = False
+    # No binding constructs are admitted in this lane, so every retained
+    # symbol node is an original coordinate even if normalization drops it.
+    axes = {node for node, _ in records if type(node) in (Symbol, Dummy)}
+    return source, records[-1][1], axes, work, total
+
+
+def _check_diophantine_domains(source: Any, variables: list, solutions: set, work: Any, total: bool) -> set:
+    """Publish complete sets only after retaining every original exclusion.
+
+    A polynomial is total at the integer points and polynomial families
+    produced here. A source with a reciprocal or another domain guard needs
+    a verdict for each complete tuple. Unknown domains of infinite families
+    require conditional parameters, which this set-of-tuples API cannot
+    represent; refuse instead of publishing an invalid or partial family.
+    """
+    from ._checksol import _Unsupported, _check_with_work, _require_original, _source_nodes
+
+    # Recheck the enclosing native budget outside all fuzzy checker catches.
+    # A nested transformation can charge it directly and leave it exhausted.
+    try:
+        work.charge()
+    except _Unsupported:
+        raise NotImplementedError("diophantine: original domain checking exceeds its bounded work limit") from None
+    if work.failure is not None:
+        raise work.failure
+    if total or not solutions:
+        return solutions
+
+    accepted = set()
+    axes = frozenset(variables)
+    for solution in solutions:
+        if len(solution) != len(variables):
+            raise ArithmeticError("diophantine: solution coordinates do not match the original variables")
+        try:
+            _require_original()
+            _source_nodes(tuple(solution), work)
+        except (_Unsupported, NotImplementedError, ValueError, TypeError, OverflowError, RecursionError) as error:
+            if work.failure is not None:
+                raise work.failure
+            raise NotImplementedError("diophantine: candidate domains exceed the supported checking lane") from error
+        # checksol deliberately follows its sequential substitution contract.
+        # A generated parameter named like an original axis must not become
+        # a fixed coordinate under that convention. A guarded family needs
+        # a fresh-parameter/conditional representation before it can publish.
+        if any(value.free_symbols & axes for value in solution):
+            raise NotImplementedError("diophantine: original domains require uncaptured family parameters")
+        replacements = dict(zip(variables, solution))
+        verdict = _check_with_work(source, replacements, None, work, domain_only=True)
+        if work.exhausted:
+            raise NotImplementedError("diophantine: original domain checking exceeds its bounded work limit")
+        if verdict is None:
+            raise NotImplementedError("diophantine: original domains require unresolved parameter conditions")
+        if verdict is True:
+            accepted.add(solution)
+    return accepted
+
+
 def diophantine(eq: Any, param: Any = None, syms: Any = None, permute: bool = False) -> set:
     """Set of integer solution tuples of ``eq = 0`` in the order of
     ``syms`` (default: the free symbols sorted by name)."""
-    from ..core import Add, Eq, Integer, Mul, Pow, Symbol, expand, sympify
+    from ..core import Dummy, Eq, Integer, Symbol, expand
+    from ._checksol import _MAX_RULES, _Unsupported, _source_nodes
 
-    if isinstance(eq, Eq):
-        eq = eq.lhs - eq.rhs
-    eq = expand(sympify(eq))
-    var = list(syms) if syms else sorted(eq.free_symbols, key=lambda s: s.name)
+    source, source_children, original_axes, work, total = _diophantine_source(eq)
+    if syms is not None and type(syms) not in (list, tuple):
+        raise NotImplementedError("diophantine: syms must be a built-in list or tuple")
+    if syms is not None and len(syms) > _MAX_RULES:
+        raise NotImplementedError("diophantine: bounded exact symbol coordinates required")
+    # Original variables include axes which disappear when held operands
+    # cancel. A normalized polynomial cannot redefine the source domain.
+    var = list(syms) if syms else sorted(original_axes, key=lambda s: s.name)
+    if len(var) > _MAX_RULES or any(type(v) not in (Symbol, Dummy) for v in var):
+        raise NotImplementedError("diophantine: bounded exact symbol coordinates required")
+    if len(set(var)) != len(var):
+        raise ValueError("diophantine: duplicate solution coordinates")
+    try:
+        _source_nodes(tuple(var), work)
+    except _Unsupported:
+        raise NotImplementedError("diophantine: solution coordinates exceed the bounded checking lane") from None
+    # Equality sides come from the admitted retained owner, not mutable
+    # lhs/rhs descriptors which could rewrite the equation during access.
+    eq = source_children[0] - source_children[1] if type(source) is Eq else source
+    eq = expand(eq)
     from ..polys.polytools import Poly
+
+    def admitted(solutions):
+        return _check_diophantine_domains(source, var, solutions, work, total)
 
     try:
         p = Poly(eq, *var)
@@ -380,11 +483,17 @@ def diophantine(eq: Any, param: Any = None, syms: Any = None, permute: bool = Fa
     terms = p.terms()
     if any(not isinstance(c, Integer) for _, c in terms):
         raise NotImplementedError("diophantine: integer coefficients required")
-    deg = max(sum(m) for m, _ in terms)
+    deg = max((sum(m) for m, _ in terms), default=0)
+    if deg == 0:
+        if any(int(c) != 0 for _, c in terms):
+            return admitted(set())
+        if not total:
+            raise NotImplementedError("diophantine: original domains require unresolved parameter conditions")
+        raise NotImplementedError("diophantine: zero polynomial requires unconstrained integer families")
     if len(var) == 1 and deg >= 2:
         from ..polys.polytools import roots as _roots
 
-        return {(r,) for r in _roots(p) if isinstance(r, Integer)}
+        return admitted({(r,) for r in _roots(p) if isinstance(r, Integer)})
     if deg <= 1:
         coeff = {v: 0 for v in var}
         const = 0
@@ -393,14 +502,19 @@ def diophantine(eq: Any, param: Any = None, syms: Any = None, permute: bool = Fa
                 const = int(c)
             else:
                 coeff[var[m.index(1)]] = int(c)
-        return _diop_linear(coeff, var, const)
+        # The coefficient-gcd chain does not represent independent inactive
+        # axes correctly in three or more dimensions. Retaining cancelled
+        # source axes must not turn those coordinates into a coupled family.
+        if len(var) >= 3 and any(coeff[v] == 0 for v in var):
+            raise NotImplementedError("diophantine: linear equations with independent free coordinates are not supported")
+        return admitted(_diop_linear(coeff, var, const))
     if deg == 2 and len(var) == 2:
         x, y = var
         coeffs = {}
         names = {(2, 0): "xx", (1, 1): "xy", (0, 2): "yy", (1, 0): "x", (0, 1): "y", (0, 0): "1"}
         for m, c in terms:
             coeffs[names[tuple(m)]] = int(c)
-        return _diop_quadratic(coeffs, x, y)
+        return admitted(_diop_quadratic(coeffs, x, y))
     if deg == 2 and len(var) == 3:
         sq = {tuple(m): int(c) for m, c in terms}
         diag = {i: sq.get(tuple(2 if j == i else 0 for j in range(3)), 0) for i in range(3)}
@@ -413,7 +527,7 @@ def diophantine(eq: Any, param: Any = None, syms: Any = None, permute: bool = Fa
             sol[others[0]] = 2 * p_ * q_
             sol[others[1]] = p_**2 - q_**2
             sol[neg] = p_**2 + q_**2
-            return {tuple(sol)}
+            return admitted({tuple(sol)})
     raise NotImplementedError("diophantine: equation class not supported")
 
 

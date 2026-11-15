@@ -1,0 +1,123 @@
+{
+  "date_utc": "2026-11-15",
+  "workstream": "WS19",
+  "bead": "fra-7kf",
+  "base_commit": "c914c3ab0e59811c8839c4352a699a69b4542e0d",
+  "commits_verified": [
+    "efedc5e7384197c1c1b23f2bd14e66d5e9b0009f",
+    "4a52c7aca251fc7a10066f8fee0f515386b73bd5",
+    "0b7316e296221b28a21b8742ce34be3a01ff45e3"
+  ],
+  "concurrent_commits_preserved": [
+    "ac415f1f8f99ca70917842e9c5e55a378540e8c8",
+    "e302706ec997b4cd8af4febf19dfa22651207dc0",
+    "f66073e919cb15fa003e7eb06bbaa5174e9b6e15",
+    "728ddfe01fdd1a053b701dcb46c752acbbd486ca"
+  ],
+  "implementation": {
+    "definite_integer_conics": "Complete exact integer projection bounds; shorter-axis enumeration; exact discriminant square/divisibility tests and original coefficient residual checks. Handles negative forms, common content, skinny mixed forms and huge translations within bounds.",
+    "shifted_bilinear": "Use (b*x+e)*(b*y+d)=d*e-b*f. Remove common coefficient content, enumerate signed ordered factor pairs with both congruences, or return each integral affine family when the product vanishes. Verify each point/family in original coefficients.",
+    "original_solve_domains": "Retain original equations through scalar/system dispatch, fallback, Float rationalization and output formatting. Reject proved undefined candidates; retain unknown domains. check=False keeps existing unfiltered behavior. All candidates share one checker allowance.",
+    "original_integer_domains": "Admit retained structured sources before normalization; derive original axes from retained typed symbol nodes. Filter complete finite sets. Refuse unresolved/captured conditional families and unsupported inactive-axis/zero-polynomial parameterizations.",
+    "bounds": {
+      "quadratic_coefficient_bits": 4096,
+      "enumeration_rows_or_trial_divisors": 100000,
+      "height_weighted_work_units": 20000000,
+      "source_domain_work_allowance": 65536,
+      "source_nodes": 8192,
+      "source_depth": 128,
+      "integer_solution_coordinates": 64
+    },
+    "input_scope": "Diophantine source admission accepts structured symbolic expressions and bounded integer/name tokens. Explicit syms must be a built-in list or tuple of distinct exact Symbol/Dummy coordinates. Compound expression strings and external conversion hooks are unsupported.",
+    "limits": "No new Pell/general indefinite or general ternary algorithm; no portable proof-certificate or compatibility-profile claim; source preflight is not a new complete expansion-resource envelope. Existing general variable-assumption filtering and older non-definite/Pythagorean family semantics are unchanged."
+  },
+  "validation": {
+    "conic_executed": {
+      "source_blob": "33c35193bf9b358c16cd33fbe0193bdfc563eb0f",
+      "test_blob_syntax_checked": "6130cc4823af24f14bc803bf15940d83ceb3c360",
+      "helper_source_loaded": "Actual Python source through runpy, without the native extension.",
+      "complete_small_coefficient_cases": 1485,
+      "result": "Passed exhaustive independent complete lattice comparison; large translations, mixed skinny forms, negative/content variants, boundaries and explicit refusals passed.",
+      "additional_checks": "Root independently ran randomized lattice comparisons and isolated upstream SymPy 1.14.0 examples. Python syntax compilation passed for the initial conic source and tests.",
+      "known_old_failure": "For (x-N)^2+y^2=1 at N=2**60+7, the old floating bounds were N-9 through N-5 and missed every integer solution. At N=10**400 the old float conversion overflowed.",
+      "scope": "These checks cover the conic helper and initial source revision; they are not public FrankenSymPy/native-extension integration tests.",
+      "tested_helper_text_unchanged_in_checkpoint": true
+    },
+    "later_authored_not_executed": {
+      "bilinear_small_case_corpus": 750,
+      "exact_integer_test_functions": 18,
+      "solve_source_domain_test_methods": 16,
+      "integer_source_domain_test_methods": 16,
+      "source_review": "Independent mathematical/source review and exact GitHub blob readback; later Python syntax and candidate runtime tests were not executed."
+    },
+    "environment": {
+      "toolchain": "nightly-2026-08-20",
+      "rustc": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+      "python": "3.12.14",
+      "isolated_oracle": "SymPy 1.14.0",
+      "donor_fetch": "Official pinned workspace donor fetch succeeded.",
+      "baseline_format": {
+        "command": "cargo fmt --check",
+        "exit_code": 1,
+        "result": "Six pre-existing Rust paths required formatting; no global formatting pass is claimed.",
+        "paths": [
+          "crates/fsym-calculus/src/box_optimization/checkpoint.rs",
+          "crates/fsym-calculus/tests/box_optimization_checkpoint.rs",
+          "crates/fsym-calculus/tests/square_root_programs.rs",
+          "crates/fsym-python/src/lib.rs",
+          "src/optimization_checkpoint.rs",
+          "tests/optimization_checkpoints.rs"
+        ]
+      },
+      "baseline_workspace_check": {
+        "command": "CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 cargo check --locked --workspace --all-targets",
+        "exit_code": 101,
+        "result": "Stopped while compiling dependency cc with No space left on device; no complete workspace result."
+      },
+      "native_build": {
+        "command": "cargo build --locked -p fsym-python --features extension-module --lib -j1",
+        "exit_code": 130,
+        "result": "Interrupted while waiting on the package-cache lock before reversible scratch relocation. No extension was produced or loaded by this session."
+      },
+      "final_blocker": "Execution environment disconnected during reversible donor relocation; its final state could not be inspected. Later candidate tests, final syntax compilation, full workspace tests and strict Clippy were not run.",
+      "logs": "Raw scratch logs could not be recovered through the unavailable executor; this record preserves observed outcomes without reconstructing logs."
+    },
+    "source_review": "Two independent reviewers traced final solve publication and budget behavior; separate algebra review approved exact conic/bilinear formulas and Diophantine source-domain integration. Final implementation/test blobs were independently fetched back exactly. This is source review, not execution.",
+    "ci_observed": {
+      "head_sha": "0b7316e296221b28a21b8742ce34be3a01ff45e3",
+      "runs": [
+        {
+          "id": 43677616393,
+          "name": "CI Gate Topology",
+          "status": "queued",
+          "conclusion": null
+        },
+        {
+          "id": 43677616392,
+          "name": "Verify Remote Main (Read Only)",
+          "status": "queued",
+          "conclusion": null
+        }
+      ],
+      "scope": "Observed before the final domain-wrapper commit; no completed CI pass was available. The focused public regression list selects all three solver suites."
+    }
+  },
+  "gates": {
+    "full_workspace_passed": false,
+    "candidate_python_tests_passed": false,
+    "profile_certified": false,
+    "broad_bead_closed": false,
+    "proof_class_promoted": false,
+    "upstream_sympy_production_fallback": false
+  },
+  "status": "implemented_uncertified; fra-7kf remains open",
+  "checkpoint_parent": "0b7316e296221b28a21b8742ce34be3a01ff45e3",
+  "source_blobs": {
+    "python/sympy/__init__.py": "d198a162406d7f312a12f493d5abb6914f3c5595",
+    "python/sympy/solvers/_checksol.py": "cbf071ed2303708ae0e9bc9ab20c9c4014eacc2c",
+    "python/sympy/solvers/diophantine.py": "69174e126e8afc8db5c0444298ec72667ecac864",
+    "python/tests/test_diophantine_exact.py": "3e67bf6680d45d42ecedad751e82d884fe487789",
+    "python/tests/test_solve_source_domains.py": "d961274cb208b4e917cba753b7294c3f7c4a2751",
+    "python/tests/test_diophantine_source_domains.py": "e93df7c47cac8cd11bcef8a5ecf9bf76395a701a"
+  }
+}

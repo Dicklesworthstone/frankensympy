@@ -1514,6 +1514,74 @@ portable-certificate or compatibility-profile claim.
 
 ---
 
+## Exact integer equations and source domains (development API)
+
+The bounded `diophantine` interface enumerates definite binary quadratic
+solutions using integer projection bounds, integer square roots and exact
+divisibility. Large translations do not pass through floating-point bounds:
+
+```python
+from sympy import Eq, Symbol, diophantine, solve, symbols
+
+x, y = symbols("x y", integer=True)
+N = 10**400 + 7
+points = diophantine((x - N)**2 + y**2 - 1)
+assert points == {(N - 1, 0), (N + 1, 0), (N, -1), (N, 1)}
+```
+
+Shifted bilinear equations `b*x*y + d*x + e*y + f = 0` use the identity
+`(b*x + e)*(b*y + d) = d*e - b*f`. A nonzero right side yields every
+signed divisor pair satisfying both coordinate congruences. A zero right
+side yields each integral affine family:
+
+```python
+assert diophantine((x - 2)*(y + 3) - 6) == {
+    (-4, -4), (-1, -5), (0, -6), (1, -9),
+    (3, 3), (4, 0), (5, -1), (8, -2),
+}
+n = Symbol("n1", integer=True)
+assert diophantine((x - 2)*(y + 3)) == {(2, n), (n, -3)}
+```
+
+Quadratic coefficients are bounded to 4096 bits. Enumeration admits at most
+100,000 rows or trial divisors and 20,000,000 height-weighted work units;
+the conic search chooses its shorter coordinate projection. Requests
+exceeding these bounds raise `NotImplementedError` before enumeration.
+
+Both `solve` and `diophantine` retain original expression domains before
+normalization. A pole cannot disappear merely because identical terms
+cancel between held Equality sides:
+
+```python
+source = Eq(1/x, 1/x + x, evaluate=False)
+assert solve(source, x) == []
+assert solve(source, x, check=False) == [0]
+```
+
+`solve` applies domain admission to scalar roots and complete system rows
+before output formatting, retaining inconclusive candidates and the
+existing `check=False` behavior. Its shared allowance covers every candidate,
+including the exact candidates generated before Float output conversion.
+
+`diophantine` filters finite integer points against the original domains.
+It refuses a parametric family whose necessary exclusions remain unresolved,
+as the current tuple format cannot express those conditions. Original
+cancelled axes are retained. Zero-polynomial families and linear equations
+with three or more axes and inactive coefficients refuse instead of returning
+incomplete parameterizations. This source-admission lane accepts structured
+expressions, bounded integer/name tokens, and at most 64 distinct coordinates;
+explicit `syms` must be a built-in list or tuple of symbols. Compound expression
+strings and external conversion hooks are unsupported.
+
+These are development compatibility features. The integer helpers check
+original coefficient residuals, but these shell routes do not produce portable
+proof certificates or certify an upstream profile. The
+[execution report](artifacts/audit/2026-11-15-integer-conics-and-source-domains-progress.json)
+separates the executed conic checks from the later public tests that still
+require a native-extension run.
+
+---
+
 ## Planned algorithm program
 
 The native program includes proof- or certificate-aware portfolios for:
