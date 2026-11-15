@@ -28,11 +28,12 @@
     "syntax": "passed: python3 -m py_compile python/sympy/solvers/ode.py python/tests/test_general_vop.py",
     "isolated_math": "SymPy 1.14.0: six independent matrix-cofactor comparisons at dimensions 3-8 and eight exact ODE residual examples passed. The source-admission class was substituted for the oracle environment; these checks do not execute the production FrankenSymPy shell.",
     "independent_review": "Cofactor signs, linear and differential residual checks, local nonvanishing and original source checks reviewed. Assumption-mutation checks now bound length and compare by identity without foreign equality callbacks.",
-    "actual_engine": "pending: pinned full production extension build is still running at this incremental checkpoint; no actual public regression pass is claimed.",
+    "actual_engine": "Blocked by executor loss during the pinned full production extension build. No completed extension import or feature-test run was observed. This replaces the earlier checkpoint's pending status; earlier isolated mathematical checks remain distinct.",
     "regressions": [
       "python/tests/test_general_vop.py"
     ],
-    "ci": "Both native Python test inventories select the new suite."
+    "ci": "Both native Python test inventories select the new suite.",
+    "execution_followup": "See artifacts/audit/2026-11-15-absolute-real-solvers.json for the exact build attempt, concurrent-source scope, formatter limitations and infrastructure outcome."
   },
   "status": "implemented_uncertified; fra-7kf remains open"
 }

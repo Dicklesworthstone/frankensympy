@@ -164,6 +164,7 @@ jobs:
           cargo test --locked -p fsym-python --lib ode::tests -j1
           cargo test --locked -p fsym-python --lib assumptions::tests -j1
           cargo test --locked -p fsym-python --lib expr::multiquadratic_source_tests -j1
+          cargo test --locked -p fsym-python --lib expr::bounded_function_probe_tests -j1
           cargo test --locked -p fsym-python --lib numeric::tests::certified_gaussian_sources_require_unary_bound_arguments -j1
           cargo test --locked -p fsym-core --test raw_product_value -j1
           cargo test --locked -p fsym-core --test binding_substitution -j1
@@ -259,6 +260,7 @@ jobs:
               "python/tests/test_groebner_operations.py",
               "python/tests/test_exact_monotonicity.py",
               "python/tests/test_exact_function_range.py",
+              "python/tests/test_absolute_real_solving.py",
               "python/tests/test_exact_stationary_points.py",
               "python/tests/test_certified_quadrature.py",
               "python/tests/test_certified_objective.py",
@@ -371,6 +373,7 @@ jobs:
               "python/tests/test_real_rational_inequalities.py",
               "python/tests/test_real_constraint_systems.py",
               "python/tests/test_solveset_piecewise_real.py",
+              "python/tests/test_absolute_real_solving.py",
               "python/tests/test_rational_laplace.py",
               "python/tests/test_rational_mellin.py",
               "python/tests/test_forward_mellin.py",

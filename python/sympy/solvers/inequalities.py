@@ -74,15 +74,19 @@ def _lift_constraint_chart(checked, variable):
     return _lift_sign_chart(roots, gaps, points)
 
 
-def _solve_rational_constraints(relations, symbols, conjunction_false=False):
-    """Return a complete relational result, or None for another grammar.
+def _solve_rational_constraints(relations, symbols, conjunction_false=False, *, as_set=False):
+    """Return a complete relational result or exact set for an admitted source.
 
+    None selects another grammar. The internal as_set mode reuses the same
+    checked partition when a mixed system must intersect scalar solution sets.
     All original sides and typed symbol owners are captured before inference,
     subtraction, or Boolean identities. The shared native partition decides
     intersections without asking the generic set normalizer to order CRootOfs.
     """
     from ._piecewise_real import _Capture
 
+    if type(as_set) is not bool:
+        raise TypeError("real constraint output mode requires a built-in bool")
     _constraint_owners_unchanged()
 
     class Capture(_Capture):
@@ -185,7 +189,11 @@ def _solve_rational_constraints(relations, symbols, conjunction_false=False):
             from ..logic.boolalg import false, true
             if type(result) not in (EmptySet, Reals):
                 raise ValueError("constant real constraints produced variable boundaries")
+            if as_set:
+                return result
             return false if type(result) is EmptySet else true
+        if as_set:
+            return result
         from .. import _set_as_relational
         relational = _set_as_relational(result, variable)
         capture.unchanged()

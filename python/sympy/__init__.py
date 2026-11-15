@@ -706,7 +706,13 @@ def _solveset_real_rational(expression, symbol, domain):
 
 
 def solveset(expression, variable=None, domain=None):
-    """Solve an algebraic equation for ``variable`` and return a Set of solutions."""
+    """Solve an equation for ``variable`` and return its solution set.
+
+    On exact real domains, rational expressions with at most four distinct
+    Abs nodes use complete disjoint sign branches and retain original poles.
+    Closed Abs forms outside that grammar remain conditional; exhausted work
+    bounds raise instead of returning a partial set of solutions.
+    """
     if domain is not None:
         if isinstance(domain, str):
             if domain in ("Reals", "RR", "R"):
@@ -716,6 +722,10 @@ def solveset(expression, variable=None, domain=None):
             domain = domain()
         if not isinstance(domain, Set):
             raise ValueError(f"{domain} is not a valid domain")
+    from .solvers._absolute_real import solve_absolute_real
+    absolute = solve_absolute_real(expression, variable, domain)
+    if absolute is not None:
+        return absolute
     from .solvers._piecewise_real import solve_piecewise_real
     piecewise = solve_piecewise_real(expression, variable, domain)
     if piecewise is not None:
@@ -2065,9 +2075,13 @@ def _is_inequality(e: Any) -> bool:
 
 def _solve_inequality_set(rel: Any, symbol: Any) -> Any:
     """Real solution set from the exact rational or supported elementary lane."""
+    from .solvers._absolute_real import solve_absolute_real
     from .solvers.inequalities import _solve_rational_inequality
     from .sets.sets import _wrap_set
 
+    absolute = solve_absolute_real(rel, symbol, S.Reals)
+    if absolute is not None:
+        return absolute
     rational = _solve_rational_inequality(rel, symbol)
     if rational is not None:
         return rational
@@ -2129,8 +2143,9 @@ def reduce_inequalities(inequalities: Any, symbols: Any = None) -> Any:
     """Reduce a univariate system of inequalities to a relational form.
 
     Rational equalities, disequalities and inequalities share one complete
-    checked algebraic partition. Other supported elementary inequalities keep
-    their scalar solver. Unsupported systems raise explicitly.
+    checked algebraic partition. Bounded rational Abs relations use exact sign
+    branches. Other supported elementary inequalities keep their scalar solver.
+    Unsupported systems raise explicitly.
     """
     from .logic.boolalg import BooleanFalse, BooleanTrue
     from .sets import ConditionSet, EmptySet, Intersection, Reals, Union
@@ -2169,7 +2184,12 @@ def reduce_inequalities(inequalities: Any, symbols: Any = None) -> Any:
         if _is_inequality(r):
             part = _solve_inequality_set(r, x)
         elif type(r) is Ne:
-            raise NotImplementedError("nonrational disequality systems are not supported")
+            from .solvers._absolute_real import solve_absolute_real
+            part = solve_absolute_real(r, x, Reals())
+            if part is None:
+                part = _solve_rational_constraints([r], x, as_set=True)
+            if part is None:
+                raise NotImplementedError("nonrational disequality systems are not supported")
         else:
             part = solveset(r, x, Reals())
         pending = [part]

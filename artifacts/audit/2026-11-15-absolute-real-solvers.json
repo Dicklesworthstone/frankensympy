@@ -1,0 +1,62 @@
+{
+  "workstream": "WS19",
+  "bead": "fra-7kf",
+  "base_commit": "6de399ae5b17036b8ccdcda7b2116e06ea9fcbe6",
+  "feature": "Complete bounded real equations, disequalities and inequalities containing rational absolute-value expressions",
+  "implementation": {
+    "entry_points": [
+      "solveset on exact real domains",
+      "solve_univariate_inequality",
+      "reduce_inequalities with supported Eq/Ne/Lt/Le/Gt/Ge relations"
+    ],
+    "algorithm": "Enumerate the disjoint argument >= 0 and argument < 0 cases for every distinct Abs, including nested occurrences. Independently check each structural replacement and require the complete sign-assignment roster. Each branch uses the existing independently checked native rational constraint engine.",
+    "domains": "Held Add/Mul/Pow retain original poles through cancellation, zero factors, zeroth powers and equal equation sides. Restrict exact branch sets to the requested real domain before taking their union.",
+    "source_integrity": "Closed scalar/function owners, typed symbols, original argument tuples, native handles and domain storage are retained and rechecked. Foreign or mutated sources refuse.",
+    "bounds": {
+      "distinct_absolute_values": 4,
+      "maximum_sign_branches": 16,
+      "borrowed_native_nodes": 2048,
+      "depth": 64,
+      "arity": 256,
+      "total_generated_nodes": 65536,
+      "total_structurally_checked_nodes": 65536
+    },
+    "outcomes": "Closed unsupported Abs forms preserve the original ConditionSet. Exhausted bounds, wrong replacements, missing sign branches and later branch failures propagate; partial answers are never returned.",
+    "evidence_scope": "Structural branch checking plus the existing exact rational sign-chart checker. No portable Abs certificate, global compatibility claim or workstream closure."
+  },
+  "validation": {
+    "pre_loss_static": "Earlier captured Python source/test versions passed py_compile and git diff --check. The initial Rust helper version passed pinned rustfmt --check. The final recovery below has not been executed or recompiled.",
+    "mathematical_reference": "Isolated SymPy 1.14.0 checks covered nine affine, summed, nested and rational absolute-value examples. These were reference mathematics, not production-shell execution.",
+    "oracle_discrepancy": "The isolated upstream solveset result for Abs(x)/x - 1 displayed an interval including zero. The original expression is undefined at zero; the new regression requires the open interval (0, infinity). No broad oracle-parity claim is made.",
+    "actual_engine": "Blocked by executor loss. No successful native extension import, Rust feature-test result or Python feature-test result was observed.",
+    "authored_regressions": [
+      "python/tests/test_absolute_real_solving.py",
+      "crates/fsym-python/src/expr.rs::bounded_function_probe_tests"
+    ],
+    "ci": "Both native Python inventories select the new suite; native feature CI also selects the borrowed-probe unit tests."
+  },
+  "recovery": {
+    "method": "Reconstructed the captured full Python implementation/test source and exact Rust helper edits after the execution workspace became unavailable. Applied exact, count-checked anchors to the latest GitHub files and preserved concurrent commits.",
+    "final_source_execution": "unexecuted after reconstruction; require native build, feature suites and independent read-back/review",
+    "infrastructure_error": "exec-server transport disconnected; failed to resume exec-server session: recovery timed out after 45s; platform environment unavailable",
+    "independent_review": "Independent review found a missing rational disequality path in mixed Abs systems. The integration now reuses the existing complete rational constraint checker in exact-set mode and adds mixed-disequality and retained-pole regressions. Final source remains unexecuted after recovery."
+  },
+  "build_attempt": {
+    "toolchain": "nightly-2026-08-20, rustc f7d782a3be46d6bb4b9792fe69a61db389ba1769",
+    "command": "cargo build -p fsym-python --lib --locked --offline",
+    "settings": "One job, CARGO_PROFILE_DEV_DEBUG=0, PYO3_PYTHON=python3; exact registry-pinned donors.",
+    "donor_revisions": {
+      "asupersync": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+      "franken_numpy": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+      "frankenscipy": "213a417c739025ed865a3875c89a7d86726ecb5a"
+    },
+    "outcomes": [
+      "Initial non-pinned offline workspace check exited 101 because target-triple was not cached; dependencies were subsequently fetched.",
+      "The first pinned build's 600-second bound expired with exit 124. It was resumed without a process timeout.",
+      "The resumed build reached asupersync/runtime dependencies after the core, proof kernel, polynomial, simplification and calculus crates. No compiler diagnostic was observed before executor loss."
+    ],
+    "source_scope": "The unfinished build used the earlier native source view plus the borrowed probe. Concurrent f66073e rational-product native changes were deliberately not written into the active compilation.",
+    "mandatory_gates": "Workspace cargo fmt --check exited 1 on pre-existing optimization-checkpoint formatting. Final workspace check, strict Clippy and tests remain incomplete; no gate is promoted."
+  },
+  "status": "implemented_uncertified; fra-7kf remains open"
+}

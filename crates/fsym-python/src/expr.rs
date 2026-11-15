@@ -42,6 +42,43 @@ enum MultiquadraticSourceError {
     ResourceLimit(&'static str),
 }
 
+/// Bound a borrowed structural probe before Python clones any arguments.
+/// Finding a match does not bypass admission of the remaining source tree.
+fn bounded_function_presence(source: &Expr, name: &str) -> Result<bool, &'static str> {
+    if name.len() > 4096 {
+        return Err("function probe name exceeds 4096 bytes");
+    }
+    let mut pending = vec![(source, 0usize)];
+    let mut visited = 0usize;
+    let mut found = false;
+    while let Some((node, depth)) = pending.pop() {
+        visited += 1;
+        if visited > 2048 || depth > 64 {
+            return Err("function probe source exceeds its node or depth bound");
+        }
+        match node {
+            Expr::Add(children) | Expr::Mul(children) | Expr::Function(_, children) => {
+                if let Expr::Function(tag, _) = node {
+                    found |= tag == name;
+                }
+                if children.len() > 256 || visited + pending.len() + children.len() > 2048 {
+                    return Err("function probe source exceeds its arity or node bound");
+                }
+                pending.extend(children.iter().map(|child| (child, depth + 1)));
+            }
+            Expr::Pow(base, exponent) => {
+                if visited + pending.len() + 2 > 2048 {
+                    return Err("function probe source exceeds its node bound");
+                }
+                pending.push((base, depth + 1));
+                pending.push((exponent, depth + 1));
+            }
+            Expr::Integer(_) | Expr::Rational(_) | Expr::Sym(_) | Expr::Const(_) => {}
+        }
+    }
+    Ok(found)
+}
+
 /// Inspect borrowed nodes before the Python shell can clone any child tree.
 /// Count repeated Arc paths as well: they become owned values in `raw_args`.
 fn multiquadratic_source_size(source: &Expr) -> Result<usize, MultiquadraticSourceError> {
@@ -268,6 +305,11 @@ impl PyExpr {
     /// (the shell uses it to detect interned Float payloads cheaply).
     pub fn has_function(&self, name: &str) -> bool {
         expr_has_function(&self.inner, name)
+    }
+
+    /// Bounded borrowed presence check for source-sensitive solver dispatch.
+    pub fn has_function_bounded(&self, name: &str) -> PyResult<bool> {
+        bounded_function_presence(&self.inner, name).map_err(PyValueError::new_err)
     }
 
     #[getter]
@@ -1421,5 +1463,45 @@ mod multiquadratic_source_tests {
             multiquadratic_source_size(&source),
             Err(MultiquadraticSourceError::ResourceLimit(_))
         ));
+    }
+}
+
+#[cfg(test)]
+mod bounded_function_probe_tests {
+    use super::{Expr, bounded_function_presence};
+    use std::sync::Arc;
+
+    #[test]
+    fn probe_keeps_held_children_and_does_not_limit_rational_degree() {
+        let absolute = Expr::Function("Abs".into(), vec![Expr::symbol("x")]);
+        let held = Expr::Mul(vec![Expr::from_i64(0), absolute]);
+        assert_eq!(bounded_function_presence(&held, "Abs"), Ok(true));
+        assert_eq!(bounded_function_presence(&held, "abs"), Ok(false));
+        let power = Expr::Pow(Arc::new(Expr::symbol("x")), Arc::new(Expr::from_i64(1000)));
+        assert_eq!(bounded_function_presence(&power, "Abs"), Ok(false));
+    }
+
+    #[test]
+    fn a_match_cannot_hide_a_later_oversized_subtree() {
+        let wide = Expr::Add(vec![Expr::from_i64(1); 257]);
+        let source = Expr::Add(vec![
+            wide,
+            Expr::Function("Abs".into(), vec![Expr::symbol("x")]),
+        ]);
+        assert!(bounded_function_presence(&source, "Abs").is_err());
+        let mut deep = Expr::from_i64(1);
+        for _ in 0..65 {
+            deep = Expr::Function("sin".into(), vec![deep]);
+        }
+        assert!(bounded_function_presence(&deep, "Abs").is_err());
+    }
+
+    #[test]
+    fn shared_subtrees_are_charged_for_each_owned_argument_copy() {
+        let mut source = Arc::new(Expr::symbol("x"));
+        for _ in 0..11 {
+            source = Arc::new(Expr::Pow(Arc::clone(&source), Arc::clone(&source)));
+        }
+        assert!(bounded_function_presence(&source, "Abs").is_err());
     }
 }

@@ -42,12 +42,13 @@
       ],
       "result": "Exact original nonlinear ODE and initial-value residuals are zero for the centered transformed-family formula. This does not execute FrankenSymPy."
     },
-    "actual_engine": "pending: full production extension is building with nightly-2026-08-20 and registry-pinned donors; no public Python test pass is claimed by this checkpoint.",
+    "actual_engine": "Blocked by executor loss during the pinned full production extension build. No completed extension import or feature-test run was observed. This replaces the earlier checkpoint's pending status; earlier isolated mathematical checks remain distinct.",
     "regressions": [
       "python/tests/test_bernoulli_initial_conditions.py",
       "python/tests/test_bernoulli_ode.py"
     ],
-    "review": "Independent source/math review corrected implicit quadratic branch ambiguity before commit; both CI test inventories select the new suite."
+    "review": "Independent source/math review corrected implicit quadratic branch ambiguity before commit; both CI test inventories select the new suite.",
+    "execution_followup": "See artifacts/audit/2026-11-15-absolute-real-solvers.json for the exact build attempt, concurrent-source scope, formatter limitations and infrastructure outcome."
   },
   "status": "implemented_uncertified; fra-7kf remains open"
 }
