@@ -12,8 +12,75 @@ from __future__ import annotations
 
 from typing import Any, Iterator
 
-from ..core import Integer, Rational, sympify
-from .sets import Set, _EMPTY_SET
+from ..core import Basic, Function, Integer, Rational, Tuple, sympify
+from ..core.lambdify_subs import Lambda
+from ..core._function_capabilities import _implementation, _owner_matches, _owner_record
+from .sets import Set, _EMPTY_SET, _membership_decision
+
+
+_LAMBDA_OWNERS = tuple(
+    (owner, _owner_record(owner))
+    for owner in dict.fromkeys(
+        owner for cls in (Lambda, Tuple)
+        for owner in (*type.__dict__["__mro__"].__get__(cls),
+                      *type.__dict__["__mro__"].__get__(type(cls)))
+    )
+)
+_LAMBDA_PROPERTIES = tuple(
+    (name, _implementation(Lambda.__dict__[name]))
+    for name in ("signature", "expr")
+)
+_MAX_FINITE_IMAGE = 4096
+_TUPLE_ARGUMENTS = Function.__dict__["_args"]
+_TUPLE_VALUE = Basic.__dict__["_value"]
+
+
+def _image_lambda_guard(lamda):
+    """Bind an exact built-in Lambda without invoking changed descriptors."""
+    def implementations():
+        if any(not _owner_matches(owner, record) for owner, record in _LAMBDA_OWNERS):
+            raise NotImplementedError("exact images require the original Lambda implementation")
+        namespace = type.__dict__["__dict__"].__get__(Lambda)
+        for name, expected in _LAMBDA_PROPERTIES:
+            tokens = _implementation(namespace.get(name))
+            if (len(tokens) != len(expected)
+                    or any(value is not original for value, original in zip(tokens, expected))):
+                raise NotImplementedError("exact images require the original Lambda implementation")
+
+    implementations()
+    original = object.__getattribute__(lamda, "_struct_args")
+    if type(original) is not tuple or len(original) != 2 or type(original[0]) is not Tuple:
+        raise NotImplementedError("exact images require a valid retained Lambda signature")
+    signature = original[0]
+    arguments = _TUPLE_ARGUMENTS.__get__(signature, Function)
+    value = _TUPLE_VALUE.__get__(signature, Basic)
+    if type(arguments) is not tuple:
+        raise NotImplementedError("exact images require immutable Lambda signature arguments")
+
+    def unchanged():
+        implementations()
+        if object.__getattribute__(lamda, "_struct_args") is not original:
+            raise NotImplementedError("image Lambda changed during checking")
+        if (_TUPLE_ARGUMENTS.__get__(signature, Function) is not arguments
+                or _TUPLE_VALUE.__get__(signature, Basic) is not value):
+            raise NotImplementedError("image Lambda signature changed during checking")
+
+    return unchanged
+
+
+def _finite_image(lamda, base_sets):
+    """Materialize a bounded finite image using exact symbolic values."""
+    from itertools import product
+    from .sets import FiniteSet
+
+    count = 1
+    for base in base_sets:
+        if type(base) not in (FiniteSet, Range):
+            return None
+        count *= len(base)
+        if count > _MAX_FINITE_IMAGE:
+            return None
+    return FiniteSet(*(lamda(*point) for point in product(*base_sets)))
 
 
 def _is_integer_value(v: Any) -> bool | None:
@@ -147,9 +214,28 @@ class Complexes(_NumberSet):
     _name = "Complexes"
 
     def contains(self, other: Any) -> bool | None:
-        return getattr(sympify(other), "is_complex", None) or (
-            True if getattr(sympify(other), "is_number", False) else None
-        )
+        from decimal import Decimal
+        from math import isfinite
+        from ..core import Expr, Float, _ExactDecimalFloat, nan, oo, zoo
+
+        value = sympify(other)
+        if type(value) is Float:
+            return isfinite(value._as_python_float())
+        if type(value) is _ExactDecimalFloat:
+            # A certified decimal can be finite even when its binary64
+            # arithmetic backing overflows. Inspect that exact value.
+            decimal = object.__getattribute__(value, "_decimal")
+            if type(decimal) is not str:
+                raise ValueError("invalid retained decimal Float")
+            return Decimal(decimal).is_finite()
+        if value is nan or value is oo or value is zoo or type(value) is type(zoo):
+            return False
+        if (type(value) is Expr
+                and any(value._value == atom._value for atom in (nan, oo, -oo, zoo))):
+            return False
+        if getattr(value, "is_finite", None) is False:
+            return False
+        return _membership_decision(getattr(value, "is_complex", None))
 
 
 class Range(Set):
@@ -231,6 +317,14 @@ class ImageSet(Set):
     __slots__ = ("_lamda", "_base_sets")
 
     def __new__(cls, lamda: Any, *base_sets: Any) -> Set:
+        if not isinstance(lamda, Lambda):
+            raise ValueError("First argument must be a Lambda")
+        if not base_sets or any(not isinstance(base, Set) for base in base_sets):
+            raise TypeError("ImageSet base arguments must be sets")
+        if len(lamda.signature) != len(base_sets):
+            raise ValueError("Incompatible signature")
+        if any(base.is_empty is True for base in base_sets):
+            return _EMPTY_SET
         obj = object.__new__(cls)
         obj._native_set = None
         obj._lamda = lamda
@@ -260,20 +354,22 @@ class ImageSet(Set):
         return None
 
     def contains(self, other: Any) -> bool | None:
-        base = self.base_set
-        if isinstance(base, (Range,)) or type(base).__name__ == "FiniteSet":
-            return any(self._lamda(v) == sympify(other) for v in base)
+        image = _finite_image(self._lamda, self._base_sets)
+        if image is not None:
+            # Structural inequality is not a proof of non-membership when
+            # free symbolic values can coincide after specialization.
+            return image.contains(other)
         return None
 
     def __eq__(self, other: Any) -> bool:
         return (
-            isinstance(other, ImageSet)
-            and str(self._lamda) == str(other._lamda)
+            type(self) is type(other)
+            and self._lamda == other._lamda
             and self._base_sets == other._base_sets
         )
 
     def __hash__(self) -> int:
-        return hash(("ImageSet", str(self._lamda), self._base_sets))
+        return hash((type(self), self._lamda, self._base_sets))
 
     def __repr__(self) -> str:
         return "ImageSet(%s)" % ", ".join([str(self._lamda)] + [str(b) for b in self._base_sets])
@@ -351,47 +447,47 @@ class ConditionSet(Set):
 def imageset(*args: Any) -> Set:
     """Image of a set under a function (upstream ``imageset``).
 
-    ``imageset(Lambda(x, f), S)`` or ``imageset(x, f, S)``. A polynomial
-    image of a closed real interval is computed exactly from its critical
-    points; other images stay unevaluated ``ImageSet``.
+    ``imageset(Lambda(x, f), S)`` or ``imageset(x, f, S)``. Finite products
+    are evaluated with simultaneous Lambda arguments. Exact rational images
+    of real intervals use complete checked critical points and original
+    domain exclusions; unsupported images remain formal ``ImageSet`` objects.
     """
-    from ..core import Symbol, diff
-    from ..core.lambdify_subs import Lambda
-    from .sets import FiniteSet, Interval
+    from ..core import Dummy, Symbol
+    from .sets import EmptySet, Interval, Reals
 
-    if len(args) == 3:
+    if len(args) < 2:
+        raise TypeError("imageset requires a function and at least one base set")
+    if isinstance(args[0], Lambda):
+        lam, bases = args[0], args[1:]
+    elif callable(args[0]):
+        if len(args) != 2:
+            raise TypeError("a callable imageset currently requires one base set")
+        variable = Dummy("x")
+        lam, bases = Lambda(variable, args[0](variable)), args[1:]
+    elif len(args) >= 3:
         lam = Lambda(args[0], args[1])
-        base = args[2]
+        bases = args[2:]
     else:
-        lam, base = args
-        if not isinstance(lam, Lambda) and callable(lam):
-            d = Symbol("x")
-            lam = Lambda(d, lam(d))
-    if isinstance(base, FiniteSet):
-        return FiniteSet(*[lam(v) for v in base])
-    if isinstance(base, Interval) and len(lam.signature) == 1:
-        x = lam.signature[0]
-        f = lam.expr
-        from ..polys.polytools import Poly
+        raise TypeError("imageset requires a Lambda, callable, or variable and expression")
 
-        try:
-            Poly(f, x)
-            polynomial = not (f.free_symbols - {x})
-        except Exception:
-            polynomial = False
-        a, b = base.start, base.end
-        if polynomial and a.is_finite and b.is_finite and not base.left_open and not base.right_open:
-            from .. import solve
+    guard = _image_lambda_guard(lam) if type(lam) is Lambda else None
+    formal = ImageSet(lam, *bases)
+    if type(formal) is EmptySet:
+        return formal
+    finite = _finite_image(lam, bases)
+    if finite is not None:
+        if guard is not None:
+            guard()
+        return finite
+    if (type(lam) is Lambda and len(bases) == 1
+            and type(bases[0]) in (Interval, Reals)
+            and type(lam.signature[0]) in (Symbol, Dummy)):
+        from ..calculus._rational_range import STATIONARY_UNSUPPORTED, rational_image
 
-            points = [a, b]
-            for r in solve(diff(f, x), x):
-                if r.is_real and (r - a).is_nonnegative and (b - r).is_nonnegative:
-                    points.append(r)
-            values = [f.subs(x, p) for p in points]
-            lo = min(values, key=float)
-            hi = max(values, key=float)
-            return Interval(lo, hi)
-    return ImageSet(lam, base)
+        checked = rational_image(lam.expr, lam.signature[0], bases[0], guard)
+        if checked is not STATIONARY_UNSUPPORTED:
+            return checked
+    return formal
 
 
 __all__ = [

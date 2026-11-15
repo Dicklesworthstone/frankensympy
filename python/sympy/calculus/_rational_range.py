@@ -414,15 +414,19 @@ def _as_set(pieces, work):
     return _wrap_set(_native.SymSet.union_many(parts))
 
 
-def _range_pieces(expression, symbol, domain, work):
+def _range_pieces(expression, symbol, domain, work, guard=None):
     from ..core import diff_with_receipt
 
-    expression, symbol, components = _admit(expression, symbol, domain, work)
+    expression, symbol, components = _admit(expression, symbol, domain, work, guard)
     if not components:
         return []
     numerator, denominator = _fraction(expression, symbol, work)
     derivative, _receipt = diff_with_receipt(expression, symbol)
+    if guard is not None:
+        guard()
     critical, _cells = _monotonicity_chart(derivative, symbol, ">=")
+    if guard is not None:
+        guard()
     pieces = []
     for lower, upper, left_open, right_open in components:
         if work.compare(lower, upper) == 0:
@@ -461,16 +465,15 @@ def _range_pieces(expression, symbol, domain, work):
     return _merge(pieces, work)
 
 
-def rational_stationary_points(expression, symbol, domain):
-    """Complete stationary points of an admitted original rational source.
+def _rational_source_request(expression, symbol, domain):
+    """Select a rational lane and retain its original source until return.
 
-    Nonrational syntax and non-interval domains retain the existing public
-    solver route, selected before any native mathematical check. Once this
-    lane admits a source, failed checks and exhausted bounds are terminal.
-    The derivative's two complete sign charts establish its exact zero set;
-    the original domain is intersected independently before publication.
+    Unsupported grammar is decided before mathematical work. A selected
+    request never converts an operational or verification failure into an
+    unsupported result. Stationary points and interval images share these
+    exact-class, typed-symbol and mutable-source checks.
     """
-    from ..core import Expr, _wrap, diff_with_receipt
+    from ..core import Expr, _wrap
     from ..polys.rootoftools import CRootOf
 
     if (domain is not None and domain is not Reals and domain is not EmptySet
@@ -487,7 +490,7 @@ def rational_stationary_points(expression, symbol, domain):
     domain = _REALS if domain is None or domain is Reals else _EMPTY_SET if domain is EmptySet else domain
     domain_native = _STATIONARY_DOMAIN_SLOT.__get__(domain, Set)
     if type(domain_native) is not _native.SymSet:
-        raise NotImplementedError("stationary points require valid original interval storage")
+        raise NotImplementedError("exact rational analysis requires valid original interval storage")
     pending = [(expression, 0)]
     records = []
     symbols = set()
@@ -510,25 +513,25 @@ def rational_stationary_points(expression, symbol, domain):
             if (type(assumptions) is not dict or len(assumptions) > 64
                     or any(type(key) is not str or type(value) is not bool
                            for key, value in assumptions.items())):
-                raise NotImplementedError("stationary points require literal symbol assumptions")
+                raise NotImplementedError("exact rational analysis requires literal symbol assumptions")
             facts = tuple(sorted(assumptions.items()))
         return node, _native_expr(node), storage, facts
 
     while pending:
         node, depth = pending.pop()
         if len(records) >= 2048 or depth > 64:
-            raise NotImplementedError("exact stationary-point source limit exceeded")
+            raise NotImplementedError("exact rational source limit exceeded")
         kind = type(node)
         if kind not in kinds:
             return STATIONARY_UNSUPPORTED
         children = node.args
         if (type(children) is not tuple or (kind is Pow and len(children) != 2)
                 or (kind in (Symbol, Dummy, *_ATOMS) and children)):
-            raise NotImplementedError("stationary points require valid original source arguments")
+            raise NotImplementedError("exact rational analysis requires valid original source arguments")
         if kind is Pow and type(children[1]) not in (Integer, Zero, One, NegativeOne):
             return STATIONARY_UNSUPPORTED
         if len(children) > 256 or len(children) > 2048 - len(records) - len(pending) - 1:
-            raise NotImplementedError("exact stationary-point source limit exceeded")
+            raise NotImplementedError("exact rational source limit exceeded")
         if kind in (Symbol, Dummy):
             symbols.add(node)
         records.append(snapshot(node))
@@ -544,23 +547,81 @@ def rational_stationary_points(expression, symbol, domain):
         _require_original_surface()
         _require_closed_function_class(CRootOf)
         if _STATIONARY_DOMAIN_SLOT.__get__(domain, Set) is not domain_native:
-            raise NotImplementedError("exact stationary-point domain changed during checking")
+            raise NotImplementedError("exact rational domain changed during checking")
         for node, native, storage, facts in records:
             if _native_expr(node) is not native:
-                raise NotImplementedError("exact stationary-point source changed during checking")
+                raise NotImplementedError("exact rational source changed during checking")
             for name, original in storage:
                 try:
                     current = object.__getattribute__(node, name)
                 except AttributeError:
                     current = _MISSING
                 if current is not original:
-                    raise NotImplementedError("exact stationary-point source changed during checking")
+                    raise NotImplementedError("exact rational source changed during checking")
             if facts is not None:
                 assumptions = object.__getattribute__(node, "_assumptions")
                 if (len(assumptions) != len(facts)
                         or any(dict.get(assumptions, key, _MISSING) is not value
                                for key, value in facts)):
-                    raise NotImplementedError("stationary-point symbol assumptions changed during checking")
+                    raise NotImplementedError("exact rational symbol assumptions changed during checking")
+
+    return expression, symbol, domain, unchanged
+
+
+def rational_image(expression, symbol, domain, guard=None):
+    """Return an exact interval image, or decline unsupported input syntax.
+
+    This selector is used by imageset, where unsupported syntax remains a
+    formal ImageSet. Bounds and source grammar are selected before running
+    the checked range engine; all failures after selection stay terminal.
+    """
+    from ..core import Expr
+    from ..polys.rootoftools import CRootOf
+
+    request = _rational_source_request(expression, symbol, domain)
+    if request is STATIONARY_UNSUPPORTED:
+        return STATIONARY_UNSUPPORTED
+    expression, symbol, domain, source_unchanged = request
+    if type(domain) is not EmptySet:
+        for bound in (domain.start, domain.end):
+            if type(bound) in _ATOMS or type(bound) is CRootOf:
+                continue
+            if type(bound) is Expr and (bound == oo or bound == -oo):
+                continue
+            return STATIONARY_UNSUPPORTED
+
+    def unchanged():
+        source_unchanged()
+        if guard is not None:
+            guard()
+
+    work = _Work()
+    try:
+        unchanged()
+        pieces = _range_pieces(expression, symbol, domain, work, unchanged)
+        unchanged()
+        result = _as_set(pieces, work)
+        unchanged()
+        return result
+    except (OverflowError, ValueError) as exc:
+        raise NotImplementedError("exact rational image could not be determined: %s" % exc) from None
+
+
+def rational_stationary_points(expression, symbol, domain):
+    """Complete stationary points of an admitted original rational source.
+
+    Nonrational syntax and non-interval domains retain the existing public
+    solver route, selected before any native mathematical check. Once this
+    lane admits a source, failed checks and exhausted bounds are terminal.
+    The derivative's two complete sign charts establish its exact zero set;
+    the original domain is intersected independently before publication.
+    """
+    from ..core import diff_with_receipt
+
+    request = _rational_source_request(expression, symbol, domain)
+    if request is STATIONARY_UNSUPPORTED:
+        return STATIONARY_UNSUPPORTED
+    expression, symbol, domain, unchanged = request
 
     work = _Work()
     try:

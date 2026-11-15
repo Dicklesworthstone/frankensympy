@@ -1,0 +1,208 @@
+{
+  "scope": "Public symbolic bindings, exact set images, and undecidable membership",
+  "baseline_commit": "bd1f89ad417e80b8d1823e5be41798e1534729d0",
+  "beads": [
+    {
+      "id": "fra-7kf",
+      "status": "open"
+    },
+    {
+      "id": "fra-ws21-profile-closure-82j",
+      "status": "open"
+    }
+  ],
+  "implementation": [
+    "Preserve undecidable membership through Python containment, Cartesian products, union, intersection and relative complement.",
+    "Apply Lambda parameters simultaneously through the retained surface graph, support nested tuple signatures, and retain ordered Subs programs.",
+    "Route admitted exact rational interval images through complete checked critical points, exact algebraic ordering and original domain exclusions.",
+    "Use typed ImageSet equality and bounded finite Cartesian images; distinguish finite complex numbers from infinities and NaN."
+  ],
+  "regression_modules": [
+    {
+      "path": "python/tests/test_set_membership.py",
+      "authored_cases": 15
+    },
+    {
+      "path": "python/tests/test_lambda_substitution.py",
+      "authored_cases": 39
+    },
+    {
+      "path": "python/tests/test_imageset_exact.py",
+      "authored_cases": 40
+    }
+  ],
+  "regression_execution": "NOT EXECUTED: no current production native extension could be built.",
+  "ci_selection": "All three modules are selected explicitly in .github/workflows/ci.yml; no gate or comparator was weakened.",
+  "independent_review": "Separate source review of membership, Lambda/Subs, and exact-image changes completed. Source review is not execution evidence.",
+  "oracle_context": {
+    "version": "SymPy 1.14.0",
+    "isolation": "Separate upstream interpreter probes, never a production fallback or candidate test run.",
+    "observations": [
+      "Lambda((x, y), x - y)(y, x) equals y - x.",
+      "Subs(x - y, (x, y), (y, x)).doit() equals 0.",
+      "Subs retains initially absent/self substitution entries and evaluates its mappings in declared order.",
+      "Nested binder application follows the pinned structural behavior, not a new alpha-renaming convention."
+    ],
+    "retention": "Original probe outputs were observed in the session; no standalone differential receipt is claimed."
+  },
+  "remaining_limits": [
+    "Whole-workspace native execution and the actual Python/native regression run remain open after asupersync compilation was killed.",
+    "Exact interval images admit bounded rational functions with rational, selected real-algebraic or infinite endpoints. Unsupported syntax stays formal before mathematical work; failures after selection propagate.",
+    "General symbolic, multivariate and transcendental image completeness is not claimed.",
+    "Custom Symbol subclasses retain the pre-existing generic hashing/equality admission limitation; the Lambda parameter slice is exact Symbol/Dummy.",
+    "No proof tier, compatibility profile, runtime guarantee, performance claim, bead status or workstream gate is promoted."
+  ],
+  "validation": {
+    "recorded_utc": "2026-11-15T02:58:34.747852+00:00",
+    "repository": "Dicklesworthstone/frankensympy",
+    "baseline_commit": "bd1f89ad417e80b8d1823e5be41798e1534729d0",
+    "toolchain_pin": "nightly-2026-08-20",
+    "rustc_version": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "cargo_version": "cargo 1.100.0-nightly (514c56dd7 2026-08-19)",
+    "python_version": "Python 3.12.14",
+    "build_environment": {
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0"
+    },
+    "donor_revisions": {
+      "asupersync": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+      "franken_numpy-pin": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+      "frankenscipy-pin": "213a417c739025ed865a3875c89a7d86726ecb5a"
+    },
+    "native_builds": [
+      {
+        "command": "source /workspace/scratch/0d5f6724ed05/toolchain/env.sh\ncargo build --locked -p fsym-python --features extension-module -j1",
+        "exit": 101,
+        "failed_crate": "asupersync (lib)",
+        "failure": "rustc killed with signal 9 (SIGKILL)",
+        "sigkill_recorded": true,
+        "log_sha256": "371f1dd6ce87ae1a9d879cf8f72036306ea9071a80fd7bedd4f10d3ef25fc82a",
+        "log_bytes": 31693,
+        "log_retention": "Local session log; not a remotely runnable validation receipt."
+      },
+      {
+        "command": "source /workspace/scratch/0d5f6724ed05/toolchain/env.sh\ncargo -Zprofile-rustflags --config 'profile.dev.package.asupersync.rustflags=[\"-Zunstable-options\", \"--jobs-frontend=1\", \"--jobs-backend=1\"]' --config 'profile.dev.package.asupersync.codegen-units=256' build --locked -p fsym-python --features extension-module -j1",
+        "exit": 101,
+        "failed_crate": "asupersync (lib)",
+        "failure": "rustc killed with signal 9 (SIGKILL)",
+        "sigkill_recorded": true,
+        "log_sha256": "86adb91a08769e56d0c87b444230f1b64125b092be82e5522e30954e40fdd4f5",
+        "log_bytes": 26308,
+        "log_retention": "Local session log; not a remotely runnable validation receipt."
+      },
+      {
+        "command": "source /workspace/scratch/0d5f6724ed05/toolchain/env.sh\ncargo -Zprofile-rustflags --config 'profile.dev.package.asupersync.rustflags=[\"-Zunstable-options\", \"--jobs-frontend=1\", \"--jobs-backend=1\", \"-Zhint-mostly-unused\"]' --config 'profile.dev.package.asupersync.codegen-units=256' build --locked -p fsym-python --features extension-module -j1",
+        "exit": 101,
+        "failed_crate": "asupersync (lib)",
+        "failure": "rustc killed with signal 9 (SIGKILL)",
+        "sigkill_recorded": true,
+        "log_sha256": "55923e14a80bc1c6e6aa9ffd55a7176731d371ac0ddc4bbb23f24b3004f24c48",
+        "log_bytes": 26228,
+        "log_retention": "Local session log; not a remotely runnable validation receipt."
+      }
+    ],
+    "earlier_interrupted_build": "Before these three recorded attempts, an initial build lost its terminal status when the execution environment became unavailable. No success claimed.",
+    "native_extension_exists": false,
+    "candidate_python_tests": {
+      "status": "NOT EXECUTED",
+      "reason": "Production native extension could not be built; asupersync compiler processes were killed under memory pressure. No stubs, source exclusions, feature narrowing, or upstream fallback were used."
+    },
+    "baseline_formatting": {
+      "command": "cargo fmt --check",
+      "exit": 1,
+      "attribution": "Executed on the clean baseline commit before any worktree edits; existing formatting differences, not introduced by this session.",
+      "example_paths": [
+        "crates/fsym-calculus/src/box_optimization/checkpoint.rs",
+        "crates/fsym-calculus/tests/box_optimization_checkpoint.rs",
+        "crates/fsym-calculus/tests/square_root_programs.rs",
+        "tests/optimization_checkpoints.rs"
+      ],
+      "note": "No formatting edits made. Pre-recovery tool output was observed but not saved as a standalone log."
+    },
+    "python_syntax_checks": [
+      {
+        "path": "python/sympy/__init__.py",
+        "sha256": "6af381905b8e0f7c207402a7bf11832173283e1e16052a6c88ba0c7e389b16f7",
+        "git_blob_sha": "6b0719a1f00f0c322f3aa1a7a9d0438e7d246ad0",
+        "ast_parse": "passed",
+        "bytecode_compile": "passed"
+      },
+      {
+        "path": "python/sympy/calculus/_rational_range.py",
+        "sha256": "025e5a84d06c2f737083d0012b5759f77f07cdc8c6a92ce59fbb7daeb620582f",
+        "git_blob_sha": "65988084eb37f501039255867c595c5044de712b",
+        "ast_parse": "passed",
+        "bytecode_compile": "passed"
+      },
+      {
+        "path": "python/sympy/core/lambdify_subs.py",
+        "sha256": "2f326753a5ba9b42cf51146df5233cb8db1f0dcabdd1e52dd25e8f96d750137e",
+        "git_blob_sha": "b36972f0a9569a2effaf312f0d4b42c1c4bdc4cc",
+        "ast_parse": "passed",
+        "bytecode_compile": "passed"
+      },
+      {
+        "path": "python/sympy/sets/fancysets.py",
+        "sha256": "98439a87b9f8c99d1cedb2cd3e733f794018ee48293a9833541f19bf0e7a5dcf",
+        "git_blob_sha": "c9fd1766ea2e844adb9cc9088530a0ee541573e0",
+        "ast_parse": "passed",
+        "bytecode_compile": "passed"
+      },
+      {
+        "path": "python/sympy/sets/sets.py",
+        "sha256": "c387e54a7396e0598b634eb76c62c7376dc0e7685ccd2d3a889fcf048d9e4ad7",
+        "git_blob_sha": "f9ba1afad17beb30a88c81bc49cfbb9ecd2ef449",
+        "ast_parse": "passed",
+        "bytecode_compile": "passed"
+      },
+      {
+        "path": "python/tests/test_imageset_exact.py",
+        "sha256": "9b499d724b6919ac3406bb30f2b2051695c2409201d97a05f40bd59329ac5425",
+        "git_blob_sha": "e92a2542522b699b9a1124cf9fcbe8f2e93612a3",
+        "ast_parse": "passed",
+        "bytecode_compile": "passed"
+      },
+      {
+        "path": "python/tests/test_lambda_substitution.py",
+        "sha256": "adea39d84eab5b76944688796ed697c71b9858b62cc14db311afee987e45164d",
+        "git_blob_sha": "1b990dcbb73f082f3c572edae97078a64d9686b4",
+        "ast_parse": "passed",
+        "bytecode_compile": "passed"
+      },
+      {
+        "path": "python/tests/test_set_membership.py",
+        "sha256": "4f78f4abc342d424dbe7640a968082d21c49f39df6de6fad197f2819a8bc9503",
+        "git_blob_sha": "43b0f20824f7357da4d926b55a7702769ed17a82",
+        "ast_parse": "passed",
+        "bytecode_compile": "passed"
+      }
+    ],
+    "whitespace_checks": [
+      {
+        "command": "git diff --check",
+        "exit": 0,
+        "output": ""
+      },
+      {
+        "command": "git diff --cached --check",
+        "exit": 0,
+        "output": ""
+      }
+    ],
+    "untracked_file_whitespace": {
+      "status": "passed",
+      "paths": [
+        "python/tests/test_imageset_exact.py",
+        "python/tests/test_lambda_substitution.py",
+        "python/tests/test_set_membership.py"
+      ],
+      "trailing_whitespace_findings": []
+    }
+  },
+  "prior_commits_independently_verified": [
+    "9df397c111f630f38302f6867782870170c2ebe1",
+    "0ce0726813bd7ad70fba0fad465fedfba0ff0566"
+  ]
+}
