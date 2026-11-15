@@ -1,0 +1,42 @@
+{
+  "scope": "Final owned portable-root-proof source hashes and observed validation files; component checks are not full-workspace/profile validation",
+  "owned_source_sha256": {
+    "crates/fsym-core/Cargo.toml": "e1d2bb9f3ec155ad8a5add3917025433883bde0fa902641ab6f86c60fd91f403",
+    "crates/fsym-core/src/root_certificate.rs": "bf5c0fd5d17b339ad261cf319fcdf6a27645d13b31146e680db8bbf6f7616ff3",
+    "crates/fsym-core/src/root_certificate/artifact.rs": "a483023270cdb0deb63ff6d5ba6d102def463a5844576cafe435dd7da9a3f07d",
+    "crates/fsym-core/tests/root_artifact.rs": "5e9e4b19f20cf9319dc4d353cf471e1b52d0ee989aa11f13baff26eb1fee6132",
+    "src/certification.rs": "36c28418bc503831e8c3b74d060873cb1898e3b358b13c11953014a02bfe3070",
+    "crates/fsym-python/src/numeric.rs": "3032ea8acc9b17ae4ed9621c0fdc7bbb3eef884c21bd49e6d1262180f6e87772",
+    "crates/fsym-python/src/numeric/root_artifact.rs": "42aeab4fe646b1a9d1ccdc0600a9a05a1eb67bb90c560a6cff7869eee4259e58",
+    "python/sympy/utilities/_certified_numeric.py": "419c598cf6aae5d8b843bf13fdb1c4e836247999cd1859a6707c19296e50ff90",
+    "python/sympy/utilities/lambdify.py": "9d1ad2ef116e72792e0eac2e94be4178fb6411f5d957a2b1f699d4dd9e958f06",
+    "python/sympy/utilities/_root_certificate.py": "1c143b907b6f44f1ac2bd8cca1e35ac87d8c6966e22f3104c0987da5158dacc3",
+    "python/tests/test_root_certificate_transport.py": "5b6c754728354041a83807a76e58c7a863c115d41d14860001eafa71cc8bd6b9"
+  },
+  "logs": {
+    "/tmp/frankensympy-root-artifact-tests.log": "00cc6c9d3c7e70fabf2ea35bad4c571d845f603ea23e0b85ce946dd6276eca75",
+    "/tmp/frankensympy-root-artifact-tests-final.log": "baaacee8953f4ee04a3601318511144ccf79ec31e769a32f6661d705996d5b1c",
+    "/tmp/frankensympy-root-artifact-session-tests.log": "1faea03b26f72c7ff6772bd58ff76e553af892d5fdc4ed1137da721b6c10c2e4",
+    "/tmp/frankensympy-root-artifact-clippy.log": "3dcd30c225d0925eccb4e6424ba8d97e41c648c1f878e7bffc858e974c3336f4",
+    "/tmp/frankensympy-root-artifact-clippy-final.log": "b5f1157f1082bb640e072fe864904d5555a1b92ffda99e64035f223a59b2b6c9",
+    "/tmp/frankensympy-root-artifact-session-clippy.log": "68be0c4e254001220b6dc47d8e9d6ed9c482772bb840382c5b823b699b032410",
+    "/tmp/frankensympy-root-artifact-python-clippy.log": "73c91fd02f9bca9b3e001e60af6f8214d8bf80dc8808b02e7fb2e6da4f480938"
+  },
+  "session_inventories": {
+    "/tmp/frankensympy-root-artifact-session-before.json": "202943eee080781783d5cf24ad3feaa06b6e5ce64281d6fe9f6b05696b1b5a0e",
+    "/tmp/frankensympy-root-artifact-session-after.json": "2cf56724e07f213ff030e84e4e98dd00db67e9d6d4f2a426aa09d61e252c67c2",
+    "/tmp/frankensympy-root-artifact-session-clippy-before.json": "41b98728f86a24ade7b35dd4b5abb4ce24c61432411a572f2d055cbb166b972b",
+    "/tmp/frankensympy-root-artifact-session-clippy-after.json": "90f2c998b22ede48d86ec19c5ae65a9ceae174dc4c25302805b54411bc7c33e9"
+  },
+  "native_core_unique_cases": 29,
+  "native_core_artifact_rerun_same_cases": 5,
+  "session_component_cases": 56,
+  "strict_checks_passed": [
+    "fsym-core --lib --test root_artifact --no-deps",
+    "Session source component --lib --no-deps",
+    "PyO3 math source component --lib --features extension-module --no-deps"
+  ],
+  "initial_lint_and_correction": "Strict core test lint useless_vec: replaced the fixed97-byte depth test Vec with an identical array slice. No production transport source change. Initial failure log retained; strict core check and all5 artifact cases reran successfully.",
+  "public_root_proof_cases_reported_by_parent": 19,
+  "public_runtime_observation_owner": "root; exact copied PyO3 bridge and public shell validation evidence is recorded separately"
+}

@@ -1,0 +1,64 @@
+{
+  "feature": "Bounded higher-degree finite rational Product telescopes",
+  "bead": "fra-a5x",
+  "repository": "Dicklesworthstone/frankensympy",
+  "date_utc": "2026-11-15",
+  "working_directory": "/workspace/scratch/4a3a39075b27/frankensympy",
+  "validation_scope": "Selected native packages in the actual locked production workspace, not a full-workspace or Python execution claim.",
+  "command": "cargo test --locked --offline -p fsym-proof-kernel -p fsym-calculus --test rational_product --test rational_product_modular",
+  "environment": {
+    "CARGO_TARGET_DIR": "/tmp/frankensympy-continuation-target",
+    "CARGO_BUILD_JOBS": "1",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "shell_setup": ". \"$HOME/.cargo/env\"",
+    "RUSTFLAGS": "not set by the command"
+  },
+  "terminal_session": 86534,
+  "exit_status": 0,
+  "test_results": {
+    "fsym-calculus/rational_product": 19,
+    "fsym-calculus/rational_product_modular": 13,
+    "fsym-proof-kernel/rational_product": 12,
+    "fsym-proof-kernel/rational_product_modular": 12,
+    "total_passed": 56,
+    "failed": 0,
+    "ignored": 0
+  },
+  "logs": [
+    {
+      "path": "/tmp/frankensympy-product-modular-tests-20261115.log",
+      "bytes": 2564,
+      "sha256": "82dd79f05a3a8ead10f9403e017f6571a8f888b2958640643673153cadd2547f",
+      "outcome": "Compile failure: owned BigInt wrapper has no From<usize>; corrected the bounded counters to u64 without changing arithmetic."
+    },
+    {
+      "path": "/tmp/frankensympy-product-modular-tests-retry1-20261115.log",
+      "bytes": 4517,
+      "sha256": "00824dce93c4a7796394eb5bc03d2050a9b234dab54fb6f3cdd56d9a0a311065",
+      "outcome": "Existing19 calculus tests passed; new8/11 passed. Repeated/gapped, mixed-factor and primorial fixtures exposed unchanged cumulative factor-search budget limits."
+    },
+    {
+      "path": "/tmp/frankensympy-product-modular-tests-retry2-20261115.log",
+      "bytes": 6002,
+      "sha256": "2c730937526a7707b4164dd24212be05bf066b5246de6f105dadb66af096b8af",
+      "outcome": "All56 passed after exact whole-shift construction and coefficient-bound domain-factor reuse. No budgets were increased. The primorial stress remains an explicit terminal-budget regression; the smaller independent missing-witness fixture retains the unsupported/None assertion."
+    }
+  ],
+  "production_source_bookend": "The four production-file hashes below were captured immediately before the final run and matched after its terminal success. Test-file hashes are the post-run inventory; no owned source/test edits occurred during that run.",
+  "source_sha256": {
+    "crates/fsym-calculus/src/rational_product.rs": "a78857971ea4701cef61249a4ed3bd1ac17e55a633a8b3c428b651c360f9e137",
+    "crates/fsym-calculus/src/rational_product/modular.rs": "b049a8c68d18dc1bad3eed38a5681c16b338971b9a4efc3fc8e431d1458af8dd",
+    "crates/fsym-calculus/tests/rational_product.rs": "688fccb272ef6be383a602a2651d15b5d15c3f800ea7aa97ebb554b626fa5386",
+    "crates/fsym-calculus/tests/rational_product_modular.rs": "63fea15c22186b4a25c27e9e56fb60bd43da9180c83d638ff446b744b2d8dfce",
+    "crates/fsym-proof-kernel/src/rational_product.rs": "586f65083457c552723c5a40426f3ec078eaa3d0ac8698a32027ff23f07da165",
+    "crates/fsym-proof-kernel/src/rational_product/modular.rs": "1c30cfc50be9537ffcdfdcbfe70ce6df31e7d634e5d6bd5b9bacd8f6ba325315",
+    "crates/fsym-proof-kernel/tests/rational_product.rs": "478bc6048ef6235c9f2d39e34b2e6cc992d75d57f0ad93add7d9d3b389031d41",
+    "crates/fsym-proof-kernel/tests/rational_product_modular.rs": "d7a06f665a946ab15f1369fc5e3bba2babe6ecdeb987057460b2d9de4912643b"
+  },
+  "review": "Independent read-only review found no concrete defect in modular factor checks, exact whole shifts, zero crossings, degree preflight, original guard order/reuse, generic refinement or cumulative terminal metering.",
+  "formatting": "Scoped rustfmt and git diff --check passed before the final run.",
+  "strict_clippy": "Not yet run; deferred for the coordinated Session/Python build slot.",
+  "limits": "Original degree64, shift-span64, output degree128, scalar/source and cumulative20M-compute/128MiB phase caps are unchanged. Higher-degree nonvanishing requires a valid witness among primes<=97. This is an integer-domain fact, not irreducibility or all-polynomial coverage. Broad WS18/profile gates remain open."
+}

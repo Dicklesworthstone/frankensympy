@@ -1,0 +1,50 @@
+   Compiling serde_json v1.0.151
+   Compiling fsym-core v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-core)
+    Finished `test` profile [unoptimized] target(s) in 6.49s
+     Running tests/root_artifact.rs (/tmp/frankensympy-continuation-target/debug/build/fsym-core/7e1529b88f3f884a/out/root_artifact-7e1529b88f3f884a)
+
+running 5 tests
+test alternate_encoding_acceptance_flags_and_oversized_payloads_refuse ... ok
+test canonical_candidate_bytes_are_still_not_an_accepted_proof ... ok
+test receiver_context_and_typed_source_bind_before_untrusted_witness_decoding ... ok
+test canonical_roundtrip_retains_exact_independent_claim_and_source_ownership ... ok
+test every_replay_checkpoint_cancels_without_publishing_or_borrowing_protected_fuel ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/root_box_certificate.rs (/tmp/frankensympy-continuation-target/debug/build/fsym-core/9435f6e45f8aae88/out/root_box_certificate-9435f6e45f8aae88)
+
+running 9 tests
+test strict_inclusion_does_not_accept_a_root_only_on_the_box_boundary ... ok
+test nonlinear_irrational_roots_receive_strict_rational_enclosures ... ok
+test small_residuals_multiple_roots_and_singular_roots_do_not_imply_certification ... ok
+test hand_supplied_affine_witness_proves_the_exact_root_without_a_generator ... ok
+test forged_preconditioners_centers_boxes_and_systems_are_recomputed ... ok
+test hostile_expressions_and_untrusted_wire_fields_refuse ... ok
+test original_domain_is_checked_through_zero_multipliers_and_held_powers ... ok
+test cancellation_at_every_safe_point_and_exhausted_budgets_publish_no_receipt ... ok
+test transcendental_enclosures_and_chain_rules_are_checked_on_the_entire_box ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/root_box_general.rs (/tmp/frankensympy-continuation-target/debug/build/fsym-core/d6eea5bb7449abc1/out/root_box_general-d6eea5bb7449abc1)
+
+running 15 tests
+test bounded_transport_rejects_excess_rows_limbs_and_noncanonical_scalars ... ok
+test contraction_and_strict_interior_refuse_false_or_singular_root_claims ... ok
+test real_budget_accepts_rectangular_enclosures_and_preserves_atomic_refusal ... ok
+test real_budget_accepts_a_nonlinear_root_certificate ... ok
+test coupled_three_dimensional_nonlinear_system_is_certified ... ok
+test scalar_irrational_root_gets_exact_strict_bounds ... ok
+test cancellation_at_every_checkpoint_publishes_no_generic_receipt ... ok
+test nonsymmetric_preconditioner_orientation_is_checked ... ok
+test whole_box_domains_survive_held_zeros_powers_and_singularities ... ok
+test point_and_large_exact_coordinates_do_not_go_through_binary64 ... ok
+test shape_precision_and_source_bounds_refuse_before_numeric_work ... ok
+test typed_variable_identity_and_witness_mutations_are_never_trusted ... ok
+test maximum_dimension_coupled_triangular_system_fits_the_fixed_budget ... ok
+test rectangular_enclosures_bind_exact_source_and_all_partial_derivatives ... ok
+test intrinsic_arithmetic_budget_applies_even_without_a_caller_meter ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+

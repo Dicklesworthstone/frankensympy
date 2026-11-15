@@ -1,0 +1,252 @@
+.F..F.F.........F...............................F.                      [100%]
+=================================== FAILURES ===================================
+_ ChecksolOriginalDomainTests.test_candidate_source_is_checked_before_it_disappears _
+
+self = <test_checksol_domains.ChecksolOriginalDomainTests testMethod=test_candidate_source_is_checked_before_it_disappears>
+
+    def test_candidate_source_is_checked_before_it_disappears(self):
+        x, y = self.x, self.y
+        candidate = Mul(y, self.reciprocal(y), evaluate=False)
+        self.assertIs(checksol(x - 1, {x: candidate, y: 0}), False)
+        self.assertIs(checksol(x - 1, {x: candidate, y: 2}), True)
+>       self.assertIsNone(checksol(x - 1, {x: candidate}))
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_checksol_domains.py:107: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/sympy/__init__.py:909: in checksol
+    return _checksol_impl(expression, symbol, val)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/_checksol.py:396: in checksol
+    return _check_with_work(expression, symbol, val, _Work())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/_checksol.py:374: in _check_with_work
+    verdict = _check_conjunction(
+python/sympy/solvers/_checksol.py:360: in _check_conjunction
+    result = _check_scalar(equation, symbol, val, work, domain_only=domain_only)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/_checksol.py:322: in _check_scalar
+    result = _residual_check(source, items, work)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/_checksol.py:246: in _residual_check
+    simplified = simplify(subbed)
+                 ^^^^^^^^^^^^^^^^
+python/sympy/simplify/simplify.py:52: in simplify
+    expr = _core_simplify(expr)
+           ^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+expression = -1 + checksol_domain_y/checksol_domain_y
+
+    def simplify(expression: Any) -> Expr:
+        if _contains_opaque(expression):
+            from ._surface_transforms import simplify as surface_simplify
+    
+            return surface_simplify(expression)
+>       return _lift_builtin_result(_native_expr(expression).simplify())
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'fsym_python.Expr' object has no attribute 'simplify'
+
+python/sympy/core/__init__.py:6057: AttributeError
+_ ChecksolOriginalDomainTests.test_existing_residual_comparison_and_fuzzy_conjunction _
+
+self = <test_checksol_domains.ChecksolOriginalDomainTests testMethod=test_existing_residual_comparison_and_fuzzy_conjunction>
+
+    def test_existing_residual_comparison_and_fuzzy_conjunction(self):
+        x, y = self.x, self.y
+        self.assertIs(checksol(x*x - 9, x, 3), True)
+        self.assertIs(checksol(x*x - 9, x, 4), False)
+        self.assertIs(checksol(sin(x), x, 0), True)
+>       self.assertIsNone(checksol(sin(y), x, 1))
+                          ^^^^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_checksol_domains.py:181: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/sympy/__init__.py:909: in checksol
+    return _checksol_impl(expression, symbol, val)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/_checksol.py:396: in checksol
+    return _check_with_work(expression, symbol, val, _Work())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/_checksol.py:374: in _check_with_work
+    verdict = _check_conjunction(
+python/sympy/solvers/_checksol.py:360: in _check_conjunction
+    result = _check_scalar(equation, symbol, val, work, domain_only=domain_only)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/_checksol.py:322: in _check_scalar
+    result = _residual_check(source, items, work)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/_checksol.py:246: in _residual_check
+    simplified = simplify(subbed)
+                 ^^^^^^^^^^^^^^^^
+python/sympy/simplify/simplify.py:52: in simplify
+    expr = _core_simplify(expr)
+           ^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+expression = sin(checksol_domain_y)
+
+    def simplify(expression: Any) -> Expr:
+        if _contains_opaque(expression):
+            from ._surface_transforms import simplify as surface_simplify
+    
+            return surface_simplify(expression)
+>       return _lift_builtin_result(_native_expr(expression).simplify())
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'fsym_python.Expr' object has no attribute 'simplify'
+
+python/sympy/core/__init__.py:6057: AttributeError
+_ ChecksolOriginalDomainTests.test_identical_equation_sides_are_checked_before_subtraction _
+
+self = <test_checksol_domains.ChecksolOriginalDomainTests testMethod=test_identical_equation_sides_are_checked_before_subtraction>
+
+    def test_identical_equation_sides_are_checked_before_subtraction(self):
+        x = self.x
+        reciprocal = self.reciprocal(x - 2)
+        source = Eq(reciprocal, reciprocal, evaluate=False)
+        self.assertIs(checksol(source, x, 2), False)
+        self.assertIs(checksol(source, x, 3), True)
+>       self.assertIsNone(checksol(source, {}))
+                          ^^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_checksol_domains.py:43: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/sympy/__init__.py:909: in checksol
+    return _checksol_impl(expression, symbol, val)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/_checksol.py:396: in checksol
+    return _check_with_work(expression, symbol, val, _Work())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/_checksol.py:374: in _check_with_work
+    verdict = _check_conjunction(
+python/sympy/solvers/_checksol.py:360: in _check_conjunction
+    result = _check_scalar(equation, symbol, val, work, domain_only=domain_only)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/_checksol.py:313: in _check_scalar
+    domain = _domain_status(records, items, work)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/_checksol.py:213: in _domain_status
+    zero = simplify(base).is_zero
+           ^^^^^^^^^^^^^^
+python/sympy/simplify/simplify.py:52: in simplify
+    expr = _core_simplify(expr)
+           ^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+expression = checksol_domain_x - 2
+
+    def simplify(expression: Any) -> Expr:
+        if _contains_opaque(expression):
+            from ._surface_transforms import simplify as surface_simplify
+    
+            return surface_simplify(expression)
+>       return _lift_builtin_result(_native_expr(expression).simplify())
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'fsym_python.Expr' object has no attribute 'simplify'
+
+python/sympy/core/__init__.py:6057: AttributeError
+_ ChecksolOriginalDomainTests.test_standard_constants_and_empty_mapping_identity_remain_conclusive _
+
+self = <test_checksol_domains.ChecksolOriginalDomainTests testMethod=test_standard_constants_and_empty_mapping_identity_remain_conclusive>
+
+    def test_standard_constants_and_empty_mapping_identity_remain_conclusive(self):
+        from sympy import E, I, pi
+    
+        x = self.x
+        for constant in (E, I, pi):
+            source = Eq(self.reciprocal(x), self.reciprocal(x), evaluate=False)
+            with self.subTest(constant=constant):
+                self.assertIs(checksol(source, x, constant), True)
+>       self.assertIs(checksol(x*x + x - x*(x + 1), {}), True)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_checksol_domains.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/sympy/__init__.py:909: in checksol
+    return _checksol_impl(expression, symbol, val)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/_checksol.py:396: in checksol
+    return _check_with_work(expression, symbol, val, _Work())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/_checksol.py:374: in _check_with_work
+    verdict = _check_conjunction(
+python/sympy/solvers/_checksol.py:360: in _check_conjunction
+    result = _check_scalar(equation, symbol, val, work, domain_only=domain_only)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/_checksol.py:322: in _check_scalar
+    result = _residual_check(source, items, work)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/_checksol.py:246: in _residual_check
+    simplified = simplify(subbed)
+                 ^^^^^^^^^^^^^^^^
+python/sympy/simplify/simplify.py:52: in simplify
+    expr = _core_simplify(expr)
+           ^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+expression = checksol_domain_x**2 - checksol_domain_x*(checksol_domain_x + 1) + checksol_domain_x
+
+    def simplify(expression: Any) -> Expr:
+        if _contains_opaque(expression):
+            from ._surface_transforms import simplify as surface_simplify
+    
+            return surface_simplify(expression)
+>       return _lift_builtin_result(_native_expr(expression).simplify())
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'fsym_python.Expr' object has no attribute 'simplify'
+
+python/sympy/core/__init__.py:6057: AttributeError
+----------------------------- Captured stdout call -----------------------------
+uuu
+_ SurfaceTests.test_checksol_preserves_inconclusive_results_and_fuzzy_conjunction _
+
+self = <test_surface.SurfaceTests testMethod=test_checksol_preserves_inconclusive_results_and_fuzzy_conjunction>
+
+    def test_checksol_preserves_inconclusive_results_and_fuzzy_conjunction(self):
+        x, y = sympy.symbols("x y")
+>       self.assertIsNone(sympy.checksol(sympy.sin(y), x, 1))
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_surface.py:707: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/sympy/__init__.py:909: in checksol
+    return _checksol_impl(expression, symbol, val)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/_checksol.py:396: in checksol
+    return _check_with_work(expression, symbol, val, _Work())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/_checksol.py:374: in _check_with_work
+    verdict = _check_conjunction(
+python/sympy/solvers/_checksol.py:360: in _check_conjunction
+    result = _check_scalar(equation, symbol, val, work, domain_only=domain_only)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/_checksol.py:322: in _check_scalar
+    result = _residual_check(source, items, work)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/_checksol.py:246: in _residual_check
+    simplified = simplify(subbed)
+                 ^^^^^^^^^^^^^^^^
+python/sympy/simplify/simplify.py:52: in simplify
+    expr = _core_simplify(expr)
+           ^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+expression = sin(y)
+
+    def simplify(expression: Any) -> Expr:
+        if _contains_opaque(expression):
+            from ._surface_transforms import simplify as surface_simplify
+    
+            return surface_simplify(expression)
+>       return _lift_builtin_result(_native_expr(expression).simplify())
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'fsym_python.Expr' object has no attribute 'simplify'
+
+python/sympy/core/__init__.py:6057: AttributeError
+=========================== short test summary info ============================
+FAILED python/tests/test_checksol_domains.py::ChecksolOriginalDomainTests::test_candidate_source_is_checked_before_it_disappears
+FAILED python/tests/test_checksol_domains.py::ChecksolOriginalDomainTests::test_existing_residual_comparison_and_fuzzy_conjunction
+FAILED python/tests/test_checksol_domains.py::ChecksolOriginalDomainTests::test_identical_equation_sides_are_checked_before_subtraction
+FAILED python/tests/test_checksol_domains.py::ChecksolOriginalDomainTests::test_standard_constants_and_empty_mapping_identity_remain_conclusive
+FAILED python/tests/test_surface.py::SurfaceTests::test_checksol_preserves_inconclusive_results_and_fuzzy_conjunction
+5 failed, 45 passed, 73 subtests passed in 6.00s

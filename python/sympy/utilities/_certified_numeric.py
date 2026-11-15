@@ -140,6 +140,38 @@ class RootBoxReceipt(_Receipt):
             raise TypeError("an accepted native root-box receipt is required")
         object.__setattr__(self, "_receipt", receipt)
 
+    def to_bytes(self, *, budget=None):
+        """Export the exact source and untrusted witness as canonical bytes.
+
+        The bounded 1 MiB native format is shared with default native Sessions.
+        It contains no accepted flag, root enclosure, Python object or compiled
+        evaluator. A receiver must supply its own exact source and recheck the
+        proof. Export is deterministic, source-bound and charged to one supplied
+        EvaluationBudget, or one private bounded budget when omitted.
+        """
+        from ._root_certificate import export_receipt
+        return export_receipt(self, budget=budget)
+
+    @staticmethod
+    def from_bytes(data, *, residuals, args, budget=None):
+        """Independently replay a root proof against the receiver's exact source.
+
+        ``data`` must be exact built-in bytes. Residual order, held source and
+        typed variable identities must match the canonical payload exactly;
+        mathematical equivalence or equal printed names do not suffice.
+        ``args`` follows the ordinary source-certification argument contract.
+        Captured declared assumptions must hold throughout the encoded box.
+
+        Only the default empty ambient context is supported, with declared
+        symbol facts retained by their typed identities. Different contexts,
+        noncanonical or malformed encodings and invalid witnesses refuse.
+        No symbolic derivative compilation or numerical search is performed.
+        One cumulative budget spans decoding, source binding, independent
+        verification and final publication; failure returns no receipt.
+        """
+        from ._root_certificate import replay_sources
+        return replay_sources(data, residuals=residuals, args=args, budget=budget)
+
     @property
     def center(self):
         return tuple(_wrap(value) for value in self._receipt.center)

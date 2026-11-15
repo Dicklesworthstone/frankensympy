@@ -1180,6 +1180,60 @@ keys refuse. Native artifact replay also rejects noncanonical JSON, including
 pretty-printing or changed field order; clients should pass the exported
 string through their JSON encoder without parsing and rewriting its contents.
 
+### Export and replay a root proof from Python
+
+The compatibility shell exposes the same bounded native root-witness format
+through `RootBoxReceipt.to_bytes`, `RootBoxReceipt.from_bytes`, and a compiled
+residual system's `replay_root_certificate` method:
+
+```python
+from fractions import Fraction
+from sympy import Rational, RootBoxReceipt, Symbol, certify_root_box, compile_residual_system
+
+x = Symbol("portable_x", positive=True)
+equation = x*x - 2
+proof = certify_root_box(
+    equation, x, [(Fraction(13, 10), Fraction(3, 2))],
+    center=[Fraction(7, 5)], preconditioner=[[Fraction(5, 14)]],
+    precision=24,
+)
+payload = proof.to_bytes()
+
+# A receiving process supplies its own exact source and typed coordinate.
+received = RootBoxReceipt.from_bytes(payload, residuals=equation, args=x)
+assert received.contraction_bound == Rational(1, 14)
+
+program = compile_residual_system(equation, x)
+received_again = program.replay_root_certificate(payload)
+assert received_again.to_bytes() == payload
+```
+
+Receipts from the existing `solve_certified` methods use this route as well.
+Source-only replay does not compile a symbolic derivative program or run a
+numerical solver. It can recheck supported Piecewise sources under the existing
+whole-box branch-stability requirements. A compiled receiver uses the exact
+source captured when it was constructed, even if the original Python lists
+or matrices are later changed.
+
+The payload must be exact built-in `bytes`, at most 1 MiB, in the canonical
+schema-1 encoding. It carries the exact typed source and an untrusted witness;
+no serialized acceptance flag or claimed enclosure authorizes a result.
+Residual order, held expression structure and complete symbol identities must
+match. A same-named Symbol with different assumptions or a different Dummy is
+not interchangeable. The independent checker recomputes the original-domain
+root claim, and the Python adapter also checks captured declared assumptions
+throughout the encoded box before returning its immutable receipt.
+
+Python currently uses the empty ambient assumptions context. Native Session
+artifacts can interoperate when that context and the entire typed statement
+match; an equivalent printed formula alone does not establish a match.
+All three Python methods accept `budget=EvaluationBudget(...)`. The supplied
+ledger, or one private bounded ledger when omitted, spans native encoding or
+decoding, checking and final publication; exhaustion and cancellation return
+no receipt. This Python ledger does not provide the Session's separate
+protected verifier allowance. The receipt establishes one unique nonsingular
+real root in the stated box, with no claim about roots elsewhere.
+
 ## Transfer certificates and checkpoints larger than one frame
 
 All certificate, derivative-program, root-checkpoint and optimization-checkpoint artifact kinds support a chunked route up to the native 1 MiB artifact

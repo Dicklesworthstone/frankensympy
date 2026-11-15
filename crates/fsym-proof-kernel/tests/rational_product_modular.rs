@@ -31,10 +31,10 @@ fn certificate(constant: BigRational, prime: u32) -> RationalProductCertificate 
         scale: q(1),
         numerator: polynomial(constant),
         denominator: vec![q(1)],
-        domain: RationalProductDomain {
+        domain: Box::new(RationalProductDomain {
             denominator: factor.clone(),
             guards: vec![],
-        },
+        }),
         numerator_factors: factor,
         denominator_factors: RationalProductFactors::default(),
     }

@@ -1,0 +1,35 @@
+    Checking fsym-budget v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-budget)
+    Checking fsym-bigint v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-bigint)
+    Checking fsym-modular v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-modular)
+    Checking fsym-rational v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-rational)
+    Checking fsym-id v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-id)
+    Checking fsym-core v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-core)
+   Compiling pyo3-build-config v0.27.2
+    Checking fsym-assumptions v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-assumptions)
+    Checking fsym-proof-kernel v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-proof-kernel)
+    Checking fsym-evidence v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-evidence)
+    Checking fsym-polys v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-polys)
+    Checking fsym-simplify v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-simplify)
+   Compiling pyo3-macros-backend v0.27.2
+   Compiling pyo3-ffi v0.27.2
+    Checking fsym-calculus v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-calculus)
+   Compiling pyo3 v0.27.2
+    Checking fsym-sets v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-sets)
+    Checking fsci-runtime v0.2.0 (/workspace/scratch/4a3a39075b27/frankenscipy-pin/crates/fsci-runtime)
+    Checking fsci-opt v0.2.0 (/workspace/scratch/4a3a39075b27/frankenscipy-pin/crates/fsci-opt)
+    Checking fsym-solvers v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-solvers)
+    Checking memoffset v0.9.1
+   Compiling pyo3-macros v0.27.2
+    Checking unindent v0.2.4
+    Checking once_cell v1.21.4
+    Checking fsym-matrices v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-matrices)
+    Checking fsym-numeric-consumer v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-numeric-consumer)
+    Checking fsym-geometry v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-geometry)
+    Checking fsym-tensor v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-tensor)
+    Checking fsym-printing v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-printing)
+    Checking fsym-logic v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-logic)
+    Checking fsym-ntheory v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-ntheory)
+    Checking fsym-functions v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-functions)
+    Checking fsym-budget-source-component v0.1.0 (/workspace/scratch/4a3a39075b27/python-root-transport-component/runtime)
+    Checking fsym-python-math-source-component v0.1.0 (/workspace/scratch/4a3a39075b27/python-root-transport-component)
+    Finished `dev` profile [unoptimized] target(s) in 29.47s

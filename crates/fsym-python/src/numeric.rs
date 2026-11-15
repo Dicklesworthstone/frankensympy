@@ -44,6 +44,8 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyFloat, PyInt, PyList, PyTuple};
 use std::collections::HashMap;
 
+mod root_artifact;
+
 const MAX_VARIABLES: usize = 256;
 const MAX_OUTPUTS: usize = 4096;
 const MAX_TOTAL_OPS: usize = 65_536;
@@ -303,6 +305,16 @@ pub struct PyRootBoxReceipt {
 
 #[pymethods]
 impl PyRootBoxReceipt {
+    /// Export a source-bound witness; replay must independently recheck it.
+    #[pyo3(signature = (*, budget=None))]
+    fn to_bytes<'py>(
+        &self,
+        py: Python<'py>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        root_artifact::export(py, &self.receipt, budget.as_deref())
+    }
+
     #[getter]
     fn residuals(&self) -> Vec<PyExpr> {
         self.receipt
@@ -1354,6 +1366,16 @@ impl PySourceResidualSystem {
             .collect()
     }
 
+    /// Bind canonical bytes to these frozen sources and rerun root verification.
+    #[pyo3(signature = (data, *, budget=None))]
+    fn replay_root_certificate(
+        &self,
+        data: &Bound<'_, PyAny>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<PyRootBoxReceipt> {
+        root_artifact::replay(data, &self.residuals, &self.variables, budget.as_deref())
+    }
+
     #[pyo3(signature = (domain, precision_digits=32, *, budget=None))]
     fn enclose(
         &self,
@@ -1684,6 +1706,18 @@ impl PyVerifiedResidualSystem {
             // limit as well, since native transport permits a wider envelope.
             Self::admit(system)
         })
+    }
+
+    /// Root-proof replay does not execute the compiled evaluator or regenerate
+    /// a witness: its expected statement is this program's captured source.
+    #[pyo3(signature = (data, *, budget=None))]
+    fn replay_root_certificate(
+        &self,
+        data: &Bound<'_, PyAny>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<PyRootBoxReceipt> {
+        let source = self.system.sparse_jacobian();
+        root_artifact::replay(data, &source.residuals, &source.vars, budget.as_deref())
     }
 
     /// Independently enclose the original residuals and their derivatives.

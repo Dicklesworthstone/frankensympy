@@ -1,0 +1,149 @@
+   Compiling fsym-core v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-core)
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-assumptions)
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-proof-kernel)
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-evidence)
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-polys)
+   Compiling fsym-simplify v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-simplify)
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-calculus)
+   Compiling fsym-sets v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-sets)
+warning: static `EPHEMERAL_REGION_COUNTER` is never used
+  --> /workspace/scratch/4a3a39075b27/asupersync/src/types/id.rs:21:8
+   |
+21 | static EPHEMERAL_REGION_COUNTER: AtomicU32 = AtomicU32::new(1);
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: static `EPHEMERAL_TASK_COUNTER` is never used
+  --> /workspace/scratch/4a3a39075b27/asupersync/src/types/id.rs:22:8
+   |
+22 | static EPHEMERAL_TASK_COUNTER: AtomicU32 = AtomicU32::new(1);
+   |        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `next_bootstrap_region_id` is never used
+  --> /workspace/scratch/4a3a39075b27/asupersync/src/types/id.rs:32:15
+   |
+32 | pub(crate) fn next_bootstrap_region_id() -> RegionId {
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `next_bootstrap_task_id` is never used
+  --> /workspace/scratch/4a3a39075b27/asupersync/src/types/id.rs:41:15
+   |
+41 | pub(crate) fn next_bootstrap_task_id() -> TaskId {
+   |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated function `from_arena` is never used
+  --> /workspace/scratch/4a3a39075b27/asupersync/src/types/id.rs:57:25
+   |
+52 | impl RegionId {
+   | ------------- associated function in this implementation
+...
+57 |     pub(crate) const fn from_arena(index: ArenaIndex) -> Self {
+   |                         ^^^^^^^^^^
+
+warning: feature `try_trait_v2` is declared but not used
+ --> codec/lib.rs:3:54
+  |
+3 | #![cfg_attr(feature = "nightly-outcome-try", feature(try_trait_v2))]
+  |                                                      ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_features)]` (part of `#[warn(unused)]`) on by default
+
+warning: feature `try_trait_v2_residual` is declared but not used
+ --> codec/lib.rs:4:54
+  |
+4 | #![cfg_attr(feature = "nightly-outcome-try", feature(try_trait_v2_residual))]
+  |                                                      ^^^^^^^^^^^^^^^^^^^^^
+
+warning: `asupersync-codec-source-component` (lib) generated 7 warnings
+   Compiling fsym-solvers v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-solvers)
+   Compiling fsym-runtime-session-source-component v0.1.0 (/workspace/scratch/4a3a39075b27/session-root-certification-component/runtime)
+   Compiling fsym-numeric-consumer v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-numeric-consumer)
+   Compiling frankensympy-session-source-component-check v0.1.0 (/workspace/scratch/4a3a39075b27/session-root-certification-component)
+    Finished `test` profile [unoptimized] target(s) in 52.50s
+     Running unittests /workspace/scratch/4a3a39075b27/frankensympy/src/lib.rs (/tmp/frankensympy-continuation-target/debug/build/frankensympy-session-source-component-check/0912943cedf800c5/out/frankensympy-0912943cedf800c5)
+
+running 15 tests
+test certification_session::compiled_root_tests::a_compiled_source_cannot_be_certified_under_a_rebound_context ... ok
+test certification_session::polynomial_solver::tests::cancellation_in_either_lane_remains_typed_through_solver_errors ... ok
+test certification_session::polynomial_solver::tests::missing_or_foreign_verifier_authority_precedes_all_generation ... ok
+test certification_session::polynomial_solver::tests::recorded_failure_is_terminal_and_shared_across_both_views ... ok
+test certification_session::polynomial_solver::tests::same_print_axes_keep_distinct_typed_identities_through_the_response ... ok
+test certification_session::real_solver::tests::inaccessible_ledger_and_foreign_verifier_authority_refuse_without_panics ... ok
+test certification_session::real_solver::tests::missing_or_foreign_lease_is_checked_before_generator_or_output_costs ... ok
+test certification_session::real_solver::tests::scoped_lanes_keep_atomic_shared_charges_and_disjoint_compute_pools ... ok
+test repairable_search::tests::cancellation_and_exhaustion_cannot_publish_a_manifest_or_spend_verifier_budget ... ok
+test repairable_search::tests::codec_seed_and_every_available_symbol_digest_remain_checked ... ok
+test repairable_search::tests::disk_source_and_repair_losses_reconstruct_the_exact_original_bytes ... ok
+test repairable_search::tests::erased_symbol_hashes_and_addresses_must_match_the_recovered_payload ... ok
+test repairable_search::tests::intact_sources_need_no_repair_records_and_excess_source_loss_refuses ... ok
+test repairable_search::tests::manifest_bounds_canonical_encoding_and_context_are_not_repairable_erasures ... ok
+test repairable_search::tests::recovered_checkpoint_still_requires_the_original_mathematical_source ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.77s
+
+     Running /workspace/scratch/4a3a39075b27/frankensympy/tests/certification.rs (/tmp/frankensympy-continuation-target/debug/build/frankensympy-session-source-component-check/99ea5a91eb64866e/out/certification-99ea5a91eb64866e)
+
+running 13 tests
+test a_well_formed_canonical_forged_witness_never_gets_an_accepted_receipt ... ok
+test construction_verification_and_transport_refuse_at_every_cancellation_safe_point ... ok
+test exact_source_enclosure_and_unique_root_have_independent_rational_expectations ... ok
+test export_stops_at_the_byte_limit_without_returning_a_partial_artifact ... ok
+test portable_witness_replays_in_a_fresh_problem_and_contains_no_accepted_claim ... ok
+test protected_receiving_budget_can_authorize_the_independent_checker ... ok
+test rectangular_problem_encloses_without_claiming_a_square_system_root ... ok
+test repeated_replay_and_failed_verification_keep_one_cumulative_ledger ... ok
+test replay_binds_source_variable_order_identity_and_expected_context ... ok
+test source_bounds_precede_recursive_numeric_work ... ok
+test textual_construction_never_cancels_original_domain_obligations ... ok
+test transport_rejects_unknown_noncanonical_duplicate_and_unbounded_payloads ... ok
+test typed_symbol_identity_is_not_replaced_by_its_printed_name ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running /workspace/scratch/4a3a39075b27/frankensympy/tests/certification_session.rs (/tmp/frankensympy-continuation-target/debug/build/frankensympy-session-source-component-check/9c081c88aff0821f/out/certification_session-9c081c88aff0821f)
+
+running 12 tests
+test cli_reports_invalid_budget_options_without_starting_a_session ... ok
+test cli_zero_verifier_budget_refuses_and_keeps_session_usable ... ok
+test duplicate_transport_keys_are_rejected_before_source_publication ... ok
+test exact_affine_enclosures_match_hand_derived_values_and_variable_order ... ok
+test failed_mathematical_check_leaves_certificate_id_available_for_valid_retry ... ok
+test interactive_cli_exports_and_replays_an_actual_root_in_a_fresh_process ... ok
+test protected_verification_fuel_is_cumulative_and_cannot_borrow_ordinary_fuel ... ok
+test replay_rejects_different_equations_axes_and_forged_witness_without_publication ... ok
+test response_budget_failure_after_verification_cannot_publish_a_certificate ... ok
+test root_certificate_is_source_bound_and_workspace_mutation_cannot_change_it ... ok
+test undefined_original_source_cannot_be_hidden_by_zero_or_cancellation ... ok
+test wire_rejects_unknown_fields_versions_nonexact_scalars_and_large_ids ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running /workspace/scratch/4a3a39075b27/frankensympy/tests/compiled_program_transport.rs (/tmp/frankensympy-continuation-target/debug/build/frankensympy-session-source-component-check/d7b3296db7f075ce/out/compiled_program_transport-d7b3296db7f075ce)
+
+running 9 tests
+test canonical_derivative_bytecode_and_sparsity_forgery_never_becomes_a_program ... ok
+test large_program_uses_chunked_transport_and_digest_checks_never_grant_acceptance ... ok
+test malformed_schemas_unknown_metadata_and_noncanonical_payloads_refuse ... ok
+test objective_hessian_candidate_transfers_across_multiple_chunks ... ok
+test objective_program_replays_with_new_receipt_and_no_cross_call_numeric_cache ... ok
+test original_domains_survive_replay_even_for_zero_direction_or_weights ... ok
+test replay_binds_raw_sources_ordered_axes_and_context_before_any_publication ... ok
+test replay_resource_exhaustion_including_output_admission_publishes_no_handle ... ok
+test residual_program_replays_in_fresh_session_and_reuses_all_sparse_products ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.01s
+
+     Running /workspace/scratch/4a3a39075b27/frankensympy/tests/compiled_root_certification.rs (/tmp/frankensympy-continuation-target/debug/build/frankensympy-session-source-component-check/e2ec709c7127bf54/out/compiled_root_certification-e2ec709c7127bf54)
+
+running 7 tests
+test all_backends_certify_local_and_restored_sources_in_the_original_axis_order ... ok
+test exact_radii_precision_shape_and_backend_controls_refuse_before_verification ... ok
+test fresh_processes_replay_a_program_solve_certify_and_replay_only_the_root_proof ... ok
+test numerical_convergence_never_substitutes_for_root_existence_or_box_inclusion ... ok
+test ordinary_and_protected_allowances_are_cumulative_and_never_substitute_for_each_other ... ok
+test publication_exhaustion_is_atomic_in_every_ordinary_resource_dimension ... ok
+test whole_box_domain_and_singular_root_refusals_keep_the_handle_available ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+

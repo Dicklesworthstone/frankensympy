@@ -1,0 +1,14 @@
+{
+  "features": {
+    "exit_code": 0,
+    "log": "/tmp/frankensympy-public-postlint-features.log",
+    "log_sha256": "6763423492704ca16f7eeb6894417544232699a2efe2556a7ff7226943420188",
+    "summary": "48 passed in 1.08s"
+  },
+  "checksol": {
+    "exit_code": 1,
+    "log": "/tmp/frankensympy-public-postlint-checksol.log",
+    "log_sha256": "1204ea2d2e79e561ff35eb8762c0cbd55fcd86003855daeb8b9557f248ff3507",
+    "summary": "5 failed, 45 passed, 73 subtests passed in 6.00s"
+  }
+}

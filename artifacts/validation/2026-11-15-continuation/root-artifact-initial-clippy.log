@@ -1,0 +1,13 @@
+    Checking serde_json v1.0.151
+    Checking fsym-core v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-core)
+error: useless use of `vec!`
+   --> crates/fsym-core/tests/root_artifact.rs:176:13
+    |
+176 |             &vec![b'['; MAX_ROOT_CERTIFICATE_JSON_DEPTH + 1],
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: you can use a slice directly: `&[b'['; MAX_ROOT_CERTIFICATE_JSON_DEPTH + 1]`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#useless_vec
+    = note: `-D clippy::useless-vec` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::useless_vec)]`
+
+error: could not compile `fsym-core` (test "root_artifact") due to 1 previous error

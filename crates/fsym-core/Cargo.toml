@@ -19,7 +19,7 @@ fsym-modular.workspace = true
 num-traits.workspace = true
 num-complex.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
 thiserror.workspace = true
 blake3.workspace = true
 

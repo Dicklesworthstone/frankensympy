@@ -35,13 +35,16 @@
   "build_scope": {
     "production_extension": "Retry exited 101: rustc compiling the unchanged pinned asupersync dependency was killed by SIGKILL. The full production extension and workspace gate remain unvalidated.",
     "supplementary_component": "Existing documented composition built successfully after the two previously published bridge compiler corrections. It copied all 40 bridge modules, retaining 38 complete and omitting only lib.rs eval_error/eval_region/simplify_expr/expand_expr and PyExpr.simplify/expand. No replacement functions or upstream production fallback.",
-    "native_extension_sha256": "fbc19995993dc1ae1b032820e6fe98494549b5263cfc366dd8c60087887f2bff",
+    "native_extension_sha256": "5f8155bc1594a2846d4d93681f37f6ffbf8c4bdb0eb3889c12542e91204f476a",
     "not_covered": [
       "Full production dependency graph",
       "Async runtime and its cancellation implementation",
       "Six omitted runtime-dependent bridge helpers",
       "Compatibility profiles or performance claims"
-    ]
+    ],
+    "baseline_native_extension_sha256": "fbc19995993dc1ae1b032820e6fe98494549b5263cfc366dd8c60087887f2bff",
+    "final_component": "Final mathematical/PyO3 component contains41 actual bridge files:39 whole copies and the same two reviewed files shortened only by the six documented runtime-helper omissions. Native mathematical crates remain complete; no function replacement or upstream production engine.",
+    "component_lock": "The preparation recipe initially copied the production workspace lock, which correctly refused under --locked for the distinct scratch package. Reused the already-resolved prior component lock after asserting identical manifests and all56 registry package identities/checksums against the original production lock. The production lock was not modified. Final build, post-layout rebuild and strict component Clippy passed locked/offline."
   },
   "evidence_sha256": {
     "artifacts/validation/2026-11-15-continuation/checksol-predicate-tests.log": "44ddb40351d1d0aa0c1dc995ca644541889e2d77e8c8795cfee044b5056c70ff",
@@ -52,7 +55,50 @@
     "artifacts/validation/2026-11-15-continuation/production-python-build-refusal.log": "34127eed0e3bf33aeb62ed5291624800070bb96cd78ec9d7e1c108ca08340500",
     "artifacts/validation/2026-11-15-continuation/product-modular-first-build.log": "82dd79f05a3a8ead10f9403e017f6571a8f888b2958640643673153cadd2547f",
     "artifacts/validation/2026-11-15-continuation/product-modular-first-tests.log": "00824dce93c4a7796394eb5bc03d2050a9b234dab54fb6f3cdd56d9a0a311065",
-    "artifacts/validation/2026-11-15-continuation/product-modular-tests.log": "2c730937526a7707b4164dd24212be05bf066b5246de6f105dadb66af096b8af"
+    "artifacts/validation/2026-11-15-continuation/product-modular-tests.log": "2c730937526a7707b4164dd24212be05bf066b5246de6f105dadb66af096b8af",
+    "artifacts/validation/2026-11-15-continuation/product-modular-validation.json": "d36fc590f45112487e60d6fc74908a6dbf19dff84d06f4589c37e5619f5937bb",
+    "artifacts/validation/2026-11-15-continuation/product-postclippy-validation.json": "d20aa546538392f3c554f62210b197ff2f254be946eb35ba34f4df58b3b430a4",
+    "artifacts/validation/2026-11-15-continuation/product-initial-clippy.log": "ed984ed52574fd9f8b7a72413ea1291e597f5814f50efc8615472c43083a039c",
+    "artifacts/validation/2026-11-15-continuation/product-strict-clippy.log": "1c88add57b42791c4cfc703563ee3ace3bea12a1a23f19e35db9ef07d44b194b",
+    "artifacts/validation/2026-11-15-continuation/product-postclippy-tests.log": "7fe5aad1ee78dc4595de24ae3e551070d2474a80ae613e52308cea0e29718d7f",
+    "artifacts/validation/2026-11-15-continuation/root-artifact-tests.log": "00cc6c9d3c7e70fabf2ea35bad4c571d845f603ea23e0b85ce946dd6276eca75",
+    "artifacts/validation/2026-11-15-continuation/root-artifact-postlint-tests.log": "baaacee8953f4ee04a3601318511144ccf79ec31e769a32f6661d705996d5b1c",
+    "artifacts/validation/2026-11-15-continuation/root-artifact-initial-clippy.log": "3dcd30c225d0925eccb4e6424ba8d97e41c648c1f878e7bffc858e974c3336f4",
+    "artifacts/validation/2026-11-15-continuation/root-artifact-strict-clippy.log": "b5f1157f1082bb640e072fe864904d5555a1b92ffda99e64035f223a59b2b6c9",
+    "artifacts/validation/2026-11-15-continuation/root-session-tests.log": "1faea03b26f72c7ff6772bd58ff76e553af892d5fdc4ed1137da721b6c10c2e4",
+    "artifacts/validation/2026-11-15-continuation/root-session-before.json": "202943eee080781783d5cf24ad3feaa06b6e5ce64281d6fe9f6b05696b1b5a0e",
+    "artifacts/validation/2026-11-15-continuation/root-session-after.json": "2cf56724e07f213ff030e84e4e98dd00db67e9d6d4f2a426aa09d61e252c67c2",
+    "artifacts/validation/2026-11-15-continuation/root-session-clippy-before.json": "41b98728f86a24ade7b35dd4b5abb4ce24c61432411a572f2d055cbb166b972b",
+    "artifacts/validation/2026-11-15-continuation/root-session-clippy-after.json": "90f2c998b22ede48d86ec19c5ae65a9ceae174dc4c25302805b54411bc7c33e9",
+    "artifacts/validation/2026-11-15-continuation/root-session-strict-clippy.log": "68be0c4e254001220b6dc47d8e9d6ed9c482772bb840382c5b823b699b032410",
+    "artifacts/validation/2026-11-15-continuation/python-transport-strict-clippy.log": "73c91fd02f9bca9b3e001e60af6f8214d8bf80dc8808b02e7fb2e6da4f480938",
+    "artifacts/validation/2026-11-15-continuation/root-transport-validation.json": "9bf199b392583aaf2e4d8982832813be847d84063e2602809a1995cc16767c14",
+    "artifacts/validation/2026-11-15-continuation/python-transport-initial-lock-refusal.log": "552b685967752943b8392022a9e79c96dfd889c83793268641f3aedf55354e25",
+    "artifacts/validation/2026-11-15-continuation/python-transport-build.log": "2aed795bae1a675f2a630aa7efa980e7fcf921e52d0e01f57e2479105cb5a598",
+    "artifacts/validation/2026-11-15-continuation/python-transport-postlint-build.log": "8cbfc85e27bde41f36490586681f8c96123db3e68fe30f67c6bf40379c5e25ad",
+    "artifacts/validation/2026-11-15-continuation/public-postlint-features.log": "6763423492704ca16f7eeb6894417544232699a2efe2556a7ff7226943420188",
+    "artifacts/validation/2026-11-15-continuation/public-postlint-checksol.log": "1204ea2d2e79e561ff35eb8762c0cbd55fcd86003855daeb8b9557f248ff3507",
+    "artifacts/validation/2026-11-15-continuation/public-postlint-before.json": "81d75b1db96b251d436545dd0a92e4e326a72a1dcaf0d2709ef10fb3cbf09923",
+    "artifacts/validation/2026-11-15-continuation/public-postlint-after.json": "1e552d1974200d28e61ef5b50c6af1ad27014ca28effd244edc8a1ac2b977fce",
+    "artifacts/validation/2026-11-15-continuation/public-postlint-results.json": "cf8c71606c1a01004d52974e6079c32b0167e7dbb5bc24b4213bb04fd0a9bf36",
+    "artifacts/validation/2026-11-15-continuation/python-transport-composition.json": "d0ceb2f0356004beb411855945eaf74ee649c0a2f61f53fff443a3a991c57103",
+    "artifacts/validation/2026-11-15-continuation/prepare_python_component.py": "3860c81b8785dda918afc554331f40f883192f7baf448926d7c7fa798aceae2d",
+    "artifacts/validation/2026-11-15-continuation/python-component/Cargo.toml": "aa3eb3ca0258a756ace2a004cb12998c730cf2cd9a2e6f36bd1ebe9fb67390f7",
+    "artifacts/validation/2026-11-15-continuation/python-component/Cargo.lock": "3bf263f6e5d95fb3015349cdc69636ea66b45f2ecfe4ee2c607fd4383936ad68",
+    "artifacts/validation/2026-11-15-continuation/python-component/runtime/Cargo.toml": "51ea16b80f835e647378282b26f599290b7c15e80dbf25e7b1b41f76eaf95e35",
+    "artifacts/validation/2026-11-15-continuation/python-component/runtime/lib.rs": "ae062de5d08d45dd4cd97a476dc1143d98d93a00bda2b5fc9165992f6c3991d1",
+    "artifacts/validation/2026-11-15-continuation/session-component/Cargo.toml": "12752801d4182280c4da3d98967f6d817358ac8d62e07c1dff28f08278fe0181",
+    "artifacts/validation/2026-11-15-continuation/session-component/Cargo.lock": "ff10cfc1ea62ae7e0e74da89359f4e4de3f01507cdd3e124d065bc46d0c1306e",
+    "artifacts/validation/2026-11-15-continuation/session-component/metadata.json": "cbb13ac4da56a5de572673a97b7e77eeb51689aa2f2bdcb38cf47d5a35b15037",
+    "artifacts/validation/2026-11-15-continuation/session-component/runtime/Cargo.toml": "dd469de65b07c664fc9a54f897e7a7c2c9b17a62c5f51b1a0e0410f7ad52e9ad",
+    "artifacts/validation/2026-11-15-continuation/session-component/runtime/lib.rs": "1fd4631f96af65ca1a7b1799616bc2a2593cb124e69140ad57d2cccaec150c83",
+    "artifacts/validation/2026-11-15-continuation/session-component/codec/Cargo.toml": "4810d072191744f754d980c2c059d47ef0a6dacb6e70f72620f11ea8d1a623bf",
+    "artifacts/validation/2026-11-15-continuation/session-component/codec/lib.rs": "5b2bb0ca96c1d146866746b12d19f19591fc2fe7eb894cc6ee7df3b6d213796a",
+    "artifacts/validation/2026-11-15-continuation/session-component/record_scope.py": "245152889b3e0b320af56dcfc08fdb8932da32790a3fe24505d7b3c2b65c72ee",
+    "artifacts/validation/2026-11-15-continuation/root-interop.py": "0013ed00a365c3be0ba628c9c49bb7f93ad5ee8e11f5a310246edcacd18c1df4",
+    "artifacts/validation/2026-11-15-continuation/root-interop.json": "7bb8305b58a8beedf8dc5915ef497dcf2a2c1052dcca6c8674cba4f98acb6f73",
+    "artifacts/validation/2026-11-15-continuation/root-interop.log": "dea81ce198e8e0ccdd01a361d5acfd03382a866d798fd7a61005c72edd06fb88",
+    "artifacts/validation/2026-11-15-continuation/root-interop-recorder-initial.log": "0e412b316b0c24e66a113ad38d0381d0405cdcfb7eaf8c1efec17e19614909b4"
   },
   "gates": {
     "full_workspace_passed": false,
@@ -71,14 +117,14 @@
       "No resource-cap increase or retry after refusal"
     ],
     "source_sha256": {
-      "crates/fsym-calculus/src/rational_product.rs": "a78857971ea4701cef61249a4ed3bd1ac17e55a633a8b3c428b651c360f9e137",
+      "crates/fsym-calculus/src/rational_product.rs": "9465ae8191dd752ee622aab49ac19b5c932267a79c2d870fd0393b6a053df399",
       "crates/fsym-calculus/src/rational_product/modular.rs": "b049a8c68d18dc1bad3eed38a5681c16b338971b9a4efc3fc8e431d1458af8dd",
       "crates/fsym-calculus/tests/rational_product.rs": "688fccb272ef6be383a602a2651d15b5d15c3f800ea7aa97ebb554b626fa5386",
       "crates/fsym-calculus/tests/rational_product_modular.rs": "63fea15c22186b4a25c27e9e56fb60bd43da9180c83d638ff446b744b2d8dfce",
-      "crates/fsym-proof-kernel/src/rational_product.rs": "586f65083457c552723c5a40426f3ec078eaa3d0ac8698a32027ff23f07da165",
+      "crates/fsym-proof-kernel/src/rational_product.rs": "7060cdece681dd57d93115515f93601c057cfe12926405072a145cafa325bd15",
       "crates/fsym-proof-kernel/src/rational_product/modular.rs": "1c30cfc50be9537ffcdfdcbfe70ce6df31e7d634e5d6bd5b9bacd8f6ba325315",
-      "crates/fsym-proof-kernel/tests/rational_product.rs": "478bc6048ef6235c9f2d39e34b2e6cc992d75d57f0ad93add7d9d3b389031d41",
-      "crates/fsym-proof-kernel/tests/rational_product_modular.rs": "d7a06f665a946ab15f1369fc5e3bba2babe6ecdeb987057460b2d9de4912643b",
+      "crates/fsym-proof-kernel/tests/rational_product.rs": "f0024cec4080db98fe2c5d1f81d96ea50216320e443e27d46873347d8ef1517a",
+      "crates/fsym-proof-kernel/tests/rational_product_modular.rs": "f8331d039600ff8770cd2c73362079a801771f01f3176fb71720d022168da9d2",
       "python/tests/test_rational_products.py": "e407c00456365f7f72edff1018361da0a308b55ed9b6d60b2070a7b1921eab32",
       "docs/FINITE_RATIONAL_PRODUCTS.md": "cac631bc6dc8228d7a806dd82ace6d9ff8f3b8ec4603c4cfe5470e6b0488b9d2"
     },
@@ -93,21 +139,205 @@
       "failures": 0,
       "ignored": 0,
       "scope": "Original locked workspace targets, not a substituted mathematical implementation",
-      "log": "artifacts/validation/2026-11-15-continuation/product-modular-tests.log"
+      "log": "artifacts/validation/2026-11-15-continuation/product-postclippy-tests.log",
+      "before_layout_adjustment_log": "artifacts/validation/2026-11-15-continuation/product-modular-tests.log",
+      "final_source_bookend": "All eight Product source/test hashes match before/after final56-test run; exact record retained in product-postclippy-validation.json."
     },
     "observed_corrections": [
       "Owned BigInt does not implement From<usize>; convert already degree-bounded counters to u64 before construction.",
       "Mixed/repeated factor cases initially exhausted the unchanged generator cap; exact whole shifts and source-bound factor reuse eliminate redundant factorization.",
       "A large primorial missing-witness fixture actually exhausts factorization resources; retain that terminal-refusal regression and separately test unsupported proof with compact k^3+138*k+165.",
-      "Retain a mixed quadratic-orbit regression so a coarse modular witness does not reduce existing support."
+      "Retain a mixed quadratic-orbit regression so a coarse modular witness does not reduce existing support.",
+      "Strict Clippy flagged the enlarged telescoping certificate enum. Box only its domain, reserve the additional allocation before both generator constructors, and adjust the two handwritten fixtures. Strict Clippy and all56 tests then passed with no lint suppression or cap changes."
     ],
     "independent_review": "Second agent reviewed frozen generator and verifier including negative shifts, original zero crossings, reconstruction, modular units, degree/multiplicity preflight and cumulative terminal errors; no concrete defect found. Root also reviewed both modules.",
     "public_tests": {
-      "authored_cases": 29,
-      "new_cases": 9,
-      "runtime_execution_at_this_checkpoint": false,
-      "baseline_before_new_degree_support": "The previously published 20 public cases passed with the actual baseline mathematical/PyO3 component."
+      "cases": 29,
+      "passed": 29,
+      "failed": 0,
+      "execution": "Actual final mathematical/PyO3 component and repository shell, together with19 portable-root cases; combined48/48 passed. Final source/binary bookends match.",
+      "log": "artifacts/validation/2026-11-15-continuation/public-postlint-features.log"
     },
-    "strict_clippy": "Pending after Session and bridge validation; full workspace gate remains blocked."
+    "strict_clippy": {
+      "passed": true,
+      "scope": "Original workspace fsym-proof-kernel and fsym-calculus: --lib --test rational_product --test rational_product_modular --no-deps -- -D warnings",
+      "log": "artifacts/validation/2026-11-15-continuation/product-strict-clippy.log"
+    }
+  },
+  "last_validated_at": "2026-11-15T04:47:49.615810+00:00",
+  "final_integration_base": "6de399ae5b17036b8ccdcda7b2116e06ea9fcbe6",
+  "publication_so_far": {
+    "predicate_fix": "ac415f1f8f99ca70917842e9c5e55a378540e8c8",
+    "higher_degree_products": "f66073e919cb15fa003e7eb06bbaa5174e9b6e15",
+    "concurrent_main_changes": "Preserved through the current base, including integer-conic and Bernoulli/variation-of-parameters solver work and their original-domain integration. Those independent features are not attributed to this continuation."
+  },
+  "portable_python_root_receipts": {
+    "entry_points": [
+      "RootBoxReceipt.to_bytes(*, budget=None)",
+      "RootBoxReceipt.from_bytes(data, *, residuals, args, budget=None)",
+      "compiled_residual_system.replay_root_certificate(data, *, budget=None)"
+    ],
+    "behavior": "One shared canonical native codec now serves Python and Session. Replay binds receiver-owned exact original sources, residual order, typed coordinates and context before bounded witness decoding; independent whole-box root verification and captured Python assumption checks precede immutable publication.",
+    "wire": "Existing schema1,1MiB byte bound,depth96. Exact built-in bytes only. No accepted flag or computed enclosure is trusted. Same-named symbols, changed assumptions/order/held structure, malformed/noncanonical payloads and forged witnesses refuse.",
+    "budget": "One supplied or private bounded Python EvaluationBudget spans source-copy accounting, encode/decode, verification and publication. Export precharges the Python bytes copy. Session retains its protected verifier allowance; Python does not expose that protected pool.",
+    "scope": "Unique nonsingular real root in the encoded box. No global completeness claim. Source-only Piecewise replay follows existing stable-branch rules. Python supports the empty ambient context; native Session interoperability requires that context and the exact typed statement.",
+    "source_sha256": {
+      "crates/fsym-core/Cargo.toml": "e1d2bb9f3ec155ad8a5add3917025433883bde0fa902641ab6f86c60fd91f403",
+      "crates/fsym-core/src/root_certificate.rs": "bf5c0fd5d17b339ad261cf319fcdf6a27645d13b31146e680db8bbf6f7616ff3",
+      "crates/fsym-core/src/root_certificate/artifact.rs": "a483023270cdb0deb63ff6d5ba6d102def463a5844576cafe435dd7da9a3f07d",
+      "crates/fsym-core/tests/root_artifact.rs": "5e9e4b19f20cf9319dc4d353cf471e1b52d0ee989aa11f13baff26eb1fee6132",
+      "src/certification.rs": "36c28418bc503831e8c3b74d060873cb1898e3b358b13c11953014a02bfe3070",
+      "crates/fsym-python/src/numeric.rs": "3032ea8acc9b17ae4ed9621c0fdc7bbb3eef884c21bd49e6d1262180f6e87772",
+      "crates/fsym-python/src/numeric/root_artifact.rs": "42aeab4fe646b1a9d1ccdc0600a9a05a1eb67bb90c560a6cff7869eee4259e58",
+      "python/sympy/utilities/_certified_numeric.py": "419c598cf6aae5d8b843bf13fdb1c4e836247999cd1859a6707c19296e50ff90",
+      "python/sympy/utilities/lambdify.py": "9d1ad2ef116e72792e0eac2e94be4178fb6411f5d957a2b1f699d4dd9e958f06",
+      "python/sympy/utilities/_root_certificate.py": "1c143b907b6f44f1ac2bd8cca1e35ac87d8c6966e22f3104c0987da5158dacc3",
+      "python/tests/test_root_certificate_transport.py": "5b6c754728354041a83807a76e58c7a863c115d41d14860001eafa71cc8bd6b9"
+    },
+    "dependency_change": "Enable the existing serde_json raw_value feature in fsym-core so original untrusted source fields remain borrowed until binding. No new package, lock change, high-layer core dependency, runtime or upstream production fallback.",
+    "native_core_tests": {
+      "unique_passed": 29,
+      "new_artifact": 5,
+      "existing_root_certificate": 9,
+      "existing_general_root_box": 15,
+      "repeated_artifact_cases_after_test_only_lint_fix": 5,
+      "scope": "Original locked/offline workspace",
+      "log": "artifacts/validation/2026-11-15-continuation/root-artifact-tests.log"
+    },
+    "session_tests": {
+      "passed": 56,
+      "private_root": 15,
+      "existing_certification_wire": 13,
+      "certification_session": 12,
+      "compiled_root_certification": 7,
+      "compiled_program_transport": 9,
+      "scope": "Complete original root-library/test sources in the documented synchronous runtime/codec component; no source-function substitutions. Not full async-runtime validation.",
+      "bookend": "697 source files,8 harness files,58 registry identities/checksums,25 original path packages,features and Git heads match. The later Product layout change and one test fixture received their own focused reruns; all transport production sources are unchanged.",
+      "log": "artifacts/validation/2026-11-15-continuation/root-session-tests.log"
+    },
+    "public_tests": {
+      "passed": 19,
+      "all_existing_solver_backends": 4,
+      "fresh_process_replay": true,
+      "source_only_piecewise": true,
+      "scope": "Actual final mathematical/PyO3 component; part of the48-case feature run.",
+      "log": "artifacts/validation/2026-11-15-continuation/public-postlint-features.log"
+    },
+    "strict_clippy": {
+      "passed": true,
+      "scopes": [
+        "fsym-core --lib --test root_artifact --no-deps",
+        "Session source component --lib --no-deps",
+        "PyO3 math source component --lib --features extension-module --no-deps"
+      ],
+      "flags": "--locked --offline --no-deps -- -D warnings",
+      "note": "Seven unchanged codec dependency warnings remain visible outside the selected Session target. This is scoped strict checking, not a passed full-workspace gate."
+    },
+    "test_fixture_correction": "Replace a fixed97-byte Vec with the identical array slice after strict useless_vec lint; preserve the initial diagnostic, then rerun all5 artifact cases and strict core check. No production transport correction or test weakening.",
+    "cross_language_interoperability": {
+      "passed_directions": 2,
+      "cli_to_public_python": {
+        "independent_replay_accepted": true,
+        "exact_root_enclosure": [
+          [
+            "0",
+            "0"
+          ]
+        ],
+        "contraction_bound": "0",
+        "canonical_bytes_preserved": true
+      },
+      "public_python_to_fresh_cli": {
+        "independent_replay_accepted": true,
+        "exact_root_enclosure": [
+          [
+            "0",
+            "0"
+          ]
+        ],
+        "contraction_bound": "0",
+        "canonical_bytes_preserved": true
+      },
+      "statement": {
+        "residuals": [
+          "x"
+        ],
+        "variables": [
+          "x"
+        ],
+        "domain": [
+          [
+            -1,
+            1
+          ]
+        ],
+        "center": [
+          0
+        ],
+        "preconditioner": [
+          [
+            1
+          ]
+        ],
+        "precision_digits": 24
+      },
+      "independent_producers_byte_identical": true,
+      "artifact_bytes": 385,
+      "artifact_sha256": "5076c789a499d159949b5da81dedba19ea969ea1b021e43f1241fe5c80253312",
+      "scope": "Two actual cross-language root-proof replays using the existing original-source Session component CLI and existing mathematical PyO3 component. No build, source substitution or production/test edit. This is not full-runtime or compatibility-profile validation. The CLI predates the separately validated unrelated Product enum-layout change. Existing exhaustive build inventories are referenced by path/hash; only the named integration sources are rehashed here.",
+      "report": "artifacts/validation/2026-11-15-continuation/root-interop.json",
+      "script": "artifacts/validation/2026-11-15-continuation/root-interop.py",
+      "initial_recorder_error": "The first scratch recorder expected absolute keys in an inventory that now uses repository-relative keys. It stopped before either feature check. The corrected named-source recorder passes both actual checks; its initial diagnostic remains in root-interop-recorder-initial.log."
+    }
+  },
+  "final_public_integration": {
+    "base": "6de399ae5b17036b8ccdcda7b2116e06ea9fcbe6",
+    "binary_sha256": "5f8155bc1594a2846d4d93681f37f6ffbf8c4bdb0eb3889c12542e91204f476a",
+    "unchanged_source_files": 893,
+    "unchanged_component_files": 47,
+    "features": {
+      "passed": 48,
+      "failures": 0,
+      "exit_code": 0
+    },
+    "checksol_and_assumptions": {
+      "passed": 45,
+      "subtests_passed": 73,
+      "failures": 5,
+      "exit_code": 1,
+      "reason": "Same five methods call the intentionally omitted simplify runtime helper. This partial suite remains failed; no tests were skipped or weakened. The integration includes the later concurrent source-domain checker changes."
+    },
+    "targets": {
+      "features": [
+        "python/tests/test_rational_products.py",
+        "python/tests/test_root_certificate_transport.py"
+      ],
+      "checksol": [
+        "python/tests/test_checksol_domains.py",
+        "python/tests/test_assumptions_soundness.py",
+        "python/tests/test_surface.py::SurfaceTests::test_number_assumption_properties_match_oracle",
+        "python/tests/test_surface.py::SurfaceTests::test_assumptions_and_deductive_predicates",
+        "python/tests/test_surface.py::SurfaceTests::test_checksol_rejects_nonfinite_candidate_mappings",
+        "python/tests/test_surface.py::SurfaceTests::test_checksol_preserves_inconclusive_results_and_fuzzy_conjunction",
+        "python/tests/test_surface.py::SurfaceTests::test_solveset_and_checksol"
+      ]
+    },
+    "bookends": [
+      "artifacts/validation/2026-11-15-continuation/public-postlint-before.json",
+      "artifacts/validation/2026-11-15-continuation/public-postlint-after.json"
+    ]
+  },
+  "pending_validation": [
+    "Build/test the full production extension and full workspace after the unchanged pinned asupersync SIGKILL blocker is resolved.",
+    "Complete the five simplifier-dependent checksol methods with the full runtime extension.",
+    "Full asynchronous runtime, profile/campaign and release gates remain open; scoped component passes do not close them."
+  ],
+  "publication_base": "622fbd8f51a0ca78cae8d4f372709d9a05011f5f",
+  "post_validation_concurrent_commits": {
+    "first": "ada30469396fd36796bc2f1e1c3f106acca63e8c",
+    "through": "622fbd8f51a0ca78cae8d4f372709d9a05011f5f",
+    "behavior": "Independent absolute-value solver, rational Jordan, multiplicative-group and least-discrete-log work advanced main after the recorded feature validation.",
+    "preservation": "Use the complete current parent tree, append only our three Beads progress notes and add our two test targets to current CI. None of this continuation's production paths overlap those later changes.",
+    "validation_scope": "Recorded native/Python/Session and cross-language runs use the frozen feature sources over 6de399ae5b17036b8ccdcda7b2116e06ea9fcbe6. They do not validate later independent changes or constitute a full merged-head workspace pass."
   }
 }

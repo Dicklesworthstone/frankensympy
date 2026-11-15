@@ -1,0 +1,67 @@
+{
+  "repository": "Dicklesworthstone/frankensympy",
+  "bead": "fra-a5x",
+  "date_utc": "2026-11-15",
+  "scope": "Final native Product layout correction and scoped strict Clippy; actual original locked workspace; no full-workspace or final refreshed-Python claim.",
+  "correction": "Box only RationalProductCertificate::Telescoping.domain; reserve the existing conservative single-allocation charge before both generator Box allocations; update two hand-written kernel certificate fixtures. No lint suppression, theorem change, source guard removal or budget cap increase.",
+  "strict_clippy": {
+    "command": "cargo clippy --locked --offline -p fsym-proof-kernel -p fsym-calculus --lib --test rational_product --test rational_product_modular --no-deps -- -D warnings",
+    "session": 60691,
+    "exit_status": 0
+  },
+  "selected_tests": {
+    "command": "cargo test --locked --offline -p fsym-proof-kernel -p fsym-calculus --test rational_product --test rational_product_modular",
+    "session": 71169,
+    "exit_status": 0,
+    "passed_by_target": {
+      "calculus/rational_product": 19,
+      "calculus/rational_product_modular": 13,
+      "proof-kernel/rational_product": 12,
+      "proof-kernel/rational_product_modular": 12
+    },
+    "total_passed": 56,
+    "failed": 0
+  },
+  "environment": {
+    "CARGO_TARGET_DIR": "/tmp/frankensympy-continuation-target",
+    "CARGO_BUILD_JOBS": "1",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "shell_setup": ". \"$HOME/.cargo/env\"",
+    "RUSTFLAGS": "not set by the commands"
+  },
+  "logs": [
+    {
+      "path": "/tmp/frankensympy-product-modular-clippy-20261115.log",
+      "bytes": 2601,
+      "sha256": "ed984ed52574fd9f8b7a72413ea1291e597f5814f50efc8615472c43083a039c",
+      "outcome": "Exit 101: owned large_enum_variant lint; no suppression added."
+    },
+    {
+      "path": "/tmp/frankensympy-product-modular-clippy-retry1-20261115.log",
+      "bytes": 1236,
+      "sha256": "1c88add57b42791c4cfc703563ee3ace3bea12a1a23f19e35db9ef07d44b194b",
+      "outcome": "Exit 0: requested scoped strict Clippy passed."
+    },
+    {
+      "path": "/tmp/frankensympy-product-modular-tests-postclippy-20261115.log",
+      "bytes": 5800,
+      "sha256": "7fe5aad1ee78dc4595de24ae3e551070d2474a80ae613e52308cea0e29718d7f",
+      "outcome": "Exit 0: all 56 selected native tests passed on final sources."
+    }
+  ],
+  "source_bookend": "The eight hashes were captured after strict Clippy and immediately before the final selected tests; they matched after the tests exited 0. No owned source or test edits occurred during Clippy or the final selected test run.",
+  "source_sha256": {
+    "crates/fsym-calculus/src/rational_product.rs": "9465ae8191dd752ee622aab49ac19b5c932267a79c2d870fd0393b6a053df399",
+    "crates/fsym-calculus/src/rational_product/modular.rs": "b049a8c68d18dc1bad3eed38a5681c16b338971b9a4efc3fc8e431d1458af8dd",
+    "crates/fsym-calculus/tests/rational_product.rs": "688fccb272ef6be383a602a2651d15b5d15c3f800ea7aa97ebb554b626fa5386",
+    "crates/fsym-calculus/tests/rational_product_modular.rs": "63fea15c22186b4a25c27e9e56fb60bd43da9180c83d638ff446b744b2d8dfce",
+    "crates/fsym-proof-kernel/src/rational_product.rs": "7060cdece681dd57d93115515f93601c057cfe12926405072a145cafa325bd15",
+    "crates/fsym-proof-kernel/src/rational_product/modular.rs": "1c30cfc50be9537ffcdfdcbfe70ce6df31e7d634e5d6bd5b9bacd8f6ba325315",
+    "crates/fsym-proof-kernel/tests/rational_product.rs": "f0024cec4080db98fe2c5d1f81d96ea50216320e443e27d46873347d8ef1517a",
+    "crates/fsym-proof-kernel/tests/rational_product_modular.rs": "f8331d039600ff8770cd2c73362079a801771f01f3176fb71720d022168da9d2"
+  },
+  "formatting": "Scoped rustfmt and git diff --check passed before strict Clippy retry.",
+  "next_integration": "Sources frozen and Cargo slot released to pipeline. Final source/Python binary binding refresh remains the root integration task."
+}

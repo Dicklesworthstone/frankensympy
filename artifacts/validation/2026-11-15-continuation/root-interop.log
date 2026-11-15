@@ -1,0 +1,23 @@
+{
+  "success": true,
+  "directions": [
+    "CLI -> Python",
+    "Python -> CLI"
+  ],
+  "root_enclosure": [
+    [
+      "0",
+      "0"
+    ]
+  ],
+  "contraction_bound": "0",
+  "artifact_bytes": 385,
+  "artifact_sha256": "5076c789a499d159949b5da81dedba19ea969ea1b021e43f1241fe5c80253312",
+  "byte_identical_independent_producers": true,
+  "source_hashes_unchanged": 19,
+  "binary_sha256": {
+    "cli": "127d370074f095ebf36df4565fff5eaebea4747eba73a68b92df22b733b1198e",
+    "extension": "5f8155bc1594a2846d4d93681f37f6ffbf8c4bdb0eb3889c12542e91204f476a"
+  },
+  "report": "/tmp/frankensympy-root-interop.json"
+}

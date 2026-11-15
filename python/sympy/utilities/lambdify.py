@@ -723,6 +723,23 @@ class _ResidualCallable:
         """
         return self.native_system.to_bytes()
 
+    def replay_root_certificate(self, data, *, budget=None):
+        """Recheck portable root-proof bytes against this program's frozen source.
+
+        The independent verifier checks the original residuals and the whole
+        encoded box; compiled evaluators and stored acceptance flags have no
+        proof authority. Source order, typed identities, context, canonical
+        encoding and captured assumptions must match. Work is cumulative in
+        one EvaluationBudget. Invalid input, cancellation or exhaustion returns
+        no RootBoxReceipt and leaves this immutable program available.
+
+        Use ``receipt.to_bytes()`` on a result of ``solve_certified`` or
+        ``certify_root_box`` to obtain an artifact. The native proof format is
+        bounded to 1 MiB and uses the default empty ambient context.
+        """
+        from ._root_certificate import replay_program
+        return replay_program(self, data, budget=budget)
+
     def _check_dense_output(self):
         if (self.native_system.residual_count * self.native_system.variable_count
                 > _MAX_DENSE_JACOBIAN_VALUES):

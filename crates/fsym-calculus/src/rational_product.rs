@@ -680,11 +680,12 @@ fn whole_shift_certificate(
             witness,
         )
     };
+    reserve(meter, 1)?;
     Ok(Some(RationalProductCertificate::Telescoping {
         scale,
         numerator,
         denominator,
-        domain,
+        domain: Box::new(domain),
         numerator_factors,
         denominator_factors,
     }))
@@ -867,11 +868,12 @@ fn telescoper(
     let Some(denominator_factors) = witnesses(&bottom_factors, meter)? else {
         return Ok(None);
     };
+    reserve(meter, 1)?;
     Ok(Some(RationalProductCertificate::Telescoping {
         scale,
         numerator: top.coeffs,
         denominator: bottom.coeffs,
-        domain,
+        domain: Box::new(domain),
         numerator_factors,
         denominator_factors,
     }))

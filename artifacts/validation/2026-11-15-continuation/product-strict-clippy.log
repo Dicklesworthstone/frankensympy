@@ -1,0 +1,28 @@
+    Checking rand_core v0.9.5
+    Checking fsym-proof-kernel v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-proof-kernel)
+    Checking bitflags v2.13.1
+    Checking linux-raw-sys v0.12.1
+    Checking rustix v1.1.4
+    Checking zerocopy v0.8.56
+    Checking getrandom v0.4.3
+    Checking fastrand v2.5.0
+    Checking once_cell v1.21.4
+    Checking tempfile v3.27.0
+    Checking ppv-lite86 v0.2.21
+    Checking wait-timeout v0.2.1
+    Checking quick-error v1.2.3
+    Checking fnv v1.0.7
+    Checking bit-vec v0.8.0
+    Checking bit-set v0.8.0
+    Checking rusty-fork v0.3.1
+    Checking rand_chacha v0.9.0
+    Checking fsym-evidence v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-evidence)
+    Checking rand_xorshift v0.4.0
+    Checking rand v0.9.5
+    Checking regex-syntax v0.8.11
+    Checking unarray v0.1.4
+    Checking proptest v1.11.0
+    Checking fsym-polys v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-polys)
+    Checking fsym-simplify v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-simplify)
+    Checking fsym-calculus v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-calculus)
+    Finished `dev` profile [unoptimized] target(s) in 17.27s

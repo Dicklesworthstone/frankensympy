@@ -60,7 +60,7 @@ pub enum RationalProductCertificate {
         scale: BigRational,
         numerator: Vec<BigRational>,
         denominator: Vec<BigRational>,
-        domain: RationalProductDomain,
+        domain: Box<RationalProductDomain>,
         numerator_factors: RationalProductFactors,
         denominator_factors: RationalProductFactors,
     },

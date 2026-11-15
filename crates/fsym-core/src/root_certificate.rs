@@ -20,6 +20,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::{fmt, marker::PhantomData};
 use thiserror::Error;
 
+pub mod artifact;
+
 mod quadrature;
 pub use quadrature::*;
 

@@ -1,0 +1,17 @@
+   Compiling pyo3-build-config v0.27.2
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-proof-kernel)
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-evidence)
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-polys)
+   Compiling fsym-simplify v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-simplify)
+   Compiling pyo3-ffi v0.27.2
+   Compiling pyo3-macros-backend v0.27.2
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-calculus)
+   Compiling pyo3 v0.27.2
+   Compiling fsym-solvers v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-solvers)
+   Compiling pyo3-macros v0.27.2
+   Compiling fsym-matrices v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-matrices)
+   Compiling fsym-numeric-consumer v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-numeric-consumer)
+   Compiling fsym-geometry v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-geometry)
+   Compiling fsym-tensor v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-tensor)
+   Compiling fsym-python-math-source-component v0.1.0 (/workspace/scratch/4a3a39075b27/python-root-transport-component)
+    Finished `dev` profile [unoptimized] target(s) in 50.30s

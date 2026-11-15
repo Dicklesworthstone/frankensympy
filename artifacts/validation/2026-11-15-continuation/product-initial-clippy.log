@@ -1,0 +1,46 @@
+    Checking libc v0.2.189
+    Checking fsym-budget v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-budget)
+    Checking fsym-bigint v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-bigint)
+    Checking fsym-modular v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-modular)
+    Checking fsym-rational v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-rational)
+    Checking fsym-id v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-id)
+    Checking fsym-outcome v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-outcome)
+    Checking fsym-core v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-core)
+    Checking getrandom v0.3.4
+    Checking fsym-assumptions v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-assumptions)
+    Checking fsym-proof-kernel v0.1.0 (/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-proof-kernel)
+error: large size difference between variants
+  --> crates/fsym-proof-kernel/src/rational_product.rs:49:1
+   |
+49 | /   pub enum RationalProductCertificate {
+50 | |       /// An independently recomputed, bounded exact product.
+51 | |       Direct { value: BigRational },
+52 | |       /// A real factor is zero, and every original factor is defined. The
+53 | |       /// reciprocal of such a range is undefined and is explicitly rejected.
+54 | | /     Zero {
+55 | | |         at: BigInt,
+56 | | |         domain: RationalProductDomain,
+57 | | |     },
+   | | |_____- the second-largest variant contains at least 128 bytes
+58 | |       /// `R = numerator/denominator`, with complete domain witnesses for R.
+59 | | /     Telescoping {
+60 | | |         scale: BigRational,
+61 | | |         numerator: Vec<BigRational>,
+62 | | |         denominator: Vec<BigRational>,
+...  | |
+65 | | |         denominator_factors: RationalProductFactors,
+66 | | |     },
+   | | |_____- the largest variant contains at least 352 bytes
+67 | |   }
+   | |___^ the entire enum is at least 352 bytes
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#large_enum_variant
+   = note: `-D clippy::large-enum-variant` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::large_enum_variant)]`
+help: consider boxing the large fields or introducing indirection in some other way to reduce the total size of the enum
+   |
+63 -         domain: RationalProductDomain,
+63 +         domain: Box<RationalProductDomain>,
+   |
+
+error: could not compile `fsym-proof-kernel` (lib) due to 1 previous error

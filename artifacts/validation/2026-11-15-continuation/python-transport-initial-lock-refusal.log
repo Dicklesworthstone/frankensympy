@@ -1,0 +1,2 @@
+error: cannot update the lock file /workspace/scratch/4a3a39075b27/python-root-transport-component/Cargo.lock because --locked was passed to prevent this
+help: to generate the lock file without accessing the network, remove the --locked flag and use --offline instead.

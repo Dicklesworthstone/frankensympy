@@ -1,0 +1,157 @@
+{
+  "started_at": "2026-11-15T05:01:16.199862+00:00",
+  "command": [
+    "/workspace/scratch/4a3a39075b27/testenv/bin/python",
+    "-I",
+    "-B",
+    "/tmp/frankensympy-root-interop.py",
+    "--repo",
+    "/workspace/scratch/4a3a39075b27/frankensympy",
+    "--cli",
+    "/tmp/frankensympy-continuation-target/debug/frankensympy",
+    "--extension",
+    "/tmp/frankensympy-continuation-target/debug/libfsym_python.so",
+    "--output",
+    "/tmp/frankensympy-root-interop.json"
+  ],
+  "scope": "Two actual cross-language root-proof replays using the existing original-source Session component CLI and existing mathematical PyO3 component. No build, source substitution or production/test edit. This is not full-runtime or compatibility-profile validation. The CLI predates the separately validated unrelated Product enum-layout change. Existing exhaustive build inventories are referenced by path/hash; only the named integration sources are rehashed here.",
+  "statement": {
+    "residuals": [
+      "x"
+    ],
+    "variables": [
+      "x"
+    ],
+    "domain": [
+      [
+        -1,
+        1
+      ]
+    ],
+    "center": [
+      0
+    ],
+    "preconditioner": [
+      [
+        1
+      ]
+    ],
+    "precision_digits": 24
+  },
+  "source_inventories": {
+    "root-session-after.json": {
+      "path": "/workspace/scratch/4a3a39075b27/frankensympy/artifacts/validation/2026-11-15-continuation/root-session-after.json",
+      "sha256": "2cf56724e07f213ff030e84e4e98dd00db67e9d6d4f2a426aa09d61e252c67c2"
+    },
+    "public-postlint-after.json": {
+      "path": "/workspace/scratch/4a3a39075b27/frankensympy/artifacts/validation/2026-11-15-continuation/public-postlint-after.json",
+      "sha256": "1e552d1974200d28e61ef5b50c6af1ad27014ca28effd244edc8a1ac2b977fce"
+    }
+  },
+  "source_sha256": {
+    "/tmp/frankensympy-root-interop.py": "0013ed00a365c3be0ba628c9c49bb7f93ad5ee8e11f5a310246edcacd18c1df4",
+    "/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-assumptions/src/lib.rs": "66f260a6ff6e054bbab3f5da417276262d8fcc9cf98877fe105b2eae902cda2c",
+    "/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-core/Cargo.toml": "e1d2bb9f3ec155ad8a5add3917025433883bde0fa902641ab6f86c60fd91f403",
+    "/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-core/src/root_certificate.rs": "bf5c0fd5d17b339ad261cf319fcdf6a27645d13b31146e680db8bbf6f7616ff3",
+    "/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-core/src/root_certificate/artifact.rs": "a483023270cdb0deb63ff6d5ba6d102def463a5844576cafe435dd7da9a3f07d",
+    "/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-python/src/binding.rs": "633277cb4ec21126c944475dacdd5ac1db1d0ccd8fc5e50de6be20c8c7d4d706",
+    "/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-python/src/numeric.rs": "3032ea8acc9b17ae4ed9621c0fdc7bbb3eef884c21bd49e6d1262180f6e87772",
+    "/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-python/src/numeric/root_artifact.rs": "42aeab4fe646b1a9d1ccdc0600a9a05a1eb67bb90c560a6cff7869eee4259e58",
+    "/workspace/scratch/4a3a39075b27/frankensympy/crates/fsym-python/src/numeric_budget.rs": "4300c2561f68419743a9bcc2553e315239ad9e743f8484b4dbc4774f27d68d56",
+    "/workspace/scratch/4a3a39075b27/frankensympy/python/sympy/__init__.py": "6cf1175f439be44c4b328bc70457517231ec8e1587b705c676612a3102784ba0",
+    "/workspace/scratch/4a3a39075b27/frankensympy/python/sympy/core/__init__.py": "f248067446ef1e8277ebd0d1900dc2be814ffa15536cc6fe13724109d4033a8f",
+    "/workspace/scratch/4a3a39075b27/frankensympy/python/sympy/utilities/_certified_numeric.py": "419c598cf6aae5d8b843bf13fdb1c4e836247999cd1859a6707c19296e50ff90",
+    "/workspace/scratch/4a3a39075b27/frankensympy/python/sympy/utilities/_root_certificate.py": "1c143b907b6f44f1ac2bd8cca1e35ac87d8c6966e22f3104c0987da5158dacc3",
+    "/workspace/scratch/4a3a39075b27/frankensympy/python/sympy/utilities/lambdify.py": "9d1ad2ef116e72792e0eac2e94be4178fb6411f5d957a2b1f699d4dd9e958f06",
+    "/workspace/scratch/4a3a39075b27/frankensympy/python/sympy/utilities/source_certification.py": "f8398156c581e09a77356d5af1e4bad45972a25e135e49c678c7b87bf0977f42",
+    "/workspace/scratch/4a3a39075b27/frankensympy/src/bin/frankensympy.rs": "d3c727bef7cf1054009b6335d1ebb36c449270314a3dc0d300331db765a7e847",
+    "/workspace/scratch/4a3a39075b27/frankensympy/src/certification.rs": "36c28418bc503831e8c3b74d060873cb1898e3b358b13c11953014a02bfe3070",
+    "/workspace/scratch/4a3a39075b27/frankensympy/src/certification_session.rs": "29b142fb6ce3c0c4b587e1597b41c7baf484931c9770d327c1f8425200c6ea0f",
+    "/workspace/scratch/4a3a39075b27/frankensympy/src/session.rs": "4b9fc47ed7769895bec5f1c0495cffd384f2b1be517a44352fb6ecf498fbfe31"
+  },
+  "binaries": {
+    "cli": "/tmp/frankensympy-continuation-target/debug/frankensympy",
+    "extension": "/tmp/frankensympy-continuation-target/debug/libfsym_python.so"
+  },
+  "binary_sha256": {
+    "cli": "127d370074f095ebf36df4565fff5eaebea4747eba73a68b92df22b733b1198e",
+    "extension": "5f8155bc1594a2846d4d93681f37f6ffbf8c4bdb0eb3889c12542e91204f476a"
+  },
+  "cli_exchanges": [
+    {
+      "label": "native_producer",
+      "pid": 5,
+      "command": [
+        "/tmp/frankensympy-continuation-target/debug/frankensympy",
+        "--compute-steps",
+        "2000000",
+        "--memory-bytes",
+        "1073741824",
+        "--allocations",
+        "1000000",
+        "--verifier-steps",
+        "100000000"
+      ],
+      "stdin": "{\"id\":\"RegisterResidualSystem\",\"type\":\"RegisterResidualSystem\",\"payload\":{\"schema_version\":1,\"system\":\"system:interop\",\"residuals\":[\"x\"],\"variables\":[\"x\"]}}\n{\"id\":\"CertifyRootBox\",\"type\":\"CertifyRootBox\",\"payload\":{\"schema_version\":1,\"system\":\"system:interop\",\"certificate\":\"certificate:native\",\"witness\":{\"domain\":[{\"lower\":\"-1\",\"upper\":\"1\"}],\"center\":[\"0\"],\"preconditioner\":[[\"1\"]],\"precision_digits\":24}}}\n{\"id\":\"ExportRootCertificate\",\"type\":\"ExportRootCertificate\",\"payload\":{\"schema_version\":1,\"certificate\":\"certificate:native\"}}\n",
+      "stdout": "{\"status\":\"success\",\"result\":{\"kind\":\"residual_system_registered\",\"schema_version\":1,\"system\":\"system:interop\",\"rows\":1,\"variables\":[{\"name\":\"x\"}],\"context_digest\":[81,206,235,136,175,136,61,31,150,87,89,125,253,57,202,158,212,68,116,106,19,219,73,190,254,145,132,19,2,210,75,249]},\"id\":\"RegisterResidualSystem\"}\n{\"status\":\"success\",\"result\":{\"kind\":\"root_box_certified\",\"schema_version\":1,\"system\":\"system:interop\",\"certificate\":\"certificate:native\",\"evidence\":\"certificate_verified\",\"claim\":\"unique_nonsingular_real_root_in_box\",\"domain\":[{\"lower\":\"-1\",\"upper\":\"1\"}],\"root_enclosure\":[{\"lower\":\"0\",\"upper\":\"0\"}],\"contraction_bound\":\"0\",\"precision_digits\":24,\"context_digest\":[81,206,235,136,175,136,61,31,150,87,89,125,253,57,202,158,212,68,116,106,19,219,73,190,254,145,132,19,2,210,75,249]},\"id\":\"CertifyRootBox\"}\n{\"status\":\"success\",\"result\":{\"kind\":\"root_certificate_exported\",\"schema_version\":1,\"system\":\"system:interop\",\"certificate\":\"certificate:native\",\"artifact\":\"{\\\"schema_version\\\":1,\\\"context_digest\\\":[81,206,235,136,175,136,61,31,150,87,89,125,253,57,202,158,212,68,116,106,19,219,73,190,254,145,132,19,2,210,75,249],\\\"residuals\\\":[{\\\"Sym\\\":{\\\"name\\\":\\\"x\\\"}}],\\\"variables\\\":[{\\\"name\\\":\\\"x\\\"}],\\\"witness\\\":{\\\"domain\\\":[{\\\"midpoint\\\":[[0,[]],[1,[1]]],\\\"radius\\\":[[1,[1]],[1,[1]]]}],\\\"center\\\":[[[0,[]],[1,[1]]]],\\\"preconditioner\\\":[[[[1,[1]],[1,[1]]]]],\\\"precision_digits\\\":24}}\"},\"id\":\"ExportRootCertificate\"}\n",
+      "stderr": "",
+      "returncode": 0
+    },
+    {
+      "label": "native_receiver",
+      "pid": 6,
+      "command": [
+        "/tmp/frankensympy-continuation-target/debug/frankensympy",
+        "--compute-steps",
+        "2000000",
+        "--memory-bytes",
+        "1073741824",
+        "--allocations",
+        "1000000",
+        "--verifier-steps",
+        "100000000"
+      ],
+      "stdin": "{\"id\":\"RegisterResidualSystem\",\"type\":\"RegisterResidualSystem\",\"payload\":{\"schema_version\":1,\"system\":\"system:interop\",\"residuals\":[\"x\"],\"variables\":[\"x\"]}}\n{\"id\":\"ReplayRootCertificate\",\"type\":\"ReplayRootCertificate\",\"payload\":{\"schema_version\":1,\"system\":\"system:interop\",\"certificate\":\"certificate:python\",\"artifact\":\"{\\\"schema_version\\\":1,\\\"context_digest\\\":[81,206,235,136,175,136,61,31,150,87,89,125,253,57,202,158,212,68,116,106,19,219,73,190,254,145,132,19,2,210,75,249],\\\"residuals\\\":[{\\\"Sym\\\":{\\\"name\\\":\\\"x\\\"}}],\\\"variables\\\":[{\\\"name\\\":\\\"x\\\"}],\\\"witness\\\":{\\\"domain\\\":[{\\\"midpoint\\\":[[0,[]],[1,[1]]],\\\"radius\\\":[[1,[1]],[1,[1]]]}],\\\"center\\\":[[[0,[]],[1,[1]]]],\\\"preconditioner\\\":[[[[1,[1]],[1,[1]]]]],\\\"precision_digits\\\":24}}\"}}\n{\"id\":\"ExportRootCertificate\",\"type\":\"ExportRootCertificate\",\"payload\":{\"schema_version\":1,\"certificate\":\"certificate:python\"}}\n",
+      "stdout": "{\"status\":\"success\",\"result\":{\"kind\":\"residual_system_registered\",\"schema_version\":1,\"system\":\"system:interop\",\"rows\":1,\"variables\":[{\"name\":\"x\"}],\"context_digest\":[81,206,235,136,175,136,61,31,150,87,89,125,253,57,202,158,212,68,116,106,19,219,73,190,254,145,132,19,2,210,75,249]},\"id\":\"RegisterResidualSystem\"}\n{\"status\":\"success\",\"result\":{\"kind\":\"root_box_certified\",\"schema_version\":1,\"system\":\"system:interop\",\"certificate\":\"certificate:python\",\"evidence\":\"certificate_verified\",\"claim\":\"unique_nonsingular_real_root_in_box\",\"domain\":[{\"lower\":\"-1\",\"upper\":\"1\"}],\"root_enclosure\":[{\"lower\":\"0\",\"upper\":\"0\"}],\"contraction_bound\":\"0\",\"precision_digits\":24,\"context_digest\":[81,206,235,136,175,136,61,31,150,87,89,125,253,57,202,158,212,68,116,106,19,219,73,190,254,145,132,19,2,210,75,249]},\"id\":\"ReplayRootCertificate\"}\n{\"status\":\"success\",\"result\":{\"kind\":\"root_certificate_exported\",\"schema_version\":1,\"system\":\"system:interop\",\"certificate\":\"certificate:python\",\"artifact\":\"{\\\"schema_version\\\":1,\\\"context_digest\\\":[81,206,235,136,175,136,61,31,150,87,89,125,253,57,202,158,212,68,116,106,19,219,73,190,254,145,132,19,2,210,75,249],\\\"residuals\\\":[{\\\"Sym\\\":{\\\"name\\\":\\\"x\\\"}}],\\\"variables\\\":[{\\\"name\\\":\\\"x\\\"}],\\\"witness\\\":{\\\"domain\\\":[{\\\"midpoint\\\":[[0,[]],[1,[1]]],\\\"radius\\\":[[1,[1]],[1,[1]]]}],\\\"center\\\":[[[0,[]],[1,[1]]]],\\\"preconditioner\\\":[[[[1,[1]],[1,[1]]]]],\\\"precision_digits\\\":24}}\"},\"id\":\"ExportRootCertificate\"}\n",
+      "stderr": "",
+      "returncode": 0
+    }
+  ],
+  "success": true,
+  "cli_to_python": {
+    "independent_replay_accepted": true,
+    "exact_root_enclosure": [
+      [
+        "0",
+        "0"
+      ]
+    ],
+    "contraction_bound": "0",
+    "canonical_bytes_preserved": true
+  },
+  "python_to_cli": {
+    "independent_replay_accepted": true,
+    "exact_root_enclosure": [
+      [
+        "0",
+        "0"
+      ]
+    ],
+    "contraction_bound": "0",
+    "canonical_bytes_preserved": true
+  },
+  "artifact": {
+    "utf8": "{\"schema_version\":1,\"context_digest\":[81,206,235,136,175,136,61,31,150,87,89,125,253,57,202,158,212,68,116,106,19,219,73,190,254,145,132,19,2,210,75,249],\"residuals\":[{\"Sym\":{\"name\":\"x\"}}],\"variables\":[{\"name\":\"x\"}],\"witness\":{\"domain\":[{\"midpoint\":[[0,[]],[1,[1]]],\"radius\":[[1,[1]],[1,[1]]]}],\"center\":[[[0,[]],[1,[1]]]],\"preconditioner\":[[[[1,[1]],[1,[1]]]]],\"precision_digits\":24}}",
+    "bytes": 385,
+    "sha256": "5076c789a499d159949b5da81dedba19ea969ea1b021e43f1241fe5c80253312",
+    "both_independent_producers_byte_identical": true
+  },
+  "loaded_python": {
+    "executable": "/workspace/scratch/4a3a39075b27/testenv/bin/python",
+    "shell": "/workspace/scratch/4a3a39075b27/frankensympy/python/sympy/__init__.py",
+    "extension": "/tmp/frankensympy-continuation-target/debug/libfsym_python.so"
+  },
+  "source_hashes_unchanged": true,
+  "binary_hashes_unchanged": true,
+  "finished_at": "2026-11-15T05:01:16.400734+00:00"
+}

@@ -26,10 +26,10 @@ fn witness() -> RationalProductCertificate {
         scale: q(1),
         numerator: vec![q(0), q(1)],
         denominator: vec![q(1)],
-        domain: RationalProductDomain {
+        domain: Box::new(RationalProductDomain {
             denominator: root(0),
             guards: vec![],
-        },
+        }),
         numerator_factors: root(0),
         denominator_factors: RationalProductFactors::default(),
     }
