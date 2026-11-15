@@ -29,7 +29,7 @@ _OWNERS = tuple((owner, _owner_record(owner)) for owner in _SCALARS)
 _MRO = type.__dict__["__mro__"]
 _DICT = type.__dict__["__dict__"]
 _OWNER_MROS = tuple((owner, _MRO.__get__(owner)) for owner in _SCALARS)
-_READS = ("subs", "atoms", "free_symbols", "p", "q", "__sub__", "__rsub__", "__neg__")
+_READS = ("subs", "atoms", "free_symbols", "name", "p", "q", "__sub__", "__rsub__", "__neg__")
 # The shared function capabilities cover symbolic hooks, but these public
 # methods are also used by this checker. Include every original owner so an
 # override on a built-in function or its base cannot manufacture a verdict.
@@ -55,12 +55,19 @@ class _Work:
     def __init__(self):
         self.remaining = _MAX_WORK
         self.sizes = {}
+        self.exhausted = False
+        self.failure = None
 
     def charge(self, count=1):
         if count < 0 or count > self.remaining:
+            self.exhausted = True
             raise _Unsupported
         self.remaining -= count
-        _charge_nested_if_active(count)
+        try:
+            _charge_nested_if_active(count)
+        except Exception as error:
+            self.failure = error
+            raise
 
 
 def _require_original():
@@ -259,7 +266,7 @@ def _residual_check(source, items, work):
     return False
 
 
-def _check_scalar(expression, symbol, val, work):
+def _check_scalar(expression, symbol, val, work, *, domain_only=False):
     if type(symbol) is dict:
         if len(symbol) > _MAX_RULES:
             return None
@@ -282,6 +289,19 @@ def _check_scalar(expression, symbol, val, work):
         if source.free_symbols:
             items = tuple((_scalar(old, work), _scalar(new, work)) for old, new in pairs)
             _source_nodes(tuple(value for pair in items for value in pair), work)
+            if domain_only:
+                # Solver rows can contain free parameters with the identity
+                # of another input coordinate. Sequential substitution would
+                # capture that parameter and could manufacture a pole. These
+                # original/candidate nodes have passed exact owner admission;
+                # keep the ambiguous mapping inconclusive instead of running
+                # any further substitution against a captured coordinate.
+                for index, (_, candidate) in enumerate(items):
+                    work.charge(work.sizes.get(id(candidate), _MAX_NODES) + len(items))
+                    free = candidate.free_symbols
+                    if any(other != index and old in free
+                           for other, (old, _) in enumerate(items)):
+                        return None
             for index, (_, candidate) in enumerate(items):
                 candidate_nodes = _source_nodes((candidate,), work)
                 if any(node.atoms() & _ILLEGAL for node, _ in candidate_nodes):
@@ -293,6 +313,12 @@ def _check_scalar(expression, symbol, val, work):
         domain = _domain_status(records, items, work)
         if domain is False:
             return False
+        if domain_only:
+            # solve's generators own their residual checks. This admission
+            # only prevents original undefined subexpressions from vanishing
+            # through normalization, including inexact sources before nfloat.
+            _require_original()
+            return None if domain is None or candidate_unknown else True
         result = _residual_check(source, items, work)
         _require_original()
         return None if result is True and (domain is None or candidate_unknown) else result
@@ -300,9 +326,8 @@ def _check_scalar(expression, symbol, val, work):
         return None
 
 
-def checksol(expression, symbol, val=None):
-    """Check original equations under one bounded, fuzzy conjunction."""
-    work = _Work()
+def _check_conjunction(expression, symbol, val, work, *, domain_only=False):
+    """Check a conjunction using the caller's cumulative work allowance."""
     pending = [(expression, 0, False)]
     active = set()
     visited = 0
@@ -332,8 +357,84 @@ def checksol(expression, symbol, val=None):
             pending.append((equation, depth, True))
             pending.extend((child, depth + 1, False) for child in reversed(tuple(equation)))
             continue
-        result = _check_scalar(equation, symbol, val, work)
+        result = _check_scalar(equation, symbol, val, work, domain_only=domain_only)
+        # Public checksol keeps its fuzzy diagnostic behavior. A solver's
+        # domain admission must not publish a row after an enclosing callback
+        # budget failed inside the scalar check and was converted to unknown.
+        if domain_only and work.failure is not None:
+            raise work.failure
         if result is False:
             return False
         inconclusive = inconclusive or result is None
     return None if inconclusive else True
+
+
+def _check_with_work(expression, symbol, val, work, *, domain_only=False):
+    """Finish domain admission outside the scalar checker's fuzzy catches."""
+    verdict = _check_conjunction(
+        expression, symbol, val, work, domain_only=domain_only,
+    )
+    if domain_only:
+        if work.failure is not None:
+            raise work.failure
+        # Core substitution can charge an enclosing callback session directly,
+        # outside _Work. An inner failure may have become an unknown verdict;
+        # the session's consumed allowance remains exhausted. Recheck it here
+        # before a caller can admit even an inconclusive candidate. Keep the
+        # local exhaustion flag/unknown contract for callers to translate.
+        try:
+            work.charge()
+        except _Unsupported:
+            return None
+        if work.exhausted:
+            return None
+    return verdict
+
+
+def checksol(expression, symbol, val=None):
+    """Check original equations under one bounded, fuzzy conjunction."""
+    return _check_with_work(expression, symbol, val, _Work())
+
+
+class _SolveSourceCheck:
+    """Retain original equations and share bounded domain checking across rows."""
+
+    def __init__(self, expression):
+        if type(expression) in (list, tuple):
+            if len(expression) > _MAX_NODES:
+                raise ValueError("solve source exceeds its equation limit")
+            # The generator may receive the caller's mutable list. Keep the
+            # original equation owners even if that list changes meanwhile.
+            expression = tuple(expression)
+        self.source = expression
+        self.work = _Work()
+
+    def filter(self, solutions, variables):
+        if len(solutions) > _MAX_NODES:
+            raise ValueError("solve source checking exceeds its candidate limit")
+        admitted = []
+        for solution in solutions:
+            if len(solution) != len(variables):
+                raise ValueError("solve result does not match its requested coordinates")
+            try:
+                self.work.charge()
+            except _Unsupported:
+                raise ValueError("solve source checking exceeds its work limit") from None
+            # Keep the checker's existing finite substitution envelope. A
+            # larger mapping has no verdict, rather than a partial check
+            # which silently ignores one of its coordinate assignments.
+            if len(variables) > _MAX_RULES:
+                admitted.append(solution)
+                continue
+            replacements = {
+                variable: root for variable, root in zip(variables, solution)
+                if root is not variable
+            }
+            verdict = _check_with_work(
+                self.source, replacements, None, self.work, domain_only=True,
+            )
+            if self.work.exhausted:
+                raise ValueError("solve source checking exceeds its work limit")
+            if verdict is not False:
+                admitted.append(solution)
+        return admitted

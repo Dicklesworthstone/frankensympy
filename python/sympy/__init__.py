@@ -284,7 +284,7 @@ def _solve_rational_fallback(expr, symbol):
 _NO_FLOATS = object()
 
 
-def _solve_rationalized(expression, symbols, flags):
+def _solve_rationalized(expression, symbols, flags, source_check):
     """Upstream solve with Float input: the equations are solved with
     every Float replaced by its rational value (nsimplify rational=True)
     and the solutions come back as Floats (nfloat)."""
@@ -298,7 +298,9 @@ def _solve_rationalized(expression, symbols, flags):
     rat = [_real_to_rational(e) for e in eqs]
     if not isinstance(expression, (list, tuple)):
         rat = rat[0]
-    return _nfloat_tree(solve(rat, *symbols, **flags))
+    # Check the original source before rounding. Rationalizing a held tree
+    # may otherwise erase a reciprocal or cancel the original Equality sides.
+    return _nfloat_tree(_solve(rat, symbols, flags, source_check))
 
 
 def _nfloat_tree(obj):
@@ -381,10 +383,16 @@ def _filter_solve_assumptions(roots, symbol, snapshot):
 
 def solve(expression, *symbols, **flags):
     """Solve the algebraic equation or system of equations ``expression == 0``."""
+    source_check = _SolveSourceCheck(expression) if flags.get("check", True) else None
+    return _solve(expression, symbols, flags, source_check)
+
+
+def _solve(expression, symbols, flags, source_check):
+    """Generate and admit candidates while retaining the caller's source."""
     dict_flag = bool(flags.get("dict", False))
     set_flag = bool(flags.get("set", False))
 
-    floated = _solve_rationalized(expression, symbols, flags)
+    floated = _solve_rationalized(expression, symbols, flags, source_check)
     if floated is not _NO_FLOATS:
         return floated
 
@@ -460,6 +468,7 @@ def solve(expression, *symbols, **flags):
                     admitted = _filter_solve_system_assumptions(
                         [sol_tuple], var_list, assumption_snapshots,
                     )
+                    admitted = source_check.filter(admitted, var_list)
                     if not admitted:
                         return (var_list, set()) if set_flag else []
                 # A free parameter is not an assignment in solve's mapping.
@@ -484,6 +493,7 @@ def solve(expression, *symbols, **flags):
             sols = _filter_solve_system_assumptions(
                 sols or [], var_list, assumption_snapshots,
             )
+            sols = source_check.filter(sols, var_list)
 
         if not sols:
             return (var_list, set()) if set_flag else []
@@ -529,6 +539,7 @@ def solve(expression, *symbols, **flags):
                     admitted = _filter_solve_system_assumptions(
                         [sol_tuple], var_list, assumption_snapshots,
                     )
+                    admitted = source_check.filter(admitted, var_list)
                     if not admitted:
                         return (var_list, set()) if set_flag else []
                 sol_dict = {s: v for s, v in zip(var_list, sol_tuple) if s != v}
@@ -565,6 +576,7 @@ def solve(expression, *symbols, **flags):
                 tuples = _filter_solve_system_assumptions(
                     tuples, var_list, assumption_snapshots,
                 )
+                tuples = source_check.filter(tuples, var_list)
             if dict_flag:
                 target_index = var_list.index(target)
                 return [{target: row[target_index]} for row in tuples]
@@ -575,6 +587,7 @@ def solve(expression, *symbols, **flags):
             sols = _filter_solve_system_assumptions(
                 sols or [], var_list, assumption_snapshots,
             )
+            sols = source_check.filter(sols, var_list)
         if sols is not None:
             if dict_flag:
                 return [{sym: val for sym, val in zip(var_list, sol)} for sol in sols]
@@ -612,6 +625,9 @@ def solve(expression, *symbols, **flags):
         roots = [_lift_native_result(r, expr, symbol) for r in results]
     if assumption_snapshot is not None:
         roots = _filter_solve_assumptions(roots, symbol, assumption_snapshot)
+        roots = [row[0] for row in source_check.filter(
+            [(root,) for root in roots], (symbol,),
+        )]
     if dict_flag:
         return [{symbol: r} for r in roots]
     if set_flag:
@@ -2772,4 +2788,4 @@ from .core import _freeze_builtin_function_classes as _freeze_functions  # noqa:
 _freeze_functions()
 
 # Snapshot trusted scalar and built-in function owners before extensions run.
-from .solvers._checksol import checksol as _checksol_impl  # noqa: E402
+from .solvers._checksol import _SolveSourceCheck, checksol as _checksol_impl  # noqa: E402
