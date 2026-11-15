@@ -1,0 +1,32 @@
+   Compiling fsym-core v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-core)
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-assumptions)
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-proof-kernel)
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-evidence)
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-polys)
+   Compiling fsym-simplify v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-simplify)
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-calculus)
+   Compiling fsym-sets v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-sets)
+   Compiling fsym-solvers v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-solvers)
+   Compiling fsym-matrices v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-matrices)
+    Finished `test` profile [unoptimized] target(s) in 31.83s
+     Running tests/rational_jordan.rs (target/debug/build/fsym-matrices/f52d655a88df05a6/out/rational_jordan-f52d655a88df05a6)
+
+running 15 tests
+test checker_requires_canonical_block_order_even_for_valid_similarity ... ok
+test independent_checker_accepts_a_valid_alternate_transform ... ok
+test invalid_or_incomplete_spectral_hints_never_publish_partial_forms ... ok
+test checker_rejects_wrong_blocks_original_source_transform_and_inverse ... ok
+test rational_eigenvalues_and_nonsymmetric_rational_coordinates_are_exact ... ok
+test independent_phase_budgets_cover_admission_arithmetic_and_publication ... ok
+test source_admission_preserves_held_syntax_shapes_and_coefficient_limits ... ok
+test true_chain_relations_without_independence_cannot_certify_completeness ... ok
+test repeated_nontrivial_blocks_do_not_reuse_the_smaller_kernel_as_independent_vectors ... ok
+test distinct_eigenvalues_and_unordered_hints_have_canonical_exact_block_order ... ok
+test mixed_block_sizes_retain_every_generalized_chain_level ... ok
+test intermediate_coefficient_growth_refuses_instead_of_publishing_unbounded_chains ... ok
+test cancellation_is_terminal_at_every_safe_point_of_both_phases ... ok
+test empty_zero_scalar_and_maximum_dimension_matrices_keep_complete_dimensions ... ok
+test every_nilpotent_block_partition_through_dimension_seven_is_complete ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.20s
+

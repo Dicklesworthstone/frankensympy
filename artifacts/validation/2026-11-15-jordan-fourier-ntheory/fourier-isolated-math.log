@@ -1,0 +1,24 @@
+Isolated mathematical helper checks using installed SymPy 1.14.0
+This executes only extracted finite-mode algebra with oracle objects, not the candidate shell.
+Two preliminary heuristic normalizers were inconclusive on valid product/phase identities. Final comparison is exact expanded trig polynomial reduction modulo cosine**2+sine**2-1. No implementation or expected result was changed for those inconclusive normalizers.
+1: exact reconstruction passed: sin(8*x)
+2: exact reconstruction passed: cos(29*x)
+3: exact reconstruction passed: sin(3*x)*cos(8*x)
+4: exact reconstruction passed: sin(8*x)**2
+5: exact reconstruction passed: cos(8*x)**2
+6: exact reconstruction passed: (sin(x) + cos(2*x))**3
+7: exact reconstruction passed: cos(8*x + pi/6)
+8: exact reconstruction passed: sin(11*x + pi/4)
+9: exact reconstruction passed: x*cos(8*x)
+10: exact reconstruction passed: x**2*sin(3*x + pi/5)
+11: exact reconstruction passed: (x - 2)*(x + 1)*cos(2*x + 1)
+12: exact reconstruction passed: sin(3*x)*sin(4*x)
+13: exact reconstruction passed: sin(4*x)*cos(3*x)
+14: exact reconstruction passed: cos(3*x)*cos(4*x)
+15: exact reconstruction passed: sin(x)*sin(3*x)*cos(x)
+16: exact reconstruction passed: x**3 + 2*x + 3
+17: exact reconstruction passed: x + x
+18: exact reconstruction passed: sin(7*x/2 + pi/3)
+19: exact reconstruction passed: cos(9*pi*x)
+20: exact reconstruction passed: x*sin(x/2)
+20 mode reconstructions, 14 finite-spectrum reconstructions, and 4 integral anchors passed.

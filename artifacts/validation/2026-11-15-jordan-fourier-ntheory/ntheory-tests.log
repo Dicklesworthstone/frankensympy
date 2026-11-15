@@ -1,0 +1,93 @@
+   Compiling serde_json v1.0.151
+   Compiling fsym-core v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-core)
+   Compiling fsym-ntheory v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-ntheory)
+    Finished `test` profile [unoptimized] target(s) in 6.43s
+     Running unittests src/lib.rs (target/debug/build/fsym-ntheory/71048006457f3fe2/out/fsym_ntheory-71048006457f3fe2)
+
+running 12 tests
+test tests::extended_gcd_normalizes_negative_inputs ... ok
+test tests::test_chinese_remainder_theorem_and_modular_inverse ... ok
+test tests::test_factorint_and_totient ... ok
+test tests::test_carmichael_integer_nth_root_and_primitive_roots ... ok
+test tests::test_jacobi_symbol_facade ... ok
+test tests::test_legendre_symbol ... ok
+test tests::test_mobius_and_divisors ... ok
+test tests::test_is_prime ... ok
+test tests::exact_owner_rejects_the_terminal_u64_witness_adversary ... ok
+test tests::test_omega_square_free_and_perfect_numbers ... ok
+test tests::modular_facade_matches_exact_owner_over_bounded_inputs ... ok
+test tests::arithmetic_functions_match_small_reference_lanes ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests/discrete_logarithms.rs (target/debug/build/fsym-ntheory/84b5a16af2a063cd/out/discrete_logarithms-84b5a16af2a063cd)
+
+running 7 tests
+test nonunit_transients_and_periodic_tails_are_both_minimal ... ok
+test supplied_annihilating_orders_reduce_to_an_independently_checked_exact_order ... ok
+test work_exhaustion_invalid_moduli_and_trivial_rings_are_explicit ... ok
+test repeated_baby_values_cannot_overwrite_the_least_exponent ... ok
+test large_unit_groups_and_high_word_products_do_not_use_float_arithmetic ... ok
+test table_limit_is_admitted_before_allocation_and_never_means_nonexistence ... ok
+test every_small_residue_and_base_matches_least_exponent_enumeration ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/factorization.rs (target/debug/build/fsym-ntheory/d2f2da34ccd13bfc/out/factorization-d2f2da34ccd13bfc)
+
+running 7 tests
+test independent_verifier_rejects_omissions_multiplicities_and_composite_factors ... ok
+test terminal_values_and_primality_adversaries ... ok
+test semiprimes_beyond_the_old_trial_limit_and_near_u64_max ... ok
+test resource_refusal_returns_no_partial_factorization_and_restarts_deterministically ... ok
+test prime_powers_preserve_all_multiplicities ... ok
+test existing_arithmetic_functions_now_support_large_composite_inputs ... ok
+test complete_factorizations_match_an_exhaustive_small_trial_reference ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/modular_roots.rs (target/debug/build/fsym-ntheory/a60f23fb2a874288/out/modular_roots-a60f23fb2a874288)
+
+running 9 tests
+test prime_power_nonunits_and_crt_multiplicities_are_complete ... ok
+test scalar_selection_defers_the_half_modulus_without_enumerating ... ok
+test single_root_and_existence_do_not_materialize_huge_complete_sets ... ok
+test verifier_rejects_missing_duplicate_invalid_and_unbound_roots ... ok
+test two_adic_lifting_reaches_the_u64_boundary_without_overflow ... ok
+test zero_and_unit_moduli_have_explicit_behavior ... ok
+test all_roots_limit_is_checked_at_the_exact_cardinality_boundary ... ok
+test large_odd_prime_powers_lift_and_large_semiprimes_recombine_exactly ... ok
+test every_residue_of_small_composite_and_prime_moduli_matches_enumeration ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.29s
+
+     Running tests/multiplicative_groups.rs (target/debug/build/fsym-ntheory/125b8ce1d4de305a/out/multiplicative_groups-125b8ce1d4de305a)
+
+running 6 tests
+test composite_cyclic_groups_and_noncyclic_groups_are_distinguished ... ok
+test order_verifier_rejects_nonminimal_unbound_and_forged_proposals ... ok
+test invalid_domains_and_exhausted_search_never_become_negative_decisions ... ok
+test prime_generator_that_requires_lifting_is_not_reused_unchanged ... ok
+test large_prime_powers_and_terminal_word_moduli_are_exact ... ok
+test every_small_unit_order_and_primitive_root_matches_complete_enumeration ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running tests/power_residues.rs (target/debug/build/fsym-ntheory/0576950bfe83ab28/out/power_residues-0576950bfe83ab28)
+
+running 6 tests
+test exhausted_work_cannot_become_a_false_residue_decision ... ok
+test two_adic_units_use_the_full_group_structure_at_the_word_boundary ... ok
+test zero_degree_zero_residue_and_trivial_ring_conventions_are_explicit ... ok
+test valuation_constraints_are_required_before_testing_the_unit_part ... ok
+test huge_prime_powers_and_composites_do_not_scan_residue_intervals ... ok
+test every_small_ring_and_power_matches_complete_residue_enumeration ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+   Doc-tests fsym_ntheory
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

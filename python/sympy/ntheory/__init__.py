@@ -303,44 +303,23 @@ def quadratic_residues(p: Any) -> list[int]:
 
 
 def is_nthpow_residue(a: Any, n: Any, m: Any) -> bool:
-    """Return True if x**n == a (mod m) has an integer solution."""
-    import math
-    a = int(a)
-    n = int(n)
-    m = int(m)
+    """Decide whether x**n == a modulo m without enumerating residue classes.
+
+    Prime powers, nonunits, and mixed composites use exact native valuation
+    and unit-group criteria. Positive degrees and moduli through 2**64 - 1
+    are admitted; exhausted work raises an error instead of returning False.
+    """
+    a, n, m = _modular_integer(a), _modular_integer(n), _modular_integer(m)
     if m <= 0:
         raise ValueError("m must be positive")
     if n < 0:
         raise ValueError("n must be non-negative")
     a = a % m
-    if a == 0:
-        return True
     if n == 0:
+        # The pinned public profile declares degree 0 modulo 1 false. Preserve
+        # that convention here, apart from native congruence arithmetic.
         return a == 1
-    if n == 1 or m == 1:
-        return True
-    if n == 2:
-        return is_quad_residue(a, m)
-    if m <= 10000:
-        for x in range(m):
-            if pow(x, n, m) == a:
-                return True
-        return False
-    if isprime(m):
-        g = math.gcd(n, m - 1)
-        return pow(a, (m - 1) // g, m) == 1
-    factors = factorint(m)
-    for p, e in factors.items():
-        mod = p ** e
-        a_p = a % mod
-        found = False
-        for x in range(mod):
-            if pow(x, n, mod) == a_p:
-                found = True
-                break
-        if not found:
-            return False
-    return True
+    return _native.is_nth_power_residue_fn(a, n, m)
 
 
 def discrete_log(n: Any, a: Any, b: Any, order: Any = None) -> int:

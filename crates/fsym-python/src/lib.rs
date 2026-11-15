@@ -2471,10 +2471,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
         ideal_operations::ideal_saturation_native,
         m
     )?)?;
-    m.add_function(wrap_pyfunction!(
-        ideal_operations::ideal_radical_native,
-        m
-    )?)?;
+    m.add_function(wrap_pyfunction!(ideal_operations::ideal_radical_native, m)?)?;
     m.add_function(wrap_pyfunction!(
         polynomial_relations::polynomial_syzygies_native,
         m
@@ -2511,6 +2508,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(ntheory::multiplicative_order_fn, m)?)?;
     m.add_function(wrap_pyfunction!(ntheory::primitive_root_fn, m)?)?;
     m.add_function(wrap_pyfunction!(ntheory::discrete_log_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(ntheory::is_nth_power_residue_fn, m)?)?;
     m.add_function(wrap_pyfunction!(integer_nth_root_fn, m)?)?;
     m.add_function(wrap_pyfunction!(mod_inverse_fn, m)?)?;
     m.add_function(wrap_pyfunction!(crt_fn, m)?)?;

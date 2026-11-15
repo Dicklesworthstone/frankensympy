@@ -1,0 +1,165 @@
+{
+  "schema": "frankensympy.implementation-progress.v1",
+  "recorded_utc": "2026-11-15T05:13:05.309277+00:00",
+  "scope": "Bounded exact Jordan decomposition, modular arithmetic and lazy Fourier coefficients",
+  "base_commit": "728ddfe01fdd1a053b701dcb46c752acbbd486ca",
+  "concurrent_main_integrations": [
+    "ada30469396fd36796bc2f1e1c3f106acca63e8c",
+    "92172bca6db26935fcc5eb8783e140f2b2779015"
+  ],
+  "verified_direct_main_commits": [
+    {
+      "sha": "a8df42e1f8d2187eb1ee62f3b03267f28fd997f5",
+      "feature": "Multiplicative orders and composite primitive roots"
+    },
+    {
+      "sha": "73f2c108c070e2b65c98462e802bf0949b559dee",
+      "feature": "Native independently checked rational Jordan decomposition"
+    },
+    {
+      "sha": "622fbd8f51a0ca78cae8d4f372709d9a05011f5f",
+      "feature": "Least discrete logarithms including nonunit bases"
+    },
+    {
+      "sha": "c93379a5f631ae0bb1908b6f13cf87d0f12e98ee",
+      "feature": "Public checked Jordan dispatch and generic repeated-block repair"
+    },
+    {
+      "sha": "1886ded33f1394ecc1e92c4ca805b35dcfffe18c",
+      "feature": "Lazy exact or formal Fourier coefficients"
+    }
+  ],
+  "included_with_this_record": "Exact nth-power-residue decisions without enumeration of composite residue classes",
+  "work_graph": {
+    "fra-zgf": "WS20 residual remains open; bounded matrix and number-theory progress only",
+    "fra-a5x": "WS18 residual remains open; bounded Fourier-series progress only",
+    "gates_promoted": [],
+    "beads_closed": []
+  },
+  "implemented": {
+    "modular_groups": "u64 moduli; complete cyclic-unit-group classification; independent exact minimal-order checker; bounded generator work",
+    "discrete_log": "Least nonnegative exponent via gcd reduction and complete ordered baby-step/giant-step; independent original congruence replay; valid multiple order hints reduced to exact order; at most 65,536 baby entries",
+    "power_residues": "Exact prime-power valuation and odd-prime/2-adic unit-group criteria, combined by CRT existence; explicit Python degree-zero convention; no root enumeration",
+    "jordan": "Rational literal matrices through dimension 16 and complete rational spectrum; independent AP=PJ and QP=I checker, separate budgets, bounded integer heights; original source and public storage-view guards; generic symbolic/irrational route retained",
+    "fourier": "Lazy bounded coefficients, exact sparse finite trig support, polynomial-weighted affine trig modes; native primitive derivative checks; explicit Integral for unsupported coefficients; no failed-integral-to-zero conversion"
+  },
+  "executed_validation": [
+    {
+      "command": "cargo test --offline --locked -p fsym-ntheory -j1",
+      "exit_code": 0,
+      "tests_passed": 47,
+      "new_test_functions": 19,
+      "evidence": "artifacts/validation/2026-11-15-jordan-fourier-ntheory/ntheory-tests.log",
+      "scope": "Production native crate after concurrent core/proof changes; includes 38,024 complete small discrete-log triples and 22,880 power-residue cases, plus shifted inputs"
+    },
+    {
+      "command": "cargo clippy --offline --locked -p fsym-ntheory --all-targets -j1 -- -D warnings",
+      "exit_code": 0,
+      "evidence": "artifacts/validation/2026-11-15-jordan-fourier-ntheory/ntheory-clippy.log"
+    },
+    {
+      "command": "cargo test --offline --locked -p fsym-matrices --test rational_jordan -j1",
+      "exit_code": 0,
+      "tests_passed": 15,
+      "evidence": "artifacts/validation/2026-11-15-jordan-fourier-ntheory/jordan-tests.log",
+      "scope": "Production native crate after concurrent core/proof changes; every nilpotent block partition through dimension 7 under similarity, malformed evidence and budgets/cancellation"
+    },
+    {
+      "command": "cargo clippy --offline --locked -p fsym-matrices --lib --test rational_jordan -j1 -- -D warnings",
+      "exit_code": 0,
+      "evidence": "artifacts/validation/2026-11-15-jordan-fourier-ntheory/jordan-clippy.log",
+      "scope": "Includes dependencies; earlier rational_product lint blocker was resolved by concurrent commit 92172bca"
+    },
+    {
+      "command": "rustfmt --check --edition 2024 --config skip_children=true <13 changed Rust source/test files>",
+      "exit_code": 0,
+      "evidence": "artifacts/validation/2026-11-15-jordan-fourier-ntheory/changed-rust-format.log",
+      "scope": "Changed files only; not a workspace-wide formatting claim. One pre-existing multiline registration in owned Python bridge lib.rs was formatted."
+    },
+    {
+      "command": "ast.parse and compile(source, path, \"exec\") for 13 changed Python files",
+      "exit_code": 0,
+      "scope": "Syntax compilation only; no module import or production Python runtime execution"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    },
+    {
+      "kind": "isolated mathematical helper/oracle checks",
+      "mode_identities": 20,
+      "finite_spectrum_identities": 14,
+      "upstream_integral_anchors": 4,
+      "evidence": "artifacts/validation/2026-11-15-jordan-fourier-ntheory/fourier-isolated-math.log",
+      "scope": "Extracted helper mathematics using isolated SymPy 1.14 objects; not candidate-shell execution. Exact trig polynomial reduction resolved two inconclusive preliminary heuristic normalizers without changing expected results."
+    }
+  ],
+  "public_python_regressions": {
+    "multiplicative_groups": 22,
+    "discrete_logs": 16,
+    "power_residues": 16,
+    "jordan": 25,
+    "fourier": 39,
+    "total_authored": 118,
+    "executed_against_production_extension": 0,
+    "selected_in_ci": true
+  },
+  "blocked_validation": {
+    "command": "cargo check --offline --locked -p fsym-python --features extension-module -j1",
+    "exit_code": 101,
+    "reason": "Pinned unchanged asupersync rustc process received SIGKILL 9 while emitting metadata, before bridge diagnostics",
+    "evidence": "artifacts/validation/2026-11-15-jordan-fourier-ntheory/python-production-check.log",
+    "scope": "One metadata-only production attempt on earlier frozen bridge source; no full production extension built, no later bridge compiler success claimed, no runtime stub or upstream production fallback used",
+    "unestablished": [
+      "Full Python extension compilation",
+      "Execution of 118 new public Python cases",
+      "Full workspace tests/lints",
+      "Compatibility/profile/proof-class closure"
+    ]
+  },
+  "source_stability": {
+    "native_ntheory": "artifacts/validation/2026-11-15-jordan-fourier-ntheory/ntheory-source-validation.json",
+    "native_jordan_and_dependencies": "artifacts/validation/2026-11-15-jordan-fourier-ntheory/jordan-source-validation.json",
+    "note": "Native sources remained unchanged during final integration checks. The ntheory interval records a root-owned formatting-only bridge lib.rs delta; all final source hashes below are after it."
+  },
+  "final_source_sha256": {
+    "crates/fsym-ntheory/src/lib.rs": "e1680b62e74adda1eb4e90ec82567000a443ff3cf86b91bff8a36885fde28c6c",
+    "crates/fsym-ntheory/src/multiplicative.rs": "93c16b0ba66fa8f0bbea357f99bd824b863d046b0fa1bef3df61925f4535f93a",
+    "crates/fsym-ntheory/tests/multiplicative_groups.rs": "694cb6360d945b863ee591a3cac39a276634ca52abc843db72d5cebe65ca075f",
+    "crates/fsym-python/src/ntheory.rs": "c374e5644f22ef47ae53225545a177c97caa7d8930cb6f87fef8c44c3a4cbdbd",
+    "python/sympy/ntheory/__init__.py": "fe51e944549435d00e7e3c0f84762d59788697d4e0ee6bcb0f8dd2001695339a",
+    "python/sympy/ntheory/residue_ntheory.py": "bb7374ed423e45020be2ca8884ec3517f6e7be2594f7536590a9c45c35e66324",
+    "python/tests/test_number_theory_multiplicative_groups.py": "ae1e7dc3ed7c4b3f5bd7a25015254a0a3c9f6756e54f7e03b4d264b08df2ffef",
+    ".github/workflows/ci.yml": "1cdbec031d9bcc04fa0747d136f0ed156ca7d4a7325718cbbcfa51394f6fd977",
+    "crates/fsym-python/src/lib.rs": "48363d9522c80d473949e677dead6b751cde5584e427dbb01246459b4c79511c",
+    "python/sympy/__init__.py": "9c1280bd7cc4d9fa3ef227c57d3349c3ba52525547d48bad01050e4afe817f7f",
+    "crates/fsym-matrices/src/lib.rs": "a2a296ecc68feb520d00d9311d03794bc21eecb55cc9e8563e6bf3feeae6a32c",
+    "crates/fsym-matrices/src/jordan.rs": "f051b06fdb35100b425fa5413305b722603728ec43542eac509081f2df2f4b61",
+    "crates/fsym-matrices/tests/rational_jordan.rs": "8e9f223fbeb02f886c50b75e8de575411697bb7033589e1fac0ea307882725e9",
+    "crates/fsym-ntheory/src/discrete_log.rs": "823fecf84d4e1e66480e24d8eb1eea0daeea1735efa30feed4a3aef9b580fcda",
+    "crates/fsym-ntheory/tests/discrete_logarithms.rs": "6030a2b6a58728da9519b5b31c4b375eb8d1f205486d7d7e259530bc9b30b3b0",
+    "python/tests/test_number_theory_discrete_logarithms.py": "7b3bc18c1cf04c4462e6f3d79c41f396ba6e131338916ca763655c9671a52eb1",
+    "crates/fsym-python/src/matrix.rs": "5ba501169abe6431a22113cbb9f80bf2e3e1a4bdfbaf0e41673ec0ee5fdde4dc",
+    "python/sympy/matrices/_jordan.py": "142cb2e0d71650a568e3b1d0b54284b18dfa7e48f17f4ef00856408729199c5e",
+    "python/sympy/matrices/__init__.py": "0893d4c8477195bf0171a6b89b64b927b82f4b9c2551f0320d55f3f609a6757b",
+    "python/sympy/matrices/dense.py": "6ec048130dda0af8e3bbc322d78d45e8add783a693fe635bd17886ac45225029",
+    "python/tests/test_matrix_jordan.py": "d64d1a35d57f31832708228919d977e5213058e97b2553f052704d9349b3cfd6",
+    "python/sympy/series/fourier.py": "fe84a7f97c837dcfc911bd10a6baa1c63433dcd241219badfdca96ebe9fb0d20",
+    "python/sympy/series/__init__.py": "37e91cab229d4ec8943a8818f09e667da7fdb7de490acdbf676c3b96db264a4e",
+    "python/tests/test_fourier_series_exact.py": "e0a0b5b4da464320bc9a046a9e23819a0cf60b07521ac44fb2b59545aee1bd19",
+    "crates/fsym-ntheory/src/power_residues.rs": "9f45b6f9b0b8e18685a9b2433f206eabc8b9481fdf3388e8ccaec9b9e41c256a",
+    "crates/fsym-ntheory/tests/power_residues.rs": "8cc51e4df9840aa771c4ee4c5cbf957aeee504ab3b51b83470e83ece83375f6f",
+    "python/tests/test_number_theory_power_residues.py": "d679f68360cbeea323a339fbd881a0a0c339fecf5f096a1d6035f5baa4ef2bf6"
+  },
+  "evidence_sha256": {
+    "artifacts/validation/2026-11-15-jordan-fourier-ntheory/ntheory-tests.log": "33da4746bbedefb501addbe3bb64ff5011a4832cfac80c4f0ec5d7ebd8ab1291",
+    "artifacts/validation/2026-11-15-jordan-fourier-ntheory/ntheory-clippy.log": "092ad4e30a1b68cc5667bd5cf417283cec27ac288be274c53294852a2831e503",
+    "artifacts/validation/2026-11-15-jordan-fourier-ntheory/ntheory-source-validation.json": "28c8a8227a732b30c7a59cf29f61fc2ed0535d8c2e2ee1b61bcc0ac793576aa9",
+    "artifacts/validation/2026-11-15-jordan-fourier-ntheory/jordan-tests.log": "bcb340b54086daaabfbabb5f6b5472a2e65b830a7f6ce3d773e45968fe50728a",
+    "artifacts/validation/2026-11-15-jordan-fourier-ntheory/jordan-clippy.log": "2faf847eb25e2c79c2fea7411f3d54f190cf7dfddf84a29a70c4a75530dffd5b",
+    "artifacts/validation/2026-11-15-jordan-fourier-ntheory/jordan-source-validation.json": "e34bfbf888795bbd61346faf09612a410ff22c3cdfdb19a31abd1d0bb7e0c3bb",
+    "artifacts/validation/2026-11-15-jordan-fourier-ntheory/python-production-check.log": "6a07aea25f217205952fb2173841b07fece913d5c2b3772c3ed82d992a9c9737",
+    "artifacts/validation/2026-11-15-jordan-fourier-ntheory/fourier-isolated-math.log": "720811ba752fd88a875592ce856732e526d81a2e28167bef4aa5edf17806a8db",
+    "artifacts/validation/2026-11-15-jordan-fourier-ntheory/changed-rust-format.log": "100984794eff5a5dfbff4077a3cf32306c52b862893c626ebf8f306fabfff49d"
+  }
+}

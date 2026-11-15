@@ -1,0 +1,4 @@
+    Checking serde_json v1.0.151
+    Checking fsym-core v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-core)
+    Checking fsym-ntheory v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-ntheory)
+    Finished `dev` profile [unoptimized] target(s) in 3.29s

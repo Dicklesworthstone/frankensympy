@@ -1,0 +1,11 @@
+    Checking fsym-core v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-core)
+    Checking fsym-assumptions v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-assumptions)
+    Checking fsym-proof-kernel v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-proof-kernel)
+    Checking fsym-evidence v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-evidence)
+    Checking fsym-polys v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-polys)
+    Checking fsym-simplify v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-simplify)
+    Checking fsym-calculus v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-calculus)
+    Checking fsym-sets v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-sets)
+    Checking fsym-solvers v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-solvers)
+    Checking fsym-matrices v0.1.0 (/workspace/scratch/0d5f6724ed05/frankensympy/crates/fsym-matrices)
+    Finished `dev` profile [unoptimized] target(s) in 14.91s

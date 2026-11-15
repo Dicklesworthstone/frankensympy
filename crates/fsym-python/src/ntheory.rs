@@ -33,6 +33,12 @@ pub fn discrete_log_fn(modulus: u64, target: u64, base: u64, order: Option<u64>)
     fsym_ntheory::discrete_log(modulus, target, base, order).map_err(group_error)
 }
 
+/// Power-residue existence over prime powers and composites without enumeration.
+#[pyfunction]
+pub fn is_nth_power_residue_fn(a: u64, degree: u64, modulus: u64) -> PyResult<bool> {
+    fsym_ntheory::is_nth_power_residue(a, degree, modulus).map_err(group_error)
+}
+
 /// All distinct square roots modulo a positive `u64` modulus, in sorted order.
 #[pyfunction]
 pub fn modular_square_roots_fn(a: u64, modulus: u64) -> PyResult<Vec<u64>> {

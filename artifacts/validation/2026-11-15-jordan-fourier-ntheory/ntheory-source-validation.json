@@ -1,0 +1,56 @@
+{
+  "context": "integration recheck after root merged core/proof changes from92172bca",
+  "toolchain": "nightly-2026-08-20",
+  "commands": [
+    {
+      "command": "cargo test --offline --locked -p fsym-ntheory -j1",
+      "exit": 0,
+      "log": "/workspace/scratch/0d5f6724ed05/ntheory-merged-all-tests.log",
+      "tests_passed": 47,
+      "target_counts": [
+        12,
+        7,
+        7,
+        9,
+        6,
+        6,
+        0
+      ]
+    },
+    {
+      "command": "cargo clippy --offline --locked -p fsym-ntheory --all-targets -j1 -- -D warnings",
+      "exit": 0,
+      "log": "/workspace/scratch/0d5f6724ed05/ntheory-merged-clippy.log"
+    }
+  ],
+  "source_hashes_after": {
+    "crates/fsym-ntheory/src/lib.rs": "e1680b62e74adda1eb4e90ec82567000a443ff3cf86b91bff8a36885fde28c6c",
+    "crates/fsym-ntheory/src/multiplicative.rs": "93c16b0ba66fa8f0bbea357f99bd824b863d046b0fa1bef3df61925f4535f93a",
+    "crates/fsym-ntheory/tests/multiplicative_groups.rs": "694cb6360d945b863ee591a3cac39a276634ca52abc843db72d5cebe65ca075f",
+    "crates/fsym-python/src/ntheory.rs": "c374e5644f22ef47ae53225545a177c97caa7d8930cb6f87fef8c44c3a4cbdbd",
+    "crates/fsym-python/src/lib.rs": "48363d9522c80d473949e677dead6b751cde5584e427dbb01246459b4c79511c",
+    "python/sympy/ntheory/__init__.py": "fe51e944549435d00e7e3c0f84762d59788697d4e0ee6bcb0f8dd2001695339a",
+    "python/sympy/ntheory/residue_ntheory.py": "bb7374ed423e45020be2ca8884ec3517f6e7be2594f7536590a9c45c35e66324",
+    "python/sympy/__init__.py": "9c1280bd7cc4d9fa3ef227c57d3349c3ba52525547d48bad01050e4afe817f7f",
+    "python/tests/test_number_theory_multiplicative_groups.py": "ae1e7dc3ed7c4b3f5bd7a25015254a0a3c9f6756e54f7e03b4d264b08df2ffef",
+    "crates/fsym-ntheory/src/discrete_log.rs": "823fecf84d4e1e66480e24d8eb1eea0daeea1735efa30feed4a3aef9b580fcda",
+    "crates/fsym-ntheory/tests/discrete_logarithms.rs": "6030a2b6a58728da9519b5b31c4b375eb8d1f205486d7d7e259530bc9b30b3b0",
+    "python/tests/test_number_theory_discrete_logarithms.py": "7b3bc18c1cf04c4462e6f3d79c41f396ba6e131338916ca763655c9671a52eb1",
+    "crates/fsym-ntheory/src/power_residues.rs": "9f45b6f9b0b8e18685a9b2433f206eabc8b9481fdf3388e8ccaec9b9e41c256a",
+    "crates/fsym-ntheory/tests/power_residues.rs": "8cc51e4df9840aa771c4ee4c5cbf957aeee504ab3b51b83470e83ece83375f6f",
+    "python/tests/test_number_theory_power_residues.py": "d679f68360cbeea323a339fbd881a0a0c339fecf5f096a1d6035f5baa4ef2bf6"
+  },
+  "during_run_differences": [
+    {
+      "path": "crates/fsym-python/src/lib.rs",
+      "before": "047334bb488e381c7db3d78f529e468d22945ccebd9fa7ca297c8ad2f185bf2d",
+      "after": "48363d9522c80d473949e677dead6b751cde5584e427dbb01246459b4c79511c"
+    }
+  ],
+  "known_root_edits": {
+    "python/sympy/__init__.py": "already different before the run: merged solver changes fromada304, as root reported",
+    "crates/fsym-python/src/lib.rs": "root collapsed an existing ideal_radical_native registration to one-line rustfmt form during the run; unrelated to native number-theory and feature registrations"
+  },
+  "native_number_theory_sources_unchanged": true,
+  "python_runtime_tests": "not executed; no production extension build in this recheck"
+}

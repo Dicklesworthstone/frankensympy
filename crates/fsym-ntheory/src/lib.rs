@@ -10,6 +10,7 @@ mod discrete_log;
 mod factorization;
 mod modular_roots;
 mod multiplicative;
+mod power_residues;
 pub use discrete_log::{MAX_DISCRETE_LOG_TABLE, discrete_log, discrete_log_with_work_limit};
 pub use factorization::{
     MAX_FACTORIZATION_WORK, factorint, factorint_with_work_limit, verify_prime_factorization,
@@ -23,6 +24,7 @@ pub use multiplicative::{
     multiplicative_order_with_work_limit, primitive_root, primitive_root_with_work_limit,
     verify_multiplicative_order,
 };
+pub use power_residues::{is_nth_power_residue, is_nth_power_residue_with_work_limit};
 
 #[cfg(test)]
 use fsym_core::arith::crt as exact_crt;
