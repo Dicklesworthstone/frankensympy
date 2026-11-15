@@ -85,7 +85,7 @@ fn bits(value: &BigRational) -> u64 {
     value.numer().bits().max(value.denom().bits()).max(1)
 }
 
-fn validate(poly: &[BigRational]) -> Result<()> {
+pub(crate) fn validate(poly: &[BigRational]) -> Result<()> {
     if poly.is_empty() || poly.len() > MAX_SUM_COEFFICIENTS {
         return Err(invalid("coefficient count limit"));
     }
@@ -110,13 +110,22 @@ fn trim(mut poly: Vec<BigRational>) -> Vec<BigRational> {
     poly
 }
 
-struct Reference<'a, M> {
+/// Shared dense arithmetic and complete denominator checks for the independent
+/// sum and product verifiers. This module has no generator dependency.
+pub(crate) struct Reference<'a, M> {
     meter: &'a mut M,
     remaining: u64,
 }
 
-impl<M: BudgetMeter> Reference<'_, M> {
-    fn work(&mut self, amount: u64) -> Result<()> {
+impl<'a, M: BudgetMeter> Reference<'a, M> {
+    pub(crate) fn new(meter: &'a mut M) -> Self {
+        Self {
+            meter,
+            remaining: MAX_REFERENCE_STEPS,
+        }
+    }
+
+    pub(crate) fn work(&mut self, amount: u64) -> Result<()> {
         self.meter.checkpoint()?;
         self.remaining = self
             .remaining
@@ -126,7 +135,7 @@ impl<M: BudgetMeter> Reference<'_, M> {
         Ok(())
     }
 
-    fn reserve(&mut self, count: usize) -> Result<()> {
+    pub(crate) fn reserve(&mut self, count: usize) -> Result<()> {
         if count > MAX_INTERMEDIATE_COEFFICIENTS {
             return Err(invalid("intermediate coefficient count limit"));
         }
@@ -149,19 +158,23 @@ impl<M: BudgetMeter> Reference<'_, M> {
         }
     }
 
-    fn add(&mut self, a: &BigRational, b: &BigRational) -> Result<BigRational> {
+    pub(crate) fn add(&mut self, a: &BigRational, b: &BigRational) -> Result<BigRational> {
         self.work(1)?;
         let value = a.metered_add(b, self.meter)?;
         self.check_value(value)
     }
 
-    fn mul(&mut self, a: &BigRational, b: &BigRational) -> Result<BigRational> {
+    pub(crate) fn mul(&mut self, a: &BigRational, b: &BigRational) -> Result<BigRational> {
         self.work(1)?;
         let value = a.metered_mul(b, self.meter)?;
         self.check_value(value)
     }
 
-    fn product(&mut self, a: &[BigRational], b: &[BigRational]) -> Result<Vec<BigRational>> {
+    pub(crate) fn product(
+        &mut self,
+        a: &[BigRational],
+        b: &[BigRational],
+    ) -> Result<Vec<BigRational>> {
         self.reserve(a.len() + b.len() - 1)?;
         let mut result = vec![BigRational::zero(); a.len() + b.len() - 1];
         for (i, ai) in a.iter().enumerate() {
@@ -185,7 +198,7 @@ impl<M: BudgetMeter> Reference<'_, M> {
     }
 
     /// Horner composition with `x + 1`, without the generator's shift code.
-    fn shift_one(&mut self, poly: &[BigRational]) -> Result<Vec<BigRational>> {
+    pub(crate) fn shift_one(&mut self, poly: &[BigRational]) -> Result<Vec<BigRational>> {
         self.reserve(poly.len())?;
         let mut result = vec![BigRational::zero(); poly.len()];
         for coefficient in poly.iter().rev() {
@@ -197,7 +210,11 @@ impl<M: BudgetMeter> Reference<'_, M> {
         Ok(trim(result))
     }
 
-    fn evaluate(&mut self, poly: &[BigRational], x: &BigRational) -> Result<BigRational> {
+    pub(crate) fn evaluate(
+        &mut self,
+        poly: &[BigRational],
+        x: &BigRational,
+    ) -> Result<BigRational> {
         let mut result = BigRational::zero();
         for coefficient in poly.iter().rev() {
             result = self.mul(&result, x)?;
@@ -206,7 +223,7 @@ impl<M: BudgetMeter> Reference<'_, M> {
         Ok(result)
     }
 
-    fn quotient(
+    pub(crate) fn quotient(
         &mut self,
         numerator: BigRational,
         denominator: BigRational,
@@ -260,7 +277,7 @@ impl<M: BudgetMeter> Reference<'_, M> {
         Ok(())
     }
 
-    fn check_denominator(
+    pub(crate) fn check_denominator(
         &mut self,
         polynomial: &[BigRational],
         poles: &[RationalSumPole],

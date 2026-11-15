@@ -25,6 +25,7 @@ pub mod mutation;
 pub mod rational_definite;
 pub mod rational_integral;
 pub mod rational_limit;
+pub mod rational_product;
 pub mod rational_sum;
 pub mod rule;
 pub mod sparse_determinant;

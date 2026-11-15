@@ -18,8 +18,9 @@
 //!   `sum_{k=1}^{10000} 1/(k*(k+1)) = 10000/10001`;
 //! * `sum_{k=1}^{oo} 1/k**s = zeta(s)` and `sum_{k=0}^{oo} x**k/k! = exp(x)`.
 //!
-//! `product(f, k, a, b)` covers numeric ranges, index-free factors,
-//! `k -> factorial`, powers and geometric factors.
+//! `product(f, k, a, b)` checks finite rational products and their original
+//! integer domains, including long multiplicatively telescoping ranges and
+//! reciprocal reversed ranges. Symbolic bounds retain the elementary tables.
 
 #![forbid(unsafe_code)]
 
@@ -41,6 +42,8 @@ pub enum SummationError {
     #[error(transparent)]
     Exponential(#[from] crate::exponential_sum::ExponentialSummationError),
 }
+
+pub use crate::rational_product::RationalProductError as ProductError;
 
 fn func(name: &str, arg: Expr) -> Expr {
     eval_function(name, std::slice::from_ref(&arg))
@@ -487,15 +490,56 @@ fn summation_rules(f: &Expr, k: &Symbol, a: &Expr, b: &Expr) -> Option<Expr> {
 
 /// Closed form of `prod_{k=a}^{b} f`, or `None`.
 pub fn product(f: &Expr, k: &Symbol, a: &Expr, b: &Expr) -> Option<Expr> {
+    checked_product(f, k, a, b).ok().flatten()
+}
+
+/// Exact finite rational products preserve the complete original source and
+/// keep domain, budget and cancellation failures distinct from unsupported
+/// formulas. No failed rational candidate is retried through legacy rules.
+pub fn checked_product(
+    f: &Expr,
+    k: &Symbol,
+    a: &Expr,
+    b: &Expr,
+) -> Result<Option<Expr>, ProductError> {
+    if let (Expr::Integer(lower), Expr::Integer(upper)) = (a, b) {
+        let mut limits = BudgetLimits::uniform(128 * 1024 * 1024, 0);
+        limits.dimensions[Dimension::ComputeSteps.index()] = 20_000_000;
+        let mut generator = Budget::new(limits);
+        let mut verifier = Budget::new(limits);
+        if crate::rational_product::is_rational_source(f, k, &mut generator)? {
+            return crate::rational_product::metered_rational_product_source(
+                f,
+                k,
+                lower,
+                upper,
+                &mut generator,
+                &mut verifier,
+            )
+            .map(|result| result.map(|checked| rational_expr(checked.into_value())));
+        }
+    }
+    Ok(product_rules(f, k, a, b))
+}
+
+fn product_rules(f: &Expr, k: &Symbol, a: &Expr, b: &Expr) -> Option<Expr> {
     if let (Some(lo), Some(hi)) = (int_value(a), int_value(b)) {
         if hi < lo {
-            return if hi == lo - 1 {
-                Some(Expr::from_i64(1))
-            } else {
-                None
-            };
+            if hi.checked_add(1) == Some(lo) {
+                return Some(Expr::from_i64(1));
+            }
+            return product_rules(
+                f,
+                k,
+                &Expr::from_i64(hi.checked_add(1)?),
+                &Expr::from_i64(lo.checked_sub(1)?),
+            )
+            .map(|value| eval_pow(value, Expr::from_i64(-1)));
         }
-        if hi - lo <= MAX_DIRECT_TERMS {
+        if hi
+            .checked_sub(lo)
+            .is_some_and(|count| count <= MAX_DIRECT_TERMS)
+        {
             let mut total = Expr::from_i64(1);
             for i in lo..=hi {
                 total = total * at(f, k, Expr::from_i64(i));
@@ -532,6 +576,7 @@ pub fn product(f: &Expr, k: &Symbol, a: &Expr, b: &Expr) -> Option<Expr> {
     }
     if let Expr::Function(n, args) = f
         && n == "exp"
+        && args.len() == 1
     {
         let s = summation(&args[0], k, a, b)?;
         return Some(func("exp", s));
