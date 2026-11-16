@@ -7,7 +7,8 @@
 #![forbid(unsafe_code)]
 
 use fsym_budget::{Budget, BudgetLimits, BudgetMeter, Dimension, MeterError};
-use fsym_calculus::compile::EvalError;
+use fsym_calculus::compile::{CompileError, EvalError};
+use fsym_calculus::program_artifact::ProgramArtifactError;
 use fsym_core::{BallError, RootBoxError};
 use pyo3::exceptions::{PyMemoryError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -205,6 +206,12 @@ pub(crate) fn evaluation_error<E: Error + 'static>(error: E) -> PyErr {
         if matches!(
             current.downcast_ref::<EvalError>(),
             Some(EvalError::AllocationFailure)
+        ) || matches!(
+            current.downcast_ref::<ProgramArtifactError>(),
+            Some(ProgramArtifactError::AllocationFailure)
+        ) || matches!(
+            current.downcast_ref::<CompileError>(),
+            Some(CompileError::AllocationFailure)
         ) {
             return PyMemoryError::new_err(error.to_string());
         }

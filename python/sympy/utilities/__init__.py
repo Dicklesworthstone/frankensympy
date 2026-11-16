@@ -14,7 +14,7 @@ from .hybrid import compile_numeric_hybrid
 from .hybrid_system import compile_hybrid_residual_system
 from .objective import (
     MinimizationSearchError, NumericMinimizationCandidate,
-    StationarySearchError, compile_objective,
+    StationarySearchError, compile_objective, load_objective,
 )
 from .source_certification import (
     certify_box_extremum, certify_root_box, certify_stationary_point,
@@ -32,7 +32,7 @@ from ._certified_objective import (
 __all__ = [
     "default_sort_key", "flatten", "has_dups", "has_variety", "numbered_symbols", "ordered",
     "postfixes", "prefixes", "sift", "subsets", "topological_sort", "unflatten", "variations",
-    "compile_numeric", "compile_numeric_hybrid", "compile_residual_system", "load_residual_system", "compile_objective", "lambdify",
+    "compile_numeric", "compile_numeric_hybrid", "compile_residual_system", "load_residual_system", "compile_objective", "load_objective", "lambdify",
     "compile_hybrid_residual_system",
     "enclose_residual_system", "certify_root_box", "enclose_objective", "certify_stationary_point",
     "certify_box_extremum", "optimize_box_certified",

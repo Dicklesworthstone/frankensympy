@@ -17,7 +17,7 @@ from .lambdify import (
 
 __all__ = [
     "MinimizationSearchError", "NumericMinimizationCandidate",
-    "StationarySearchError", "compile_objective",
+    "StationarySearchError", "compile_objective", "load_objective",
 ]
 
 
@@ -182,6 +182,27 @@ class _ObjectiveCallable:
     def hessian_pattern(self):
         """Immutable, ordered (row, column) coordinates of Hessian nonzeros."""
         return tuple(self.native_objective.hessian_pattern)
+
+    def to_bytes(self, *, budget=None):
+        """Export the objective, gradient/Hessian proofs and compiled programs.
+
+        The canonical native candidate format is bounded to 1 MiB. It contains
+        no Python objects, accepted flags, numerical caches or running state.
+        ``load_objective`` requires the receiver's expected source and typed
+        arguments and independently checks both derivative stages and every
+        compiled instruction before constructing a usable program.
+
+        One cumulative ``EvaluationBudget`` covers native encoding and the
+        returned byte buffer. An omitted budget uses one private bounded
+        ledger. The format does not include a stationary-point or minimum
+        certificate; those are separate original-source checks.
+        """
+        from .source_certification import _source_budget
+
+        budget = _source_budget(budget)
+        data = self.native_objective.to_bytes(budget=budget)
+        _check_evaluation_budget(budget)
+        return data
 
     def enclose(self, box, *, precision=32, budget=None):
         """Enclose value, gradient and Hessian from the original exact source.
@@ -415,6 +436,17 @@ class _ObjectiveCallable:
         return self.native_objective.hessian_vector_product(inputs, vector, budget=budget)
 
 
+def _objective_source(objective, args):
+    """Capture the caller's source, typed declarations and assumptions once."""
+    layout, variables = _argument_layout(args)
+    from ._certified_numeric import bound_assumptions
+    bindings = [_symbol_binding(variable) for variable in variables]
+    assumptions = bound_assumptions(variables, bindings)
+    inexact = [False]
+    source = _numeric_source(objective, _functions(), [0], inexact=inexact)
+    return layout, variables, bindings, assumptions, source, inexact[0]
+
+
 def compile_objective(objective, args):
     """Compile a scalar objective, checked gradient and checked sparse Hessian.
 
@@ -438,11 +470,51 @@ def compile_objective(objective, args):
     Unsupported functions, opaque hooks, unmatched symbols and oversized work
     refuse explicitly. No upstream SymPy or Python callback executes the math.
     """
-    layout, variables = _argument_layout(args)
-    from ._certified_numeric import bound_assumptions
-    bindings = [_symbol_binding(variable) for variable in variables]
-    assumptions = bound_assumptions(variables, bindings)
-    inexact = [False]
-    source = _numeric_source(objective, _functions(), [0], inexact=inexact)
+    layout, variables, bindings, assumptions, source, inexact = _objective_source(objective, args)
     native = _native.VerifiedObjective(source, bindings)
-    return _ObjectiveCallable(layout, native, variables, inexact[0], assumptions)
+    return _ObjectiveCallable(layout, native, variables, inexact, assumptions)
+
+
+def load_objective(data, *, objective, args, budget=None):
+    """Independently reload a compiled objective against expected exact source.
+
+    ``data`` must be exact built-in ``bytes`` of at most 1 MiB, produced by
+    ``compile_objective(...).to_bytes()``. The native decoder admits bounded
+    shapes and canonical encoding, then binds the caller's original objective
+    and ordered typed coordinates. The independent checker replays the saved
+    gradient and Hessian proofs, omitted zero entries, both mixed-partial
+    orders and compiled instruction provenance. It does not regenerate a
+    replacement candidate or trust serialized acceptance metadata.
+
+    Both ``objective`` and ``args`` are required. Recreate declared Symbols
+    explicitly for another process; Dummy identities must already match and
+    are never remapped by name. The supplied argument nesting is retained.
+    Held operations, source order and assumption identities must match the
+    artifact. No Python symbol or callback is loaded from serialized data.
+
+    Declared assumptions and Float-source restrictions are recaptured from
+    the receiver's objects. A Float source remains approximate-only even when
+    its native rational representation matches the saved source. The returned
+    immutable program supports evaluation, Hessian products, minimization and
+    independent original-source certification just like ``compile_objective``.
+
+    Native decoding, proof admission, reconstruction and publication share
+    one cumulative ``EvaluationBudget``; omitted budgets use one private
+    bounded ledger. Bounded Python source capture and CPython overhead remain
+    outside it. Failure or cancellation returns no partially admitted program.
+    """
+    from .source_certification import _source_budget
+
+    budget = _source_budget(budget)
+    if type(data) is not bytes:
+        raise TypeError("objective program data must be exact built-in bytes")
+    if len(data) > 1024 * 1024:
+        raise ValueError("objective program data exceeds the 1 MiB byte limit")
+    layout, variables, bindings, assumptions, source, inexact = _objective_source(objective, args)
+    _check_evaluation_budget(budget)
+    native = _native.VerifiedObjective.from_bytes(
+        data, source=source, variables=bindings, budget=budget,
+    )
+    result = _ObjectiveCallable(layout, native, variables, inexact, assumptions)
+    _check_evaluation_budget(budget)
+    return result

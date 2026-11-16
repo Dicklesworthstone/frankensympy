@@ -13,9 +13,13 @@ use crate::numeric_budget::{
     PyEvaluationBudget, evaluation_buffer, with_certification_meter, with_evaluation_meter,
     with_evaluation_meter_attached,
 };
-use fsym_budget::BudgetMeter;
+use fsym_budget::{BudgetMeter, Dimension};
 use fsym_calculus::VerifiedObjective;
 use fsym_calculus::box_optimization::{BoxOptimizationOptions, propose_box_optimization};
+use fsym_calculus::program_artifact::{
+    MAX_PROGRAM_CANDIDATE_BYTES, ProgramArtifactError, admit_objective_candidate,
+    decode_objective_candidate, encode_objective_candidate,
+};
 use fsym_core::{
     BigRational, BoxExtremumKind, BoxExtremumReceipt, BoxOptimizationReceipt, Expr,
     MAX_BOX_OPTIMIZATION_LEAVES, ObjectiveEnclosure, RootBoxWitness, StationaryPointKind,
@@ -27,7 +31,7 @@ use fsym_numeric_consumer::{
 };
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyList, PyTuple};
+use pyo3::types::{PyBytes, PyList, PyTuple};
 
 fn exact_preconditioner(
     values: &Bound<'_, PyAny>,
@@ -286,6 +290,71 @@ impl PyVerifiedObjective {
         let objective = VerifiedObjective::try_compile(&source.inner, &variables)
             .map_err(crate::to_value_error)?;
         Ok(Self { objective })
+    }
+
+    /// Export the retained objective, derivative proofs and bytecode without
+    /// serializing acceptance flags, execution plans or Python objects.
+    #[pyo3(signature = (*, budget=None))]
+    fn to_bytes<'py>(
+        &self,
+        py: Python<'py>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let encoded = with_certification_meter(py, budget.as_deref(), |meter| {
+            let encoded = encode_objective_candidate(&self.objective, meter)?;
+            // The immutable Python result owns a second copy. Reserve it on
+            // the same ledger before leaving the native encoding phase.
+            meter.charge_batch(&[
+                (Dimension::ComputeSteps, encoded.len() as u64 + 1),
+                (Dimension::MemoryBytes, encoded.len() as u64),
+                (Dimension::AllocationCount, 1),
+            ])?;
+            Ok::<_, ProgramArtifactError>(encoded)
+        })?;
+        let result = PyBytes::new(py, &encoded);
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
+    }
+
+    /// Bind an untrusted portable candidate to receiver-owned source, then
+    /// independently check both derivative stages and bytecode provenance.
+    #[staticmethod]
+    #[pyo3(signature = (data, *, source, variables, budget=None))]
+    fn from_bytes(
+        data: &Bound<'_, PyAny>,
+        source: &Bound<'_, PyAny>,
+        variables: &Bound<'_, PyAny>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Self> {
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        let py = data.py();
+        if !data.is_exact_instance(&py.get_type::<PyBytes>()) {
+            return Err(PyTypeError::new_err(
+                "objective program data must be exact built-in bytes",
+            ));
+        }
+        let encoded = data.cast::<PyBytes>()?.as_bytes();
+        if encoded.len() > MAX_PROGRAM_CANDIDATE_BYTES {
+            return Err(PyValueError::new_err(
+                "objective program data exceeds the 1 MiB byte limit",
+            ));
+        }
+        if !source.is_exact_instance(&py.get_type::<PyExpr>()) {
+            return Err(PyTypeError::new_err(
+                "objective must be an exact native Expr object",
+            ));
+        }
+        let source = source.extract::<PyRef<'_, PyExpr>>()?;
+        let source = &source.inner;
+        let variables = extract_variables(variables)?;
+        check_source(source, &mut 0)?;
+        let objective = with_certification_meter(py, budget.as_deref(), |meter| {
+            let candidate = decode_objective_candidate(encoded, meter)?;
+            admit_objective_candidate(source, &variables, candidate, meter)
+        })?;
+        let result = Self { objective };
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
     }
 
     /// The immutable original typed objective, before symbolic differentiation.
