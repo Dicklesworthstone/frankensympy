@@ -5,9 +5,7 @@
 //! tests do not promote direct catalog identities to portable certificates.
 
 use fsym_budget::{Budget, BudgetLimits, BudgetMeter, Dimension, MeterError, Unbounded};
-use fsym_calculus::fourier::{
-    FourierError, HalfLineKernel, metered_half_line_transform,
-};
+use fsym_calculus::fourier::{FourierError, HalfLineKernel, metered_half_line_transform};
 use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol, SymbolIdentity, parse};
 use fsym_simplify::simplify;
 use std::collections::HashMap;
@@ -33,10 +31,7 @@ fn equal(left: Expr, right: Expr) {
 }
 
 fn at(value: &Expr, point: &str) -> Expr {
-    simplify(&value.subs(&HashMap::from([(
-        Symbol::new("k"),
-        parse(point).unwrap(),
-    )])))
+    simplify(&value.subs(&HashMap::from([(Symbol::new("k"), parse(point).unwrap())])))
 }
 
 fn raw_power(base: Expr, power: i64) -> Expr {
@@ -90,10 +85,7 @@ fn gaussian_mass_and_odd_moment_fix_both_normalizations() {
     equal(at(&c, "2"), parse("exp(-1/2)/2").unwrap());
     equal(at(&c2, "2"), Expr::from_i64(0));
     equal(at(&s1, "2"), parse("exp(-1/2)/4").unwrap());
-    equal(
-        fsym_calculus::diff(&c, &Symbol::new("k")),
-        -s1,
-    );
+    equal(fsym_calculus::diff(&c, &Symbol::new("k")), -s1);
 }
 
 #[test]
@@ -210,10 +202,8 @@ fn output_identity_and_real_domain_requirements_are_explicit() {
         "exp".into(),
         vec![Expr::Mul(vec![Expr::from_i64(-1), Expr::Sym(x.clone())])],
     );
-    let result = metered_half_line_transform(
-        &source, &x, &k, HalfLineKernel::Sine, &mut Unbounded,
-    )
-    .unwrap();
+    let result =
+        metered_half_line_transform(&source, &x, &k, HalfLineKernel::Sine, &mut Unbounded).unwrap();
     assert_eq!(result.kernel, HalfLineKernel::Sine);
     assert!(result.requires_real_frequency);
     assert_eq!(result.value.free_symbols(), vec![k.clone()]);
@@ -226,9 +216,7 @@ fn output_identity_and_real_domain_requirements_are_explicit() {
         Expr::Mul(vec![Expr::from_i64(0), Expr::Sym(k.clone())]),
     ]);
     assert!(matches!(
-        metered_half_line_transform(
-            &contaminated, &x, &k, HalfLineKernel::Sine, &mut Unbounded,
-        ),
+        metered_half_line_transform(&contaminated, &x, &k, HalfLineKernel::Sine, &mut Unbounded,),
         Err(FourierError::Refused(_)),
     ));
     let gaussian = metered_half_line_transform(
@@ -292,7 +280,11 @@ fn resource_limits_and_cancellation_are_terminal() {
     for checkpoint in [0, 1, 10] {
         assert!(matches!(
             metered_half_line_transform(
-                &source, &x, &k, HalfLineKernel::Cosine, &mut CancelAfter(checkpoint),
+                &source,
+                &x,
+                &k,
+                HalfLineKernel::Cosine,
+                &mut CancelAfter(checkpoint),
             ),
             Err(FourierError::Meter(MeterError::Cancelled)),
         ));

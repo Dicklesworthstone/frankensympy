@@ -67,10 +67,7 @@ pub fn metered_half_line_transform<M: BudgetMeter>(
 
 /// Rebuild only manifestly positive, finite constants. This permits Gaussian
 /// round trips without admitting symbolic signs or complex power branches.
-fn positive_scalar<M: BudgetMeter>(
-    source: &Expr,
-    work: &mut Work<'_, M>,
-) -> Result<Option<Expr>> {
+fn positive_scalar<M: BudgetMeter>(source: &Expr, work: &mut Work<'_, M>) -> Result<Option<Expr>> {
     if let Some(value) = number(source, work)? {
         return if value.is_positive() {
             Ok(Some(work.scalar(&value)?))
@@ -160,7 +157,11 @@ fn exponential<M: BudgetMeter>(
             (HalfLineKernel::Cosine, 0) => vec![work.copy(&a)?],
             (HalfLineKernel::Sine, 0) => vec![BigRational::zero(), BigRational::one()],
             (HalfLineKernel::Cosine, 1) => {
-                vec![work.copy(&a_squared)?, BigRational::zero(), BigRational::from(-1)]
+                vec![
+                    work.copy(&a_squared)?,
+                    BigRational::zero(),
+                    BigRational::from(-1),
+                ]
             }
             (HalfLineKernel::Sine, 1) => {
                 vec![BigRational::zero(), work.mul(&BigRational::from(2), &a)?]
@@ -176,11 +177,19 @@ fn exponential<M: BudgetMeter>(
                 BigRational::zero(),
                 BigRational::from(-2),
             ],
-            _ => return Err(FourierError::Unsupported("half-line weight degree above two")),
+            _ => {
+                return Err(FourierError::Unsupported(
+                    "half-line weight degree above two",
+                ));
+            }
         };
         let numerator = frequency_polynomial(&numerator, frequency, work)?;
         let denominator = frequency_polynomial(
-            &[work.copy(&a_squared)?, BigRational::zero(), BigRational::one()],
+            &[
+                work.copy(&a_squared)?,
+                BigRational::zero(),
+                BigRational::one(),
+            ],
             frequency,
             work,
         )?;
@@ -229,7 +238,11 @@ fn gaussian<M: BudgetMeter>(
         HalfLineKernel::Sine if coefficients[0].is_zero() && coefficients[2].is_zero() => {
             vec![BigRational::zero(), work.div(&coefficients[1], &two_a)?]
         }
-        _ => return Err(FourierError::Unsupported("Gaussian weight has unsupported parity")),
+        _ => {
+            return Err(FourierError::Unsupported(
+                "Gaussian weight has unsupported parity",
+            ));
+        }
     };
     let output = frequency_polynomial(&output, frequency, work)?;
     let amplitude = work.scalar(&two_a)?;
@@ -282,7 +295,9 @@ fn transform<M: BudgetMeter>(
         return if value.is_zero() {
             work.scalar(&value)
         } else {
-            Err(FourierError::Unsupported("a nonzero constant half-line integrand"))
+            Err(FourierError::Unsupported(
+                "a nonzero constant half-line integrand",
+            ))
         };
     }
     match source {
@@ -290,7 +305,14 @@ fn transform<M: BudgetMeter>(
             work.allocate(children.len(), 128 * children.len() as u64)?;
             let mut values = Vec::with_capacity(children.len());
             for child in children {
-                values.push(transform(child, variable, frequency, kernel, requires_real, work)?);
+                values.push(transform(
+                    child,
+                    variable,
+                    frequency,
+                    kernel,
+                    requires_real,
+                    work,
+                )?);
             }
             work.sum(values)
         }
@@ -319,7 +341,14 @@ fn transform<M: BudgetMeter>(
                 }
             }
             let value = if dependent.len() == 1 {
-                transform(dependent[0], variable, frequency, kernel, requires_real, work)?
+                transform(
+                    dependent[0],
+                    variable,
+                    frequency,
+                    kernel,
+                    requires_real,
+                    work,
+                )?
             } else {
                 let mut exponent = None;
                 let mut weight: Polynomial = vec![BigRational::one()];
@@ -341,7 +370,13 @@ fn transform<M: BudgetMeter>(
                     "half-line products require one exponential factor",
                 ))?;
                 weighted_exponential(
-                    exponent, &weight, variable, frequency, kernel, requires_real, work,
+                    exponent,
+                    &weight,
+                    variable,
+                    frequency,
+                    kernel,
+                    requires_real,
+                    work,
                 )?
             };
             // Every original dependent factor has been checked even when one

@@ -411,7 +411,7 @@ impl<'a, M: BudgetMeter> Reference<'a, M> {
         check_scalar(&result)?;
         Ok(result)
     }
-    fn add(&mut self, a: &BigRational, b: &BigRational) -> Result<BigRational> {
+    pub(super) fn add(&mut self, a: &BigRational, b: &BigRational) -> Result<BigRational> {
         let numerator = a
             .numer()
             .bits()

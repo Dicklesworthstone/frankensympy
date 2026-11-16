@@ -23,6 +23,7 @@ pub mod linear_system;
 pub mod merge;
 pub mod mutation;
 pub mod rational_definite;
+pub mod rational_inertia;
 pub mod rational_integral;
 pub mod rational_limit;
 pub mod rational_product;

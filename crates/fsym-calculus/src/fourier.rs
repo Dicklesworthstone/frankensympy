@@ -483,7 +483,9 @@ fn polynomial<M: BudgetMeter>(
                 ));
             }
             if power == 0 && base.iter().all(Zero::is_zero) {
-                return Err(FourierError::Refused("undefined original zero polynomial power"));
+                return Err(FourierError::Refused(
+                    "undefined original zero polynomial power",
+                ));
             }
             let mut result = vec![BigRational::one()];
             for _ in 0..power {

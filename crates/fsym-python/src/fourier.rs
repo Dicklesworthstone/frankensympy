@@ -4,8 +4,8 @@ use crate::binding::PySymbolBinding;
 use crate::expr::PyExpr;
 use crate::to_value_error;
 use fsym_calculus::fourier::{
-    FourierDirection, FourierError, metered_fourier_transform_l1,
-    metered_inverse_fourier_transform_l1, metered_half_line_transform, HalfLineKernel,
+    FourierDirection, FourierError, HalfLineKernel, metered_fourier_transform_l1,
+    metered_half_line_transform, metered_inverse_fourier_transform_l1,
 };
 use fsym_core::Expr;
 use fsym_runtime::{Budget, BudgetLimits, Dimension};
@@ -300,7 +300,6 @@ fn transform_l1_native(
     Ok((PyExpr { inner: value.value }, value.used_bilateral_identity))
 }
 
-
 /// Both normalized half-line transform directions use the same real kernel.
 #[pyfunction]
 #[pyo3(signature = (source, variable, frequency, sine, retained=None))]
@@ -337,21 +336,21 @@ pub fn half_line_transform_native(
     } else {
         HalfLineKernel::Cosine
     };
-    let result = metered_half_line_transform(
-        &source.inner,
-        &variable,
-        &frequency,
-        kernel,
-        &mut budget,
-    )
-    .map_err(|error| match error {
-        FourierError::Unsupported(reason) => PyNotImplementedError::new_err(reason),
-        error => to_value_error(error),
-    })?;
+    let result =
+        metered_half_line_transform(&source.inner, &variable, &frequency, kernel, &mut budget)
+            .map_err(|error| match error {
+                FourierError::Unsupported(reason) => PyNotImplementedError::new_err(reason),
+                error => to_value_error(error),
+            })?;
     if result.kernel != kernel {
         return Err(PyValueError::new_err(
             "half-line transform returned the wrong kernel",
         ));
     }
-    Ok((PyExpr { inner: result.value }, result.requires_real_frequency))
+    Ok((
+        PyExpr {
+            inner: result.value,
+        },
+        result.requires_real_frequency,
+    ))
 }

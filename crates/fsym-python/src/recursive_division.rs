@@ -250,8 +250,12 @@ fn polynomial_division(
     }
     let divisor_variables = positional_coordinates.as_deref().unwrap_or(&variables);
     let dividend = polynomial_source(&left.inner, &variables, &mut generator, &mut verifier)?;
-    let mut divisor =
-        polynomial_source(&right.inner, divisor_variables, &mut generator, &mut verifier)?;
+    let mut divisor = polynomial_source(
+        &right.inner,
+        divisor_variables,
+        &mut generator,
+        &mut verifier,
+    )?;
     original_domain(
         &left.inner,
         Some(&dividend),

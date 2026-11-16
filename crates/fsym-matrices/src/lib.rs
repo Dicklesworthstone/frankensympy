@@ -40,6 +40,8 @@ pub use jordan::{
     MAX_RATIONAL_JORDAN_DIMENSION, RationalJordanBlock, RationalJordanCandidate,
     VerifiedRationalJordanDecomposition, verify_rational_jordan_candidate,
 };
+mod inertia;
+pub use inertia::{RationalInertiaCandidate, VerifiedRationalInertia};
 
 use fsym_core::algebraic::{AlgebraicNumber, count_real_roots_in_interval, sturm_sequence};
 use fsym_core::ball::RealBall;
