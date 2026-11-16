@@ -345,7 +345,7 @@ def checkodesol(
             for s in sol
         ]
 
-    from ..core import AppliedUndef, Basic, Equality, Integer
+    from ..core import AppliedUndef, Basic, Equality, Integer, Zero
 
     # Formal f(x) and Derivative(f(x), x) belong to the retained shell. They
     # must survive until substitution or the checked fresh-coordinate adapter;
@@ -395,8 +395,29 @@ def checkodesol(
 
     if getattr(residual, "is_zero", False) or residual == 0 or residual == Integer(0):
         return (True, 0)
-    else:
+
+    # A reciprocal solution can leave an exact zero split across different
+    # denominator powers. Treat closed function values as temporary formal
+    # atoms and use the existing bounded rational normalizer. The original
+    # source and candidate domain checks above still precede this algebra.
+    from ..assumptions._query import typed_symbol
+    from ..polys._opaque import cancel as _cancel_rational_residual
+    from ..polys.polyerrors import PolynomialError
+
+    noncommutative = False
+    for symbol in residual.free_symbols:
+        _, declarations = typed_symbol(symbol)
+        noncommutative = noncommutative or declarations.get("commutative") is False
+    if noncommutative:
         return (False, residual)
+
+    try:
+        cancelled = _cancel_rational_residual(residual)
+    except PolynomialError:
+        # Noninteger powers and non-QQ coefficients remain outside this lane.
+        # Operational, resource, and exact-reconstruction failures propagate.
+        return (False, residual)
+    return (True, 0) if type(cancelled) is Zero else (False, residual)
 
 
 def verify_linear_first_order_solution(sol: Any, P: Any, Q: Any, x: Any) -> bool:
