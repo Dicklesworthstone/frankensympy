@@ -2314,10 +2314,49 @@ def _keep_coeff(coeff: Any, expr: Any) -> Any:
 
 
 def _complex_value(e: Any) -> complex | None:
-    """binary64 complex value of a constant expression, or None."""
+    """Bounded binary64 complex value, lowering the shell's Float storage."""
     try:
-        v = _native.complex_value_native(_native_expr(e))
-    except Exception:
+        source = _native_expr(e)
+        # The private Float bit tag belongs to the Python shell, not to the
+        # native complex evaluator. Validate the whole raw tree before any
+        # child/payload copies, then lower finite bits without changing held
+        # operation order, function tags or the caller's surface objects.
+        _native.CompiledFunction._validate_source(source)
+        if source.has_function(_FLOAT_INTERN):
+            def lower(node):
+                if node.is_number or node.is_symbol:
+                    return node
+                if node.is_add:
+                    kind, name = "add", None
+                elif node.is_mul:
+                    kind, name = "mul", None
+                elif node.is_pow:
+                    kind, name = "pow", None
+                else:
+                    kind, name = "function", node.func_name
+                    if name == _FLOAT_INTERN:
+                        children = node.args
+                        if len(children) != 1 or not children[0].is_integer:
+                            raise ValueError("malformed Float intern encoding")
+                        bits = children[0].exact_numerator()
+                        if bits < 0 or bits.bit_length() > 64:
+                            raise ValueError("malformed Float intern encoding")
+                        value = _bits_to_float(bits)
+                        if not math.isfinite(value):
+                            raise ValueError("complex Float literals must be finite")
+                        return _native.py_rational(*value.as_integer_ratio())
+                children = [lower(child) for child in node.args]
+                if kind == "add":
+                    return _native.Add(*children, evaluate=False).as_expr()
+                if kind == "mul":
+                    return _native.Mul(*children, evaluate=False).as_expr()
+                if kind == "pow":
+                    return _native.Pow(*children, evaluate=False).as_expr()
+                return _native.py_function(name, *children)
+
+            source = lower(source)
+        v = _native.complex_value_native(source)
+    except (TypeError, ValueError, NotImplementedError, OverflowError):
         return None
     return None if v is None else complex(v[0], v[1])
 
