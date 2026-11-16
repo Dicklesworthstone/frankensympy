@@ -793,7 +793,8 @@ impl VerifiedObjective {
                     }
                 }),
                 meter,
-            )?;
+            )?
+            .for_derivatives();
             Ok(Self {
                 candidate,
                 compiled_gradient,

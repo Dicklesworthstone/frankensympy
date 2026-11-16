@@ -34,6 +34,9 @@ pub const RULE_DIFF_LOG: &str = "diff_log";
 pub const RULE_DIFF_ASIN: &str = "diff_asin";
 pub const RULE_DIFF_ACOS: &str = "diff_acos";
 pub const RULE_DIFF_ATAN: &str = "diff_atan";
+/// Formal binary chain rule on the common smooth domain. Original-source
+/// consumers separately reject the origin and principal negative-axis cut.
+pub const RULE_DIFF_ATAN2: &str = "diff_atan2";
 /// Principal-branch rules on their common smooth domains. These derivations
 /// do not discharge whole-box domain or differentiability obligations.
 pub const RULE_DIFF_ASINH: &str = "diff_asinh";
@@ -82,6 +85,7 @@ pub fn classify_diff_rule(expr: &Expr, var: &Symbol) -> &'static str {
             ("asin", 1) => RULE_DIFF_ASIN,
             ("acos", 1) => RULE_DIFF_ACOS,
             ("atan", 1) => RULE_DIFF_ATAN,
+            ("atan2", 2) => RULE_DIFF_ATAN2,
             ("asinh", 1) => RULE_DIFF_ASINH,
             ("acosh", 1) => RULE_DIFF_ACOSH,
             ("atanh", 1) => RULE_DIFF_ATANH,
@@ -377,6 +381,29 @@ fn reference_unsimplified_diff(expr: &Expr, var: &Symbol) -> Expr {
                         ]),
                     ])
                 }
+            }
+        }
+        Expr::Function(name, args) if name == "atan2" && args.len() == 2 => {
+            let y = &args[0];
+            let x = &args[1];
+            let dy = reference_sub_derivative(y, var);
+            let dx = reference_sub_derivative(x, var);
+            if dy.is_zero() && dx.is_zero() {
+                Expr::from_i64(0)
+            } else {
+                Expr::Mul(vec![
+                    Expr::Add(vec![
+                        Expr::Mul(vec![x.clone(), dy]),
+                        Expr::Mul(vec![Expr::from_i64(-1), y.clone(), dx]),
+                    ]),
+                    Expr::pow(
+                        Expr::Add(vec![
+                            Expr::pow(x.clone(), Expr::from_i64(2)),
+                            Expr::pow(y.clone(), Expr::from_i64(2)),
+                        ]),
+                        Expr::from_i64(-1),
+                    ),
+                ])
             }
         }
         Expr::Function(name, args) if args.len() == 1 => {
@@ -962,6 +989,23 @@ fn verify_rule_reduction_semantics(
                 return Err(KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected atan(u) for diff_atan".to_string(),
+                });
+            }
+        }
+        RULE_DIFF_ATAN2 => {
+            if !matches!(expr, Expr::Function(name, args) if name == "atan2" && args.len() == 2) {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Expected binary atan2(y, x) for diff_atan2".to_string(),
+                });
+            }
+            let expected_rhs = reference_unsimplified_diff(expr, var);
+            if deriv != &expected_rhs {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: format!(
+                        "Atan2 derivative mismatch: expected {expected_rhs}, got {deriv}"
+                    ),
                 });
             }
         }

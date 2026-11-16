@@ -1649,6 +1649,15 @@ pub fn compiled_expression_matches_with_meter<M: BudgetMeter + ?Sized>(
                     if name == "Piecewise" {
                         return self.piecewise(arguments, depth);
                     }
+                    if name == "atan2" && arguments.len() == 2 {
+                        charge_compilation_work(self.meter, name.len() + 1, 0, 0)?;
+                        for argument in arguments {
+                            if !self.visit(argument, depth + 1)? {
+                                return Ok(false);
+                            }
+                        }
+                        return self.take(CompiledOp::Atan2);
+                    }
                     if arguments.len() != 1 {
                         return Err(CompileError::UnsupportedFunction(compilation_diagnostic(
                             name, self.meter,

@@ -365,6 +365,7 @@ impl VerifiedResidualSystem {
             }),
             meter,
         )
+        .map(SharedEvaluationPlan::for_derivatives)
     }
 
     fn check_axes(rows: usize, columns: usize) -> Result<(), VerifiedCompilationError> {

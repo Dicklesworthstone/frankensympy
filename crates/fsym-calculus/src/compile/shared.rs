@@ -60,6 +60,7 @@ pub(super) struct ProgramReusePlan {
 pub(crate) struct SharedEvaluationPlan {
     programs: Vec<ProgramReusePlan>,
     slots: usize,
+    smooth_only: bool,
 }
 
 pub(crate) struct EvaluationMemo {
@@ -144,6 +145,7 @@ fn arity(operation: &CompiledOp) -> Option<usize> {
         CompiledOp::LoadConst(_) | CompiledOp::LoadVar(_) => Some(0),
         CompiledOp::Add(count) | CompiledOp::Mul(count) => Some(*count),
         CompiledOp::PowPositive
+        | CompiledOp::Atan2
         | CompiledOp::Equal
         | CompiledOp::NotEqual
         | CompiledOp::Less
@@ -420,7 +422,15 @@ impl SharedEvaluationPlan {
         Ok(Self {
             programs,
             slots: definitions.len(),
+            smooth_only: false,
         })
+    }
+
+    /// Every program in a derivative bundle uses the same source-domain
+    /// policy, including the program which first populates a memo slot.
+    pub(crate) fn for_derivatives(mut self) -> Self {
+        self.smooth_only = true;
+        self
     }
 
     pub(crate) fn begin<M: BudgetMeter + ?Sized>(
@@ -458,7 +468,7 @@ impl SharedEvaluationPlan {
     ) -> Result<f64, EvalError> {
         let plan = &self.programs[index];
         let reuse = (!plan.starts.is_empty()).then_some((plan, memo));
-        program.try_eval_with_reuse(point, true, reuse, meter)
+        program.try_eval_with_reuse(point, true, self.smooth_only, reuse, meter)
     }
 
     pub(crate) fn slot_count(&self) -> usize {

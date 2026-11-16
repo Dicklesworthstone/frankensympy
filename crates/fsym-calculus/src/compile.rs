@@ -241,6 +241,10 @@ pub enum EvalError {
     NonFinitePowerExponent,
     #[error("A variable real power requires a strictly positive base")]
     NonPositivePowerBase,
+    #[error("The real two-argument angle is undefined at the origin")]
+    UndefinedAngle,
+    #[error("The principal two-argument angle is not differentiable on its negative-axis cut")]
+    NonsmoothAngle,
     #[error("Compiled constant is NaN or negative zero, which is not a canonical compiler output")]
     NonCanonicalConstant,
     #[error("Compiled numerical evaluation encountered a non-finite input or intermediate value")]
@@ -319,6 +323,9 @@ pub enum CompiledOp {
     Asin,
     Acos,
     Atan,
+    /// Binary postfix principal angle: y, followed by x. The origin refuses;
+    /// derivative-bearing programs additionally reject the negative-axis cut.
+    Atan2,
     Sinh,
     Cosh,
     Tanh,
@@ -568,6 +575,7 @@ impl CompiledExpr {
                 Ok(depth)
             }
             CompiledOp::PowPositive
+            | CompiledOp::Atan2
             | CompiledOp::Equal
             | CompiledOp::NotEqual
             | CompiledOp::Less
@@ -891,6 +899,12 @@ impl CompiledExpr {
                 if name == "Piecewise" {
                     return Self::compile_piecewise(args, var_map, ops, depth, meter);
                 }
+                if name == "atan2" && args.len() == 2 {
+                    charge_compilation_work(meter, name.len() + 1, 0, 0)?;
+                    Self::compile_recursive(&args[0], var_map, ops, depth + 1, meter)?;
+                    Self::compile_recursive(&args[1], var_map, ops, depth + 1, meter)?;
+                    return Self::push_op(ops, CompiledOp::Atan2, meter);
+                }
                 if args.len() != 1 {
                     return Err(CompileError::UnsupportedFunction(compilation_diagnostic(
                         name, meter,
@@ -1173,13 +1187,14 @@ impl CompiledExpr {
         finite_only: bool,
         meter: &mut M,
     ) -> Result<f64, EvalError> {
-        self.try_eval_with_reuse(vars, finite_only, None, meter)
+        self.try_eval_with_reuse(vars, finite_only, false, None, meter)
     }
 
     fn try_eval_with_reuse<M: BudgetMeter + ?Sized>(
         &self,
         vars: &[f64],
         finite_only: bool,
+        smooth_only: bool,
         mut reuse: Option<(&shared::ProgramReusePlan, &mut shared::EvaluationMemo)>,
         meter: &mut M,
     ) -> Result<f64, EvalError> {
@@ -1284,6 +1299,27 @@ impl CompiledExpr {
                 CompiledOp::Atan => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
                     stack.push(v.atan());
+                }
+                CompiledOp::Atan2 => {
+                    let x = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    let y = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    if !x.is_finite() || !y.is_finite() {
+                        return Err(EvalError::NonFiniteValue);
+                    }
+                    if x == 0.0 && y == 0.0 {
+                        return Err(EvalError::UndefinedAngle);
+                    }
+                    if smooth_only && x < 0.0 && y == 0.0 {
+                        return Err(EvalError::NonsmoothAngle);
+                    }
+                    let angle = if y == 0.0 && x < 0.0 {
+                        std::f64::consts::PI
+                    } else if y == 0.0 {
+                        0.0
+                    } else {
+                        y.atan2(x)
+                    };
+                    stack.push(angle);
                 }
                 CompiledOp::Sinh => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
@@ -1497,6 +1533,7 @@ impl CompiledResidualSystem {
             x,
             self.num_residuals,
             "residual",
+            false,
             meter,
         )?;
         charge_evaluation_steps(meter, out_res.len())?;
@@ -1518,6 +1555,8 @@ impl CompiledResidualSystem {
 
     /// Evaluate the Jacobian after its original sources, sharing one meter
     /// across both phases and publishing only after a final safe point.
+    /// Original principal angles must have a smooth neighborhood, including
+    /// when a verified sparse program has been exported to this dense adapter.
     pub fn try_eval_jacobian_with_meter<M: BudgetMeter + ?Sized>(
         &self,
         x: &[f64],
@@ -1542,6 +1581,7 @@ impl CompiledResidualSystem {
             x,
             self.num_residuals,
             "residual",
+            true,
             meter,
         )?;
         let evaluated = Self::evaluate_batch_with_meter(
@@ -1549,6 +1589,7 @@ impl CompiledResidualSystem {
             x,
             expected,
             "Jacobian",
+            true,
             meter,
         )?;
         charge_evaluation_steps(meter, out_jac.len())?;
@@ -1605,6 +1646,7 @@ impl CompiledResidualSystem {
             x,
             self.num_residuals,
             "residual",
+            true,
             meter,
         )?;
         let jacobian = Self::evaluate_batch_with_meter(
@@ -1612,6 +1654,7 @@ impl CompiledResidualSystem {
             x,
             jacobian_len,
             "Jacobian",
+            true,
             meter,
         )?;
         let published = out_res
@@ -1731,7 +1774,7 @@ impl CompiledResidualSystem {
         expected: usize,
         lane: &'static str,
     ) -> Result<Vec<f64>, EvalError> {
-        Self::evaluate_batch_with_meter(expressions, x, expected, lane, &mut Unbounded)
+        Self::evaluate_batch_with_meter(expressions, x, expected, lane, true, &mut Unbounded)
     }
 
     fn evaluate_batch_with_meter<M: BudgetMeter + ?Sized>(
@@ -1739,6 +1782,7 @@ impl CompiledResidualSystem {
         x: &[f64],
         expected: usize,
         lane: &'static str,
+        smooth_only: bool,
         meter: &mut M,
     ) -> Result<Vec<f64>, EvalError> {
         meter.checkpoint()?;
@@ -1756,7 +1800,7 @@ impl CompiledResidualSystem {
             .map_err(|_| EvalError::AllocationFailure)?;
         for expression in expressions {
             charge_evaluation_steps(meter, 1)?;
-            evaluated.push(expression.try_eval_with_meter(x, meter)?);
+            evaluated.push(expression.try_eval_with_reuse(x, false, smooth_only, None, meter)?);
         }
         meter.checkpoint()?;
         Ok(evaluated)
