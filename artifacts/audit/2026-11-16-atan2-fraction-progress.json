@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-11-16T04:09:52Z",
+  "repository": "Dicklesworthstone/frankensympy",
+  "scope": "Held rational inverse-power fraction correctness and end-to-end principal atan2 functionality.",
+  "source_base": "192cddcd032f6695b20bcd53890545339a502f28",
+  "implementation_commits": [
+    {
+      "sha": "5ab47ffa79ae8b24df39098fd597419bf4339d11",
+      "change": "Retain complete rational bases during fraction splitting."
+    },
+    {
+      "sha": "2b7a31a2b6a10cf067b2cfe5d9f9d8730b351e70",
+      "change": "Bounded rational principal-angle rectangles and original ground evalf sources."
+    },
+    {
+      "sha": "7dc081f4cac8124b0a0aa38dd30da6dd82be3343",
+      "change": "Original-source C1/C2 angle evaluation, root and stationary consumers."
+    },
+    {
+      "sha": "9a32d17f4ad553d964e3682203419e0867e5e27c",
+      "change": "Ordered angle bytecode, independent derivative proofs, shared plans and dense adapters."
+    }
+  ],
+  "public_integration_commit": "The commit containing this record.",
+  "contracts": {
+    "argument_order": [
+      "y",
+      "x"
+    ],
+    "value_lane": "Finite native angle evaluation refuses the origin. Exact zero on the negative axis uses principal +pi for either binary64 zero sign.",
+    "derivative_lane": "Verified shared programs, legacy/exported dense systems and original-source C1/C2 boxes refuse the negative-axis cut as well as the origin before publishing derivatives.",
+    "math_backend": "The existing Python math backend retains math.atan2 origin and signed-zero semantics.",
+    "interval_lane": "Exact rational corner extrema use certified atan/pi, bounded composition heights and precision. Rectangle origin/cut intersection refuses; only exact y=0 with strictly negative x has the value-only pi exception.",
+    "original_sources": "Both angle children are visited, including held zero products/powers; typed identity, arity and builtin authority remain explicit.",
+    "resource_accounting": "Caller ledgers remain cumulative; terminal exhaustion/cancellation returns without output publication. Shared memo policy cannot weaken smoothness checks.",
+    "evidence_separation": "Formal derivative and source-to-bytecode admission does not certify binary64 rounding. Whole-box certificates recompute from retained original sources."
+  },
+  "authored_tests": [
+    {
+      "path": "python/tests/test_fraction_rational_powers.py",
+      "methods": 10,
+      "cases": 20,
+      "candidate_execution": "pending",
+      "upstream_oracle": "passed: isolated SymPy 1.14.0, all ten methods; expected-output evidence only"
+    },
+    {
+      "path": "crates/fsym-core/tests/atan2_enclosures.rs",
+      "tests": 9,
+      "execution": "pending"
+    },
+    {
+      "path": "crates/fsym-core/tests/atan2_certification.rs",
+      "tests": 9,
+      "execution": "pending"
+    },
+    {
+      "path": "crates/fsym-calculus/tests/atan2_compilation.rs",
+      "tests": 11,
+      "execution": "pending"
+    },
+    {
+      "path": "python/tests/test_atan2_certification.py",
+      "parametrized_test_functions": 14,
+      "execution": "pending"
+    }
+  ],
+  "observed_validation": {
+    "fraction_syntax_and_whitespace": "Completed before executor loss.",
+    "fraction_upstream_oracle": "10 unittest methods passed against isolated installed SymPy 1.14.0; does not execute FrankenSymPy.",
+    "angle_source_review": "Independent mathematical, original-domain, compiler/proof, native API and Python bridge review completed; review caught and repaired the dense-adapter smoothness bypass before publication.",
+    "github_integrity": "Exact staged blob readbacks and exact commit message/path verification after each main ref update. Expected-head leases; no forced update.",
+    "local_native_execution": "No new Rust build or actual-extension test completed. The pinned toolchain was installed, then the local environment disconnected and became unavailable.",
+    "formatting": "Angle code formatted by inspection only; rustfmt gate not executed.",
+    "github_ci": "Existing CI runs are queued at the recorded observation; no passing or failing execution is inferred.",
+    "full_workspace": "Not executed.",
+    "raw_local_evidence": "Local executor files/logs became unavailable. This record states observed outcomes and does not claim recovered raw execution logs."
+  },
+  "focused_ci_commands": [
+    "cargo test --locked -p fsym-core --test atan2_enclosures --test atan2_certification -j1",
+    "cargo test --locked -p fsym-calculus --test atan2_compilation -j1",
+    "Existing G3 production fsym-python extension build and pytest harness, selecting both new Python suites."
+  ],
+  "new_functional_source_blobs": {
+    "crates/fsym-core/src/ball/atan2.rs": "c709d5bc33a427c72d6cf0659a2ef3a5e97c33f6",
+    "crates/fsym-core/src/root_certificate.rs": "102505ecd3aed3a676aea9c287ce8334f070095f",
+    "crates/fsym-core/src/root_certificate/objective.rs": "1812f4c3f1b3e47f8348d4101910eef1c38b71f9",
+    "crates/fsym-calculus/src/compile.rs": "a6fb2ac71ce4dad1fa1c0a0c9341b64865afb6b8",
+    "crates/fsym-calculus/src/compile/shared.rs": "1a3371c186f011a3042740e378e37f1e51008200",
+    "crates/fsym-calculus/src/proof.rs": "8f611799dac4a21d9cf332765c44e13f501e5283",
+    "crates/fsym-calculus/src/verified.rs": "419dc3a7fef711c20cfeded17c958db4599b6ede",
+    "crates/fsym-calculus/src/sparse_hessian.rs": "544b742b2b5815b2034851301614e57bc17af78e",
+    "crates/fsym-calculus/src/sparse_jacobian.rs": "f2082e4dc4f8fc5acabcdd15d42591995340ab06",
+    "python/sympy/utilities/lambdify.py": "bd9cf8fd59f477c93765b89cc7436d681d05840a",
+    "crates/fsym-python/src/numeric.rs": "cc3b01426087bea239d7a58f60fb5b4506584c17"
+  },
+  "beads_progress_only": [
+    "fra-campaign-jacobian-bundle-ukp",
+    "fra-ws21-profile-closure-82j"
+  ],
+  "remaining_gates": [
+    "Current-source native tests",
+    "Actual production Python extension regressions",
+    "Pinned rustfmt/check/Clippy",
+    "Full runtime/workspace and compatibility/campaign closure"
+  ],
+  "performance_claim": "None.",
+  "preserved_concurrent_main_commits": [
+    "6ca5fb05684fc3e99cbff1ffa4e22d7a32caf0ab",
+    "679f879055a99b7668682309b1734c578cd33b47"
+  ]
+}

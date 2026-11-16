@@ -959,6 +959,9 @@ pub(crate) fn check_certified_sources(sources: &[Expr], variables: &[Symbol]) ->
                     pending.push((&pair[1], true));
                 }
             }
+            Expr::Function(name, arguments) if name == "atan2" && arguments.len() == 2 => {
+                pending.extend(arguments.iter().map(|argument| (argument, false)));
+            }
             Expr::Function(name, arguments)
                 if matches!(
                     name.as_str(),

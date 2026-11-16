@@ -58,7 +58,7 @@ _FUNCTION_ARGS = Function.__dict__["_args"]
 # ln/abs/sqrt are not additional source aliases: opaque classes can use them.
 _CLOSED_NATIVE_FUNCTIONS = {
     "sin": "sin", "cos": "cos", "tan": "tan",
-    "asin": "asin", "acos": "acos", "atan": "atan",
+    "asin": "asin", "acos": "acos", "atan": "atan", "atan2": "atan2",
     "sinh": "sinh", "cosh": "cosh", "tanh": "tanh",
     "asinh": "asinh", "acosh": "acosh", "atanh": "atanh",
     "exp": "exp", "log": "log", "Abs": "abs",
@@ -116,7 +116,7 @@ class _FunctionTable:
 
 def _functions():
     # Exact classes, never class names supplied by a user subclass.
-    from ..functions.elementary.trigonometric import sin, cos, tan, asin, acos, atan
+    from ..functions.elementary.trigonometric import sin, cos, tan, asin, acos, atan, atan2
     from ..functions.elementary.hyperbolic import sinh, cosh, tanh, asinh, acosh, atanh
     from ..functions.elementary.exponential import exp, log
     from ..functions.elementary.integers import floor, ceiling
@@ -127,6 +127,7 @@ def _functions():
     return _FunctionTable((
         (sin, ("sin", math.sin)), (cos, ("cos", math.cos)), (tan, ("tan", math.tan)),
         (asin, ("asin", math.asin)), (acos, ("acos", math.acos)), (atan, ("atan", math.atan)),
+        (atan2, ("atan2", math.atan2)),
         (sinh, ("sinh", math.sinh)), (cosh, ("cosh", math.cosh)), (tanh, ("tanh", math.tanh)),
         (asinh, ("asinh", math.asinh)), (acosh, ("acosh", math.acosh)),
         (atanh, ("atanh", math.atanh)), (exp, ("exp", math.exp)), (log, ("log", math.log)),
@@ -397,8 +398,8 @@ def _native_numeric_source(source, count, depth, *, inexact=None):
             _require_closed_native_function_tag(tag)
             kind = "function"
         children = node.args
-        if kind == "function" and len(children) != 1:
-            raise ValueError("native numerical functions require exactly one argument")
+        if kind == "function" and len(children) != (2 if name == "atan2" else 1):
+            raise ValueError("native numerical function has the wrong number of arguments")
         lowered = [visit(child, level + 1) for child in children]
         if kind == "add":
             return _native.Add(*lowered, evaluate=False).as_expr()
@@ -472,6 +473,8 @@ def _numeric_source(value, functions, count, depth=0, *, inexact=None):
             return _native_numeric_source(_BASIC_VALUE.__get__(value, Basic), count, depth, inexact=inexact)
         if type(arguments) is not tuple or len(arguments) > _MAX_NODES:
             raise ValueError("numeric source requires bounded exact stored arguments")
+        if function is not None and function[0] == "atan2" and len(arguments) != 2:
+            raise ValueError("atan2 requires exactly two numerical arguments")
         children = [_numeric_source(arg, functions, count, depth + 1, inexact=inexact)
                     for arg in arguments]
         if cls is Add:
@@ -1351,6 +1354,8 @@ def _math_native_program(source, positions, functions, count, program, depth):
             function = next(spec[1] for _, spec in functions.items() if spec[0] == native_name)
             kind = "function"
         children = node.args
+        if kind == "function" and native_name == "atan2" and len(children) != 2:
+            raise ValueError("atan2 requires exactly two numerical arguments")
         for child in children:
             visit(child, level + 1)
         if kind == "function":
@@ -1416,6 +1421,8 @@ def _math_program(value, positions, functions, count, program, depth=0):
         arguments = native.args
     if type(arguments) is not tuple or len(arguments) > _MAX_NODES:
         raise ValueError("numeric source requires bounded exact stored arguments")
+    if cls in functions and functions[cls][0] == "atan2" and len(arguments) != 2:
+        raise ValueError("atan2 requires exactly two numerical arguments")
     for child in arguments:
         _math_program(child, positions, functions, count, program, depth + 1)
     if cls is Add:
