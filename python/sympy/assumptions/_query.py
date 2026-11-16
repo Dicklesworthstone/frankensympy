@@ -376,6 +376,12 @@ class QueryProblem:
         if not admitted or name not in NATIVE_PREDICATES:
             return None
         realness = self.known_realness(native, context, effective_branch)
+        # Every established non-real case below is a finite complex value:
+        # I, a declared complex symbol, an admitted principal rational power,
+        # or finite Add/Mul propagation. A bare ``real=False`` declaration
+        # alone does not enter that lane and cannot acquire these facts.
+        if realness is False and name in {"complex", "finite", "infinite"}:
+            return name != "infinite"
         if realness is False and name in {
             "real", "rational", "integer", "positive", "negative", "nonnegative",
             "nonpositive", "zero", "nonzero", "even", "odd", "prime",
@@ -414,6 +420,18 @@ class QueryProblem:
                 return False
             return None
         kind = native.func_name
+        if kind == "Pow":
+            args = native.args
+            if len(args) == 2:
+                base, exponent = args
+                if (exponent.is_rational and exponent.exact_denominator() != 1
+                        and context.is_true(base, "negative") is True):
+                    # For a finite negative real base the principal phase is
+                    # pi*p/q. A reduced nonintegral rational p/q cannot make
+                    # that phase an integer multiple of pi, for either sign
+                    # of p. This is an exact non-realness fact, not a numeric
+                    # phase estimate or a real-root convention.
+                    return False
         if kind not in ("Add", "Mul"):
             return None
         args = native.args
@@ -451,6 +469,12 @@ class QueryProblem:
                 denominator = exponent.exact_denominator()
                 if denominator == 1:
                     return numerator > 0 or context.is_true(base, "nonzero") is True
+                # Nonintegral rational powers of finite negative real bases
+                # are defined on the principal complex branch. The sign
+                # premise also discharges the nonzero obligation for a
+                # negative exponent; unknown real bases still stay guarded.
+                if context.is_true(base, "negative") is True:
+                    return True
                 predicate = "nonnegative" if numerator > 0 else "positive"
                 return context.is_true(base, predicate) is True
             return (context.is_true(base, "positive") is True

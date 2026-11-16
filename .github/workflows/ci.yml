@@ -222,7 +222,7 @@ jobs:
           cargo test --locked -p fsym-solvers --lib --test real_rur --test localized_components --test algebraic_components --test polynomial_system --test polynomial_components --test rational_components --test rational_graph --test rational_systems -j1
       - name: Build the full Python extension
         run: cargo build --locked -p fsym-python --features extension-module -j1
-      - name: Objective, polynomial and transform APIs against the full extension
+      - name: Checked public mathematical APIs against the full extension
         run: |
           python - <<'PY'
           import importlib.util
@@ -257,6 +257,12 @@ jobs:
               "python/tests/test_polynomial_pseudo_division.py",
               "python/tests/test_recursive_polynomial_division.py",
               "python/tests/test_solve_source_domains.py",
+              "python/tests/test_principal_power_solve.py",
+              "python/tests/test_solveset_source_domains.py",
+              "python/tests/test_checksol_domains.py",
+              "python/tests/test_set_membership.py",
+              "python/tests/test_assumptions_soundness.py",
+              "python/tests/test_solve_assumptions.py",
               "python/tests/test_affine_linear_systems.py",
               "python/tests/test_half_line_transforms.py",
               "python/tests/test_fourier_transforms.py",

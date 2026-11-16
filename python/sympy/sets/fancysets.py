@@ -420,6 +420,18 @@ class ConditionSet(Set):
         inside = self._base.contains(other)
         if inside is False:
             return False
+        from ..core import Eq
+
+        if type(self._condition) is Eq:
+            # Evaluate the original equation, including held reciprocal and
+            # function domains, before substitution can cancel its poles.
+            # An unresolved source remains an unresolved membership query.
+            from ..solvers._checksol import checksol
+
+            verdict = checksol(self._condition, self._sym, other)
+            if verdict is False:
+                return False
+            return inside if verdict is True else None
         try:
             value = self._condition.subs(self._sym, other)
         except Exception:

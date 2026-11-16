@@ -57,6 +57,7 @@ class _Work:
         self.sizes = {}
         self.exhausted = False
         self.failure = None
+        self.zero_queries = None
 
     def charge(self, count=1):
         if count < 0 or count > self.remaining:
@@ -68,6 +69,33 @@ class _Work:
         except Exception as error:
             self.failure = error
             raise
+
+    def zero_fact(self, expression):
+        """Use exact signed facts within the same cumulative source budget."""
+        from ..assumptions._query import QueryProblem, UnsupportedAssumptions
+
+        if self.zero_queries is None:
+            self.zero_queries = QueryProblem()
+        problem = self.zero_queries
+        available = min(self.remaining, problem.remaining)
+        problem.remaining = available
+        try:
+            return problem.answer(expression, "zero", [{}])
+        except UnsupportedAssumptions:
+            return None
+        except ValueError as error:
+            if str(error).startswith("assumptions query exceeds"):
+                self.exhausted = True
+            else:
+                self.failure = error
+            raise
+        except Exception as error:
+            self.failure = error
+            raise
+        finally:
+            # QueryProblem charges the enclosing native meter itself. Debit
+            # its work from this ledger without charging that meter twice.
+            self.remaining -= available - problem.remaining
 
 
 def _require_original():
@@ -211,6 +239,8 @@ def _domain_status(records, items, work):
                 zero = base.is_zero
                 if zero is None and base.args:
                     zero = simplify(base).is_zero
+                if zero is None:
+                    zero = work.zero_fact(base)
                 if zero is True and exponent.is_negative is True:
                     return False
                 unknown = unknown or zero is not False
@@ -438,3 +468,57 @@ class _SolveSourceCheck:
             if verdict is not False:
                 admitted.append(solution)
         return admitted
+
+
+class _SolveSetSourceCheck(_SolveSourceCheck):
+    """Keep original definedness in a complete finite solution set.
+
+    ``solve`` may retain a candidate whose original domain is undecidable.
+    ``solveset`` must retain that obligation as a condition on the returned
+    set. Both paths use the same bounded source traversal and sticky caller
+    accounting; a failed check cannot turn into an unconditional set.
+    """
+
+    def _verdict(self, replacements):
+        verdict = _check_with_work(
+            self.source, replacements, None, self.work, domain_only=True,
+        )
+        if self.work.exhausted:
+            raise ValueError("solveset source checking exceeds its work limit")
+        return verdict
+
+    def finite(self, roots, symbol):
+        if len(roots) > _MAX_NODES:
+            raise ValueError("solveset source checking exceeds its candidate limit")
+        admitted = []
+        conditional = False
+        for root in roots:
+            verdict = self._verdict({symbol: root})
+            if verdict is not False:
+                admitted.append(root)
+                conditional = conditional or verdict is None
+        return admitted, conditional
+
+    def condition_set(self, symbol, base):
+        from ..sets import ConditionSet, EmptySet
+
+        if isinstance(base, EmptySet):
+            return base
+        condition = self.source if type(self.source) is Eq else Eq(
+            self.source, 0, evaluate=False,
+        )
+        return ConditionSet(symbol, condition, base)
+
+    def identity_set(self, symbol, domain):
+        """A normalized identity holds only where its original source exists."""
+        from ..sets import EmptySet
+
+        # The requested set domain governs the solved coordinate. Its
+        # declared assumptions cannot erase a hole in that domain; parameter
+        # assumptions remain available to discharge independent obligations.
+        verdict = self._verdict({symbol: Dummy("solveset_domain_coordinate")})
+        if verdict is False:
+            return EmptySet()
+        if verdict is None:
+            return self.condition_set(symbol, domain)
+        return domain

@@ -714,6 +714,8 @@ def solveset(expression, variable=None, domain=None):
     Abs nodes use complete disjoint sign branches and retain original poles.
     Closed Abs forms outside that grammar remain conditional; exhausted work
     bounds raise instead of returning a partial set of solutions.
+    Finite native results also retain original equation poles: undecidable
+    definedness stays conditional instead of becoming an unconditional root.
     """
     if domain is not None:
         if isinstance(domain, str):
@@ -762,14 +764,16 @@ def solveset(expression, variable=None, domain=None):
             original = Add(expression.lhs, Mul(-1, expression.rhs, evaluate=False), evaluate=False)
         expression = expression.lhs - expression.rhs
     expr = _wrap(_native_expr(expression))
-    if over_reals and type(original) in (int, float, str):
+    if type(original) in (int, float, str):
         # Keep decimal literals as Float. Only exact built-in types enter
         # here; arbitrary custom conversion hooks are never evaluated.
         original = sympify(original)
-    if over_reals and type(original) in (Expr, _native.Expr):
+    if type(original) in (Expr, _native.Expr):
         original = _wrap(_native_expr(original))
+    from .solvers._checksol import _SolveSetSourceCheck
+    source_check = _SolveSetSourceCheck(original)
     if variable is None:
-        symbols = original.free_symbols if over_reals and isinstance(original, Basic) else expr.free_symbols
+        symbols = original.free_symbols if isinstance(original, Basic) else expr.free_symbols
         if len(symbols) == 1:
             symbol = next(iter(symbols))
         elif len(symbols) == 0:
@@ -778,10 +782,10 @@ def solveset(expression, variable=None, domain=None):
                 if rational_result is not None:
                     return rational_result
             if expr == 0:
-                if domain is not None and isinstance(domain, Set):
-                    return domain
-                from .sets import UniversalSet
-                return UniversalSet()
+                from .sets import Complexes
+                return source_check.identity_set(
+                    Dummy("x"), domain if domain is not None else Complexes(),
+                )
             from .sets import EmptySet
             return EmptySet()
         else:
@@ -795,10 +799,10 @@ def solveset(expression, variable=None, domain=None):
             return rational_result
 
     if expr == 0:
-        if domain is not None and isinstance(domain, Set):
-            return domain
-        from .sets import UniversalSet
-        return UniversalSet()
+        from .sets import Complexes
+        return source_check.identity_set(
+            symbol, domain if domain is not None else Complexes(),
+        )
 
     if not expr.free_symbols:
         from .sets import EmptySet
@@ -836,8 +840,14 @@ def solveset(expression, variable=None, domain=None):
     if not results:
         return EmptySet()
     roots = [_lift_native_result(r, expr, symbol) for r in results]
+    roots, source_conditional = source_check.finite(roots, symbol)
+
+    def finish(candidates):
+        return source_check.condition_set(symbol, candidates) if source_conditional else candidates
+
     if domain is not None and isinstance(domain, Set):
         from .sets import Intersection, Interval
+        source_candidate_count = len(roots)
         roots = [simplify(root) for root in roots]
         if isinstance(domain, Interval):
             # Exact nonzero rational imaginary parts exclude a candidate
@@ -853,21 +863,39 @@ def solveset(expression, variable=None, domain=None):
         # of discarding the candidate through boolean containment coercion.
         retained = []
         unknown = False
-        from .sets import Reals as _Reals
+        from .sets import Complexes as _Complexes, Reals as _Reals
+        from .assumptions._query import QueryProblem, UnsupportedAssumptions
+        real_domain = isinstance(domain, _Reals) or domain == _Reals()
+        complex_domain = isinstance(domain, _Complexes) or domain == _Complexes()
+        domain_queries = QueryProblem() if real_domain or complex_domain else None
         for root in roots:
-            if (isinstance(domain, _Reals) or domain == _Reals()) and _is_real_constant(root):
-                retained.append(root)
-                continue
+            if real_domain or complex_domain:
+                try:
+                    membership = domain_queries.answer(
+                        root, "real" if real_domain else "complex", [{}],
+                    )
+                except UnsupportedAssumptions:
+                    membership = None
+                if membership is False:
+                    continue
+                if membership is True or real_domain and _is_real_constant(root):
+                    retained.append(root)
+                    continue
             membership = domain.contains(root)
             if membership is False:
                 continue
             retained.append(root)
             unknown = unknown or membership is None
+        if source_conditional and len(retained) < source_candidate_count:
+            # A discarded complex candidate must not leave a source-domain
+            # obligation on the remaining real roots. Recheck only survivors
+            # against the same cumulative source-work allowance.
+            retained, source_conditional = source_check.finite(retained, symbol)
         candidates = FiniteSet(*retained)
-        return Intersection(candidates, domain) if unknown else candidates
+        return finish(Intersection(candidates, domain) if unknown else candidates)
     if not roots:
         return EmptySet()
-    return FiniteSet(*roots)
+    return finish(FiniteSet(*roots))
 
 
 def _preorder_nodes(e):
