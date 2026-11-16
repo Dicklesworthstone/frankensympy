@@ -90,10 +90,16 @@ impl<'de, T: Deserialize<'de>, const N: usize> Deserialize<'de> for BoundedSeque
             type Value = BoundedSequence<T, N>;
 
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(formatter, "an optimization checkpoint sequence of at most {N} items")
+                write!(
+                    formatter,
+                    "an optimization checkpoint sequence of at most {N} items"
+                )
             }
 
-            fn visit_seq<A: de::SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
+            fn visit_seq<A: de::SeqAccess<'de>>(
+                self,
+                mut sequence: A,
+            ) -> Result<Self::Value, A::Error> {
                 let mut values = Vec::new();
                 loop {
                     if values.len() == N {
@@ -166,7 +172,11 @@ pub fn export_box_optimization_checkpoint(
         return Err(error.clone().into());
     }
     meter.checkpoint().map_err(CertificationError::from)?;
-    check_problem_sources(std::slice::from_ref(search.objective()), search.variables(), meter)?;
+    check_problem_sources(
+        std::slice::from_ref(search.objective()),
+        search.variables(),
+        meter,
+    )?;
     charge_statement(
         search.domain(),
         search.variables().len(),
@@ -224,7 +234,12 @@ pub fn restore_box_optimization_checkpoint(
         charge(meter, chunk.len() as u64, 0, 0)?;
         nesting.scan(chunk)?;
     }
-    charge(meter, bytes.len() as u64 + 1, bytes.len() as u64 * 4 + 1024, 64)?;
+    charge(
+        meter,
+        bytes.len() as u64 + 1,
+        bytes.len() as u64 * 4 + 1024,
+        64,
+    )?;
     let wire: UntrustedCheckpoint<'_> =
         serde_json::from_slice(bytes).map_err(|error| encoding_error(&error))?;
     if wire.schema_version != BOX_OPTIMIZATION_CHECKPOINT_SCHEMA_VERSION {
@@ -262,7 +277,8 @@ pub fn restore_box_optimization_checkpoint(
     let options = encode(&expected_options, meter)?;
     charge(
         meter,
-        (objective.len() + variables.len() + domain.len() + tolerance.len() + options.len()) as u64 + 1,
+        (objective.len() + variables.len() + domain.len() + tolerance.len() + options.len()) as u64
+            + 1,
         0,
         0,
     )?;
@@ -286,12 +302,21 @@ pub fn restore_box_optimization_checkpoint(
         serde_json::from_str(wire.counters.get()).map_err(|error| encoding_error(&error))?;
     meter.checkpoint().map_err(CertificationError::from)?;
     let topology_bytes = (wire.partition.get().len() + wire.split_order.get().len()) as u64;
-    charge(meter, topology_bytes + 1, topology_bytes * 16 + 1024, topology_bytes + 1)?;
+    charge(
+        meter,
+        topology_bytes + 1,
+        topology_bytes * 16 + 1024,
+        topology_bytes + 1,
+    )?;
     let partition: BoundedSequence<BoxPartitionStep, MAX_BOX_OPTIMIZATION_NODES> =
         serde_json::from_str(wire.partition.get()).map_err(|error| encoding_error(&error))?;
     let split_order: BoundedSequence<usize, MAX_BOX_OPTIMIZATION_NODES> =
         serde_json::from_str(wire.split_order.get()).map_err(|error| encoding_error(&error))?;
-    let incumbent_point = decode_point(wire.incumbent_point, expected_options.precision_digits, meter)?;
+    let incumbent_point = decode_point(
+        wire.incumbent_point,
+        expected_options.precision_digits,
+        meter,
+    )?;
     let checkpoint = BoxOptimizationSearchCheckpoint {
         options: expected_options,
         counters,

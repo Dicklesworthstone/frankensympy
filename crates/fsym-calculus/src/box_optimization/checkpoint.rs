@@ -34,8 +34,8 @@ fn snapshot_topology(
     workspace.account(
         1,
         (nodes.len() * std::mem::size_of::<BoxPartitionStep>()
-            + (leaf_count - 1 + MAX_BOX_OPTIMIZATION_DEPTH + 1)
-                * std::mem::size_of::<usize>()) as u64,
+            + (leaf_count - 1 + MAX_BOX_OPTIMIZATION_DEPTH + 1) * std::mem::size_of::<usize>())
+            as u64,
         3,
     )?;
     let mut partition = reserve(nodes.len(), "optimization checkpoint partition allocation")?;
@@ -103,7 +103,10 @@ fn topology(
         (2 * partition.len() * std::mem::size_of::<usize>()) as u64,
         2,
     )?;
-    let mut spans = reserve(partition.len(), "optimization checkpoint subtree allocation")?;
+    let mut spans = reserve(
+        partition.len(),
+        "optimization checkpoint subtree allocation",
+    )?;
     spans.resize(partition.len(), 0usize);
     for index in (0..partition.len()).rev() {
         workspace.account(1, 0, 0)?;
@@ -279,11 +282,8 @@ impl BoxOptimizationSearch {
         }
         let (partition, split_order, incumbent_point) =
             self.prepared.with_workspace(meter, |workspace| {
-                let (partition, split_order) = snapshot_topology(
-                    workspace,
-                    &self.frontier.nodes,
-                    self.frontier.leaf_count,
-                )?;
+                let (partition, split_order) =
+                    snapshot_topology(workspace, &self.frontier.nodes, self.frontier.leaf_count)?;
                 let point = self
                     .frontier
                     .incumbent
@@ -363,12 +363,7 @@ impl BoxOptimizationSearch {
             workspace.account(1, rational_bytes(absolute_tolerance), 2)?;
             let absolute_tolerance = absolute_tolerance.clone();
             let mut frontier = restore_frontier(workspace, domain, kind, checkpoint)?;
-            frontier.settle(
-                workspace,
-                kind,
-                &absolute_tolerance,
-                checkpoint.options,
-            )?;
+            frontier.settle(workspace, kind, &absolute_tolerance, checkpoint.options)?;
             Ok((absolute_tolerance, frontier))
         })?;
         Ok(Self {

@@ -151,7 +151,10 @@ fn generated_degree(
     work: &mut PolynomialWork<'_, impl BudgetMeter>,
 ) -> Result<Option<u32>, PolyError> {
     work.tick(1)?;
-    Ok(polynomial.terms().last_key_value().map(|(powers, _)| powers[0]))
+    Ok(polynomial
+        .terms()
+        .last_key_value()
+        .map(|(powers, _)| powers[0]))
 }
 
 fn generated_coefficient(
@@ -182,7 +185,9 @@ fn generated_shift(
     for (powers, value) in coefficient.terms() {
         work.tick(powers.len() + 1)?;
         if powers[0] != 0 {
-            return Err(refused("pseudo-division coefficient contains its main variable"));
+            return Err(refused(
+                "pseudo-division coefficient contains its main variable",
+            ));
         }
         work.allocate(powers.len() * 4)?;
         let mut moved = powers.clone();
@@ -221,8 +226,7 @@ pub fn bounded_pseudo_division_certificate(
 ) -> Result<PseudoDivisionCertificate, PolyError> {
     let mut work = PolynomialWork::new(generator);
     admit_request(dividend, divisor, domain, &mut work)?;
-    let divisor_degree =
-        generated_degree(divisor, &mut work)?.ok_or(PolyError::DivisionByZero)?;
+    let divisor_degree = generated_degree(divisor, &mut work)?.ok_or(PolyError::DivisionByZero)?;
     let leading = generated_coefficient(divisor, divisor_degree, &mut work)?;
     let scale_exponent = generated_degree(dividend, &mut work)?
         .and_then(|degree| degree.checked_sub(divisor_degree))
@@ -245,7 +249,9 @@ pub fn bounded_pseudo_division_certificate(
         let removed = multiply_polynomials(&step, divisor, &mut work)?;
         remainder = generated_sum(&scaled_remainder, &removed, true, &mut work)?;
         if generated_degree(&remainder, &mut work)?.is_some_and(|next| next >= degree) {
-            return Err(refused("pseudo-division did not decrease its primary degree"));
+            return Err(refused(
+                "pseudo-division did not decrease its primary degree",
+            ));
         }
     }
     // Degree drops can skip cancellations, including exact division after one
@@ -338,18 +344,21 @@ pub fn verify_pseudo_division(
     for polynomial in [&certificate.quotient, &certificate.remainder] {
         admit_polynomial(polynomial, dividend.generators(), domain, &mut work)?;
     }
-    let divisor_degree =
-        reference_degree(divisor, &mut work)?.ok_or(PolyError::DivisionByZero)?;
+    let divisor_degree = reference_degree(divisor, &mut work)?.ok_or(PolyError::DivisionByZero)?;
     let scale_exponent = reference_degree(dividend, &mut work)?
         .and_then(|degree| degree.checked_sub(divisor_degree))
         .map_or(0, |difference| difference + 1);
     if certificate.scale_exponent != scale_exponent {
-        return Err(mismatch("pseudo-division changed the original scaling exponent"));
+        return Err(mismatch(
+            "pseudo-division changed the original scaling exponent",
+        ));
     }
     if reference_degree(&certificate.remainder, &mut work)?
         .is_some_and(|degree| degree >= divisor_degree)
     {
-        return Err(mismatch("pseudo-remainder has not reached its strict primary-degree bound"));
+        return Err(mismatch(
+            "pseudo-remainder has not reached its strict primary-degree bound",
+        ));
     }
     let mut leading = zero(dividend.generators(), &mut work)?;
     for (powers, value) in divisor.terms() {
@@ -376,7 +385,9 @@ pub fn verify_pseudo_division(
         }
     }
     if !residual.is_zero() {
-        return Err(mismatch("pseudo-division original-source coefficient identity failed"));
+        return Err(mismatch(
+            "pseudo-division original-source coefficient identity failed",
+        ));
     }
     work.allocate(size_of::<VerifiedPseudoDivision>())?;
     let accepted = VerifiedPseudoDivision {

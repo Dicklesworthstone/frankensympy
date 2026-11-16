@@ -79,7 +79,11 @@ fn independent_admission_rejects_wrong_half_power_chain_and_source_identity() {
     let inner = parse("3*x+1").unwrap();
     let source = sqrt(inner.clone());
     let inverse_root = Expr::pow(inner.clone(), fraction(-1, 2));
-    let correct = Expr::Mul(vec![fraction(1, 2), inverse_root.clone(), Expr::from_i64(3)]);
+    let correct = Expr::Mul(vec![
+        fraction(1, 2),
+        inverse_root.clone(),
+        Expr::from_i64(3),
+    ]);
     verify_diff_derivation(
         &derivation(&source, &variable, &correct, RULE_DIFF_SQRT),
         &source,
@@ -125,8 +129,13 @@ fn independent_admission_rejects_wrong_half_power_chain_and_source_identity() {
     let original_tree = derivation(&source, &variable, &correct, RULE_DIFF_SQRT);
     assert!(verify_diff_derivation(&original_tree, &source, &other, &correct).is_err());
     assert!(
-        verify_diff_derivation(&original_tree, &sqrt(Expr::symbol("x")), &variable, &correct)
-            .is_err()
+        verify_diff_derivation(
+            &original_tree,
+            &sqrt(Expr::symbol("x")),
+            &variable,
+            &correct
+        )
+        .is_err()
     );
 }
 
@@ -156,18 +165,21 @@ fn nonlinear_square_root_drives_sparse_jacobians_hessians_and_vector_products() 
     }
 
     let objective = VerifiedObjective::try_compile(&source, &variables).unwrap();
-    assert_eq!(objective.hessian_pattern(), [(0, 0), (0, 1), (1, 0), (1, 1)]);
+    assert_eq!(
+        objective.hessian_pattern(),
+        [(0, 0), (0, 1), (1, 0), (1, 1)]
+    );
     let result = objective.evaluate(&[2.0, 2.0]).unwrap();
     close(result.value, 3.0);
     for derivative in result.gradient {
         close(derivative, 2.0 / 3.0);
     }
-    for (actual, expected) in result.hessian.iter().zip([
-        5.0 / 27.0,
-        -4.0 / 27.0,
-        -4.0 / 27.0,
-        5.0 / 27.0,
-    ]) {
+    for (actual, expected) in
+        result
+            .hessian
+            .iter()
+            .zip([5.0 / 27.0, -4.0 / 27.0, -4.0 / 27.0, 5.0 / 27.0])
+    {
         close(*actual, expected);
     }
     let product = objective
@@ -189,7 +201,8 @@ fn nonlinear_square_root_drives_sparse_jacobians_hessians_and_vector_products() 
 fn nested_roots_and_vanishing_inner_gradients_keep_the_second_chain_term() {
     let variable = Symbol::new("x");
     let source = sqrt(sqrt(Expr::Sym(variable.clone())));
-    let objective = VerifiedObjective::try_compile(&source, std::slice::from_ref(&variable)).unwrap();
+    let objective =
+        VerifiedObjective::try_compile(&source, std::slice::from_ref(&variable)).unwrap();
     let result = objective.evaluate(&[16.0]).unwrap();
     close(result.value, 2.0);
     close(result.gradient[0], 1.0 / 32.0);
@@ -278,8 +291,7 @@ fn malformed_roots_and_substituted_bytecode_never_gain_derivative_evidence() {
     let program =
         CompiledExpr::try_compile_checked_with_meter(&source, &mapping, &mut Unbounded).unwrap();
     assert!(compiled_expression_matches(&source, &mapping, &program).unwrap());
-    let forged =
-        CompiledExpr::try_from_ops(vec![CompiledOp::LoadVar(0), CompiledOp::Exp]).unwrap();
+    let forged = CompiledExpr::try_from_ops(vec![CompiledOp::LoadVar(0), CompiledOp::Exp]).unwrap();
     assert!(!compiled_expression_matches(&source, &mapping, &forged).unwrap());
 }
 
@@ -327,7 +339,8 @@ fn verified_root_compilation_and_evaluation_keep_cancellation_and_budget_account
             interrupt: Some(checkpoint),
         };
         assert!(
-            VerifiedResidualSystem::try_compile_with_meter(&sources, &variables, &mut meter).is_err()
+            VerifiedResidualSystem::try_compile_with_meter(&sources, &variables, &mut meter)
+                .is_err()
         );
         assert_eq!(meter.checkpoints, checkpoint);
     }
@@ -344,7 +357,8 @@ fn verified_root_compilation_and_evaluation_keep_cancellation_and_budget_account
         VerifiedResidualSystem::try_compile_with_meter(&sources, &variables, &mut exact).unwrap();
         assert_eq!(exact.remaining(dimension), 0);
         assert!(
-            VerifiedResidualSystem::try_compile_with_meter(&sources, &variables, &mut exact).is_err()
+            VerifiedResidualSystem::try_compile_with_meter(&sources, &variables, &mut exact)
+                .is_err()
         );
         assert_eq!(exact.verifier_remaining(), 37);
     }

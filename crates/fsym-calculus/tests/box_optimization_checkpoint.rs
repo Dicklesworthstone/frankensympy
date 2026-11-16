@@ -172,7 +172,10 @@ fn split_order_is_preserved_and_malformed_coverage_or_history_is_rejected() {
     assert!(restore(&bad, &mut Unbounded).is_err(), "repeated split");
     let mut bad = original.clone();
     bad.split_order.swap(0, 1);
-    assert!(restore(&bad, &mut Unbounded).is_err(), "child before parent");
+    assert!(
+        restore(&bad, &mut Unbounded).is_err(),
+        "child before parent"
+    );
     let mut bad = original.clone();
     bad.split_order[0] = usize::MAX;
     assert!(restore(&bad, &mut Unbounded).is_err(), "unbounded index");
@@ -239,16 +242,18 @@ fn same_name_typed_axes_and_fixed_coordinates_survive_frontier_reconstruction() 
     assert!(receipt.value().contains(&q(1, 1)));
     let mut bad = checkpoint;
     bad.partition[0] = BoxPartitionStep::Split { axis: 1 };
-    assert!(BoxOptimizationSearch::from_checkpoint(
-        &objective,
-        &variables,
-        &domain,
-        BoxExtremumKind::Minimum,
-        &tolerance,
-        &bad,
-        &mut Unbounded,
-    )
-    .is_err());
+    assert!(
+        BoxOptimizationSearch::from_checkpoint(
+            &objective,
+            &variables,
+            &domain,
+            BoxExtremumKind::Minimum,
+            &tolerance,
+            &bad,
+            &mut Unbounded,
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -265,7 +270,10 @@ fn saved_points_and_completion_are_recomputed_without_trusting_prior_bounds() {
     coarse.split_order.clear();
     coarse.incumbent_point = Some(vec![q(0, 1)]);
     let mut resumed = restore(&coarse, &mut Unbounded).unwrap();
-    assert_eq!(resumed.progress().status, BoxOptimizationSearchStatus::Searching);
+    assert_eq!(
+        resumed.progress().status,
+        BoxOptimizationSearchStatus::Searching
+    );
     assert!(resumed.completed_witness().is_none());
     assert_eq!(resumed.incumbent_bound(), Some(&q(4, 1)));
     resumed
@@ -314,21 +322,27 @@ fn unknown_source_domain_and_absent_incumbent_never_become_accepted_zero() {
         &mut Unbounded,
     )
     .unwrap();
-    assert_eq!(resumed.progress().status, BoxOptimizationSearchStatus::Searching);
+    assert_eq!(
+        resumed.progress().status,
+        BoxOptimizationSearchStatus::Searching
+    );
     assert!(resumed.completed_witness().is_none());
     assert!(resumed.optimistic_bound().is_none());
     let mut bad = checkpoint;
     bad.incumbent_point = Some(vec![q(0, 1)]);
-    assert!(BoxOptimizationSearch::from_checkpoint(
-        &objective,
-        &variables,
-        &domain,
-        BoxExtremumKind::Minimum,
-        &tolerance,
-        &bad,
-        &mut Unbounded,
-    )
-    .is_err(), "the saved point must retain the hidden pole");
+    assert!(
+        BoxOptimizationSearch::from_checkpoint(
+            &objective,
+            &variables,
+            &domain,
+            BoxExtremumKind::Minimum,
+            &tolerance,
+            &bad,
+            &mut Unbounded,
+        )
+        .is_err(),
+        "the saved point must retain the hidden pole"
+    );
 }
 
 #[test]
@@ -352,7 +366,10 @@ fn invalid_options_and_forged_consumption_cannot_reset_lifetime_limits() {
             2 => bad.counters.source_bytes += 1,
             _ => bad.counters.evaluations = 0,
         }
-        assert!(restore(&bad, &mut Unbounded).is_err(), "history field {field}");
+        assert!(
+            restore(&bad, &mut Unbounded).is_err(),
+            "history field {field}"
+        );
     }
     for count in [MAX_ROOT_BOX_STEPS, u64::MAX] {
         let mut bad = original.clone();
@@ -450,7 +467,9 @@ fn cancellation_at_restore_safe_points_never_publishes_a_partial_candidate() {
             at: Some(at),
             stopped: false,
         };
-        let error = restore(&checkpoint, &mut cancelled).err().expect("cancellation");
+        let error = restore(&checkpoint, &mut cancelled)
+            .err()
+            .expect("cancellation");
         assert_eq!(
             error,
             BoxOptimizationError::Verification(RootBoxError::Meter(MeterError::Cancelled))
@@ -472,7 +491,10 @@ fn terminal_failures_cannot_export_half_completed_search_state() {
         stopped: false,
     };
     let error = search.advance(1, &mut cancelled).unwrap_err();
-    assert_eq!(search.progress().status, BoxOptimizationSearchStatus::Failed);
+    assert_eq!(
+        search.progress().status,
+        BoxOptimizationSearchStatus::Failed
+    );
     let before = search.counters();
     // A stopped meter panics if consulted again: a terminal search must refuse
     // before attempting any copying, resource admission or publication.

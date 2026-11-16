@@ -220,10 +220,7 @@ fn quadratic_linear_corpus_matches_independently_derived_coefficients() {
                         let f = p(&format!("{a}*x**2+({b})*x+({c})"), &variables);
                         let g = p(&format!("{d}*x+({e})"), &variables);
                         let result = solve(&f, &g, Domain::ZZ);
-                        let quotient = p(
-                            &format!("{}*x+({})", d * a, d * b - a * e),
-                            &variables,
-                        );
+                        let quotient = p(&format!("{}*x+({})", d * a, d * b - a * e), &variables);
                         let remainder = p(
                             &format!("{}", d * d * c - d * b * e + a * e * e),
                             &variables,
@@ -326,7 +323,16 @@ fn malformed_and_zero_shortcuts_cannot_bypass_original_admission() {
         },
     ] {
         assert!(divide(&malformed, &one, Domain::QQ, &mut Unbounded, &mut Unbounded).is_err());
-        assert!(divide(&zero, &malformed, Domain::QQ, &mut Unbounded, &mut Unbounded).is_err());
+        assert!(
+            divide(
+                &zero,
+                &malformed,
+                Domain::QQ,
+                &mut Unbounded,
+                &mut Unbounded
+            )
+            .is_err()
+        );
     }
 }
 
