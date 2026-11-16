@@ -1322,6 +1322,11 @@ impl Expr {
                 }
             }
             Expr::Function(name, args) => {
+                if name == "atan2" && args.len() == 2 {
+                    let y = args[0].evalf_ball_at_working_precision(precision_digits)?;
+                    let x = args[1].evalf_ball_at_working_precision(precision_digits)?;
+                    return map(y.atan2(&x, precision_digits));
+                }
                 let arg = match args.as_slice() {
                     [arg] => arg.evalf_ball_at_working_precision(precision_digits)?,
                     _ => return refuse(&format!("function `{name}` with non-unary arguments")),
