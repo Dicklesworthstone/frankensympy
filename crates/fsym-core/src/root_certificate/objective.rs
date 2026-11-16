@@ -211,6 +211,47 @@ fn chain_jet(
     result.checked()
 }
 
+/// For h=atan2(y, x), retain both argument Hessians and all four ordered
+/// gradient products. With dy=x/D and dx=-y/D, the second partials are
+/// dyy=2*dy*dx, dxx=-dyy and dyx=dx^2-dy^2, where D=x^2+y^2.
+fn atan2_jet(
+    y: ObjectiveJet,
+    x: ObjectiveJet,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<ObjectiveJet, RootBoxError> {
+    let (value, dy, dx) = work.atan2(&y.value, &x.value)?;
+    let product = work.mul(&dy, &dx)?;
+    let dyy = work.mul(&RealBall::from_i64(2), &product)?;
+    let dxx = dyy.neg();
+    let dy_squared = work.power(&dy, 2)?;
+    let dx_squared = work.power(&dx, 2)?;
+    let dyx = work.sub(&dx_squared, &dy_squared)?;
+    let n = y.gradient.len();
+    let mut result = ObjectiveJet::constant(value, n, work)?;
+    for i in 0..n {
+        let y_term = work.mul(&dy, &y.gradient[i])?;
+        let x_term = work.mul(&dx, &x.gradient[i])?;
+        result.gradient[i] = work.add(&y_term, &x_term)?;
+        for j in 0..n {
+            let y_inner = work.mul(&dy, &y.hessian[i][j])?;
+            let x_inner = work.mul(&dx, &x.hessian[i][j])?;
+            let inner = work.add(&y_inner, &x_inner)?;
+            let yy = work.mul(&y.gradient[i], &y.gradient[j])?;
+            let xx = work.mul(&x.gradient[i], &x.gradient[j])?;
+            let yx = work.mul(&y.gradient[i], &x.gradient[j])?;
+            let xy = work.mul(&x.gradient[i], &y.gradient[j])?;
+            let mixed = work.add(&yx, &xy)?;
+            let yy_term = work.mul(&dyy, &yy)?;
+            let xx_term = work.mul(&dxx, &xx)?;
+            let mixed_term = work.mul(&dyx, &mixed)?;
+            let diagonal = work.add(&yy_term, &xx_term)?;
+            let outer = work.add(&diagonal, &mixed_term)?;
+            result.hessian[i][j] = work.add(&inner, &outer)?;
+        }
+    }
+    result.checked()
+}
+
 fn logarithm(
     argument: ObjectiveJet,
     work: &mut Work<'_, impl BudgetMeter>,
@@ -361,6 +402,14 @@ fn evaluate_inner(
             if name == "Piecewise" {
                 let selected = work.select_stable_piecewise(arguments, variables, domain, depth)?;
                 return evaluate_inner(selected, variables, domain, depth + 2, work);
+            }
+            if name == "atan2" {
+                let [y, x] = arguments.as_slice() else {
+                    return Err(RootBoxError::Unsupported("atan2 requires two arguments"));
+                };
+                let y = evaluate_inner(y, variables, domain, depth + 1, work)?;
+                let x = evaluate_inner(x, variables, domain, depth + 1, work)?;
+                return atan2_jet(y, x, work);
             }
             let [argument] = arguments.as_slice() else {
                 return Err(RootBoxError::Unsupported("non-unary objective function"));

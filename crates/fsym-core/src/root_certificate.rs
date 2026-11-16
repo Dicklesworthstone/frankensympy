@@ -1021,6 +1021,40 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
         Ok((value, slope))
     }
 
+    /// Principal real angle and both first partial derivatives. The whole
+    /// original rectangle must have a smooth neighborhood: even the defined
+    /// value at (y=0, x<0) is not an admitted C1/C2 point. Original children
+    /// are evaluated before callers enter this shared admission boundary.
+    fn atan2(
+        &mut self,
+        y: &RealBall,
+        x: &RealBall,
+    ) -> Result<(RealBall, RealBall, RealBall), RootBoxError> {
+        self.arithmetic(&[y, x], &[])?;
+        if y.contains_zero() && !x.is_positive() {
+            return Err(RootBoxError::Domain(
+                "atan2 rectangle meets the origin or negative-axis branch cut",
+            ));
+        }
+        // Four rational corner ratios, their atan/pi reductions and the
+        // enclosing hull share this reservation. Charge both argument heights
+        // before entering the bounded convenience kernel, then checkpoint again
+        // before returning its result. No fallback resets consumed work.
+        for _ in 0..8 {
+            self.elementary(y)?;
+            self.elementary(x)?;
+        }
+        let value = checked(y.atan2(x, self.precision)?)?;
+        let y_squared = self.power(y, 2)?;
+        let x_squared = self.power(x, 2)?;
+        let denominator = self.add(&y_squared, &x_squared)?;
+        let inverse = self.inv(&denominator)?;
+        let dy = self.mul(x, &inverse)?;
+        let dx = self.mul(y, &inverse)?.neg();
+        self.step()?;
+        Ok((value, dy, dx))
+    }
+
     fn jet_add(&mut self, a: Jet, b: Jet) -> Result<Jet, RootBoxError> {
         let value = self.add(&a.value, &b.value)?;
         let mut gradient = Vec::with_capacity(a.gradient.len());
@@ -1169,6 +1203,21 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
                 if name == "Piecewise" {
                     let selected = self.select_stable_piecewise(args, variables, domain, depth)?;
                     return self.eval(selected, variables, domain, depth + 2);
+                }
+                if name == "atan2" {
+                    let [y, x] = args.as_slice() else {
+                        return Err(RootBoxError::Unsupported("atan2 requires two arguments"));
+                    };
+                    let y = self.eval(y, variables, domain, depth + 1)?;
+                    let x = self.eval(x, variables, domain, depth + 1)?;
+                    let (value, dy, dx) = self.atan2(&y.value, &x.value)?;
+                    let mut gradient = Vec::with_capacity(variables.len());
+                    for (y_derivative, x_derivative) in y.gradient.iter().zip(&x.gradient) {
+                        let y_term = self.mul(&dy, y_derivative)?;
+                        let x_term = self.mul(&dx, x_derivative)?;
+                        gradient.push(self.add(&y_term, &x_term)?);
+                    }
+                    return Jet { value, gradient }.checked();
                 }
                 let [arg] = args.as_slice() else {
                     return Err(RootBoxError::Unsupported("non-unary function"));
