@@ -26,6 +26,9 @@ use num_traits::{One, Signed, Zero};
 use std::sync::Arc;
 use thiserror::Error;
 
+mod half_line;
+pub use half_line::{HalfLineKernel, OrdinaryHalfLineTransform, metered_half_line_transform};
+
 const MAX_NODES: usize = 4096;
 const MAX_DEPTH: usize = 64;
 const MAX_NAMES: usize = 65_536;
@@ -478,6 +481,9 @@ fn polynomial<M: BudgetMeter>(
                 return Err(FourierError::Unsupported(
                     "nonconstant reciprocal exponents",
                 ));
+            }
+            if power == 0 && base.iter().all(Zero::is_zero) {
+                return Err(FourierError::Refused("undefined original zero polynomial power"));
             }
             let mut result = vec![BigRational::one()];
             for _ in 0..power {

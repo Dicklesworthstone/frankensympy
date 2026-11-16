@@ -145,6 +145,11 @@ class SineTransform(Transform):
     def __new__(cls, f: Any, t: Any, k: Any, **kwargs: Any) -> Any:
         return super().__new__(cls, f, t, k)
 
+    @property
+    def free_symbols(self):
+        function, variable, frequency = self.args
+        return (function.free_symbols - {variable}) | frequency.free_symbols
+
     def doit(self, **hints: Any) -> Any:
         f, t, k = self.args
         return sine_transform(f, t, k, **hints)
@@ -155,6 +160,11 @@ class InverseSineTransform(Transform):
 
     def __new__(cls, F: Any, k: Any, t: Any, **kwargs: Any) -> Any:
         return super().__new__(cls, F, k, t)
+
+    @property
+    def free_symbols(self):
+        function, variable, frequency = self.args
+        return (function.free_symbols - {variable}) | frequency.free_symbols
 
     def doit(self, **hints: Any) -> Any:
         F, k, t = self.args
@@ -167,6 +177,11 @@ class CosineTransform(Transform):
     def __new__(cls, f: Any, t: Any, k: Any, **kwargs: Any) -> Any:
         return super().__new__(cls, f, t, k)
 
+    @property
+    def free_symbols(self):
+        function, variable, frequency = self.args
+        return (function.free_symbols - {variable}) | frequency.free_symbols
+
     def doit(self, **hints: Any) -> Any:
         f, t, k = self.args
         return cosine_transform(f, t, k, **hints)
@@ -177,6 +192,11 @@ class InverseCosineTransform(Transform):
 
     def __new__(cls, F: Any, k: Any, t: Any, **kwargs: Any) -> Any:
         return super().__new__(cls, F, k, t)
+
+    @property
+    def free_symbols(self):
+        function, variable, frequency = self.args
+        return (function.free_symbols - {variable}) | frequency.free_symbols
 
     def doit(self, **hints: Any) -> Any:
         F, k, t = self.args
@@ -827,76 +847,129 @@ def inverse_fourier_transform(F: Any, k: Any, x: Any, noconds: bool = True, **kw
     return _ordinary_fourier_transform(F, k, x, noconds, kwargs, inverse=True)
 
 
-def sine_transform(f: Any, t: Any, k: Any, noconds: bool = True, **kwargs: Any) -> Any:
-    """Compute the sine transform: int_0^oo f(t) sin(k*t) dt."""
-    from .. import integrate
-    from ..simplify import simplify
+def _half_line_transform(expression, variable, frequency, noconds, options, *, sine, inverse):
+    """Shared retained-source boundary for the normalized real kernels."""
+    from fractions import Fraction
 
-    f = sympify(f)
-    t = Symbol(str(t)) if not isinstance(t, Symbol) else t
-    k = Symbol(str(k)) if not isinstance(k, Symbol) else k
+    from ..core import Float
+    from ..logic.boolalg import true
+
+    # The Mellin boundary's method-owner check is common scalar admission;
+    # reuse it instead of a separate list of trusted arithmetic overrides.
+    _mellin_original_implementations()
+    simplify_result = options.pop("simplify", True)
+    needeval = options.pop("needeval", False)
+    if (type(noconds) is not bool or type(simplify_result) is not bool
+            or type(needeval) is not bool):
+        raise TypeError("half-line transform hints must be exact bools")
+    if options:
+        raise TypeError("unsupported half-line transform options")
+    if type(expression) is int:
+        if expression.bit_length() > 4096:
+            raise ValueError("half-line coefficient exceeds 4096 bits")
+        expression = Integer(expression)
+    elif type(expression) is Fraction:
+        if max(abs(expression.numerator).bit_length(), expression.denominator.bit_length()) > 4096:
+            raise ValueError("half-line coefficient exceeds 4096 bits")
+        expression = Rational(expression.numerator, expression.denominator)
+    elif type(expression) is float:
+        expression = Float(expression)
+    elif not any(base is Basic for base in type.__dict__["__mro__"].__get__(type(expression))):
+        raise TypeError("half-line transforms require exact built-in symbolic sources")
+    variable, frequency = _require_symbol(variable), _require_symbol(frequency)
+    snapshot = _FourierSource(expression, variable, frequency)
+    if sine:
+        transform_type = InverseSineTransform if inverse else SineTransform
+    else:
+        transform_type = InverseCosineTransform if inverse else CosineTransform
+
+    def unevaluated():
+        _mellin_original_implementations()
+        snapshot.unchanged()
+        if needeval:
+            raise IntegralTransformError(transform_type.__name__, expression, "needeval")
+        return transform_type(expression, variable, frequency)
+
+    if any(type(node) is Float for node, *_ in snapshot.slots):
+        return unevaluated()
 
     try:
-        res = integrate(f * sin(k * t), (t, 0, oo))
-        if res is not None and not _has_integral(res):
-            return simplify(res) if noconds else (simplify(res), True)
-    except Exception:
-        pass
-    return SineTransform(f, t, k) if noconds else (SineTransform(f, t, k), True)
+        native, requires_real = _native.half_line_transform_native(
+            _native_expr(expression), _symbol_binding(variable), _symbol_binding(frequency),
+            sine, snapshot.records(),
+        )
+    except NotImplementedError:
+        return unevaluated()
+    _mellin_original_implementations()
+    snapshot.unchanged()
+    if requires_real:
+        from ..assumptions import Q, ask
+
+        # The exact exponential identities hold on the real frequency axis;
+        # an off-axis convergence strip is not inferred from a formal formula.
+        context = frozenset()
+        is_real = ask(Q.real(frequency), context=context)
+        if (is_real is False
+                or ask(Q.imaginary(frequency), context=context) is True):
+            return unevaluated()
+        # Dropping conditions may expose the real-axis formula for a formal
+        # coordinate. With conditions requested, unknown reality cannot
+        # become an unconditional assertion of convergence.
+        if not noconds and is_real is not True:
+            return unevaluated()
+    result = _lift_native_result(native, expression, variable, frequency)
+    if simplify_result:
+        from ..simplify import simplify
+
+        result = simplify(result)
+    _mellin_original_implementations()
+    snapshot.unchanged()
+    return result if noconds else (result, true)
+
+
+def sine_transform(f: Any, t: Any, k: Any, noconds: bool = True, **kwargs: Any) -> Any:
+    """Compute sqrt(2/pi) * integral_0^oo f(t)*sin(k*t) dt.
+
+    A bounded native catalog admits exact rational quadratic polynomial
+    weights on exp(c-a*t), a>0, and odd linear weights on exp(c-a*t**2).
+    Finite sums and bounded positive constant/radical scales compose these
+    identities. Original held sources, typed symbols and declared assumptions
+    are retained. With noconds=False, exponential outputs require an
+    explicitly real frequency; an unknown frequency stays formal pending
+    convergence-strip support. Gaussian outputs are entire. Unsupported
+    sources stay unevaluated; operational failures propagate. This is a
+    direct integral catalog, not a portable certificate.
+    """
+    return _half_line_transform(f, t, k, noconds, kwargs, sine=True, inverse=False)
 
 
 def inverse_sine_transform(F: Any, k: Any, t: Any, noconds: bool = True, **kwargs: Any) -> Any:
-    """Compute the inverse sine transform: 2/pi * int_0^oo F(k) sin(k*t) dk."""
-    from .. import integrate
-    from ..simplify import simplify
+    """Compute sqrt(2/pi) * integral_0^oo F(k)*sin(k*t) dk.
 
-    F = sympify(F)
-    k = Symbol(str(k)) if not isinstance(k, Symbol) else k
-    t = Symbol(str(t)) if not isinstance(t, Symbol) else t
-
-    try:
-        res = integrate(Rational(2, 1) / pi * F * sin(k * t), (k, 0, oo))
-        if res is not None and not _has_integral(res):
-            return simplify(res) if noconds else (simplify(res), True)
-    except Exception:
-        pass
-    return InverseSineTransform(F, k, t) if noconds else (InverseSineTransform(F, k, t), True)
+    The inverse uses the same normalization, kernel and bounded source
+    catalog as the forward sine transform. No unrelated inversion or
+    completeness claim is inferred from an evaluated integral.
+    """
+    return _half_line_transform(F, k, t, noconds, kwargs, sine=True, inverse=True)
 
 
 def cosine_transform(f: Any, t: Any, k: Any, noconds: bool = True, **kwargs: Any) -> Any:
-    """Compute the cosine transform: int_0^oo f(t) cos(k*t) dt."""
-    from .. import integrate
-    from ..simplify import simplify
+    """Compute sqrt(2/pi) * integral_0^oo f(t)*cos(k*t) dt.
 
-    f = sympify(f)
-    t = Symbol(str(t)) if not isinstance(t, Symbol) else t
-    k = Symbol(str(k)) if not isinstance(k, Symbol) else k
-
-    try:
-        res = integrate(f * cos(k * t), (t, 0, oo))
-        if res is not None and not _has_integral(res):
-            return simplify(res) if noconds else (simplify(res), True)
-    except Exception:
-        pass
-    return CosineTransform(f, t, k) if noconds else (CosineTransform(f, t, k), True)
+    The native catalog admits exact rational quadratic polynomial weights on
+    exp(c-a*t), a>0, and even quadratic weights on exp(c-a*t**2). Finite sums
+    and bounded positive constant/radical scales retain the same original
+    source and failure semantics as sine_transform.
+    """
+    return _half_line_transform(f, t, k, noconds, kwargs, sine=False, inverse=False)
 
 
 def inverse_cosine_transform(F: Any, k: Any, t: Any, noconds: bool = True, **kwargs: Any) -> Any:
-    """Compute the inverse cosine transform: 2/pi * int_0^oo F(k) cos(k*t) dk."""
-    from .. import integrate
-    from ..simplify import simplify
+    """Compute sqrt(2/pi) * integral_0^oo F(k)*cos(k*t) dk.
 
-    F = sympify(F)
-    k = Symbol(str(k)) if not isinstance(k, Symbol) else k
-    t = Symbol(str(t)) if not isinstance(t, Symbol) else t
-
-    try:
-        res = integrate(Rational(2, 1) / pi * F * cos(k * t), (k, 0, oo))
-        if res is not None and not _has_integral(res):
-            return simplify(res) if noconds else (simplify(res), True)
-    except Exception:
-        pass
-    return InverseCosineTransform(F, k, t) if noconds else (InverseCosineTransform(F, k, t), True)
+    This shares the forward cosine catalog and its exact normalization.
+    """
+    return _half_line_transform(F, k, t, noconds, kwargs, sine=False, inverse=True)
 
 
 def hankel_transform(f: Any, r: Any, k: Any, nu: Any, noconds: bool = True, **kwargs: Any) -> Any:

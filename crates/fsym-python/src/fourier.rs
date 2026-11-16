@@ -5,7 +5,7 @@ use crate::expr::PyExpr;
 use crate::to_value_error;
 use fsym_calculus::fourier::{
     FourierDirection, FourierError, metered_fourier_transform_l1,
-    metered_inverse_fourier_transform_l1,
+    metered_inverse_fourier_transform_l1, metered_half_line_transform, HalfLineKernel,
 };
 use fsym_core::Expr;
 use fsym_runtime::{Budget, BudgetLimits, Dimension};
@@ -298,4 +298,60 @@ fn transform_l1_native(
         ));
     }
     Ok((PyExpr { inner: value.value }, value.used_bilateral_identity))
+}
+
+
+/// Both normalized half-line transform directions use the same real kernel.
+#[pyfunction]
+#[pyo3(signature = (source, variable, frequency, sine, retained=None))]
+pub fn half_line_transform_native(
+    source: &PyExpr,
+    variable: &PySymbolBinding,
+    frequency: &PySymbolBinding,
+    sine: bool,
+    retained: Option<&Bound<'_, PyList>>,
+) -> PyResult<(PyExpr, bool)> {
+    let names = variable.name.len().saturating_add(frequency.name.len());
+    if names > 65_536 {
+        return Err(PyValueError::new_err(
+            "half-line transform variable names exceed their bound",
+        ));
+    }
+    let mut limits = BudgetLimits::uniform(128 * 1024 * 1024, 0);
+    limits.dimensions[Dimension::ComputeSteps.index()] = 20_000_000;
+    let mut budget = Budget::new(limits);
+    budget
+        .try_charge_batch(&[
+            (Dimension::ComputeSteps, names.max(1) as u64),
+            (Dimension::MemoryBytes, (names + 256) as u64),
+            (Dimension::AllocationCount, 2),
+        ])
+        .map_err(to_value_error)?;
+    let variable = variable.to_symbol();
+    let frequency = frequency.to_symbol();
+    if let Some(retained) = retained {
+        check_retained(retained, &mut budget)?;
+    }
+    let kernel = if sine {
+        HalfLineKernel::Sine
+    } else {
+        HalfLineKernel::Cosine
+    };
+    let result = metered_half_line_transform(
+        &source.inner,
+        &variable,
+        &frequency,
+        kernel,
+        &mut budget,
+    )
+    .map_err(|error| match error {
+        FourierError::Unsupported(reason) => PyNotImplementedError::new_err(reason),
+        error => to_value_error(error),
+    })?;
+    if result.kernel != kernel {
+        return Err(PyValueError::new_err(
+            "half-line transform returned the wrong kernel",
+        ));
+    }
+    Ok((PyExpr { inner: result.value }, result.requires_real_frequency))
 }
