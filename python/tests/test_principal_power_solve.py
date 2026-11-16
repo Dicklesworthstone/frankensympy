@@ -66,6 +66,14 @@ def test_undecided_phase_and_excessive_branch_work_do_not_publish_partial_lists(
         s.solve(x**s.Rational(13, 2) - 1, x)
 
 
+def test_inverse_magnitude_growth_is_refused_before_exact_power_allocation():
+    x = s.Symbol("principal_magnitude_coordinate")
+    exponent = s.Rational(2, 1_000_000_001)
+    with pytest.raises(ValueError, match="inverse magnitude"):
+        s.solve(x**exponent - s.Rational(1, 2), x)
+    assert s.solve(x**exponent - 1, x) == [1]
+
+
 @pytest.mark.parametrize("power,target,expected", [
     (s.Rational(3, 2), -1, []),
     (s.Rational(-3, 2), -1, []),

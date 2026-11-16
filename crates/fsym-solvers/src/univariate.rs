@@ -931,6 +931,31 @@ fn solve_rational(e: &Expr, x: &Symbol) -> Option<Result<Vec<Expr>, SolverError>
 // Inversion
 // ---------------------------------------------------------------------------
 
+/// Admit exact magnitude growth before the automatic power constructor can
+/// materialize it. In particular, a reciprocal rational base raised to p/q
+/// may construct its denominator to the p-th power before cancellation.
+fn inverse_rational_magnitude(
+    target: &BigRational,
+    inverse: &BigRational,
+) -> Result<Expr, SolverError> {
+    if target.abs().is_one() {
+        return Ok(Expr::from_i64(1));
+    }
+    let coefficient_bits = target.numer().bits().saturating_add(target.denom().bits());
+    let bounded = inverse
+        .numer()
+        .abs()
+        .to_u64()
+        .and_then(|power| coefficient_bits.checked_mul(power))
+        .is_some_and(|bits| bits <= crate::MAX_VERIFIER_INPUT_NUMERIC_LIMBS * 64);
+    if !bounded {
+        return Err(SolverError::IncompleteSolutionSet(
+            "rational-power inverse magnitude exceeds the exact coefficient bound".into(),
+        ));
+    }
+    Ok(eval_pow(rq(target.abs()), rq(inverse.clone())))
+}
+
 /// Invert a nonintegral principal power without losing its other inverse
 /// branches. For a nonzero real target, write its argument as epsilon*pi,
 /// where epsilon is zero or one. Every possible base has the form
@@ -973,7 +998,12 @@ fn invert_rational_power(
         if target.is_negative() {
             return Ok(Vec::new());
         }
-        return invert(base, eval_pow(rhs, rq(inverse)), x, depth + 1);
+        return invert(
+            base,
+            inverse_rational_magnitude(&target, &inverse)?,
+            x,
+            depth + 1,
+        );
     }
     let numerator = exponent
         .numer()
@@ -986,7 +1016,7 @@ fn invert_rational_power(
             )
         })?;
     let epsilon = i64::from(target.is_negative());
-    let magnitude = eval_pow(rq(target.abs()), rq(inverse));
+    let magnitude = inverse_rational_magnitude(&target, &inverse)?;
     let mut out = Vec::new();
     // This interval contains every admissible k because the reduced
     // denominator is at least two and |epsilon + 2*k| <= |exponent|.

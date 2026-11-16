@@ -122,6 +122,31 @@ fn bounded_branch_enumeration_refuses_without_returning_a_partial_list() {
 }
 
 #[test]
+fn inverse_magnitude_is_bounded_before_exact_power_allocation() {
+    let x = Symbol::new("bounded_magnitude_coordinate");
+    let large_target = Expr::Integer(fsym_core::BigInt::from(1) << 4095u32);
+    for (exponent, target) in [
+        (q(1, 128), large_target),
+        // The reciprocal rational-power constructor can form 2^1000000001
+        // before cancellation; admission must precede that constructor.
+        (q(2, 1_000_000_001), q(1, 2)),
+    ] {
+        let equation = eval_pow(Expr::Sym(x.clone()), exponent) - target;
+        let direct = solve_univariate(&equation, &x);
+        assert!(matches!(
+            &direct,
+            Err(SolverError::IncompleteSolutionSet(reason)) if reason.contains("magnitude")
+        ));
+        assert_eq!(solve(&equation, &x), direct);
+    }
+    // Unit magnitudes need no large exact coefficient allocation.
+    for exponent in [q(2, 1_000_000_001), q(-2, 1_000_000_001)] {
+        let equation = eval_pow(Expr::Sym(x.clone()), exponent) - Expr::from_i64(1);
+        assert_eq!(solve(&equation, &x), Ok(vec![Expr::from_i64(1)]));
+    }
+}
+
+#[test]
 fn phase_counts_agree_with_closed_principal_sector_counts() {
     let x = Symbol::new("sector_coordinate");
     // For a reduced noninteger a=p/q, the positive real preimage contains
