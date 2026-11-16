@@ -500,6 +500,35 @@ class Poly(Basic):
             raise ExactQuotientFailed("polynomial division has a nonzero remainder")
         return quotient
 
+    def pdiv(self, other: Any) -> Tuple["Poly", "Poly"]:
+        """Checked pseudo-division in a complete ordered ZZ or QQ ring.
+
+        The quotient and remainder satisfy LC(other)**e*self = q*other+r,
+        with e determined by the original primary degrees. Coefficients
+        remain in the input ring, including after an early degree drop.
+        """
+        if _finitefield.is_finite(self):
+            return _finitefield.unsupported(self, "pseudo-division")
+        if _finitefield.is_finite(other):
+            from .polyerrors import UnificationFailed
+            raise UnificationFailed("cannot unify rational and prime-field polynomials")
+        return _recursive_polynomial_division(self, other, _method=True, _pseudo=True)
+
+    def prem(self, other: Any) -> "Poly":
+        """Return the checked pseudo-remainder."""
+        return self.pdiv(other)[1]
+
+    def pquo(self, other: Any) -> "Poly":
+        """Return the checked pseudo-quotient."""
+        return self.pdiv(other)[0]
+
+    def pexquo(self, other: Any) -> "Poly":
+        """Return the pseudo-quotient only when the pseudo-remainder is zero."""
+        quotient, remainder = self.pdiv(other)
+        if not remainder.is_zero:
+            raise ExactQuotientFailed("polynomial pseudo-division has a nonzero remainder")
+        return quotient
+
     def invert(self, other: Any) -> "Poly":
         """Return the multiplicative inverse modulo another polynomial."""
         if _finitefield.is_finite(self):
@@ -968,13 +997,14 @@ def _parametric_div(f: Any, g: Any, x: Any) -> tuple:
 
 
 def _recursive_polynomial_division(left: Any, right: Any, *, gens=(), domain=None,
-                                   auto=None, polys=None, _method=False) -> tuple:
-    """Retain original rings around one checked recursive QQ/ZZ division.
+                                   auto=None, polys=None, _method=False, _pseudo=False) -> tuple:
+    """Retain original rings around one checked recursive QQ/ZZ operation.
 
-    The first operation generator is primary. The native checker proves each
-    whole leading-coefficient cancellation and the first coefficient-ring
-    obstruction. Original Poly declarations are admitted in their own rings,
-    even when a module call subsequently unifies or reorders generators.
+    The first operation generator is primary. Ordinary division checks every
+    forced cancellation and terminal coefficient obstruction. Pseudo-division
+    instead checks the full original leading-coefficient scaling identity and
+    strict remainder degree. Original Poly declarations are admitted in their
+    own rings, even when a module call unifies or reorders generators.
     """
     from ..core import Dummy
     from .polyerrors import GeneratorsNeeded, UnificationFailed
@@ -1037,8 +1067,18 @@ def _recursive_polynomial_division(left: Any, right: Any, *, gens=(), domain=Non
         coefficient_symbols = source_symbols[0] - set(states[0][2]) | states[0][3]
         if source_symbols[1] - coefficient_symbols:
             raise UnificationFailed("symbolic operand does not belong to the left polynomial coefficient domain")
+    right_coordinates = None
     if not requested_gens:
-        if carry_ring:
+        if _pseudo and carry_ring and type(left) is PurePoly and states[1] is not None:
+            gens = states[0][2]
+            right_coordinates = states[1][2]
+            if len(gens) != len(right_coordinates):
+                raise UnificationFailed("PurePoly pseudo-division requires equal generator counts")
+        elif _pseudo and carry_ring:
+            gens = states[0][2]
+            if states[1] is not None:
+                gens = _elimination_generator_union(gens, states[1][2])
+        elif carry_ring:
             gens = tuple(dict.fromkeys(variable for state in states if state is not None
                                        for variable in state[2]))
         else:
@@ -1051,9 +1091,17 @@ def _recursive_polynomial_division(left: Any, right: Any, *, gens=(), domain=Non
         raise GeneratorsNeeded("recursive polynomial division requires at least one generator")
     if len(gens) > 8:
         raise ValueError("recursive division supports at most eight generators")
-    parameters = set().union(*source_symbols) - set(gens)
+    parameter_sources = [set(symbols) for symbols in source_symbols]
+    if right_coordinates is not None:
+        parameter_sources[1] -= set(right_coordinates)
+    parameters = set().union(*parameter_sources) - set(gens)
     if carry_ring:
         parameters |= set().union(*(state[3] for state in states if state is not None)) - set(gens)
+    if _pseudo and carry_ring and not requested_gens and states[1] is not None:
+        for state, symbols in zip(states, source_symbols):
+            coefficients = symbols - set(state[2]) | state[3]
+            if coefficients & set(gens):
+                raise UnificationFailed("polynomial generators overlap the coefficient domain")
     all_symbols = set(gens) | set().union(*source_symbols)
     for state in states:
         if state is not None:
@@ -1101,6 +1149,11 @@ def _recursive_polynomial_division(left: Any, right: Any, *, gens=(), domain=Non
             original_domains.append(None)
 
     if parameter_order:
+        if _pseudo:
+            raise NotImplementedError(
+                "checked pseudo-division requires the complete polynomial ring; "
+                "declare every coefficient symbol as a generator"
+            )
         if len(gens) != 1:
             raise NotImplementedError("symbolic coefficient division supports one main generator")
         full_bindings = [*bindings, *(_symbol_binding(variable) for variable in parameter_order)]
@@ -1129,13 +1182,24 @@ def _recursive_polynomial_division(left: Any, right: Any, *, gens=(), domain=Non
 
     requested_domain = domain or ("QQ" if carry_ring and "QQ" in original_domains else "auto")
     try:
-        quotient, remainder, result_domain = _native.poly_recursive_div_native(
-            equations[0], equations[1], bindings,
-            left_variables=original_bindings[0], right_variables=original_bindings[1],
-            left_domain=original_domains[0], right_domain=original_domains[1],
-            domain=requested_domain, auto=automatic,
-            method_scalar=_method and states[1] is None,
-        )
+        if _pseudo:
+            quotient, remainder, result_domain = _native.poly_pseudo_div_native(
+                equations[0], equations[1], bindings,
+                left_variables=original_bindings[0], right_variables=original_bindings[1],
+                left_domain=original_domains[0], right_domain=original_domains[1],
+                domain=requested_domain,
+                method_scalar=_method and states[1] is None,
+                right_coordinates=([_symbol_binding(variable) for variable in right_coordinates]
+                                   if right_coordinates is not None else None),
+            )
+        else:
+            quotient, remainder, result_domain = _native.poly_recursive_div_native(
+                equations[0], equations[1], bindings,
+                left_variables=original_bindings[0], right_variables=original_bindings[1],
+                left_domain=original_domains[0], right_domain=original_domains[1],
+                domain=requested_domain, auto=automatic,
+                method_scalar=_method and states[1] is None,
+            )
     except ValueError as error:
         if str(error) == "scalar does not belong to the left polynomial coefficient domain":
             raise UnificationFailed(str(error)) from error
@@ -4390,6 +4454,49 @@ def div(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Tuple[Any, Any]:
         f, g, gens=gens, domain=options.get("domain"),
         auto=auto, polys=options.get("polys"),
     )
+
+
+def pdiv(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Tuple[Any, Any]:
+    """Checked pseudo-division over a complete ordered ZZ or QQ polynomial ring.
+
+    All coefficient symbols must be among the declared or inferred generators.
+    The first generator is primary; the remaining generators form its exact
+    polynomial coefficient ring. No ordinary-division or field fallback occurs.
+    """
+    options = dict(kwargs)
+    if "gens" in options:
+        if gens:
+            raise TypeError("polynomial generators were supplied twice")
+        requested = options.pop("gens")
+        gens = () if requested is None else (requested,)
+    unsupported = set(options) - {"domain", "polys"}
+    if unsupported:
+        raise NotImplementedError(
+            "unsupported pseudo-division option: " + ", ".join(sorted(unsupported))
+        )
+    return _recursive_polynomial_division(
+        f, g, gens=gens, domain=options.get("domain"),
+        polys=options.get("polys"), _pseudo=True,
+    )
+
+
+def prem(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Any:
+    """Return the pseudo-remainder in the original coefficient ring."""
+    return pdiv(f, g, *gens, **kwargs)[1]
+
+
+def pquo(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Any:
+    """Return the pseudo-quotient with the full original scaling exponent."""
+    return pdiv(f, g, *gens, **kwargs)[0]
+
+
+def pexquo(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Any:
+    """Return the pseudo-quotient only when the checked remainder is zero."""
+    quotient, remainder = pdiv(f, g, *gens, **kwargs)
+    zero = remainder.is_zero if isinstance(remainder, Poly) else remainder == 0
+    if not zero:
+        raise ExactQuotientFailed("polynomial pseudo-division has a nonzero remainder")
+    return quotient
 
 
 def reduced(f: Any, G: Any, *gens: Any, **kwargs: Any) -> Tuple[list, Any]:

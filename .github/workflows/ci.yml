@@ -218,7 +218,7 @@ jobs:
           cargo test --locked -p fsym-solvers --lib --test real_rur --test localized_components --test algebraic_components --test polynomial_system --test polynomial_components --test rational_components --test rational_graph --test rational_systems -j1
       - name: Build the full Python extension
         run: cargo build --locked -p fsym-python --features extension-module -j1
-      - name: Objective transport and numerical conversion against the full extension
+      - name: New objective, numerical and polynomial APIs against the full extension
         run: |
           python - <<'PY'
           import importlib.util
@@ -249,6 +249,8 @@ jobs:
               "python/tests/test_compiled_objective.py",
               "python/tests/test_complex_float_conversion.py",
               "python/tests/test_nroots_convergence.py",
+              "python/tests/test_polynomial_pseudo_division.py",
+              "python/tests/test_recursive_polynomial_division.py",
           ]))
           PY
       - name: Focused public mathematical regressions

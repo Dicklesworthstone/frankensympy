@@ -2374,6 +2374,10 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(
+        recursive_division::poly_pseudo_div_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
         recursive_division::poly_recursive_sources_native,
         m
     )?)?;

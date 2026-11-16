@@ -11,7 +11,8 @@ use fsym_budget::BudgetMeter;
 use fsym_core::{Expr, Symbol};
 use fsym_polys::{
     MultivariatePoly, PolyError, RecursiveDivisionDomain, TermOrder, bounded_polynomial_from_expr,
-    checked_recursive_division, metered_rational_source, verify_bounded_division,
+    checked_pseudo_division, checked_recursive_division, metered_rational_source,
+    verify_bounded_division,
 };
 use fsym_runtime::Budget;
 use pyo3::exceptions::{PyValueError, PyZeroDivisionError};
@@ -156,6 +157,74 @@ pub fn poly_recursive_div_native(
     auto: bool,
     method_scalar: bool,
 ) -> PyResult<(PyExpr, PyExpr, String)> {
+    polynomial_division(
+        left,
+        right,
+        variables,
+        left_variables,
+        right_variables,
+        left_domain,
+        right_domain,
+        domain,
+        auto,
+        method_scalar,
+        false,
+        None,
+    )
+}
+
+/// Checked pseudo-division retains the original leading-coefficient power
+/// without extending ZZ to QQ. An optional positional right-coordinate map
+/// implements PurePoly unification only after admitting the original RHS in
+/// its original typed ring; printed names and symbolic substitution are unused.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+#[pyo3(signature = (left, right, variables, left_variables=None, right_variables=None,
+                   left_domain=None, right_domain=None, domain="auto",
+                   method_scalar=false, right_coordinates=None))]
+pub fn poly_pseudo_div_native(
+    left: &PyExpr,
+    right: &PyExpr,
+    variables: &Bound<'_, PyList>,
+    left_variables: Option<&Bound<'_, PyList>>,
+    right_variables: Option<&Bound<'_, PyList>>,
+    left_domain: Option<&str>,
+    right_domain: Option<&str>,
+    domain: &str,
+    method_scalar: bool,
+    right_coordinates: Option<&Bound<'_, PyList>>,
+) -> PyResult<(PyExpr, PyExpr, String)> {
+    polynomial_division(
+        left,
+        right,
+        variables,
+        left_variables,
+        right_variables,
+        left_domain,
+        right_domain,
+        domain,
+        false,
+        method_scalar,
+        true,
+        right_coordinates,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn polynomial_division(
+    left: &PyExpr,
+    right: &PyExpr,
+    variables: &Bound<'_, PyList>,
+    left_variables: Option<&Bound<'_, PyList>>,
+    right_variables: Option<&Bound<'_, PyList>>,
+    left_domain: Option<&str>,
+    right_domain: Option<&str>,
+    domain: &str,
+    auto: bool,
+    method_scalar: bool,
+    pseudo: bool,
+    right_coordinates: Option<&Bound<'_, PyList>>,
+) -> PyResult<(PyExpr, PyExpr, String)> {
     if !matches!(domain, "ZZ" | "QQ" | "auto") {
         return Err(PyValueError::new_err(
             "recursive division domain must be ZZ, QQ, or auto",
@@ -168,8 +237,21 @@ pub fn poly_recursive_div_native(
             "recursive division requires a primary generator",
         ));
     }
+    let positional_coordinates = right_coordinates
+        .map(|coordinates| symbols(coordinates, &mut generator))
+        .transpose()?;
+    if positional_coordinates
+        .as_ref()
+        .is_some_and(|coordinates| !pseudo || coordinates.len() != variables.len())
+    {
+        return Err(PyValueError::new_err(
+            "pseudo-division positional coordinates require equal ring dimensions",
+        ));
+    }
+    let divisor_variables = positional_coordinates.as_deref().unwrap_or(&variables);
     let dividend = polynomial_source(&left.inner, &variables, &mut generator, &mut verifier)?;
-    let divisor = polynomial_source(&right.inner, &variables, &mut generator, &mut verifier)?;
+    let mut divisor =
+        polynomial_source(&right.inner, divisor_variables, &mut generator, &mut verifier)?;
     original_domain(
         &left.inner,
         Some(&dividend),
@@ -182,12 +264,20 @@ pub fn poly_recursive_div_native(
     original_domain(
         &right.inner,
         Some(&divisor),
-        &variables,
+        divisor_variables,
         right_variables,
         right_domain,
         &mut generator,
         &mut verifier,
     )?;
+    if positional_coordinates.is_some() {
+        let bytes = variables.iter().map(|symbol| symbol.name.len() + 128).sum();
+        charge(&mut generator, variables.len(), bytes)?;
+        // Coefficients and exponent coordinates stay byte-for-byte unchanged.
+        // Both typed rings and the original right source have already passed
+        // admission; this is an explicit ordinal coordinate isomorphism.
+        divisor.generators = variables.clone();
+    }
     let left_integral = integral(&dividend, &mut generator)?;
     let right_integral = integral(&divisor, &mut generator)?;
     if method_scalar {
@@ -214,20 +304,32 @@ pub fn poly_recursive_div_native(
         ));
     }
     let input_qq = domain == "QQ" || (domain == "auto" && !inputs_integral);
-    let operation_domain = if auto || input_qq {
+    let operation_domain = if (!pseudo && auto) || input_qq {
         RecursiveDivisionDomain::QQ
     } else {
         RecursiveDivisionDomain::ZZ
     };
-    let accepted = checked_recursive_division(
-        &dividend,
-        &divisor,
-        operation_domain,
-        &mut generator,
-        &mut verifier,
-    )
-    .map_err(polynomial_error)?;
-    let (quotient, remainder) = accepted.into_parts();
+    let (quotient, remainder) = if pseudo {
+        checked_pseudo_division(
+            &dividend,
+            &divisor,
+            operation_domain,
+            &mut generator,
+            &mut verifier,
+        )
+        .map_err(polynomial_error)?
+        .into_parts()
+    } else {
+        checked_recursive_division(
+            &dividend,
+            &divisor,
+            operation_domain,
+            &mut generator,
+            &mut verifier,
+        )
+        .map_err(polynomial_error)?
+        .into_parts()
+    };
     let outputs_integral =
         integral(&quotient, &mut generator)? && integral(&remainder, &mut generator)?;
     let result_domain = if input_qq || !outputs_integral {
