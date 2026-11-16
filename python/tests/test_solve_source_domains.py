@@ -73,6 +73,71 @@ class SolveOriginalSourceDomainTests(unittest.TestCase):
         self.assertEqual(s.solve(source, x, y, set=True), ([x, y], {(1, y)}))
         self.assertEqual(s.solve(source, x, y, check=False), [(0, y), (1, y)])
 
+    def test_direct_linsolve_still_refuses_original_denominator_conditions(self):
+        x, y = self.x, self.y
+        source = self.equation_with_pole(x, x-1)
+        for equations, variables in (([source], (x,)), ([source, y-2], (x, y))):
+            with self.subTest(variables=variables):
+                with self.assertRaisesRegex(NotImplementedError, "original denominator"):
+                    s.linsolve(equations, *variables)
+
+    def test_denominator_dispatch_preserves_sources_for_checked_polynomial_admission(self):
+        x, y = self.x, self.y
+        source = self.equation_with_pole(x, x*(x-1))
+        module = importlib.import_module("sympy.solvers.polysys")
+        for system, rows, expected in (
+            ([source, y-2], [(s.Integer(0), s.Integer(2)),
+                             (s.Integer(1), s.Integer(2))], [(1, 2)]),
+            (source, [(s.Integer(0), y), (s.Integer(1), y)], [(1, y)]),
+        ):
+            with self.subTest(system=system):
+                def candidates(equations, *variables):
+                    self.assertIs(equations[0], source)
+                    self.assertEqual(variables, (x, y))
+                    if isinstance(system, list):
+                        self.assertIs(equations, system)
+                    return rows
+
+                with patch.object(module, "solve_poly_system", side_effect=candidates) as dispatched:
+                    self.assertEqual(s.solve(system, x, y), expected)
+                dispatched.assert_called_once()
+
+    def test_rational_affine_system_retains_explicit_mapping_and_set_formats(self):
+        x, y = self.x, self.y
+        equations = [self.equation_with_pole(x, x-1), y-2]
+        self.assertEqual(s.solve(equations, x, y, dict=True), [{x: 1, y: 2}])
+        self.assertEqual(s.solve(equations, x, y, set=True), ([x, y], {(1, 2)}))
+
+    def test_denominator_dispatch_does_not_hide_unrelated_linear_failures(self):
+        x, y = self.x, self.y
+        linear = importlib.import_module("sympy.solvers.solvers")
+        polynomial = importlib.import_module("sympy.solvers.polysys")
+        for system in ([x+y-1], x+y-1):
+            for failure in (
+                NotImplementedError("unsupported original coefficient interface"),
+                RuntimeError("linear request cancelled or exhausted"),
+            ):
+                with self.subTest(system=system, failure=failure):
+                    with patch.object(linear, "linsolve", side_effect=failure):
+                        with patch.object(polynomial, "solve_poly_system") as fallback:
+                            with self.assertRaises(type(failure)) as caught:
+                                s.solve(system, x, y)
+                    self.assertIs(caught.exception, failure)
+                    fallback.assert_not_called()
+
+    def test_denominator_dispatch_cannot_erase_unsupported_held_terms(self):
+        x, y = self.x, self.y
+        reciprocal = s.Pow(x, -1, evaluate=False)
+        unknown = s.Function("solve_domain_opaque")(x)
+        held_zero = s.Mul(0, unknown, evaluate=False)
+        source = s.Eq(
+            s.Add(reciprocal, held_zero, evaluate=False),
+            reciprocal+x-1,
+            evaluate=False,
+        )
+        with self.assertRaises((NotImplementedError, ValueError, TypeError)):
+            s.solve([source, y-2], x, y)
+
     def test_unresolved_parameter_domain_is_not_interpreted_as_false(self):
         x, y = self.x, self.y
         source = self.equation_with_pole(x, x-y)

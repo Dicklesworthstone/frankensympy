@@ -25,6 +25,14 @@ from ..polys.polyerrors import GeneratorsError
 from ..sets.sets import EmptySet, FiniteSet, Set, _EMPTY_SET
 
 
+class _LinearSourceDomainUnsupported(NotImplementedError):
+    """The affine lane cannot discharge an original denominator condition.
+
+    General solve may pass the unchanged source to the checked rational
+    system lane. Direct linear solvers must continue to refuse the source.
+    """
+
+
 UNSUPPORTED = object()
 _MATRIX_CLASSES = (Matrix, ImmutableDenseMatrix, SparseMatrix, ImmutableSparseMatrix)
 _NATIVE_MEMBERS = {
@@ -573,7 +581,9 @@ class _AffineEquationSource:
             if abs(power) > 64:
                 raise ValueError("linear equation power exceeds its bound")
             if power < 0 and (columns or scalar is None):
-                raise NotImplementedError("linear equation original denominator requires a domain proof")
+                raise _LinearSourceDomainUnsupported(
+                    "linear equation original denominator requires a domain proof"
+                )
             if scalar == 0 and not columns and power < 0:
                 raise ValueError("linear equation contains an undefined original denominator")
             if power == 0:
@@ -758,7 +768,7 @@ def checked_linear_equations(equations, variables):
     """Return UNSUPPORTED only for safely admitted symbolic coefficients.
 
     Original denominators involving symbols and unknown function domains are
-    terminal refusals, even beneath held zeros or before a symbolic fallback.
+    refusals in this lane, even beneath held zeros or before a symbolic fallback.
     Exact affine extraction is sparse throughout; it never probes values at
     zero/one, expands an expression, or invokes public scalar constructors.
     """

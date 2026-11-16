@@ -431,6 +431,7 @@ def _solve(expression, symbols, flags, source_check):
     if isinstance(expression, (list, tuple)):
         from .solvers.polysys import solve_poly_system as _sps
         from .solvers.solvers import linsolve as _linsolve
+        from .solvers._sparse_linear import _LinearSourceDomainUnsupported
 
         if var_list is not None:
             parsed_var_list = []
@@ -457,7 +458,7 @@ def _solve(expression, symbols, flags, source_check):
         # Try linear solver first
         try:
             lin_sol = _linsolve(expression, *var_list)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, _LinearSourceDomainUnsupported):
             pass
         else:
             # Admission is outside the solver-dispatch exception handler:
@@ -522,6 +523,7 @@ def _solve(expression, symbols, flags, source_check):
     else:
         from .solvers.polysys import solve_poly_system as _sps
         from .solvers.solvers import linsolve as _linsolve
+        from .solvers._sparse_linear import _LinearSourceDomainUnsupported
 
         assumption_snapshots = (_solve_assumption_snapshots(var_list)
                                 if flags.get("check", True) else None)
@@ -530,7 +532,7 @@ def _solve(expression, symbols, flags, source_check):
         system_source = original_expression if isinstance(original_expression, Basic) else expr
         try:
             lin_sol = _linsolve([system_source], *var_list)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, _LinearSourceDomainUnsupported):
             pass
         else:
             if lin_sol:

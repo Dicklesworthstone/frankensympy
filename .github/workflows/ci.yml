@@ -253,6 +253,8 @@ jobs:
               "python/tests/test_nroots_convergence.py",
               "python/tests/test_polynomial_pseudo_division.py",
               "python/tests/test_recursive_polynomial_division.py",
+              "python/tests/test_solve_source_domains.py",
+              "python/tests/test_affine_linear_systems.py",
               "python/tests/test_half_line_transforms.py",
               "python/tests/test_fourier_transforms.py",
               "python/tests/test_inverse_fourier_transforms.py",
