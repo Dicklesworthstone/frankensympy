@@ -1,4 +1,5 @@
-//! Exact finite real solution tuples from independently checked polynomial ideals.
+//! Exact finite real solution tuples from independently checked polynomial ideals
+//! and source-domain-preserving rational localization.
 //!
 //! A separating parameter identifies every distinct real tuple without replacing
 //! an algebraic number by a floating approximation. The underlying RUR receipt
@@ -13,7 +14,9 @@ use super::{
 };
 use crate::certification::ResidualProblem;
 use fsym_budget::{Budget, BudgetError, BudgetMeter, Dimension, MeterError, VerifierLease};
+use fsym_core::real_roots::RealRootInterval;
 use fsym_core::{BigRational, Symbol};
+use fsym_solvers::real_rational::{VerifiedRealRationalSystem, metered_solve_real_rational_system};
 use fsym_solvers::real_rur::{VerifiedRealRurSystem, metered_solve_real_rur_system};
 use serde::Serialize;
 use std::cell::{Cell, RefCell};
@@ -33,12 +36,56 @@ use std::mem::size_of;
 /// not a multiplicity claim about the original ideal: a checked radical can be
 /// used internally while preserving the complete distinct solution set. This
 /// description is an output, not an independently replayable certificate.
+/// The same polynomial parameter representation describes finite rational
+/// systems after checked localization and projection to their original axes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ExactRealPolynomialSolutionSet {
     pub parameter: Symbol,
     pub polynomial: Vec<String>,
     pub roots: Vec<ExactInterval>,
     pub coordinates: Vec<Vec<String>>,
+}
+
+#[derive(Clone, Copy)]
+enum SourceKind {
+    Polynomial,
+    Rational,
+}
+
+enum VerifiedSystem {
+    Polynomial(VerifiedRealRurSystem),
+    Rational(VerifiedRealRationalSystem),
+}
+
+/// Borrow only accepted coordinate maps. Rational receipts expose the original
+/// axes and projected maps while retaining their complete localization proof.
+struct SolutionView<'a> {
+    variables: &'a [Symbol],
+    parameter: &'a Symbol,
+    eliminant: &'a [BigRational],
+    roots: &'a [RealRootInterval],
+    coordinates: &'a [Vec<BigRational>],
+}
+
+impl VerifiedSystem {
+    fn view(&self) -> SolutionView<'_> {
+        match self {
+            Self::Polynomial(receipt) => SolutionView {
+                variables: receipt.variables(),
+                parameter: receipt.parameter(),
+                eliminant: receipt.eliminant(),
+                roots: receipt.roots().intervals(),
+                coordinates: receipt.coordinates(),
+            },
+            Self::Rational(receipt) => SolutionView {
+                variables: receipt.variables(),
+                parameter: receipt.parameter(),
+                eliminant: receipt.eliminant(),
+                roots: receipt.roots().intervals(),
+                coordinates: receipt.coordinates(),
+            },
+        }
+    }
 }
 
 /// The older polynomial solver carries refusals as `SolverError` strings.
@@ -85,24 +132,42 @@ fn checked_solution(
     problem: &ResidualProblem,
     generator: &mut impl BudgetMeter,
     verifier: &mut impl BudgetMeter,
-) -> Result<VerifiedRealRurSystem, CertificationSessionError> {
+    kind: SourceKind,
+) -> Result<VerifiedSystem, CertificationSessionError> {
     let failure = Cell::new(None);
-    let result = metered_solve_real_rur_system(
-        problem.residuals(),
-        problem.variables(),
-        &mut RecordedMeter {
-            inner: generator,
-            failure: &failure,
-        },
-        &mut RecordedMeter {
-            inner: verifier,
-            failure: &failure,
-        },
-    );
+    let mut generation = RecordedMeter {
+        inner: generator,
+        failure: &failure,
+    };
+    let mut verification = RecordedMeter {
+        inner: verifier,
+        failure: &failure,
+    };
+    let result = match kind {
+        SourceKind::Polynomial => metered_solve_real_rur_system(
+            problem.residuals(),
+            problem.variables(),
+            &mut generation,
+            &mut verification,
+        )
+        .map(|receipt| receipt.map(VerifiedSystem::Polynomial))
+        .map_err(CertificationSessionError::PolynomialSolver),
+        SourceKind::Rational => metered_solve_real_rational_system(
+            problem.residuals(),
+            problem.variables(),
+            &mut generation,
+            &mut verification,
+        )
+        .map(|receipt| receipt.map(VerifiedSystem::Rational))
+        .map_err(CertificationSessionError::RationalSystemSolver),
+    };
     if let Some(error) = failure.get() {
         return Err(error.into());
     }
-    result?.ok_or(CertificationSessionError::UnsupportedRealPolynomialSystem)
+    result?.ok_or(match kind {
+        SourceKind::Polynomial => CertificationSessionError::UnsupportedRealPolynomialSystem,
+        SourceKind::Rational => CertificationSessionError::UnsupportedRealRationalSystem,
+    })
 }
 
 fn coefficients(
@@ -123,8 +188,46 @@ pub(super) fn solve(
     budget: &mut Budget,
     lease: Option<&VerifierLease>,
 ) -> Result<CertificationResponse, CertificationSessionError> {
+    solve_system(
+        system,
+        problem,
+        context_digest,
+        budget,
+        lease,
+        SourceKind::Polynomial,
+    )
+}
+
+pub(super) fn solve_rational(
+    system: ResidualSystemId,
+    problem: &ResidualProblem,
+    context_digest: [u8; 32],
+    budget: &mut Budget,
+    lease: Option<&VerifierLease>,
+) -> Result<CertificationResponse, CertificationSessionError> {
+    solve_system(
+        system,
+        problem,
+        context_digest,
+        budget,
+        lease,
+        SourceKind::Rational,
+    )
+}
+
+fn solve_system(
+    system: ResidualSystemId,
+    problem: &ResidualProblem,
+    context_digest: [u8; 32],
+    budget: &mut Budget,
+    lease: Option<&VerifierLease>,
+    kind: SourceKind,
+) -> Result<CertificationResponse, CertificationSessionError> {
     if !(1..=8).contains(&problem.variables().len()) || problem.residuals().len() > 64 {
-        return Err(CertificationSessionError::InvalidRealPolynomialProblem);
+        return Err(match kind {
+            SourceKind::Polynomial => CertificationSessionError::InvalidRealPolynomialProblem,
+            SourceKind::Rational => CertificationSessionError::InvalidRealRationalProblem,
+        });
     }
     let lease = lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
     budget
@@ -143,19 +246,20 @@ pub(super) fn solve(
                 ledger: &ledger,
                 verifier: Some(lease),
             },
+            kind,
         )?
     };
     // Receipt construction is private to the independent native acceptance
     // path. Original source admission precedes unit-ideal and shape shortcuts.
-    let polynomial = coefficients(receipt.eliminant(), budget)?;
+    let view = receipt.view();
+    let polynomial = coefficients(view.eliminant, budget)?;
     charge(
         budget,
-        receipt.roots().intervals().len(),
-        receipt.roots().intervals().len() * size_of::<ExactInterval>(),
+        view.roots.len(),
+        view.roots.len() * size_of::<ExactInterval>(),
     )?;
-    let roots = receipt
-        .roots()
-        .intervals()
+    let roots = view
+        .roots
         .iter()
         .map(|root| {
             Ok(ExactInterval {
@@ -166,40 +270,54 @@ pub(super) fn solve(
         .collect::<Result<_, CertificationSessionError>>()?;
     charge(
         budget,
-        receipt.coordinates().len(),
-        receipt.coordinates().len() * size_of::<Vec<String>>(),
+        view.coordinates.len(),
+        view.coordinates.len() * size_of::<Vec<String>>(),
     )?;
-    let coordinates = receipt
-        .coordinates()
+    let coordinates = view
+        .coordinates
         .iter()
         .map(|coordinate| coefficients(coordinate, budget))
         .collect::<Result<_, _>>()?;
     charge(
         budget,
-        receipt.variables().len() + 1,
-        (receipt.variables().len() + 1) * size_of::<Symbol>()
-            + receipt.parameter().name.len()
-            + receipt
-                .variables()
+        view.variables.len() + 1,
+        (view.variables.len() + 1) * size_of::<Symbol>()
+            + view.parameter.name.len()
+            + view
+                .variables
                 .iter()
                 .map(|axis| axis.name.len())
                 .sum::<usize>(),
     )?;
-    let response = CertificationResponse::RealPolynomialSystemSolved {
-        schema_version: CERTIFICATION_REQUEST_SCHEMA,
-        system,
-        variables: receipt.variables().to_vec(),
-        evidence: "exact_cross_checked",
-        claim: "complete_distinct_real_solution_set_of_original_polynomial_system",
-        completeness: "complete",
-        domain: "real",
-        solution_set: ExactRealPolynomialSolutionSet {
-            parameter: receipt.parameter().clone(),
-            polynomial,
-            roots,
-            coordinates,
+    let solution_set = ExactRealPolynomialSolutionSet {
+        parameter: view.parameter.clone(),
+        polynomial,
+        roots,
+        coordinates,
+    };
+    let response = match kind {
+        SourceKind::Polynomial => CertificationResponse::RealPolynomialSystemSolved {
+            schema_version: CERTIFICATION_REQUEST_SCHEMA,
+            system,
+            variables: view.variables.to_vec(),
+            evidence: "exact_cross_checked",
+            claim: "complete_distinct_real_solution_set_of_original_polynomial_system",
+            completeness: "complete",
+            domain: "real",
+            solution_set,
+            context_digest,
         },
-        context_digest,
+        SourceKind::Rational => CertificationResponse::RealRationalSystemSolved {
+            schema_version: CERTIFICATION_REQUEST_SCHEMA,
+            system,
+            variables: view.variables.to_vec(),
+            evidence: "exact_cross_checked",
+            claim: "complete_distinct_real_solution_set_of_original_rational_system",
+            completeness: "complete",
+            domain: "real",
+            solution_set,
+            context_digest,
+        },
     };
     // No root, coordinate or claimed tuple escapes until the entire response
     // has been admitted. Failure changes only cumulative resource consumption.
@@ -247,19 +365,29 @@ mod tests {
 
     #[test]
     fn cancellation_in_either_lane_remains_typed_through_solver_errors() {
-        let problem = problem();
-        for remaining in [0, 1, 20] {
-            for cancel_verifier in [false, true] {
-                let mut cancelled = CancelAt { remaining };
-                let result = if cancel_verifier {
-                    checked_solution(&problem, &mut Unbounded, &mut cancelled)
-                } else {
-                    checked_solution(&problem, &mut cancelled, &mut Unbounded)
-                };
-                assert!(matches!(
-                    result,
-                    Err(CertificationSessionError::Meter(MeterError::Cancelled))
-                ));
+        for kind in [SourceKind::Polynomial, SourceKind::Rational] {
+            let problem = match kind {
+                SourceKind::Polynomial => problem(),
+                SourceKind::Rational => ResidualProblem::parse_sources(
+                    &["(x-y)/(x-1)".into(), "y^2-2".into()],
+                    &["x".into(), "y".into()],
+                    &mut Unbounded,
+                )
+                .unwrap(),
+            };
+            for remaining in [0, 1, 20] {
+                for cancel_verifier in [false, true] {
+                    let mut cancelled = CancelAt { remaining };
+                    let result = if cancel_verifier {
+                        checked_solution(&problem, &mut Unbounded, &mut cancelled, kind)
+                    } else {
+                        checked_solution(&problem, &mut cancelled, &mut Unbounded, kind)
+                    };
+                    assert!(matches!(
+                        result,
+                        Err(CertificationSessionError::Meter(MeterError::Cancelled))
+                    ));
+                }
             }
         }
     }
@@ -293,21 +421,24 @@ mod tests {
         let mut other = Budget::new(BudgetLimits::uniform(100_000, 100_000));
         let foreign = other.verifier_lease().unwrap();
         let before = budget.snapshot();
-        for lease in [None, Some(&foreign)] {
-            let result = solve(
-                ResidualSystemId::new("system:polynomial").unwrap(),
-                &problem,
-                [0; 32],
-                &mut budget,
-                lease,
-            );
-            assert!(matches!(
-                result,
-                Err(CertificationSessionError::Meter(MeterError::Budget(
-                    BudgetError::VerifierPoolAccessDenied
-                )))
-            ));
-            assert_eq!(budget.snapshot(), before);
+        for kind in [SourceKind::Polynomial, SourceKind::Rational] {
+            for lease in [None, Some(&foreign)] {
+                let result = solve_system(
+                    ResidualSystemId::new("system:polynomial").unwrap(),
+                    &problem,
+                    [0; 32],
+                    &mut budget,
+                    lease,
+                    kind,
+                );
+                assert!(matches!(
+                    result,
+                    Err(CertificationSessionError::Meter(MeterError::Budget(
+                        BudgetError::VerifierPoolAccessDenied
+                    )))
+                ));
+                assert_eq!(budget.snapshot(), before);
+            }
         }
     }
 

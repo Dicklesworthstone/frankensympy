@@ -2,8 +2,8 @@
 
 This development interface connects the root Rust library and the `frankensympy`
 NDJSON command to the existing original-source numerical and exact algebraic
-checkers. Its scope is complete finite real polynomial systems, complete real
-rational equations, inequalities and Boolean constraint combinations,
+checkers. Its scope is complete finite real polynomial and rational systems,
+complete real rational equations, inequalities and Boolean constraint combinations,
 exact real residual/Jacobian enclosures, unique nonsingular local roots and
 complete finite-box root sets, objective/gradient/Hessian enclosures, locally
 classified stationary points, global box optimum value bounds, proper finite real
@@ -108,6 +108,60 @@ systems may require the CLI's documented `--compute-steps`, `--memory-bytes`,
 
 Rust callers use `CertificationRequest::SolveRealPolynomialSystem` and the
 exported `ExactRealPolynomialSolutionSet` output type.
+
+## Solve complete finite real rational systems
+
+`SolveRealRationalSystem` connects the same finite-system solver to independently
+checked rational localization. It solves all registered residuals equal to zero
+on their original domains. Denominators are retained before cancellation:
+neither a cancelled factor nor a held zero term can admit a pole as a solution.
+
+For example, the polynomial equations below would have four real grid points,
+but the original denominator excludes the two diagonal points:
+
+```json
+{"id":"register-rational-system","type":"RegisterResidualSystem","payload":{"schema_version":1,"system":"system:off-diagonal","residuals":["(x^2-2)/(x-y)","y^2-2"],"variables":["x","y"]}}
+{"id":"solve-rational-system","type":"SolveRealRationalSystem","payload":{"schema_version":1,"system":"system:off-diagonal"}}
+```
+
+The response has `kind: "real_rational_system_solved"`,
+`evidence: "exact_cross_checked"`, `completeness: "complete"`, and the claim
+`complete_distinct_real_solution_set_of_original_rational_system`. It uses
+the same `ExactRealPolynomialSolutionSet` representation described above:
+a polynomial parameter and coordinate maps describe the exact algebraic points,
+even though the original equations are rational.
+
+In this example the internal parameter is `t=1/(x-y)`, its polynomial is
+`["-1/8","0","1"]`, and the original coordinate maps are `["0","4"]` and
+`["0","-4"]`. The two parameter roots therefore give precisely
+`(sqrt(2),-sqrt(2))` and `(-sqrt(2),sqrt(2))`. The auxiliary variable is
+never appended to the response's original ordered `variables` or
+`coordinates`. Its inverse-product equation gives exactly one auxiliary value
+for every admissible original solution, making this projection bijective.
+
+The private native receipt retains the independently checked localization and
+complete real polynomial representation. Before publication it checks their
+exact augmented equations, coefficient values, monomial support and typed axes.
+The original source includes nested reciprocals, zero products such as
+`0*(1/x)`, and zero powers such as `(1/x)^0`. These preserve their original
+pole restrictions. A source undefined everywhere or outside the rational
+grammar refuses rather than being hidden by an inconsistent companion equation.
+
+Polynomial inputs retain the eight-variable/64-equation envelope. A variable
+denominator needs one auxiliary variable and equation, so that lane supports
+at most seven original variables and 63 residuals. The existing native degree,
+term, coefficient, search and output bounds still apply. A recognized empty
+real set is complete; a positive-dimensional punctured family or unrecognized
+finite system remains an explicit unsupported outcome. This operation does not
+claim original-ideal multiplicities, a complete complex locus, or portable proof
+transport. `SolveRealPolynomialSystem` retains its polynomial-only admission.
+
+Both stages share the Session's cumulative ordinary and protected verifier
+resources. No retry resets either allowance, and a failed final output admission
+publishes no partial coordinate map. Rust callers use
+`CertificationRequest::SolveRealRationalSystem`; lower-level callers can use
+`fsym_solvers::real_rational::metered_solve_real_rational_system` with separate
+caller-owned generation and verification meters.
 
 ## Solve complete real rational equations and inequalities
 

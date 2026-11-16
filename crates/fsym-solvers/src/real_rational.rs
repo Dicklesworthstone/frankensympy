@@ -210,17 +210,13 @@ pub fn metered_solve_real_rational_system(
             "real rational systems require 1..8 variables and at most 64 equations; localization reserves one of each".into(),
         ));
     }
-    let localization = match metered_localize_rational_system(
-        sources,
-        variables,
-        generator_meter,
-        verifier_meter,
-    )
-    .map_err(refuse)?
-    {
-        RationalSystemAdmission::Polynomial => None,
-        RationalSystemAdmission::Localized(receipt) => Some(receipt),
-    };
+    let localization =
+        match metered_localize_rational_system(sources, variables, generator_meter, verifier_meter)
+            .map_err(refuse)?
+        {
+            RationalSystemAdmission::Polynomial => None,
+            RationalSystemAdmission::Localized(receipt) => Some(receipt),
+        };
     let representation = match localization.as_deref() {
         Some(receipt) => metered_solve_real_rur_system(
             receipt.equations(),
@@ -230,9 +226,7 @@ pub fn metered_solve_real_rational_system(
         )?,
         // This is only a routing hint. RUR must still admit every original
         // source before its zero, unit-ideal or dimension shortcuts.
-        None => {
-            metered_solve_real_rur_system(sources, variables, generator_meter, verifier_meter)?
-        }
+        None => metered_solve_real_rur_system(sources, variables, generator_meter, verifier_meter)?,
     };
     let Some(representation) = representation else {
         generator_meter.checkpoint().map_err(refuse)?;
@@ -258,13 +252,9 @@ mod tests {
     fn unrelated_complete_receipt_cannot_authorize_a_projection() {
         let variables = [Symbol::new("x")];
         let sources = [fsym_core::parse("(x^2-1)/(x-1)").unwrap()];
-        let RationalSystemAdmission::Localized(localization) = metered_localize_rational_system(
-            &sources,
-            &variables,
-            &mut Unbounded,
-            &mut Unbounded,
-        )
-        .unwrap()
+        let RationalSystemAdmission::Localized(localization) =
+            metered_localize_rational_system(&sources, &variables, &mut Unbounded, &mut Unbounded)
+                .unwrap()
         else {
             panic!("variable denominator must localize")
         };

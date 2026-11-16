@@ -95,10 +95,7 @@ fn held_zero_and_zero_power_keep_hidden_inverse_domains() {
         ]),
         expression("x*(x-1)"),
     ];
-    assert_eq!(
-        single_tuple(&solve(&input, &variables(&["x"]))),
-        [q(1, 1)]
-    );
+    assert_eq!(single_tuple(&solve(&input, &variables(&["x"]))), [q(1, 1)]);
 }
 
 #[test]
@@ -140,10 +137,7 @@ fn irrational_branches_exclude_the_diagonal_without_losing_cross_points() {
 #[test]
 fn all_five_quintic_roots_survive_projection_without_radical_formulas() {
     let input = [
-        ratio(
-            expression("x^5+x^4-4*x^3-3*x^2+3*x+1"),
-            expression("x"),
-        ),
+        ratio(expression("x^5+x^4-4*x^3-3*x^2+3*x+1"), expression("x")),
         expression("y-x"),
     ];
     let receipt = solve(&input, &variables(&["x", "y"]));
@@ -187,7 +181,10 @@ fn typed_identity_and_caller_order_survive_auxiliary_projection() {
     let receipt = solve(&input, &ordered);
     assert_eq!(receipt.variables(), ordered);
     assert_eq!(single_tuple(&receipt), [q(2, 1), q(1, 1)]);
-    assert_eq!(receipt.localization().unwrap().original_variables(), ordered);
+    assert_eq!(
+        receipt.localization().unwrap().original_variables(),
+        ordered
+    );
 
     let collision = Symbol::new("_fsym_rational_inverse_0");
     let input = [ratio(
@@ -234,15 +231,12 @@ fn polynomial_bounds_are_not_reduced_by_the_rational_auxiliary_reservation() {
         (0..8).map(|i| q(i, 1)).collect::<Vec<_>>()
     );
     let input = vec![expression("x-1"); 64];
-    assert_eq!(
-        single_tuple(&solve(&input, &variables(&["x"]))),
-        [q(1, 1)]
-    );
+    assert_eq!(single_tuple(&solve(&input, &variables(&["x"]))), [q(1, 1)]);
 
     let rational = ratio(expression("x0-1"), expression("x0"));
     assert!(
         metered_solve_real_rational_system(
-            &[rational.clone()],
+            std::slice::from_ref(&rational),
             &vars,
             &mut Unbounded,
             &mut Unbounded,
@@ -283,14 +277,9 @@ fn positive_dimensional_punctured_families_never_become_partial_or_empty_sets() 
         ),
     ] {
         assert!(
-            metered_solve_real_rational_system(
-                &input,
-                &vars,
-                &mut Unbounded,
-                &mut Unbounded,
-            )
-            .unwrap()
-            .is_none()
+            metered_solve_real_rational_system(&input, &vars, &mut Unbounded, &mut Unbounded,)
+                .unwrap()
+                .is_none()
         );
     }
 }

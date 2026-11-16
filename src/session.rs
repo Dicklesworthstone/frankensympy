@@ -1126,6 +1126,7 @@ impl Session {
             Some(
                 "RegisterResidualSystem"
                     | "SolveRealPolynomialSystem"
+                    | "SolveRealRationalSystem"
                     | "SolveRealEquation"
                     | "SolveRealInequality"
                     | "SolveRealConstraints"
