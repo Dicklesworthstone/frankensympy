@@ -11,6 +11,7 @@ from ._rational_range import (
     rational_analysis as _rational_analysis,
     rational_stationary_points as _rational_stationary_points,
 )
+from ._elementary_domain import elementary_continuous_domain as _continuous_domain
 
 pi = Expr("pi")
 
@@ -94,13 +95,19 @@ AccumulationBounds = AccumBounds
 
 
 def continuous_domain(expression: Any, symbol: Any = None, domain: Any = None) -> Set:
-    """Return the exact real domain of an admitted rational function.
+    """Return a bounded exact continuity domain on the real axis.
 
-    This bounded lane admits rational coefficients and connected real
-    intervals with rational or real CRootOf endpoints. It preserves every
-    original held denominator exclusion. Unsupported syntax refuses.
+    Rational arithmetic, rational powers and supported elementary functions
+    share one complete checked rational sign partition. Original held poles,
+    logarithm restrictions and inverse-function endpoints are retained before
+    cancellation. Exact real intervals, finite sets and bounded set
+    combinations may restrict the result; unsupported conditions refuse.
+
+    Odd-denominator rational powers retain SymPy 1.14's real-axis domain
+    convention. This does not assert that their principal values are real
+    for negative bases, or admit them to real-only outer-function rules.
     """
-    return _rational_analysis(expression, symbol, domain, "domain")
+    return _continuous_domain(expression, symbol, domain)
 
 
 def stationary_points(expression: Any, symbol: Any = None, domain: Any = None) -> Set:
