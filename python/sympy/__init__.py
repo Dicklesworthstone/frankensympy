@@ -1569,10 +1569,23 @@ def fraction_inner(expr: Any) -> tuple:
         return (numer, denom)
     if isinstance(expr, Pow):
         base, exp = expr.args
-        exp_int = _require_int(exp)
-        if exp_int is not None and exp_int < 0:
-            n, d = fraction_inner(base)
-            return (Integer(1), n ** (-exp_int) * d)
+        # ``fraction`` splits outer multiplicative factors; it does not
+        # recursively normalize a power's base like ``as_numer_denom``.
+        # In particular, 1/(x/y) has denominator x/y, not x*y. Keeping the
+        # complete base also preserves its held inner denominators and avoids
+        # distributing a fractional power across a branch-sensitive ratio.
+        # Noncommutative or unknown-commutativity powers cannot be moved to a
+        # scalar denominator without changing their multiplication order.
+        if (isinstance(exp, Rational) and exp.p < 0
+                and expr.is_commutative is True and base.is_commutative is True
+                and all(type(symbol) in (Symbol, Dummy)
+                        and symbol._assumptions.get("commutative", True) is True
+                        for symbol in expr.free_symbols)):
+            # Composite commutativity properties are still provisional in
+            # this shell, so retain explicit noncommuting symbol declarations.
+            # A unit positive exponent must reuse the original held base.
+            denominator = base if exp.p == -1 and exp.q == 1 else base ** (-exp)
+            return (Integer(1), denominator)
         return (expr, Integer(1))
     if isinstance(expr, Rational):
         return (Integer(expr.p), Integer(expr.q))
