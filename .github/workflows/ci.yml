@@ -173,6 +173,7 @@ jobs:
           cargo test --locked -p fsym-python --lib rational_cancel::tests -j1
           cargo test --locked -p fsym-python --lib ode::tests -j1
           cargo test --locked -p fsym-python --lib assumptions::tests -j1
+          cargo test --locked -p fsym-python --lib callbacks::tests::atomic_nested_steps_include_reentrant_ownership_work_without_partial_charge -j1
           cargo test --locked -p fsym-python --lib expr::multiquadratic_source_tests -j1
           cargo test --locked -p fsym-python --lib expr::bounded_function_probe_tests -j1
           cargo test --locked -p fsym-python --lib numeric::tests::certified_gaussian_sources_require_unary_bound_arguments -j1
@@ -271,6 +272,8 @@ jobs:
               "python/tests/test_bernoulli_initial_conditions.py::test_rational_point_binds_the_checked_nonseparable_family",
               "python/tests/test_bernoulli_initial_conditions.py::test_zero_linear_coefficient_and_negative_initial_value",
               "python/tests/test_bernoulli_initial_conditions.py::test_consistent_overdetermined_values_select_a_particular_solution",
+              "python/tests/test_matrix_definiteness.py",
+              "python/tests/test_matrix_definiteness_budget.py",
               "python/tests/test_affine_linear_systems.py",
               "python/tests/test_half_line_transforms.py",
               "python/tests/test_fourier_transforms.py",

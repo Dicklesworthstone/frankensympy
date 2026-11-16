@@ -68,6 +68,48 @@ fn missing_interpreter_capabilities_and_malformed_ids_do_not_mean_main() {
 }
 
 #[test]
+fn atomic_nested_steps_include_reentrant_ownership_work_without_partial_charge() {
+    Python::initialize();
+    Python::attach(|py| {
+        let session = Py::new(
+            py,
+            PySupervisedCallbackSession::new(py, 4, 8, 2, 32, 32, 5000).unwrap(),
+        )
+        .unwrap();
+        let namespace = PyDict::new(py);
+        namespace.set_item("session", &session).unwrap();
+        py.run(
+            c"import threading\noriginal_ident = threading.get_ident\n\ndef consuming_ident():\n    current = original_ident()\n    if current == session.owner_thread_id:\n        threading.get_ident = original_ident\n        session.charge_nested_steps(1)\n    return current\n\nthreading.get_ident = consuming_ident\n",
+            Some(&namespace),
+            Some(&namespace),
+        )
+        .unwrap();
+        // The ownership query consumes one genuine nested step before the
+        // requested two-step unit is admitted. A stale bridge-side precheck
+        // followed by the legacy charge would increment the ledger to three.
+        let result = session.borrow(py).charge_nested_steps_atomic(py, 2);
+        py.run(
+            c"threading.get_ident = original_ident",
+            Some(&namespace),
+            Some(&namespace),
+        )
+        .unwrap();
+        assert!(result.unwrap_err().is_instance_of::<PyValueError>(py));
+        let session = session.borrow(py);
+        assert_eq!(session.consumed_nested_steps(), 1);
+        assert!(session.cancelled());
+        assert!(!session.unknown_effect_tainted());
+        assert!(
+            session
+                .charge_nested_steps_atomic(py, 0)
+                .unwrap_err()
+                .is_instance_of::<PyRuntimeError>(py)
+        );
+        assert_eq!(session.consumed_nested_steps(), 1);
+    });
+}
+
+#[test]
 fn fresh_occurrences_execute_again_and_share_the_invocation_limit() {
     run(
         r#"

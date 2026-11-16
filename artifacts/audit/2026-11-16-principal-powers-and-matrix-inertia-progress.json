@@ -1,0 +1,680 @@
+{
+  "schema": "frankensympy.critical-feature-progress.v1",
+  "recorded_at_utc": "2026-11-16T03:28:42Z",
+  "repository": "Dicklesworthstone/frankensympy",
+  "initial_remote_main": "79138cc544bcd1a49d6cc9acfd3ab6146359dfbd",
+  "previous_direct_main_commits_independently_read_back": [
+    {
+      "sha": "119417fed7e50f8e417f0f01b625e9cb8eb99175",
+      "purpose": "complete principal rational-power inversion"
+    },
+    {
+      "sha": "6ba94eb7b910eedf76396f5723012e5983af9034",
+      "purpose": "terminate unresolved scalar float conversion"
+    },
+    {
+      "sha": "df029bb9da30ddec8411b090eafcef33ecb42d2d",
+      "purpose": "retain original solveset domains and cumulative zero-query work"
+    },
+    {
+      "sha": "3b6b5cf89ff2b058b1c05d3264b41fb88d1549d7",
+      "purpose": "bound exact inverse magnitude before power allocation"
+    },
+    {
+      "sha": "4434e226c28629da474a0b8d52990371c7e3b147",
+      "purpose": "independent native rational quadratic-form inertia"
+    },
+    {
+      "sha": "547298bb3f8f821a9ee421da1323c6dfb5a5f0f0",
+      "purpose": "exact rational ODE residual identities"
+    }
+  ],
+  "public_matrix_publication": "The source blobs below identify the matrix integration and atomic request charging in this record's containing commit. Its SHA cannot be embedded in itself.",
+  "features": {
+    "principal_rational_powers": {
+      "behavior": "Enumerate every inverse phase within the closed principal argument convention for admitted real targets, preserving affine/scaled bases, negative exponents and original residual checks.",
+      "bounds": "Noninjective reduced exponent numerator magnitude at most 12. Unresolved target phases and larger branch populations refuse as incomplete instead of publishing partial lists. Injective small exponents retain exact numeric-growth preflight.",
+      "allocation": "Bound inverse magnitude work before exact exponentiation; unit magnitudes avoid unnecessary growth. Tiny rational exponents cannot allocate billion-bit powers before admission."
+    },
+    "original_solution_domains": {
+      "behavior": "Finite candidates and identity solution sets retain held poles and original Eq sides. Explicit solved coordinates are replaced by fresh unconstrained identities for identity-domain checks, while independent parameter declarations remain intact. Unresolved membership remains conditional.",
+      "budgets": "Zero facts reuse one cumulative assumption-query ledger; later candidates cannot reset it. Terminal failures propagate.",
+      "limit": "This does not establish complete source-domain handling for every infinite periodic family or general solver grammar."
+    },
+    "scalar_float_conversion": "Evaluate once and reject unresolved or nonreal Expr-to-float recursion, preserving exact atoms and explicit subclass conversion overrides. The concurrent bounded Float*I complex conversion fix remains intact.",
+    "rational_matrix_inertia": {
+      "behavior": "Generate and independently verify complete pivoted block-LDL congruences of A+A^T, binding the full original rational source including its skew part. Count every positive, negative and zero direction only after source, permutation, unit lower factor, block structure and reconstruction checks.",
+      "bounds": {
+        "dimension": 64,
+        "input_coefficient_bits": 4096,
+        "intermediate_coefficient_bits": 8192,
+        "work_units_per_native_phase": 20000000,
+        "cumulative_allocation_bytes_per_native_phase": 268435456
+      },
+      "public": "Five definiteness predicates are properties on dense/sparse mutable/immutable matrix classes. Rational inputs use checked inertia; bounded symbolic and complex forms use conservative Hermitian-part criteria and preserve unknown values.",
+      "symbolic_dimension_bound": 8,
+      "request_composition": "Both native phases share the original Python request session. A private atomic callback charge verifies ownership before locking and committing the ledger; refused work leaves counters unchanged and cancels the parent. Admission and publication also check the active request.",
+      "source_integrity": "Original native and retained storage, held scalar graphs, typed declarations, implementation owners, I conjugation and final matrix/source snapshots are checked before publication.",
+      "observable_discrepancy": "FSYM-DIFF-MATRIX-INERTIA-001 records a rational cubic fixture for which upstream returns unknown indefiniteness and the preview can prove True. No strict profile or claim tier is promoted."
+    },
+    "ode_residuals": {
+      "behavior": "After original equation/candidate source admission, use the existing bounded rational normalizer to prove exact common-denominator zero identities. Reject explicit noncommutative declarations; operational and reconstruction failures remain terminal.",
+      "regressions": "Nine authored public cases plus the four existing Bernoulli verification failures are selected in the full-extension CI batch. The independent upstream mathematical checks are separate oracle evidence."
+    }
+  },
+  "source_bindings": {
+    "Cargo.toml": {
+      "git_blob_sha1": "d135d4c39fce1cd8e65654633eb490aefc6e35c2",
+      "sha256": "177e3d2d06919abf4f0203b4b90ece865c64d946aaf3bae378f14d90fe4633db"
+    },
+    "Cargo.lock": {
+      "git_blob_sha1": "2e3b9903955b119b6726d8f595e3b9980009f221",
+      "sha256": "da84995568279c4ebf6123a38b3c38c29807f967f0992a435f53b7a9091361d7"
+    },
+    "rust-toolchain.toml": {
+      "git_blob_sha1": "e325a230747ac250490047f0a3a6625ea82e5831",
+      "sha256": "cdaedf5d65db22fa32d18beadab465c1b7653285dfb2e14d23f7dfd9677f9848"
+    },
+    "crates/fsym-solvers/src/univariate.rs": {
+      "git_blob_sha1": "f06954842304e2f68281488c0dd95efa698f6a0c",
+      "sha256": "13af9ae7689142dbc5304b29f24ee7511003e68d149c0e5faf2971715b118202"
+    },
+    "crates/fsym-solvers/tests/principal_rational_powers.rs": {
+      "git_blob_sha1": "a08e523b396aceb050ab89f34f25cefaf11cf4a7",
+      "sha256": "fe2af9f7a56f7f41877ac2983493f124a0ebbedbe330cf4940429531480a1094"
+    },
+    "python/sympy/core/__init__.py": {
+      "git_blob_sha1": "ad1aa874c4783a42e2283fb4dff59ccc482d38ee",
+      "sha256": "9df1a3706fb8e116f7de3282b5dc21f503ec2029dc92fea86c21902d12932e8e"
+    },
+    "python/tests/test_float_conversion_termination.py": {
+      "git_blob_sha1": "90aef9fcc88f3b4337362265620f38ec29f72a36",
+      "sha256": "0608a5b225654bebb190ce10b72a3921b030ce22cb5892010a2b7f928fbc803d"
+    },
+    "python/sympy/__init__.py": {
+      "git_blob_sha1": "9fe4a67a083c8f9460a722ed5519e36432b48c03",
+      "sha256": "6c5fbbd1366224e58388cb6719eb6880e562ff64bc9783eece32fbf92e45370d"
+    },
+    "python/sympy/assumptions/_query.py": {
+      "git_blob_sha1": "2bcfd130dac2c751933bf69c99f0403a543c4dec",
+      "sha256": "756a7ac0debbe5e3ae4c219c7401d82589bba67850030bef6b27a7b4e308b876"
+    },
+    "python/sympy/sets/fancysets.py": {
+      "git_blob_sha1": "5edacd316a133a95e7615ed28e8c76bce3e14c4f",
+      "sha256": "cfda302c4ab91237ebac28be92add02eb5b55a350e01d2d77145241c82781a49"
+    },
+    "python/sympy/solvers/_checksol.py": {
+      "git_blob_sha1": "9641e2d2b884944005c31448a2dd37fa6b8b8d8a",
+      "sha256": "429510be9745ee21b75d9d34ab87ce578cd9a053d2f65ff31bddb29df093cc5b"
+    },
+    "python/tests/test_principal_power_solve.py": {
+      "git_blob_sha1": "7d30d5f4ef57f28a168f42f6675fc1dcc6f21431",
+      "sha256": "a7380262132260fea8074a36f523199863f5e20f57655f1ff60f4ddb00faa916"
+    },
+    "python/tests/test_solveset_source_domains.py": {
+      "git_blob_sha1": "3a8d2c030619ba13c2622e8fecea6ab9d5bf74f2",
+      "sha256": "3b2437583afd8f1060fe939b5d8c1a9b3bbdac4770c0c12029b3096c9f7c0767"
+    },
+    "crates/fsym-proof-kernel/src/lib.rs": {
+      "git_blob_sha1": "b722bf2450905d57c4949cc872b192d2e5e0d486",
+      "sha256": "b68b8b997623cf71819f81cb87898ec2ec90411af0898716aa3e3188ba22d426"
+    },
+    "crates/fsym-proof-kernel/src/sparse_rref.rs": {
+      "git_blob_sha1": "33e5af8c4138fc22cf56d548122281f3e837362e",
+      "sha256": "ca616ffc95742710d8bc1edd79c778042ac40327c0f63d84b0bc6dfc5397d916"
+    },
+    "crates/fsym-proof-kernel/src/rational_inertia.rs": {
+      "git_blob_sha1": "8f155e52cfe219f231d91f02f8b7d03ac44d870b",
+      "sha256": "919a6dd6abc2e01aeb7563a724405087488156fcdce358afa2280e802f7e797b"
+    },
+    "crates/fsym-proof-kernel/tests/rational_inertia.rs": {
+      "git_blob_sha1": "4144007931dfc8b8a6b4e5ea3c59c577dad3107c",
+      "sha256": "d0460ee28940e7a34140607c3d528caa226cf7043f5c67121654bd53363552d5"
+    },
+    "crates/fsym-matrices/src/lib.rs": {
+      "git_blob_sha1": "90b312c89ba7ec5ebaa557daade4c50d281ab511",
+      "sha256": "18a1d173fa72941591ccc9529e39762da4b708de459a4f518fe17b93d8ea57c4"
+    },
+    "crates/fsym-matrices/src/inertia.rs": {
+      "git_blob_sha1": "6dd5f81b9cc1a863d36d3c4c01ee7f1cd2d58c7d",
+      "sha256": "f9f7e04205964917e3102e1ef04f9980db7130ce75cf909114e4f2a58c436646"
+    },
+    "crates/fsym-matrices/tests/inertia.rs": {
+      "git_blob_sha1": "3afbe27d80f524c5697467a32d0dfc6d7d903059",
+      "sha256": "09e1ac8c22c53f834659afc604e7ba27eb0a4539580b6e2c0f3171df30bf2f94"
+    },
+    "crates/fsym-python/src/callbacks.rs": {
+      "git_blob_sha1": "facdbf8db4f17506b9dd747af98f34b7120e2741",
+      "sha256": "7da9c31c51a7cec0975f4a307707529e9ec0c294f9be88fd0d1e4a521a4448d9"
+    },
+    "crates/fsym-python/src/callbacks/tests.rs": {
+      "git_blob_sha1": "0d86146b4e32081f4ca386add1c8ad1e20b8362d",
+      "sha256": "2eaf1179078eccd717439c089b26fe8588e88e4983fe273d52407f07a6db06dc"
+    },
+    "crates/fsym-python/src/matrix.rs": {
+      "git_blob_sha1": "4927f2126744fbcf52f5da4cd9db23ad454f6233",
+      "sha256": "65a150b33cd4d64dd30b2b6a828ad768965aa89510490b40e5cb58daa2c949b8"
+    },
+    "python/sympy/matrices/__init__.py": {
+      "git_blob_sha1": "f22604afaf708f4f474d438cff49e33bec22cc90",
+      "sha256": "f01498ac3f70cc9926c7941f54242ea6bbe7d12814504a6945050a683acb8411"
+    },
+    "python/sympy/matrices/dense.py": {
+      "git_blob_sha1": "f537790727cb4e39a6ca4abab8ae76c186308eb2",
+      "sha256": "e8803cd4e7de6152f6730d10cdd42a03ca1b22c380d6f1584fe98d20cdac0048"
+    },
+    "python/sympy/matrices/_definiteness.py": {
+      "git_blob_sha1": "0099f4ad8b880b10494f8d0b970e06417f6c6113",
+      "sha256": "be95856e7ebdd9dc16bb8c49ff00a4306387f58ba0e6135a01a1eb7ec39dca4d"
+    },
+    "python/tests/test_surface.py": {
+      "git_blob_sha1": "cf3e940ce5e8eb19c6b404dd4f95dd82f8378e07",
+      "sha256": "79fe8c8afc3e42079d2f3708cdcf4361c690bdac08c796496ae3013427df44b1"
+    },
+    "python/tests/test_matrix_definiteness.py": {
+      "git_blob_sha1": "53b66e0ccc879bb4cec63fb3ae9baaf046f4ba4e",
+      "sha256": "315cf46cfd9a544693e93a291c2dccb8bdcaf5cb43a84c75b6705b94f00ccc13"
+    },
+    "python/tests/test_matrix_definiteness_budget.py": {
+      "git_blob_sha1": "ba2180290f7629744dc3828fcd619208b1701e5e",
+      "sha256": "3915fcdf0a77f627ae00b961203e1178c929ba1292ef5188c0cf3c2fdd61360a"
+    },
+    "python/sympy/solvers/ode.py": {
+      "git_blob_sha1": "70cd47bc0789fc799f676f27738e228f9c7bec1a",
+      "sha256": "5857528265f903a8881f7915966e7922f5ca8d7d17c03781c6ad3fe57f0313d4"
+    },
+    "python/tests/test_checkodesol_rational_residuals.py": {
+      "git_blob_sha1": "03041b4a8feaec465af43282a3e880cf1f2ceb0a",
+      "sha256": "11e4e455721d3311be952c4d916cc2d160cf737474289d86e7520aff6b32a523"
+    },
+    ".github/workflows/ci.yml": {
+      "git_blob_sha1": "7787ae07f84be10db469473da7277cac05807e4d",
+      "sha256": "d6eb846f0a843bf1acc928d49c96c7b34582062feae26437872af8a162071e6a"
+    },
+    "artifacts/discrepancies/2026-11-16-matrix-inertia-indefiniteness.json": {
+      "git_blob_sha1": "ca370a65e2560f611b665b8a9c25fe6bb92dcd8b",
+      "sha256": "e7897a797d7e2c12b4d60db6ff91c38ff71accb1841a09c430f9998cbb853d6d"
+    }
+  },
+  "native_principal_execution": {
+    "kind": "observed_native_test_completion",
+    "description": "Verbatim final output chunk returned by write_stdin for the actual focused native test run; this is not a simulated or reconstructed test result.",
+    "cwd": "/workspace/scratch/809590c88999/frankensympy",
+    "environment_source": "/workspace/scratch/809590c88999/tooling/env.sh",
+    "command": "cargo test --locked -p fsym-solvers --test principal_rational_powers -j1",
+    "session_id": 55735,
+    "terminal_chunk_id": "e2c67e",
+    "exit_code": 0,
+    "toolchain_pin": "[toolchain]\nchannel = \"nightly-2026-08-20\"\nprofile = \"minimal\"\ncomponents = [\"cargo\", \"clippy\", \"rustfmt\", \"rust-src\"]\ntargets = [\"wasm32-unknown-unknown\"]\n",
+    "rustc_verbose_output": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)\nbinary: rustc\ncommit-hash: f7d782a3be46d6bb4b9792fe69a61db389ba1769\ncommit-date: 2026-08-19\nhost: x86_64-unknown-linux-gnu\nrelease: 1.100.0-nightly\nLLVM version: 23.1.0\n",
+    "source_git_blobs": {
+      "crates/fsym-solvers/src/univariate.rs": "f06954842304e2f68281488c0dd95efa698f6a0c",
+      "crates/fsym-solvers/tests/principal_rational_powers.rs": "a08e523b396aceb050ab89f34f25cefaf11cf4a7"
+    },
+    "parent_verified_remote_commit": "3b6b5cf89ff2b058b1c05d3264b41fb88d1549d7",
+    "terminal_output": "    Finished `test` profile [unoptimized] target(s) in 34m 40s\n     Running tests/principal_rational_powers.rs (/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-solvers/6db227844b4f839e/out/principal_rational_powers-6db227844b4f839e)\n\nrunning 10 tests\ntest bounded_branch_enumeration_refuses_without_returning_a_partial_list ... ok\ntest negative_target_has_both_principal_three_halves_inverse_branches ... ok\ntest unresolved_target_phase_is_incomplete_through_both_entry_points ... ok\ntest positive_target_keeps_complex_five_halves_and_seven_thirds_branches ... ok\ntest rational_magnitudes_and_affine_bases_reach_the_original_equation_checker ... ok\ntest principal_range_excludes_algebraic_roots_on_other_sheets ... ok\ntest zero_target_distinguishes_positive_and_negative_powers ... ok\ntest inverse_magnitude_is_bounded_before_exact_power_allocation ... ok\ntest negative_exponents_keep_every_nonzero_branch ... ok\ntest phase_counts_agree_with_closed_principal_sector_counts ... ok\n\ntest result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.50s\n\n",
+    "scope_note": "The tenth test covers exact magnitude allocation admission. The phase-count test internally covers 132 exponent-sign/target-sign configurations; the runner reports 10 named tests. No public Python tests or broader suites are claimed by this record."
+  },
+  "native_inertia_execution": {
+    "schema": "frankensympy.local-targeted-validation.v1",
+    "working_directory": "/workspace/scratch/809590c88999/frankensympy",
+    "environment_script": "/workspace/scratch/809590c88999/tooling/env.sh",
+    "session_id": 65941,
+    "commands": [
+      "cargo test --locked -p fsym-proof-kernel --test rational_inertia",
+      "cargo test --locked -p fsym-matrices --test inertia"
+    ],
+    "sequence_exit_code": 0,
+    "source_sha256": {
+      "crates/fsym-proof-kernel/src/lib.rs": "b68b8b997623cf71819f81cb87898ec2ec90411af0898716aa3e3188ba22d426",
+      "crates/fsym-proof-kernel/src/sparse_rref.rs": "ca616ffc95742710d8bc1edd79c778042ac40327c0f63d84b0bc6dfc5397d916",
+      "crates/fsym-proof-kernel/src/rational_inertia.rs": "919a6dd6abc2e01aeb7563a724405087488156fcdce358afa2280e802f7e797b",
+      "crates/fsym-proof-kernel/tests/rational_inertia.rs": "d0460ee28940e7a34140607c3d528caa226cf7043f5c67121654bd53363552d5",
+      "crates/fsym-matrices/src/lib.rs": "18a1d173fa72941591ccc9529e39762da4b708de459a4f518fe17b93d8ea57c4",
+      "crates/fsym-matrices/src/inertia.rs": "f9f7e04205964917e3102e1ef04f9980db7130ce75cf909114e4f2a58c436646",
+      "crates/fsym-matrices/tests/inertia.rs": "e6d9d63673dd071ff789de8ecf1c71939aabdfd3c78438d53bd8639f1210c046"
+    },
+    "proof_kernel": {
+      "status": "passed",
+      "passed": 6,
+      "failed": 0,
+      "test_execution_seconds": 0.01,
+      "observed_tool_output_chunk": "0ce1b4",
+      "observed_output": "    Finished `test` profile [unoptimized] target(s) in 2m 53s\n     Running tests/rational_inertia.rs (/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-proof-kernel/87e5837df349455a/out/rational_inertia-87e5837df349455a)\n\nrunning 6 tests\ntest malformed_permutations_blocks_and_reconstruction_are_rejected ... ok\ntest original_nonsymmetric_source_uses_its_symmetric_part_and_exact_digest ... ok\ntest singular_lower_cannot_hide_negative_or_missing_directions ... ok\ntest cancellation_and_independent_verifier_budgets_never_publish_receipts ... ok\ntest scalar_paired_and_zero_blocks_count_complete_inertia ... ok\ntest wire_round_trip_preserves_the_bounded_untrusted_witness ... ok\n\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n\n"
+    },
+    "matrices": {
+      "status": "passed",
+      "passed": 8,
+      "failed": 0,
+      "test_execution_seconds": 2.08,
+      "observed_output_chunks": [
+        {
+          "chunk_id": "1986c3",
+          "output": "   Compiling fsym-matrices v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-matrices)\nwarning: unused import: `num_traits::One`\n --> crates/fsym-matrices/tests/inertia.rs:6:5\n  |\n6 | use num_traits::One;\n  |     ^^^^^^^^^^^^^^^\n  |\n  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default\n\nwarning: `fsym-matrices` (test \"inertia\") generated 1 warning\n    Finished `test` profile [unoptimized] target(s) in 9.96s\n     Running tests/inertia.rs (/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-matrices/717f6a2926db3985/out/inertia-717f6a2926db3985)\n\nrunning 8 tests\ntest certificate_mutations_cannot_relabel_a_quadratic_form ... ok\ntest nonsymmetric_forms_are_not_classified_from_their_eigenvalues ... ok\ntest original_sources_shapes_and_height_are_admitted_before_shortcuts ... ok\ntest stopped_generators_and_verifiers_do_not_publish_accepted_inertia ... ok\ntest tiny_exact_positive_pivot_survives_binary64_rounding ... ok\ntest known_congruences_retain_every_sign_after_permutations ... ok\ntest exhaustive_two_by_two_rational_forms_match_trace_determinant_classification ... ok\ntest empty_zero_identity_singular_and_indefinite_forms ... ok\n\ntest result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.08s\n\n"
+        }
+      ],
+      "observed_output": "   Compiling fsym-matrices v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-matrices)\nwarning: unused import: `num_traits::One`\n --> crates/fsym-matrices/tests/inertia.rs:6:5\n  |\n6 | use num_traits::One;\n  |     ^^^^^^^^^^^^^^^\n  |\n  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default\n\nwarning: `fsym-matrices` (test \"inertia\") generated 1 warning\n    Finished `test` profile [unoptimized] target(s) in 9.96s\n     Running tests/inertia.rs (/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-matrices/717f6a2926db3985/out/inertia-717f6a2926db3985)\n\nrunning 8 tests\ntest certificate_mutations_cannot_relabel_a_quadratic_form ... ok\ntest nonsymmetric_forms_are_not_classified_from_their_eigenvalues ... ok\ntest original_sources_shapes_and_height_are_admitted_before_shortcuts ... ok\ntest stopped_generators_and_verifiers_do_not_publish_accepted_inertia ... ok\ntest tiny_exact_positive_pivot_survives_binary64_rounding ... ok\ntest known_congruences_retain_every_sign_after_permutations ... ok\ntest exhaustive_two_by_two_rational_forms_match_trace_determinant_classification ... ok\ntest empty_zero_identity_singular_and_indefinite_forms ... ok\n\ntest result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.08s\n\n"
+    },
+    "post_validation_cleanup": {
+      "change": "Removed compiler-reported unused num_traits::One import from crates/fsym-matrices/tests/inertia.rs; no executable behavior changed.",
+      "session_id": 63946,
+      "command": "cargo test --locked -p fsym-matrices --test inertia",
+      "exit_code": 130,
+      "status": "interrupted at root request after compilation and six reported passing tests; no complete rerun pass claimed",
+      "observed_output_chunks": [
+        {
+          "chunk_id": "bbce4d",
+          "output": "   Compiling fsym-matrices v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-matrices)\n"
+        },
+        {
+          "chunk_id": "fb6263",
+          "output": "    Finished `test` profile [unoptimized] target(s) in 6m 02s\n     Running tests/inertia.rs (/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-matrices/717f6a2926db3985/out/inertia-717f6a2926db3985)\n\nrunning 8 tests\ntest stopped_generators_and_verifiers_do_not_publish_accepted_inertia ... ok\ntest nonsymmetric_forms_are_not_classified_from_their_eigenvalues ... ok\ntest certificate_mutations_cannot_relabel_a_quadratic_form ... ok\ntest original_sources_shapes_and_height_are_admitted_before_shortcuts ... ok\ntest tiny_exact_positive_pivot_survives_binary64_rounding ... ok\ntest known_congruences_retain_every_sign_after_permutations ... ok\n"
+        }
+      ],
+      "observed_output": "   Compiling fsym-matrices v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-matrices)\n    Finished `test` profile [unoptimized] target(s) in 6m 02s\n     Running tests/inertia.rs (/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-matrices/717f6a2926db3985/out/inertia-717f6a2926db3985)\n\nrunning 8 tests\ntest stopped_generators_and_verifiers_do_not_publish_accepted_inertia ... ok\ntest nonsymmetric_forms_are_not_classified_from_their_eigenvalues ... ok\ntest certificate_mutations_cannot_relabel_a_quadratic_form ... ok\ntest original_sources_shapes_and_height_are_admitted_before_shortcuts ... ok\ntest tiny_exact_positive_pivot_survives_binary64_rounding ... ok\ntest known_congruences_retain_every_sign_after_permutations ... ok\n"
+    },
+    "current_source_sha256": {
+      "crates/fsym-proof-kernel/src/lib.rs": "b68b8b997623cf71819f81cb87898ec2ec90411af0898716aa3e3188ba22d426",
+      "crates/fsym-proof-kernel/src/sparse_rref.rs": "ca616ffc95742710d8bc1edd79c778042ac40327c0f63d84b0bc6dfc5397d916",
+      "crates/fsym-proof-kernel/src/rational_inertia.rs": "919a6dd6abc2e01aeb7563a724405087488156fcdce358afa2280e802f7e797b",
+      "crates/fsym-proof-kernel/tests/rational_inertia.rs": "d0460ee28940e7a34140607c3d528caa226cf7043f5c67121654bd53363552d5",
+      "crates/fsym-matrices/src/lib.rs": "18a1d173fa72941591ccc9529e39762da4b708de459a4f518fe17b93d8ea57c4",
+      "crates/fsym-matrices/src/inertia.rs": "f9f7e04205964917e3102e1ef04f9980db7130ce75cf909114e4f2a58c436646",
+      "crates/fsym-matrices/tests/inertia.rs": "09e1ac8c22c53f834659afc604e7ba27eb0a4539580b6e2c0f3171df30bf2f94"
+    },
+    "current_git_blob_sha1": {
+      "crates/fsym-proof-kernel/src/lib.rs": "b722bf2450905d57c4949cc872b192d2e5e0d486",
+      "crates/fsym-proof-kernel/src/sparse_rref.rs": "33e5af8c4138fc22cf56d548122281f3e837362e",
+      "crates/fsym-proof-kernel/src/rational_inertia.rs": "8f155e52cfe219f231d91f02f8b7d03ac44d870b",
+      "crates/fsym-proof-kernel/tests/rational_inertia.rs": "4144007931dfc8b8a6b4e5ea3c59c577dad3107c",
+      "crates/fsym-matrices/src/lib.rs": "90b312c89ba7ec5ebaa557daade4c50d281ab511",
+      "crates/fsym-matrices/src/inertia.rs": "6dd5f81b9cc1a863d36d3c4c01ee7f1cd2d58c7d",
+      "crates/fsym-matrices/tests/inertia.rs": "3afbe27d80f524c5697467a32d0dfc6d7d903059"
+    }
+  },
+  "session_validation": {
+    "repository": "Dicklesworthstone/frankensympy",
+    "recorded_at_utc": "2026-11-16T03:28:08.757449+00:00",
+    "working_directory": "/workspace/scratch/809590c88999/frankensympy",
+    "scope": "Actual selected native tests; failed complete production-extension builds; isolated upstream-oracle checks. No candidate Python runtime validation.",
+    "environment": {
+      "setup_script": "/workspace/scratch/809590c88999/tooling/env.sh",
+      "rust_toolchain": "nightly-2026-08-20",
+      "rustc": "1.100.0-nightly (f7d782a3b 2026-08-19)",
+      "rustc_commit": "f7d782a3be46d6bb4b9792fe69a61db389ba1769",
+      "cargo_target_dir": "/workspace/scratch/809590c88999/tooling/target",
+      "cargo_build_jobs": 1,
+      "cargo_incremental": 0,
+      "cargo_profile_dev_debug": 0,
+      "cargo_profile_test_debug": 0,
+      "donor_pins": {
+        "asupersync": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+        "franken_numpy-pin": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+        "frankenscipy-pin": "213a417c739025ed865a3875c89a7d86726ecb5a"
+      },
+      "source_or_dependency_substitutions": []
+    },
+    "native_tests": {
+      "actual_total_passed": 24,
+      "actual_total_failed": 0,
+      "runs": [
+        {
+          "command": "cargo test --locked -p fsym-solvers --test principal_rational_powers",
+          "terminal_session": 55735,
+          "exit_status": 0,
+          "passed": 10,
+          "failed": 0,
+          "test_seconds": 0.5,
+          "build_duration": "34m40s",
+          "reported_by": "/root/audit_calculus_solvers",
+          "includes": "Exact inverse-magnitude allocation guard and 132-case rational exponent branch-count sweep."
+        },
+        {
+          "command": "cargo test --locked -p fsym-proof-kernel --test rational_inertia",
+          "terminal_session": 65941,
+          "exit_status": 0,
+          "passed": 6,
+          "failed": 0,
+          "test_seconds": 0.01,
+          "reported_by": "/root/locate_repository"
+        },
+        {
+          "command": "cargo test --locked -p fsym-matrices --test inertia",
+          "terminal_session": 65941,
+          "exit_status": 0,
+          "passed": 8,
+          "failed": 0,
+          "test_seconds": 2.08,
+          "reported_by": "/root/locate_repository"
+        }
+      ],
+      "cleanup_rerun": {
+        "terminal_session": 63946,
+        "exit_status": 130,
+        "passed_suite_claim": false,
+        "reason": "Interrupted at root request after removal of an unused test import. The original successful 14-test sequence is the claimed evidence; production native code was unchanged by cleanup."
+      },
+      "source_hash_note": "The following are post-run source hashes, captured after native completion. No pre-run hash snapshot was captured by this validation agent. Callback bridge edits are outside these tested native packages.",
+      "post_run_source_sha256": {
+        "crates/fsym-solvers/src/univariate.rs": "13af9ae7689142dbc5304b29f24ee7511003e68d149c0e5faf2971715b118202",
+        "crates/fsym-solvers/tests/principal_rational_powers.rs": "fe2af9f7a56f7f41877ac2983493f124a0ebbedbe330cf4940429531480a1094",
+        "crates/fsym-proof-kernel/src/rational_inertia.rs": "919a6dd6abc2e01aeb7563a724405087488156fcdce358afa2280e802f7e797b",
+        "crates/fsym-proof-kernel/tests/rational_inertia.rs": "d0460ee28940e7a34140607c3d528caa226cf7043f5c67121654bd53363552d5",
+        "crates/fsym-matrices/src/inertia.rs": "f9f7e04205964917e3102e1ef04f9980db7130ce75cf909114e4f2a58c436646",
+        "crates/fsym-matrices/tests/inertia.rs": "09e1ac8c22c53f834659afc604e7ba27eb0a4539580b6e2c0f3171df30bf2f94",
+        "python/sympy/core/__init__.py": "9df1a3706fb8e116f7de3282b5dc21f503ec2029dc92fea86c21902d12932e8e",
+        "python/tests/test_float_conversion_termination.py": "0608a5b225654bebb190ce10b72a3921b030ce22cb5892010a2b7f928fbc803d"
+      }
+    },
+    "production_extension_builds": [
+      {
+        "attempt": 1,
+        "command": "cargo build --locked --offline -p fsym-python --features extension-module",
+        "terminal_session": 81832,
+        "exit_status": 101,
+        "failed_crate": "fsym-core",
+        "rustc_signal": 9,
+        "rustc_signal_name": "SIGKILL",
+        "rust_source_diagnostic": false,
+        "produced_extension": false,
+        "pre_run_source_snapshot": null,
+        "source_snapshot_note": "No complete source bookend was captured for this failed build.",
+        "log": {
+          "path": "/workspace/scratch/809590c88999/tooling/production-extension-validation-build.log",
+          "bytes": 6984,
+          "sha256": "60d204dbf53efeb2b5dbd896fe583f682ffc1177a665135208d9afd7bebd8dfe",
+          "observed_output": "   Compiling serde_core v1.0.229\n   Compiling typenum v1.20.1\n   Compiling serde v1.0.229\n   Compiling serde_derive v1.0.229\n   Compiling syn v2.0.119\n   Compiling foldhash v0.2.0\n   Compiling equivalent v1.0.2\n   Compiling allocator-api2 v0.2.21\n   Compiling hashbrown v0.17.1\n   Compiling memchr v2.8.3\n   Compiling serde_json v1.0.151\n   Compiling indexmap v2.14.0\n   Compiling getrandom v0.4.3\n   Compiling hybrid-array v0.4.14\n   Compiling rand_core v0.10.1\n   Compiling zeroize_derive v1.5.0\n   Compiling zeroize v1.9.0\n   Compiling num-bigint v0.4.8\n   Compiling fsym-budget v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-budget)\n   Compiling fsym-bigint v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-bigint)\n   Compiling crypto-common v0.2.2\n   Compiling thiserror-impl v2.0.20\n   Compiling thiserror v2.0.20\n   Compiling fsym-modular v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-modular)\n   Compiling num-rational v0.4.2\n   Compiling fsym-rational v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-rational)\n   Compiling fsym-id v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-id)\n   Compiling fsym-core v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-core)\nerror: could not compile `fsym-core` (lib)\n\nCaused by:\n  process didn't exit successfully: `rustc --crate-name fsym_core --edition=2024 crates/fsym-core/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -Z embed-metadata=no -C embed-bitcode=no --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=2776a69ee8ef22aa -C extra-filename=-201f84a1c3da2015 --out-dir /workspace/scratch/809590c88999/tooling/target/debug/build/fsym-core/201f84a1c3da2015/out -C strip=debuginfo -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/allocator-api2/1808ce5f511fef5e/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/arrayvec/4b2be9c104b0cb2a/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/blake3/e888c649952cbce2/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/cfg-if/3e5ed29fba0a3052/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/constant_time_eq/4445cd445e7d9ce7/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/cpufeatures/968248503135fbec/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/equivalent/5646cca33fb52363/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/foldhash/ff3599f3a48e5cbe/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-bigint/fb9b5c395f9d4241/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-budget/dd8c25dd40627a79/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-id/8cc124f25b60ba97/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-modular/cbc2a64cb0cbae59/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-outcome/d242549f51dc0cd9/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-rational/9dd034b3b593a687/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/hashbrown/42ba0116e054fbe1/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/indexmap/bf6cde6f78efb67f/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/itoa/fd1d233bcfbca7b6/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/memchr/1d6a8dd4683d48ae/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/num-bigint/9d5ce44c7fd0fca3/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/num-complex/80e161edd9c6955f/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/num-integer/58c2c27e439ecd68/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/num-rational/eca38d8aedf2995b/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/num-traits/88ec45b5b3d89358/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/serde/3b922bba0c483235/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/serde_core/1fee35a84515fa52/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/serde_derive/f1f9b1cd5b52c578/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/serde_json/da69c03bec52ee20/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/thiserror/43c025dc6559c849/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/thiserror-impl/f51ef32338d8513a/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/zmij/11835262a6454cde/out --extern blake3=/workspace/scratch/809590c88999/tooling/target/debug/build/blake3/e888c649952cbce2/out/libblake3-e888c649952cbce2.rmeta --extern fsym_bigint=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-bigint/fb9b5c395f9d4241/out/libfsym_bigint-fb9b5c395f9d4241.rmeta --extern fsym_budget=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-budget/dd8c25dd40627a79/out/libfsym_budget-dd8c25dd40627a79.rmeta --extern fsym_id=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-id/8cc124f25b60ba97/out/libfsym_id-8cc124f25b60ba97.rmeta --extern fsym_modular=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-modular/cbc2a64cb0cbae59/out/libfsym_modular-cbc2a64cb0cbae59.rmeta --extern fsym_outcome=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-outcome/d242549f51dc0cd9/out/libfsym_outcome-d242549f51dc0cd9.rmeta --extern fsym_rational=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-rational/9dd034b3b593a687/out/libfsym_rational-9dd034b3b593a687.rmeta --extern num_complex=/workspace/scratch/809590c88999/tooling/target/debug/build/num-complex/80e161edd9c6955f/out/libnum_complex-80e161edd9c6955f.rmeta --extern num_traits=/workspace/scratch/809590c88999/tooling/target/debug/build/num-traits/88ec45b5b3d89358/out/libnum_traits-88ec45b5b3d89358.rmeta --extern serde=/workspace/scratch/809590c88999/tooling/target/debug/build/serde/3b922bba0c483235/out/libserde-3b922bba0c483235.rmeta --extern serde_json=/workspace/scratch/809590c88999/tooling/target/debug/build/serde_json/da69c03bec52ee20/out/libserde_json-da69c03bec52ee20.rmeta --extern thiserror=/workspace/scratch/809590c88999/tooling/target/debug/build/thiserror/43c025dc6559c849/out/libthiserror-43c025dc6559c849.rmeta -L native=/workspace/scratch/809590c88999/tooling/target/debug/build/blake3/4ddd6af3cc867136/out -L native=/workspace/scratch/809590c88999/tooling/target/debug/build/blake3/4ddd6af3cc867136/out` (signal: 9, SIGKILL: kill)\n"
+        }
+      },
+      {
+        "attempt": 2,
+        "command": "cargo build --locked --offline -p fsym-python --features extension-module",
+        "terminal_session": 15786,
+        "exit_status": 101,
+        "failed_crate": "fsym-calculus",
+        "rustc_signal": 9,
+        "rustc_signal_name": "SIGKILL",
+        "rust_source_diagnostic": false,
+        "produced_extension": false,
+        "pre_run_source_snapshot": null,
+        "source_snapshot_note": "Unchanged build configuration; native sources were not reduced or substituted. No complete source bookend was captured.",
+        "progress": "Completed the formerly killed fsym-core stage and the proof, polynomial and simplify dependencies. Never reached fsym-python.",
+        "log": {
+          "path": "/workspace/scratch/809590c88999/tooling/production-extension-validation-retry.log",
+          "bytes": 8564,
+          "sha256": "6e208f518aa4ce5a531876b4e53a405d4f98fd5c439482a3f629400ea019192b",
+          "observed_output": "   Compiling fsym-core v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-core)\n   Compiling block-buffer v0.12.1\n   Compiling target-lexicon v0.13.5\n   Compiling version_check v0.9.5\n   Compiling generic-array v0.14.7\n   Compiling cmov v0.5.4\n   Compiling ctutils v0.4.2\n   Compiling pyo3-build-config v0.27.2\n   Compiling inout v0.2.2\n   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-assumptions)\n   Compiling crossbeam-utils v0.8.22\n   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-proof-kernel)\n   Compiling cipher v0.5.2\n   Compiling block-buffer v0.10.4\n   Compiling crypto-common v0.1.7\n   Compiling digest v0.10.7\n   Compiling fsym-evidence v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-evidence)\n   Compiling fsym-polys v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-polys)\n   Compiling semver v1.0.28\n   Compiling base64ct v1.8.3\n   Compiling pem-rfc7468 v0.7.0\n   Compiling rustc_version v0.4.1\n   Compiling fsym-simplify v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-simplify)\n   Compiling universal-hash v0.6.1\n   Compiling getrandom v0.2.17\n   Compiling crossbeam-epoch v0.9.21\n   Compiling const-oid v0.9.6\n   Compiling rustix v1.1.4\n   Compiling der v0.7.10\n   Compiling rand_core v0.6.4\n   Compiling curve25519-dalek v4.1.3\n   Compiling signature v2.2.0\n   Compiling chacha20 v0.10.1\n   Compiling memoffset v0.9.1\n   Compiling crossbeam-deque v0.8.8\n   Compiling anyhow v1.0.104\n   Compiling rustversion v1.0.23\n   Compiling cpubits v0.1.1\n   Compiling cpufeatures v0.2.17\n   Compiling linux-raw-sys v0.12.1\n   Compiling const-oid v0.10.2\n   Compiling digest v0.11.3\n   Compiling ppv-lite86 v0.2.21\n   Compiling spki v0.7.3\n   Compiling curve25519-dalek-derive v0.1.1\n   Compiling either v1.18.0\n   Compiling rayon-core v1.13.0\n   Compiling subtle v2.6.1\n   Compiling cfg_aliases v0.2.2\n   Compiling parking_lot_core v0.9.12\n   Compiling nix v0.31.3\n   Compiling itertools v0.14.0\n   Compiling pkcs8 v0.10.2\n   Compiling rand_chacha v0.3.1\n   Compiling sha2 v0.10.9\n   Compiling polyval v0.7.3\n   Compiling ed25519 v2.2.3\n   Compiling fsym-calculus v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-calculus)\nerror: could not compile `fsym-calculus` (lib)\n\nCaused by:\n  process didn't exit successfully: `rustc --crate-name fsym_calculus --edition=2024 crates/fsym-calculus/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -Z embed-metadata=no -C embed-bitcode=no --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=aa614b1702cb9a39 -C extra-filename=-c278c0ce0a7fd6d2 --out-dir /workspace/scratch/809590c88999/tooling/target/debug/build/fsym-calculus/c278c0ce0a7fd6d2/out -C strip=debuginfo -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/allocator-api2/1808ce5f511fef5e/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/arrayvec/4b2be9c104b0cb2a/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/blake3/e888c649952cbce2/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/cfg-if/3e5ed29fba0a3052/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/constant_time_eq/4445cd445e7d9ce7/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/cpufeatures/968248503135fbec/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/equivalent/5646cca33fb52363/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/foldhash/ff3599f3a48e5cbe/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-assumptions/c2587f8a52868bb9/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-bigint/fb9b5c395f9d4241/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-budget/dd8c25dd40627a79/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-core/201f84a1c3da2015/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-evidence/2de7bbc6fa81ebe2/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-id/8cc124f25b60ba97/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-modular/cbc2a64cb0cbae59/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-outcome/d242549f51dc0cd9/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-polys/6977e0e274a4b704/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-proof-kernel/63cfd6f7ae6b4668/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-rational/9dd034b3b593a687/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-simplify/17f8e619c2aa4b29/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/hashbrown/42ba0116e054fbe1/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/indexmap/bf6cde6f78efb67f/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/itoa/fd1d233bcfbca7b6/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/memchr/1d6a8dd4683d48ae/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/num-bigint/9d5ce44c7fd0fca3/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/num-complex/80e161edd9c6955f/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/num-integer/58c2c27e439ecd68/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/num-rational/eca38d8aedf2995b/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/num-traits/88ec45b5b3d89358/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/serde/3b922bba0c483235/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/serde_core/1fee35a84515fa52/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/serde_derive/f1f9b1cd5b52c578/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/serde_json/da69c03bec52ee20/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/thiserror/43c025dc6559c849/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/thiserror-impl/f51ef32338d8513a/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/zmij/11835262a6454cde/out --extern fsym_budget=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-budget/dd8c25dd40627a79/out/libfsym_budget-dd8c25dd40627a79.rmeta --extern fsym_core=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-core/201f84a1c3da2015/out/libfsym_core-201f84a1c3da2015.rmeta --extern fsym_evidence=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-evidence/2de7bbc6fa81ebe2/out/libfsym_evidence-2de7bbc6fa81ebe2.rmeta --extern fsym_polys=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-polys/6977e0e274a4b704/out/libfsym_polys-6977e0e274a4b704.rmeta --extern fsym_proof_kernel=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-proof-kernel/63cfd6f7ae6b4668/out/libfsym_proof_kernel-63cfd6f7ae6b4668.rmeta --extern fsym_simplify=/workspace/scratch/809590c88999/tooling/target/debug/build/fsym-simplify/17f8e619c2aa4b29/out/libfsym_simplify-17f8e619c2aa4b29.rmeta --extern num_complex=/workspace/scratch/809590c88999/tooling/target/debug/build/num-complex/80e161edd9c6955f/out/libnum_complex-80e161edd9c6955f.rmeta --extern num_traits=/workspace/scratch/809590c88999/tooling/target/debug/build/num-traits/88ec45b5b3d89358/out/libnum_traits-88ec45b5b3d89358.rmeta --extern serde=/workspace/scratch/809590c88999/tooling/target/debug/build/serde/3b922bba0c483235/out/libserde-3b922bba0c483235.rmeta --extern serde_json=/workspace/scratch/809590c88999/tooling/target/debug/build/serde_json/da69c03bec52ee20/out/libserde_json-da69c03bec52ee20.rmeta --extern thiserror=/workspace/scratch/809590c88999/tooling/target/debug/build/thiserror/43c025dc6559c849/out/libthiserror-43c025dc6559c849.rmeta -L native=/workspace/scratch/809590c88999/tooling/target/debug/build/blake3/4ddd6af3cc867136/out -L native=/workspace/scratch/809590c88999/tooling/target/debug/build/blake3/4ddd6af3cc867136/out` (signal: 9, SIGKILL: kill)\n"
+        }
+      }
+    ],
+    "resource_observation": {
+      "timing": "After the first failed full build",
+      "mem_total_kib": 10206468,
+      "mem_available_kib": 2207256,
+      "swap_total_kib": 0,
+      "load_average_1m": 13.53,
+      "cgroup_memory_counters_available": false,
+      "conclusion": "SIGKILL is confirmed. OOM is not proven."
+    },
+    "candidate_python_runtime": {
+      "executed": false,
+      "passed": null,
+      "failed": null,
+      "reason": "Neither complete extension build produced a native module. No substitute engine was used. Current-main G3 CI is a separate pending route."
+    },
+    "oracle_only_checks": {
+      "engine": "SymPy 1.14.0",
+      "engine_path": "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/site-packages/sympy/__init__.py",
+      "candidate_runtime_claim": false,
+      "runs": [
+        {
+          "module": "python/tests/test_float_conversion_termination.py",
+          "selection": "not subclass",
+          "passed": 10,
+          "failed": 0,
+          "deselected": 1,
+          "seconds": 71.13,
+          "note": "Private FrankenSymPy helper case was deselected; real scalar and termination vectors ran against upstream only."
+        },
+        {
+          "module": "python/tests/test_matrix_definiteness.py",
+          "revision": "Initial oracle vectors",
+          "passed": 65,
+          "failed": 4,
+          "skipped": 8,
+          "note": "All 4 failures were the same rational 3x3 fixture across matrix classes: upstream is_indefinite=None versus exact inertia (2,1,0)."
+        },
+        {
+          "module": "python/tests/test_matrix_definiteness.py",
+          "revision": "Shared vectors after explicit preview discrepancy separation, before later callback-budget tests",
+          "passed": 69,
+          "failed": 0,
+          "skipped": 22,
+          "seconds": 29.68,
+          "note": "Native-only and preview-only cases were explicitly skipped; upstream retained None for the recorded cubic fixture."
+        }
+      ],
+      "matrix_discrepancy_record": "artifacts/discrepancies/2026-11-16-matrix-inertia-indefiniteness.json",
+      "ode_residual_mathematics": {
+        "kind": "independent_upstream_oracle_only",
+        "candidate_runtime_claim": false,
+        "engine": "SymPy 1.14.0",
+        "cases_passed": 6,
+        "cases_failed": 0,
+        "case_names": [
+          "nonseparable_exponential_flow",
+          "zero_linear_coefficient_negative_initial_value",
+          "overdetermined_rational_flow",
+          "unit_exact_perturbation",
+          "tiny_exact_perturbation",
+          "unsupported_fractional_residual"
+        ],
+        "scope": "Explicit ODE mathematics on the common smooth domain; excludes candidate-private APIs, held-source semantics and resource-policy behavior.",
+        "full_record": {
+          "path": "/workspace/scratch/809590c88999/tooling/validation/oracle_ode_rational_residuals.json",
+          "bytes": 7668,
+          "sha256": "9c52c3b684182d95c8c859daf689bc73e3938f223574ad0660eef78cb7153f27"
+        }
+      }
+    },
+    "metadata_only_check": {
+      "status": "failed",
+      "command": "cargo check --locked --offline -p fsym-python --all-targets --features extension-module -j1",
+      "runtime_validation_claim": false,
+      "scope": "Full production package dependency graph and all package targets, metadata/type checking only. No unit or Python test execution.",
+      "frozen_matrix_bridge_sha256": "65a150b33cd4d64dd30b2b6a828ad768965aa89510490b40e5cb58daa2c949b8",
+      "before_snapshot": {
+        "path": "/workspace/scratch/809590c88999/tooling/production-extension-metadata-before.json",
+        "sha256": "c748741b5c5d8dab46d46da2ea7b908ae19f3abfed7a02ec7cae2c1665b377b2",
+        "source_file_count": 932,
+        "source_manifest_sha256": "f0b27712777301aac0ff347e73bea71431fc0564fe0ba20b97669a8829244240"
+      },
+      "started_at_utc": "2026-11-16T03:19:26.464283+00:00",
+      "after_snapshot": {
+        "path": "/workspace/scratch/809590c88999/tooling/production-extension-metadata-after.json",
+        "sha256": "ff63124884a30e578f5a2da85af16a7ee21cb1f497e1a8acfd92112c620cb6f4",
+        "source_file_count": 933,
+        "source_manifest_sha256": "8aa15b83b4098b3fc5b352c33aeb0a152ae0e18cdc105bd23037a76c3a2f7a27"
+      },
+      "exit_status": 101,
+      "log_writer_exit_status": 0,
+      "completed_at_utc": "2026-11-16T03:23:55.771193+00:00",
+      "source_bookend_match": false,
+      "source_changes_during_check": [
+        "python/tests/test_matrix_definiteness_budget.py"
+      ],
+      "log": {
+        "path": "/workspace/scratch/809590c88999/tooling/production-extension-metadata-check.log",
+        "bytes": 31531,
+        "sha256": "ae18fd89898c4baac695e6d851bdfd3745826968245bac97151d0a30c5113eb7",
+        "observed_output": "    Checking cfg-if v1.0.4\n    Checking libc v0.2.189\n    Checking serde_core v1.0.229\n    Checking typenum v1.20.1\n    Checking serde v1.0.229\n    Checking cpufeatures v0.3.0\n    Checking num-traits v0.2.19\n    Checking allocator-api2 v0.2.21\n    Checking foldhash v0.2.0\n    Checking equivalent v1.0.2\n    Checking hashbrown v0.17.1\n    Checking rand_core v0.10.1\n    Checking memchr v2.8.3\n    Checking getrandom v0.4.3\n    Checking zmij v1.0.23\n    Checking indexmap v2.14.0\n    Checking itoa v1.0.18\n    Checking serde_json v1.0.151\n    Checking num-integer v0.1.47\n    Checking hybrid-array v0.4.14\n    Checking zeroize v1.9.0\n    Checking num-bigint v0.4.8\n    Checking fsym-budget v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-budget)\n    Checking constant_time_eq v0.4.2\n    Checking arrayvec v0.7.8\n    Checking blake3 v1.8.7\n    Checking fsym-bigint v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-bigint)\n    Checking crypto-common v0.2.2\n    Checking thiserror v2.0.20\n    Checking fsym-modular v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-modular)\n    Checking num-rational v0.4.2\n    Checking fsym-rational v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-rational)\n    Checking num-complex v0.4.6\n    Checking fsym-id v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-id)\n    Checking fsym-outcome v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-outcome)\n    Checking fsym-core v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-core)\n    Checking block-buffer v0.12.1\n    Checking cmov v0.5.4\n    Checking ctutils v0.4.2\n    Checking generic-array v0.14.7\n    Checking inout v0.2.2\n    Checking fsym-assumptions v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-assumptions)\n    Checking fsym-proof-kernel v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-proof-kernel)\n    Checking cipher v0.5.2\n    Checking crypto-common v0.1.7\n    Checking block-buffer v0.10.4\n    Checking digest v0.10.7\n    Checking fsym-evidence v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-evidence)\n    Checking crossbeam-utils v0.8.22\n    Checking bitflags v2.13.1\n    Checking fsym-polys v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-polys)\n    Checking zerocopy v0.8.56\n    Checking linux-raw-sys v0.12.1\n    Checking base64ct v1.8.3\n    Checking pem-rfc7468 v0.7.0\n    Checking rustix v1.1.4\n    Checking ppv-lite86 v0.2.21\n    Checking fsym-simplify v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-simplify)\n    Checking universal-hash v0.6.1\n    Checking getrandom v0.2.17\n    Checking const-oid v0.9.6\n    Checking der v0.7.10\n    Checking rand_core v0.6.4\n    Checking signature v2.2.0\n    Checking chacha20 v0.10.1\n    Checking cpufeatures v0.2.17\n    Checking const-oid v0.10.2\n    Checking once_cell v1.21.4\n    Checking fastrand v2.5.0\n    Checking cpubits v0.1.1\n    Checking digest v0.11.3\n    Checking crossbeam-epoch v0.9.21\n    Checking spki v0.7.3\n    Checking subtle v2.6.1\n    Checking curve25519-dalek v4.1.3\n    Checking pkcs8 v0.10.2\n    Checking crossbeam-deque v0.8.8\n    Checking memoffset v0.9.1\n    Checking getrandom v0.3.4\n    Checking polyval v0.7.3\n    Checking tempfile v3.27.0\n    Checking sha2 v0.10.9\n    Checking ed25519 v2.2.3\n    Checking rand_chacha v0.3.1\n    Checking fsym-calculus v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-calculus)\n   Compiling pyo3-macros-backend v0.27.2\n   Compiling pyo3-ffi v0.27.2\n    Checking aead v0.6.1\n    Checking errno v0.3.14\n   Compiling virtue-next v0.1.3\n   Compiling bincode-next v3.1.1\n    Checking smallvec v1.15.2\n    Checking tinyvec_macros v0.1.1\n    Checking scopeguard v1.2.0\n   Compiling crc32fast v1.5.1\n   Compiling signal-hook v0.4.4\n    Checking lock_api v0.4.14\n    Checking tinyvec v1.12.0\n    Checking parking_lot_core v0.9.12\n   Compiling bincode_derive-next v3.1.1\n    Checking signal-hook-registry v1.4.8\n    Checking rand v0.8.7\n    Checking ed25519-dalek v2.2.0\n    Checking ghash v0.6.0\n    Checking rand_core v0.9.5\n    Checking rapidhash v4.5.1\n   Compiling prost-derive v0.14.4\n    Checking rayon-core v1.13.0\n    Checking signatory v0.27.1\n   Compiling nix v0.31.3\n    Checking aes v0.9.2\n    Checking poly1305 v0.9.1\n    Checking ctr v0.10.1\n    Checking fsym-sets v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-sets)\n    Checking franken-evidence v0.6.0 (/workspace/scratch/809590c88999/asupersync/franken_evidence)\n    Checking rmp v0.8.15\n   Compiling pin-project-internal v1.1.13\n    Checking franken-kernel v0.6.0 (/workspace/scratch/809590c88999/asupersync/franken_kernel)\n   Compiling asupersync v0.6.0 (/workspace/scratch/809590c88999/asupersync)\n    Checking unty-next v0.1.2\n    Checking data-encoding v2.11.1\n    Checking futures-core v0.3.34\n    Checking parking v2.2.1\n    Checking either v1.18.0\n   Compiling pastey v0.2.3\n    Checking bytes v1.12.1\n   Compiling heck v0.5.0\n    Checking pin-project-lite v0.2.17\n    Checking futures-io v0.3.34\n    Checking log v0.4.34\n    Checking nkeys v0.4.5\n    Checking futures-lite v2.6.1\n    Checking prost v0.14.4\n    Checking rayon v1.12.0\n    Checking franken-decision v0.6.0 (/workspace/scratch/809590c88999/asupersync/franken_decision)\n    Checking pin-project v1.1.13\n    Checking rmp-serde v1.3.1\n    Checking fsym-solvers v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-solvers)\n    Checking aes-gcm v0.11.1\n    Checking chacha20poly1305 v0.11.0\n    Checking parking_lot v0.12.5\n    Checking unicode-normalization v0.1.25\n    Checking sha1 v0.11.0\n    Checking sha2 v0.11.0\n    Checking hmac v0.13.0\n    Checking rand v0.10.3\n    Checking xattr v1.6.1\n    Checking polling v3.11.0\n    Checking crossbeam-queue v0.3.13\n   Compiling pyo3 v0.27.2\n    Checking fsci-runtime v0.2.0 (/workspace/scratch/809590c88999/frankenscipy-pin/crates/fsci-runtime)\n    Checking sysinfo v0.39.6\n    Checking semver v1.0.28\n   Compiling asupersync-macros v0.6.0 (/workspace/scratch/809590c88999/asupersync/asupersync-macros)\n    Checking socket2 v0.6.5\n    Checking slab v0.4.12\n    Checking fnp-ndarray v0.3.0 (/workspace/scratch/809590c88999/franken_numpy-pin/crates/fnp-ndarray)\n    Checking hex v0.4.3\n    Checking base64 v0.23.1\nerror: could not compile `asupersync` (lib)\n\nCaused by:\n  process didn't exit successfully: `rustc --crate-name asupersync --edition=2024 /workspace/scratch/809590c88999/asupersync/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata -C embed-bitcode=no --warn=unused '--warn=clippy::pedantic' '--warn=clippy::nursery' '--allow=clippy::wrong_self_convention' '--allow=clippy::useless_vec' '--allow=clippy::useless_conversion' '--allow=clippy::used_underscore_binding' '--allow=clippy::use_self' '--allow=clippy::unused_self' '--allow=clippy::unused_peekable' --allow=unused_doc_comments '--allow=clippy::unused_async' --deny=unsafe_code '--allow=clippy::unreadable_literal' '--allow=clippy::unnecessary_wraps' '--allow=clippy::unnecessary_sort_by' '--allow=clippy::unnecessary_lazy_evaluations' '--allow=clippy::unnecessary_debug_formatting' '--allow=clippy::unit_arg' '--allow=clippy::uninlined_format_args' --warn=unexpected_cfgs '--allow=clippy::type_complexity' '--allow=clippy::trivially_copy_pass_by_ref' '--allow=clippy::too_many_lines' '--allow=clippy::too_many_arguments' '--allow=clippy::suspicious_operation_groupings' '--allow=clippy::suboptimal_flops' '--allow=clippy::struct_field_names' '--allow=clippy::struct_excessive_bools' '--allow=clippy::single_match_else' '--allow=clippy::single_match' '--allow=clippy::similar_names' '--allow=clippy::significant_drop_tightening' '--allow=clippy::significant_drop_in_scrutinee' '--allow=clippy::should_implement_trait' '--allow=clippy::semicolon_if_nothing_returned' '--allow=clippy::return_self_not_must_use' '--allow=clippy::result_large_err' '--allow=clippy::redundant_pattern_matching' '--allow=clippy::redundant_field_names' '--allow=clippy::redundant_else' '--allow=clippy::redundant_closure_for_method_calls' '--allow=clippy::redundant_clone' '--allow=clippy::read_zero_byte_vec' '--allow=clippy::question_mark' '--allow=clippy::ptr_as_ptr' '--allow=clippy::or_fun_call' '--allow=clippy::option_option' '--allow=clippy::option_if_let_else' '--allow=clippy::no_effect_underscore_binding' '--allow=clippy::new_without_default' '--allow=clippy::needless_range_loop' '--allow=clippy::needless_pass_by_value' '--allow=clippy::needless_pass_by_ref_mut' '--allow=clippy::must_use_unit' '--allow=clippy::must_use_candidate' '--allow=clippy::module_name_repetitions' '--allow=clippy::module_inception' '--allow=clippy::missing_panics_doc' '--allow=clippy::missing_inline_in_public_items' '--allow=clippy::missing_fields_in_debug' '--allow=clippy::missing_errors_doc' --allow=missing_docs '--allow=clippy::missing_const_for_fn' '--allow=clippy::match_wild_err_arm' '--allow=clippy::match_same_arms' '--allow=clippy::match_like_matches_macro' '--allow=clippy::map_unwrap_or' '--allow=clippy::manual_slice_fill' '--allow=clippy::manual_let_else' '--allow=clippy::manual_is_multiple_of' '--allow=clippy::manual_div_ceil' '--allow=clippy::manual_clamp' '--allow=clippy::manual_checked_ops' '--allow=clippy::len_zero' '--allow=clippy::large_futures' '--allow=clippy::large_enum_variant' '--allow=clippy::iter_with_drain' '--allow=clippy::items_after_test_module' '--allow=clippy::items_after_statements' '--allow=clippy::inefficient_to_string' '--allow=clippy::implicit_clone' '--allow=clippy::ignored_unit_patterns' '--allow=clippy::if_not_else' '--allow=clippy::future_not_send' '--allow=clippy::format_push_string' '--allow=clippy::format_collect' '--allow=clippy::float_cmp' '--allow=clippy::field_reassign_with_default' '--allow=clippy::explicit_iter_loop' '--allow=clippy::explicit_into_iter_loop' '--allow=clippy::duration_suboptimal_units' '--allow=clippy::drain_collect' '--allow=clippy::double_must_use' '--allow=clippy::doc_markdown' '--allow=clippy::doc_lazy_continuation' '--allow=clippy::derive_partial_eq_without_eq' '--allow=clippy::default_trait_access' '--allow=clippy::collection_is_never_read' '--allow=clippy::collapsible_if' '--allow=clippy::cognitive_complexity' '--allow=clippy::cloned_ref_to_slice_refs' '--allow=clippy::chunks_exact_to_as_chunks' '--allow=clippy::cast_sign_loss' '--allow=clippy::cast_precision_loss' '--allow=clippy::cast_possible_truncation' '--allow=clippy::cast_lossless' '--allow=clippy::branches_sharing_code' '--allow=clippy::borrow_as_ptr' '--allow=clippy::bool_assert_comparison' '--allow=clippy::assign_op_pattern' '--allow=clippy::assertions_on_constants' '--allow=clippy::assert_is_empty' '--allow=clippy::arithmetic_side_effects' --check-cfg 'cfg(loom)' --check-cfg 'cfg(fuzzing)' --check-cfg 'cfg(feature, values(\"quic\", \"http3\", \"wasm-browser-preview\", \"simd-intrinsics\", \"messaging-fabric\", \"obligation-cleanup-e2e\"))' --cfg 'feature=\"default\"' --cfg 'feature=\"native-runtime\"' --cfg 'feature=\"nightly-outcome-try\"' --cfg 'feature=\"proc-macros\"' --cfg 'feature=\"runtime-core\"' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values(\"atp-cli\", \"atpd-daemon\", \"benchmark-adapters\", \"browser-io\", \"browser-trace\", \"cancel-correctness-oracle\", \"channel-mpsc-select-e2e\", \"ci-cross-platform\", \"cli\", \"compression\", \"config-file\", \"criterion-benches\", \"cross-subsystem-recovery-e2e\", \"debug-server\", \"default\", \"dependency-ledger\", \"desktop-runtime-profile\", \"deterministic-mode\", \"distributed-hash-snapshot-recovery-e2e\", \"fuzz\", \"h3-websocket-e2e\", \"http3\", \"io-uring\", \"kafka\", \"lab-stack-traces\", \"legacy-internal-test-harnesses\", \"lock-metrics\", \"loom-tests\", \"messaging-fabric\", \"metrics\", \"mysql\", \"native-runtime\", \"nightly-outcome-try\", \"obligation-cleanup-e2e\", \"obligation-leak-detection\", \"postgres\", \"proc-macros\", \"quic\", \"raptorq-roundtrip-e2e\", \"real-service-e2e\", \"remote-service\", \"runtime-core\", \"runtime-metrics\", \"serialization-golden-harnesses\", \"simd-intrinsics\", \"sqlite\", \"tailscale-path-provider\", \"test-internals\", \"tls\", \"tls-native-roots\", \"tls-webpki-roots\", \"tokio-compat\", \"tower\", \"trace-compression\", \"tracing-integration\", \"waker-profiling\", \"wasm-browser-deterministic\", \"wasm-browser-dev\", \"wasm-browser-minimal\", \"wasm-browser-preview\", \"wasm-browser-prod\", \"wasm-runtime\"))' -C metadata=48a60e6a68dfb40c -C extra-filename=-5006df0c3721e875 --out-dir /workspace/scratch/809590c88999/tooling/target/debug/build/asupersync/5006df0c3721e875/out -C strip=debuginfo -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/aead/749280020745d3b6/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/aes/5c519df19056a36d/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/aes-gcm/0747e2dbd1ff0748/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/allocator-api2/54b34a8129736160/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/asupersync-macros/13b855a92e842bb2/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/base64/a709f9a28b16b291/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/base64ct/4bc35e637652ce6d/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/bincode-next/42b109a34a69b235/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/bincode_derive-next/d3d5d1dad3924da1/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/bitflags/26cc8fa28a080474/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/block-buffer/6d67d1c36135a99f/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/block-buffer/fc84ba84cd5d01c9/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/bytes/92329176454e5879/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/cfg-if/371398356511762e/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/chacha20/c9988f972ed55ada/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/chacha20poly1305/269a798b669be95a/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/cipher/8bf1e345d53a3d23/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/cmov/aa2417a4dd821a43/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/const-oid/8e3fc3f6516d8f36/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/const-oid/ab3ba0dde2a27b1d/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/cpubits/eb5aeb26a9aeb328/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/cpufeatures/ad0c04491aa75e68/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/cpufeatures/b300632c1b8aa761/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/crc32fast/9b12084839579904/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/crossbeam-queue/920af76c519e7886/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/crossbeam-utils/55529948a5bd6348/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/crypto-common/00375f6173f98797/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/crypto-common/de25876b9aca4e50/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/ctr/d401007b4bb70a10/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/ctutils/c9dc92a684ee759d/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/curve25519-dalek/7566ca542bfb2a38/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/curve25519-dalek-derive/c1a5605f7933719c/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/data-encoding/4a3e41336143c099/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/der/08dbcab875829e43/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/digest/2784cde63d4000d6/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/digest/7797336a36333b96/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/ed25519/caacd4ceb5786764/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/ed25519-dalek/1b9200e4700719fb/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/equivalent/dfc24000ddcac018/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/errno/50677fe3b9ea5275/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/fastrand/c3d9836de857a6db/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/foldhash/e38b1f00577c9ffa/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/franken-decision/875a85bcc8eef507/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/franken-evidence/284615d84649edf6/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/franken-kernel/31f4f2115076af98/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/futures-core/b09f0a12a54a2217/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/futures-io/94ce7302d9ccbb11/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/futures-lite/b4b85584d6dbff66/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/generic-array/1cf309feb1fcb6c4/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/getrandom/07572e8e6b6d9b44/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/getrandom/a425356dcd48908b/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/ghash/1688f70ad16b992c/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/hashbrown/ba534c584fc78c2a/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/hex/56b9b709b7dc8de2/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/hmac/9282c78293f9ca4c/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/hybrid-array/2028743f035183cc/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/indexmap/5a6a6e4859ea2614/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/inout/58abb458e87337d2/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/itoa/46c0e7e9b74da442/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/libc/a9750e0648a8822a/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/linux-raw-sys/4df5d9cc9aa25d91/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/lock_api/d1b436f725db56b8/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/log/6aa90caae9ca1733/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/memchr/37b10e181d84e25f/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/memoffset/45ae37fe02b470f7/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/nix/b4e3f6797c346977/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/nkeys/38b0456b95add68e/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/num-traits/dabf25fa1ed1ffc7/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/once_cell/c1765be30ef21f67/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/parking/b6831f797b6aa225/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/parking_lot/2ce86d9213276655/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/parking_lot_core/79811a2626b10fbe/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/pastey/8bcdca046ca540bd/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/pem-rfc7468/f90246c15f6879ee/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/pin-project/135cfbd83fac4901/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/pin-project-internal/c1e25553fd616e37/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/pin-project-lite/4ea83dc70a9e5701/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/pkcs8/23943a3482465695/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/polling/596b6d558a31efbe/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/poly1305/0d641e041c9facb8/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/polyval/15dbec0079dcc663/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/ppv-lite86/76bd985534083421/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/prost/3df2370502ee2dd6/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/prost-derive/5dbe26dbb75519f2/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/rand/bdb9c0f2bee30cab/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/rand_chacha/fed6bb885e386b54/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/rand_core/44799a564075d541/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/rand_core/cadc2ace7d460fe4/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/rapidhash/be55ae193df7bbd3/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/rmp/1ada67715c725413/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/rmp-serde/2f980f64d2570243/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/rustix/add15572d81af301/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/rustversion/4ffcfbd5a3217c9b/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/scopeguard/18125a35e3c67fe2/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/semver/a39b72503dbf8eaf/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/serde/64641c387b921f05/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/serde_core/4acd7418b4bf017b/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/serde_derive/f1f9b1cd5b52c578/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/serde_json/7898251ef3be3869/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/sha1/217d344347a0d245/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/sha2/647f392627dc3b7d/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/sha2/8aaf5a4fe810c037/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/signal-hook/0a068ddec82719e8/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/signal-hook-registry/82635e3734cc23b4/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/signatory/411436a202afb04c/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/signature/0499beb824ee819c/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/slab/4ed77724cc251c6f/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/smallvec/3192e0440df674d4/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/socket2/25c893c6aaab5617/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/spki/00aed00bc4d2d667/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/subtle/93582444641c1fc9/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/sysinfo/dd8f1666362238f9/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/tempfile/6ae41032d1ade6db/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/thiserror/9a78af0873f01e88/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/thiserror-impl/f51ef32338d8513a/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/tinyvec/cd19cf850331fab5/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/tinyvec_macros/01d08383880bf96c/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/typenum/822a687ad6494b1b/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/unicode-normalization/fc1cb1adb421e84d/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/universal-hash/4a43f6d0dae21edb/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/unty-next/064683094cdfbf80/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/xattr/e562db515d7b8f1a/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/zerocopy/a6fde4d6374f7c68/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/zeroize/b58e8cb73c871253/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/zeroize_derive/eaca949bfee73de2/out -L dependency=/workspace/scratch/809590c88999/tooling/target/debug/build/zmij/c9af9744272d0720/out --extern aes_gcm=/workspace/scratch/809590c88999/tooling/target/debug/build/aes-gcm/0747e2dbd1ff0748/out/libaes_gcm-0747e2dbd1ff0748.rmeta --extern asupersync_macros=/workspace/scratch/809590c88999/tooling/target/debug/build/asupersync-macros/13b855a92e842bb2/out/libasupersync_macros-13b855a92e842bb2.so --extern base64=/workspace/scratch/809590c88999/tooling/target/debug/build/base64/a709f9a28b16b291/out/libbase64-a709f9a28b16b291.rmeta --extern bincode=/workspace/scratch/809590c88999/tooling/target/debug/build/bincode-next/42b109a34a69b235/out/libbincode_next-42b109a34a69b235.rmeta --extern chacha20poly1305=/workspace/scratch/809590c88999/tooling/target/debug/build/chacha20poly1305/269a798b669be95a/out/libchacha20poly1305-269a798b669be95a.rmeta --extern crc32fast=/workspace/scratch/809590c88999/tooling/target/debug/build/crc32fast/9b12084839579904/out/libcrc32fast-9b12084839579904.rmeta --extern crossbeam_queue=/workspace/scratch/809590c88999/tooling/target/debug/build/crossbeam-queue/920af76c519e7886/out/libcrossbeam_queue-920af76c519e7886.rmeta --extern franken_decision=/workspace/scratch/809590c88999/tooling/target/debug/build/franken-decision/875a85bcc8eef507/out/libfranken_decision-875a85bcc8eef507.rmeta --extern franken_evidence=/workspace/scratch/809590c88999/tooling/target/debug/build/franken-evidence/284615d84649edf6/out/libfranken_evidence-284615d84649edf6.rmeta --extern franken_kernel=/workspace/scratch/809590c88999/tooling/target/debug/build/franken-kernel/31f4f2115076af98/out/libfranken_kernel-31f4f2115076af98.rmeta --extern futures_lite=/workspace/scratch/809590c88999/tooling/target/debug/build/futures-lite/b4b85584d6dbff66/out/libfutures_lite-b4b85584d6dbff66.rmeta --extern getrandom=/workspace/scratch/809590c88999/tooling/target/debug/build/getrandom/07572e8e6b6d9b44/out/libgetrandom-07572e8e6b6d9b44.rmeta --extern hashbrown=/workspace/scratch/809590c88999/tooling/target/debug/build/hashbrown/ba534c584fc78c2a/out/libhashbrown-ba534c584fc78c2a.rmeta --extern hex=/workspace/scratch/809590c88999/tooling/target/debug/build/hex/56b9b709b7dc8de2/out/libhex-56b9b709b7dc8de2.rmeta --extern hmac=/workspace/scratch/809590c88999/tooling/target/debug/build/hmac/9282c78293f9ca4c/out/libhmac-9282c78293f9ca4c.rmeta --extern libc=/workspace/scratch/809590c88999/tooling/target/debug/build/libc/a9750e0648a8822a/out/liblibc-a9750e0648a8822a.rmeta --extern memchr=/workspace/scratch/809590c88999/tooling/target/debug/build/memchr/37b10e181d84e25f/out/libmemchr-37b10e181d84e25f.rmeta --extern nix=/workspace/scratch/809590c88999/tooling/target/debug/build/nix/b4e3f6797c346977/out/libnix-b4e3f6797c346977.rmeta --extern nkeys=/workspace/scratch/809590c88999/tooling/target/debug/build/nkeys/38b0456b95add68e/out/libnkeys-38b0456b95add68e.rmeta --extern parking_lot=/workspace/scratch/809590c88999/tooling/target/debug/build/parking_lot/2ce86d9213276655/out/libparking_lot-2ce86d9213276655.rmeta --extern pin_project=/workspace/scratch/809590c88999/tooling/target/debug/build/pin-project/135cfbd83fac4901/out/libpin_project-135cfbd83fac4901.rmeta --extern polling=/workspace/scratch/809590c88999/tooling/target/debug/build/polling/596b6d558a31efbe/out/libpolling-596b6d558a31efbe.rmeta --extern prost=/workspace/scratch/809590c88999/tooling/target/debug/build/prost/3df2370502ee2dd6/out/libprost-3df2370502ee2dd6.rmeta --extern rmp_serde=/workspace/scratch/809590c88999/tooling/target/debug/build/rmp-serde/2f980f64d2570243/out/librmp_serde-2f980f64d2570243.rmeta --extern semver=/workspace/scratch/809590c88999/tooling/target/debug/build/semver/a39b72503dbf8eaf/out/libsemver-a39b72503dbf8eaf.rmeta --extern serde=/workspace/scratch/809590c88999/tooling/target/debug/build/serde/64641c387b921f05/out/libserde-64641c387b921f05.rmeta --extern serde_json=/workspace/scratch/809590c88999/tooling/target/debug/build/serde_json/7898251ef3be3869/out/libserde_json-7898251ef3be3869.rmeta --extern sha1=/workspace/scratch/809590c88999/tooling/target/debug/build/sha1/217d344347a0d245/out/libsha1-217d344347a0d245.rmeta --extern sha2=/workspace/scratch/809590c88999/tooling/target/debug/build/sha2/647f392627dc3b7d/out/libsha2-647f392627dc3b7d.rmeta --extern signal_hook=/workspace/scratch/809590c88999/tooling/target/debug/build/signal-hook/0a068ddec82719e8/out/libsignal_hook-0a068ddec82719e8.rmeta --extern slab=/workspace/scratch/809590c88999/tooling/target/debug/build/slab/4ed77724cc251c6f/out/libslab-4ed77724cc251c6f.rmeta --extern smallvec=/workspace/scratch/809590c88999/tooling/target/debug/build/smallvec/3192e0440df674d4/out/libsmallvec-3192e0440df674d4.rmeta --extern socket2=/workspace/scratch/809590c88999/tooling/target/debug/build/socket2/25c893c6aaab5617/out/libsocket2-25c893c6aaab5617.rmeta --extern subtle=/workspace/scratch/809590c88999/tooling/target/debug/build/subtle/93582444641c1fc9/out/libsubtle-93582444641c1fc9.rmeta --extern sysinfo=/workspace/scratch/809590c88999/tooling/target/debug/build/sysinfo/dd8f1666362238f9/out/libsysinfo-dd8f1666362238f9.rmeta --extern tempfile=/workspace/scratch/809590c88999/tooling/target/debug/build/tempfile/6ae41032d1ade6db/out/libtempfile-6ae41032d1ade6db.rmeta --extern thiserror=/workspace/scratch/809590c88999/tooling/target/debug/build/thiserror/9a78af0873f01e88/out/libthiserror-9a78af0873f01e88.rmeta --extern unicode_normalization=/workspace/scratch/809590c88999/tooling/target/debug/build/unicode-normalization/fc1cb1adb421e84d/out/libunicode_normalization-fc1cb1adb421e84d.rmeta --extern xattr=/workspace/scratch/809590c88999/tooling/target/debug/build/xattr/e562db515d7b8f1a/out/libxattr-e562db515d7b8f1a.rmeta --extern zeroize=/workspace/scratch/809590c88999/tooling/target/debug/build/zeroize/b58e8cb73c871253/out/libzeroize-b58e8cb73c871253.rmeta` (signal: 9, SIGKILL: kill)\n"
+      },
+      "rustc_sigkill_observed": true,
+      "terminal_session": 37977,
+      "failed_crate": "asupersync",
+      "rustc_signal": 9,
+      "rustc_signal_name": "SIGKILL",
+      "rust_source_diagnostic": false,
+      "fsym_python_typechecked": false,
+      "focused_callback_unit_typechecked": false,
+      "rust_and_cargo_source_bookend_match": true,
+      "rust_and_cargo_source_changes": [],
+      "source_bookend_note": "The Python-only matrix callback-budget regression module was added while metadata checking ran. Frozen Rust files and Cargo inputs did not change."
+    },
+    "open_gates": [
+      "Actual candidate Python runtime tests",
+      "Full fsym-python all-target type/API check",
+      "Atomic callback unit runtime test",
+      "Full production binary build",
+      "Python-graph strict Clippy",
+      "Full workspace/compatibility profile gates"
+    ],
+    "notes": [
+      "No file deletion, source stub, dependency graph reduction, gate weakening or candidate-to-oracle substitution was used.",
+      "A metadata-only cargo check, if successful, will be recorded separately as type/API validation and cannot establish candidate runtime behavior."
+    ],
+    "production_native_clippy": {
+      "status": "passed",
+      "command": "cargo clippy --locked --offline -p fsym-proof-kernel -p fsym-matrices -p fsym-solvers --lib -j1 -- -D warnings",
+      "scope": "Selected production native math libraries only. Excludes the Python bridge, async runtime dependency graph, tests and full-workspace gates.",
+      "runtime_validation_claim": false,
+      "python_typecheck_claim": false,
+      "before_snapshot": {
+        "path": "/workspace/scratch/809590c88999/tooling/production-native-clippy-before.json",
+        "sha256": "dab1dd6d529ce593b376b389335b9f5fa6d374d03cd09d7761973c6754f145ef",
+        "source_file_count": 933,
+        "source_manifest_sha256": "8aa15b83b4098b3fc5b352c33aeb0a152ae0e18cdc105bd23037a76c3a2f7a27"
+      },
+      "started_at_utc": "2026-11-16T03:26:00.100246+00:00",
+      "after_snapshot": {
+        "path": "/workspace/scratch/809590c88999/tooling/production-native-clippy-after.json",
+        "sha256": "3aa7bcb24d919aa283fda77ce7406edbc7162229e669461e2558d06fa22318c2",
+        "source_file_count": 933,
+        "source_manifest_sha256": "8aa15b83b4098b3fc5b352c33aeb0a152ae0e18cdc105bd23037a76c3a2f7a27"
+      },
+      "exit_status": 0,
+      "log_writer_exit_status": 0,
+      "completed_at_utc": "2026-11-16T03:27:26.507830+00:00",
+      "source_bookend_match": true,
+      "source_changes_during_check": [],
+      "log": {
+        "path": "/workspace/scratch/809590c88999/tooling/production-native-clippy-check.log",
+        "bytes": 1875,
+        "sha256": "8cab12ec66f341d869549246fb9b8dc463e243fe0baebc193fd3757ea4961703",
+        "observed_output": "    Checking serde_core v1.0.229\n    Checking serde v1.0.229\n    Checking num-bigint v0.4.8\n    Checking fsym-budget v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-budget)\n    Checking fsym-bigint v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-bigint)\n    Checking fsym-modular v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-modular)\n    Checking num-rational v0.4.2\n    Checking memchr v2.8.3\n    Checking serde_json v1.0.151\n    Checking thiserror v2.0.20\n    Checking fsym-rational v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-rational)\n    Checking fsym-id v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-id)\n    Checking fsym-outcome v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-outcome)\n    Checking fsym-core v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-core)\n    Checking fsym-assumptions v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-assumptions)\n    Checking fsym-proof-kernel v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-proof-kernel)\n    Checking fsym-evidence v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-evidence)\n    Checking fsym-polys v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-polys)\n    Checking fsym-simplify v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-simplify)\n    Checking fsym-calculus v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-calculus)\n    Checking fsym-sets v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-sets)\n    Checking fsym-solvers v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-solvers)\n    Checking fsym-matrices v0.1.0 (/workspace/scratch/809590c88999/frankensympy/crates/fsym-matrices)\n    Finished `dev` profile [unoptimized] target(s) in 1m 24s\n"
+      },
+      "rustc_sigkill_observed": false,
+      "terminal_session": 93003,
+      "reported_duration": "1m24s",
+      "asupersync_in_checked_graph": false,
+      "rust_and_cargo_source_bookend_match": true
+    },
+    "production_library_clippy_with_python": {
+      "status": "not_run",
+      "reason": "Conditional on successful complete metadata check, which failed at asupersync SIGKILL. No additional Python-graph attempt is made."
+    },
+    "formatting": {
+      "command": "cargo fmt --check",
+      "exit_status": 0,
+      "terminal_session": 15252,
+      "reported_by": "/root",
+      "scope": "Workspace formatting on frozen matrix/callback code; no type or runtime claim."
+    },
+    "local_compilation_attempts_complete": true
+  },
+  "ode_oracle_only": {
+    "kind": "independent_upstream_oracle_only",
+    "candidate_runtime_test": false,
+    "sympy_version": "1.14.0",
+    "sympy_module": "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/site-packages/sympy/__init__.py",
+    "interpreter": "/workspace/scratch/809590c88999/testenv/bin/python",
+    "scope": "Explicit ODE mathematics on the common smooth domain; excludes candidate-private APIs, held-source semantics and resource-policy behavior.",
+    "observations": [
+      {
+        "case": "nonseparable_exponential_flow",
+        "source": "-oracle_rational_residual_coordinate*oracle_rational_residual_flow(oracle_rational_residual_coordinate)**2 + 2*oracle_rational_residual_flow(oracle_rational_residual_coordinate) + Derivative(oracle_rational_residual_flow(oracle_rational_residual_coordinate), oracle_rational_residual_coordinate)",
+        "candidate": "1/(oracle_rational_residual_coordinate/2 - exp(2*oracle_rational_residual_coordinate - 2)/4 + 1/4)",
+        "expected_verified": true,
+        "observed_upstream_verified": true,
+        "observed_upstream_residual": "0",
+        "independent_cancelled_original_residual": "0",
+        "exact_nonzero_witness_at_coordinate_one": null
+      },
+      {
+        "case": "zero_linear_coefficient_negative_initial_value",
+        "source": "-(3*oracle_rational_residual_coordinate**2 + 2)*oracle_rational_residual_flow(oracle_rational_residual_coordinate)**2 + Derivative(oracle_rational_residual_flow(oracle_rational_residual_coordinate), oracle_rational_residual_coordinate)",
+        "candidate": "1/(-oracle_rational_residual_coordinate**3 - 2*oracle_rational_residual_coordinate + 2)",
+        "expected_verified": true,
+        "observed_upstream_verified": true,
+        "observed_upstream_residual": "0",
+        "independent_cancelled_original_residual": "0",
+        "exact_nonzero_witness_at_coordinate_one": null
+      },
+      {
+        "case": "overdetermined_rational_flow",
+        "source": "-oracle_rational_residual_coordinate*oracle_rational_residual_flow(oracle_rational_residual_coordinate)**2 + 2*oracle_rational_residual_flow(oracle_rational_residual_coordinate) + Derivative(oracle_rational_residual_flow(oracle_rational_residual_coordinate), oracle_rational_residual_coordinate)",
+        "candidate": "1/(oracle_rational_residual_coordinate/2 + 1/4)",
+        "expected_verified": true,
+        "observed_upstream_verified": true,
+        "observed_upstream_residual": "0",
+        "independent_cancelled_original_residual": "0",
+        "exact_nonzero_witness_at_coordinate_one": null
+      },
+      {
+        "case": "unit_exact_perturbation",
+        "source": "-oracle_rational_residual_coordinate*oracle_rational_residual_flow(oracle_rational_residual_coordinate)**2 + 2*oracle_rational_residual_flow(oracle_rational_residual_coordinate) + Derivative(oracle_rational_residual_flow(oracle_rational_residual_coordinate), oracle_rational_residual_coordinate)",
+        "candidate": "oracle_rational_residual_coordinate + 1/(oracle_rational_residual_coordinate/2 - exp(2*oracle_rational_residual_coordinate - 2)/4 + 1/4)",
+        "expected_verified": false,
+        "observed_upstream_verified": false,
+        "observed_upstream_residual": "-oracle_rational_residual_coordinate*(oracle_rational_residual_coordinate*(2*oracle_rational_residual_coordinate - exp(2*oracle_rational_residual_coordinate - 2) + 1) + 4)**2 + 16*oracle_rational_residual_coordinate + (2*oracle_rational_residual_coordinate + 1)*(2*oracle_rational_residual_coordinate - exp(2*oracle_rational_residual_coordinate - 2) + 1)**2",
+        "independent_cancelled_original_residual": "(2*oracle_rational_residual_coordinate**4 - oracle_rational_residual_coordinate**3*exp(-2)*exp(2*oracle_rational_residual_coordinate) + oracle_rational_residual_coordinate**3 + 4*oracle_rational_residual_coordinate**2 + 2*oracle_rational_residual_coordinate*exp(-2)*exp(2*oracle_rational_residual_coordinate) - 4*oracle_rational_residual_coordinate + exp(-2)*exp(2*oracle_rational_residual_coordinate) - 1)/(-2*oracle_rational_residual_coordinate + exp(-2)*exp(2*oracle_rational_residual_coordinate) - 1)",
+        "exact_nonzero_witness_at_coordinate_one": "-2"
+      },
+      {
+        "case": "tiny_exact_perturbation",
+        "source": "-oracle_rational_residual_coordinate*oracle_rational_residual_flow(oracle_rational_residual_coordinate)**2 + 2*oracle_rational_residual_flow(oracle_rational_residual_coordinate) + Derivative(oracle_rational_residual_flow(oracle_rational_residual_coordinate), oracle_rational_residual_coordinate)",
+        "candidate": "oracle_rational_residual_coordinate/1000000000000000000000000000000000000000000000000000000000000 + 1/(oracle_rational_residual_coordinate/2 - exp(2*oracle_rational_residual_coordinate - 2)/4 + 1/4)",
+        "expected_verified": false,
+        "observed_upstream_verified": false,
+        "observed_upstream_residual": "-oracle_rational_residual_coordinate*(oracle_rational_residual_coordinate*(2*oracle_rational_residual_coordinate - exp(2*oracle_rational_residual_coordinate - 2) + 1) + 4000000000000000000000000000000000000000000000000000000000000)**2 + 16000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000*oracle_rational_residual_coordinate + (2000000000000000000000000000000000000000000000000000000000000*oracle_rational_residual_coordinate + 1000000000000000000000000000000000000000000000000000000000000)*(2*oracle_rational_residual_coordinate - exp(2*oracle_rational_residual_coordinate - 2) + 1)**2",
+        "independent_cancelled_original_residual": "(2*oracle_rational_residual_coordinate**4 - oracle_rational_residual_coordinate**3*exp(-2)*exp(2*oracle_rational_residual_coordinate) + oracle_rational_residual_coordinate**3 + 4000000000000000000000000000000000000000000000000000000000000*oracle_rational_residual_coordinate**2 + 2000000000000000000000000000000000000000000000000000000000000*oracle_rational_residual_coordinate*exp(-2)*exp(2*oracle_rational_residual_coordinate) - 4000000000000000000000000000000000000000000000000000000000000*oracle_rational_residual_coordinate + 1000000000000000000000000000000000000000000000000000000000000*exp(-2)*exp(2*oracle_rational_residual_coordinate) - 1000000000000000000000000000000000000000000000000000000000000)/(-2000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000*oracle_rational_residual_coordinate + 1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000*exp(-2)*exp(2*oracle_rational_residual_coordinate) - 1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000)",
+        "exact_nonzero_witness_at_coordinate_one": "-1000000000000000000000000000000000000000000000000000000000001/1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "case": "unsupported_fractional_residual",
+        "source": "-oracle_rational_residual_flow(oracle_rational_residual_coordinate) + Derivative(oracle_rational_residual_flow(oracle_rational_residual_coordinate), oracle_rational_residual_coordinate)",
+        "candidate": "oracle_rational_residual_coordinate**(1/3)",
+        "expected_verified": false,
+        "observed_upstream_verified": false,
+        "observed_upstream_residual": "3*oracle_rational_residual_coordinate - 1",
+        "independent_cancelled_original_residual": "(1 - 3*oracle_rational_residual_coordinate)/(3*oracle_rational_residual_coordinate**(2/3))",
+        "exact_nonzero_witness_at_coordinate_one": "-2/3"
+      }
+    ]
+  },
+  "root_checks": {
+    "cargo_fmt_check": {
+      "exit_code": 0,
+      "tool_session": 15252,
+      "command": "cargo fmt --check"
+    },
+    "scoped_python_ast_and_diff_check": {
+      "status": "passed",
+      "runtime_claim": false
+    },
+    "planning_validation": {
+      "exit_code": 0,
+      "required_artifacts": 24,
+      "workstreams": 24,
+      "claims": 27,
+      "permitted_present_tense_claims": 1,
+      "claim_changes": 0
+    }
+  },
+  "remaining": [
+    "Genuine full-extension candidate Python execution: two complete build attempts ended with SIGKILL before bridge compilation; no substitute engine or runtime pass is claimed.",
+    "Whole-workspace, strict compatibility and broad WS10/WS19 gates remain open.",
+    "Broader symbolic/complex matrix classification, larger bounded envelopes and general solver/ODE completeness are outside this slice."
+  ],
+  "bead_policy": "fra-7kf and fra-kfo remain open with unchanged priorities, dependencies and claim tiers."
+}

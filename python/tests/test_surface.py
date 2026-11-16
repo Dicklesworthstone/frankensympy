@@ -5068,17 +5068,17 @@ print(json.dumps({
 
         # Definiteness
         pos_def = sympy.Matrix([[2, -1], [-1, 2]])
-        self.assertTrue(pos_def.is_positive_definite())
-        self.assertTrue(pos_def.is_positive_semidefinite())
-        self.assertFalse(pos_def.is_negative_definite())
+        self.assertIs(pos_def.is_positive_definite, True)
+        self.assertIs(pos_def.is_positive_semidefinite, True)
+        self.assertIs(pos_def.is_negative_definite, False)
 
         pos_semi = sympy.Matrix([[1, 0], [0, 0]])
-        self.assertFalse(pos_semi.is_positive_definite())
-        self.assertTrue(pos_semi.is_positive_semidefinite())
+        self.assertIs(pos_semi.is_positive_definite, False)
+        self.assertIs(pos_semi.is_positive_semidefinite, True)
 
         neg_def = -pos_def
-        self.assertTrue(neg_def.is_negative_definite())
-        self.assertTrue(neg_def.is_negative_semidefinite())
+        self.assertIs(neg_def.is_negative_definite, True)
+        self.assertIs(neg_def.is_negative_semidefinite, True)
 
         # Diagonalizable and exp
         diag_mat = sympy.Matrix([[1, 0], [0, 2]])

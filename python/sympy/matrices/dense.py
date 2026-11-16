@@ -89,7 +89,30 @@ class _AlgebraicEigenspaceUnsupported(NotImplementedError):
 class MatrixBase:
     """Base class for all matrix objects."""
 
-    pass
+    @property
+    def is_positive_definite(self):
+        from ._definiteness import classify
+        return classify(self)[0]
+
+    @property
+    def is_positive_semidefinite(self):
+        from ._definiteness import classify
+        return classify(self)[1]
+
+    @property
+    def is_negative_definite(self):
+        from ._definiteness import classify
+        return classify(self)[2]
+
+    @property
+    def is_negative_semidefinite(self):
+        from ._definiteness import classify
+        return classify(self)[3]
+
+    @property
+    def is_indefinite(self):
+        from ._definiteness import classify
+        return classify(self)[4]
 
 
 def _surface_entry(elem):
@@ -1204,81 +1227,6 @@ class Matrix(MatrixBase):
             pass
 
         raise NotImplementedError("Matrix exponential could not be computed in closed form")
-
-    def is_positive_definite(self):
-        """Return True if matrix is Hermitian and positive definite."""
-        if not self.is_square:
-            return False
-        if not self.is_hermitian():
-            return False
-        n = self.rows
-        if n == 0:
-            return True
-        # Sylvester criterion: all leading principal minors must be strictly positive
-        for k in range(1, n + 1):
-            sub = self[:k, :k]
-            d = sub.det()
-            if getattr(d, "is_positive", None) is True:
-                continue
-            try:
-                if d <= 0:
-                    return False
-            except TypeError:
-                return False
-        return True
-
-    def is_positive_semidefinite(self):
-        """Return True if matrix is Hermitian and positive semidefinite."""
-        if not self.is_square:
-            return False
-        if not self.is_hermitian():
-            return False
-        n = self.rows
-        if n == 0:
-            return True
-        # Check all diagonal entries >= 0 first
-        for i in range(n):
-            d = self[i, i]
-            if getattr(d, "is_negative", None) is True:
-                return False
-            try:
-                if d < 0:
-                    return False
-            except TypeError:
-                return False
-        # If determinant is negative, definitely not PSD
-        det_all = self.det()
-        try:
-            if det_all < 0:
-                return False
-        except TypeError:
-            return False
-
-        # Sylvester-Frobenius: all principal minors must be non-negative
-        import itertools
-        for k in range(1, n):
-            for cols in itertools.combinations(range(n), k):
-                cols_list = list(cols)
-                sub = self.extract(cols_list, cols_list)
-                d = sub.det()
-                try:
-                    if d < 0:
-                        return False
-                except TypeError:
-                    return False
-        return True
-
-    def is_negative_definite(self):
-        """Return True if matrix is Hermitian and negative definite."""
-        if not self.is_square:
-            return False
-        return (-self).is_positive_definite()
-
-    def is_negative_semidefinite(self):
-        """Return True if matrix is Hermitian and negative semidefinite."""
-        if not self.is_square:
-            return False
-        return (-self).is_positive_semidefinite()
 
     def singular_values(self):
         """Return the singular values of this matrix in descending order."""

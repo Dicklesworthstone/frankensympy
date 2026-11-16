@@ -1,0 +1,48 @@
+{
+  "schema": "frankensympy.observed-oracle-discrepancy.v1",
+  "discrepancy_id": "FSYM-DIFF-MATRIX-INERTIA-001",
+  "recorded_at_utc": "2026-11-16",
+  "profile_id": "sympy-1.14.0-cpython",
+  "oracle": "SymPy 1.14.0 isolated local environment",
+  "upstream_source_pin": "16fa855354eb7bcabd3fe10993841e03b1382692",
+  "subject": "Complete exact inertia resolves an upstream unknown indefiniteness predicate",
+  "severity": "C2 medium: public True/None behavior differs",
+  "status": "open; explicitly allowed in the uncertified preview only",
+  "owner": "WS10 exact linear algebra / fra-kfo",
+  "surface_classes": [
+    "Matrix",
+    "ImmutableMatrix",
+    "SparseMatrix",
+    "ImmutableSparseMatrix"
+  ],
+  "fixture": {
+    "matrix": [[1, 1, 2], [1, 1, 1], [2, 1, 4]],
+    "predicate_order": [
+      "is_positive_definite",
+      "is_positive_semidefinite",
+      "is_negative_definite",
+      "is_negative_semidefinite",
+      "is_indefinite"
+    ],
+    "observed_upstream": [false, false, false, false, null],
+    "expected_preview": [false, false, false, false, true],
+    "exact_inertia_positive_negative_zero": [2, 1, 0]
+  },
+  "independent_mathematical_witness": {
+    "identity": "A + A^T = L D L^T",
+    "permutation": [0, 1, 2],
+    "lower": [[1, 0, 0], [1, 1, 0], [2, 0, 1]],
+    "diagonal_blocks": [[2, 0, 0], [0, 0, -2], [0, -2, 0]],
+    "reason": "The scalar block contributes one positive direction; the invertible zero-diagonal 2x2 block contributes one positive and one negative direction. The proof kernel independently checks the complete congruence, permutation and unit lower triangular factor."
+  },
+  "root_cause": "Upstream eigen.py computes is_indefinite from eigenvalue sign predicates using fuzzy_or and fuzzy_and. For this cubic spectrum the signs remain unknown. The preview uses a complete rational congruence instead of requiring eigenvalue radicals to have decidable sign properties.",
+  "oracle_evidence": "The initial isolated public test run had 65 passed, 8 native-only skipped, and 4 failures. Every failure was this same is_indefinite None/True difference, one for each matrix class. The observation is preserved explicitly rather than changing an oracle expectation. After separating shared parity vectors from this documented preview extension, the actual isolated SymPy 1.14.0 rerun had 69 passed and 22 declared candidate-only skips, including the explicit oracle-only None regression.",
+  "candidate_execution": "The actual native proof-kernel suite passed all 6 tests and the matrix suite passed all 8 tests, including this source and its complete (2,1,0) inertia. An unused test import was subsequently removed without changing executable behavior. Both local full production-extension builds were killed by SIGKILL, respectively in fsym-core and fsym-calculus, without a Rust source diagnostic. No candidate Python predicate or safety test has executed in this local environment. The expected preview result remains an explicitly unexecuted public expectation, not an oracle parity claim; metadata-only type checking cannot establish Python runtime behavior.",
+  "regressions": [
+    "crates/fsym-proof-kernel/tests/rational_inertia.rs::scalar_paired_and_zero_blocks_count_complete_inertia",
+    "crates/fsym-matrices/tests/inertia.rs::empty_zero_identity_singular_and_indefinite_forms",
+    "python/tests/test_matrix_definiteness.py::test_preview_inertia_resolves_a_recorded_oracle_unknown",
+    "python/tests/test_matrix_definiteness.py::test_pinned_oracle_retains_unknown_for_the_recorded_cubic"
+  ],
+  "policy": "The verified native API retains the complete mathematical result. The uncertified preview also exposes that stronger result and records this public discrepancy under Compatibility Contract sections 2.1 and 8. This case is separate from shared parity vectors. No immutable profile is changed, no strict compatibility claim is made, and no certification or workstream gate is promoted."
+}

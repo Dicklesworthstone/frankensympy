@@ -2,9 +2,11 @@
 
 #![forbid(unsafe_code)]
 
+use fsym_budget::{BudgetMeter, MeterError};
 use fsym_core::{BigInt, BigRational, Constant, Expr};
 use fsym_matrices::{
     Matrix, MatrixError, MatrixExponentialError, RationalLinearSolution, SparseMatrix,
+    VerifiedRationalInertia,
 };
 use fsym_runtime::{Budget, BudgetLimits, Dimension};
 use pyo3::basic::CompareOp;
@@ -14,6 +16,7 @@ use pyo3::exceptions::{
 use pyo3::prelude::*;
 use pyo3::types::{PyInt, PyList, PyTuple};
 
+use crate::callbacks::PySupervisedCallbackSession;
 use crate::expr::{PyExpr, exact_python_integer};
 use crate::rational_laplace::validate_held_transform_domains;
 use crate::to_value_error;
@@ -24,6 +27,91 @@ type AffineSolutionParts = (Vec<PyExpr>, Vec<Vec<PyExpr>>, Vec<usize>);
 
 /// Complete sparse affine values, parameter matrix, and free columns.
 type SparseAffineSolutionParts = (PySparseMatrix, PySparseMatrix, Vec<usize>);
+
+/// Both inertia phases consume the same caller-owned symbolic request ledger.
+/// Native phase meters still enforce their own memory and allocation caps.
+/// Keep the original Python refusal: MeterError only stops native work, and
+/// must never relabel an exhausted or ownership-invalid request as cancellation.
+struct InertiaRequestMeter<'py, 'session> {
+    py: Python<'py>,
+    session: Option<&'session PySupervisedCallbackSession>,
+    failure: Option<PyErr>,
+}
+
+impl<'py, 'session> InertiaRequestMeter<'py, 'session> {
+    fn new(py: Python<'py>, session: Option<&'session PySupervisedCallbackSession>) -> Self {
+        Self {
+            py,
+            session,
+            failure: None,
+        }
+    }
+
+    fn forward(&mut self, steps: u64) -> Result<(), MeterError> {
+        if self.failure.is_some() {
+            return Err(MeterError::Cancelled);
+        }
+        if let Some(session) = self.session
+            && let Err(error) = session.charge_nested_steps_atomic(self.py, steps)
+        {
+            self.failure = Some(error);
+            return Err(MeterError::Cancelled);
+        }
+        Ok(())
+    }
+
+    fn refuse(&mut self, error: PyErr) -> Result<(), MeterError> {
+        // The first error retains its budget ValueError. Subsequent use sees
+        // the cancelled session; no counter reset or failed-charge spending.
+        self.failure = Some(match self.session {
+            Some(session) => session.cancel(self.py).err().unwrap_or(error),
+            None => error,
+        });
+        Err(MeterError::Cancelled)
+    }
+}
+
+impl BudgetMeter for InertiaRequestMeter<'_, '_> {
+    fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
+        self.forward(if dimension == Dimension::ComputeSteps {
+            amount
+        } else {
+            0
+        })
+    }
+
+    fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+        let mut steps = 0u64;
+        for &(dimension, amount) in charges {
+            if dimension == Dimension::ComputeSteps {
+                let Some(total) = steps.checked_add(amount) else {
+                    return self.refuse(PyValueError::new_err(
+                        "matrix inertia request step charge overflow",
+                    ));
+                };
+                steps = total;
+            }
+        }
+        self.forward(steps)
+    }
+
+    fn checkpoint(&mut self) -> Result<(), MeterError> {
+        self.forward(0)
+    }
+}
+
+fn checked_inertia_counts(
+    result: Result<VerifiedRationalInertia, MatrixError>,
+    generator: InertiaRequestMeter<'_, '_>,
+    verifier: InertiaRequestMeter<'_, '_>,
+) -> PyResult<(usize, usize, usize)> {
+    if let Some(error) = generator.failure.or(verifier.failure) {
+        return Err(error);
+    }
+    let checked = result.map_err(matrix_err)?;
+    let receipt = checked.receipt();
+    Ok((receipt.positive(), receipt.negative(), receipt.zero()))
+}
 
 /// Borrow and bound the Python coordinate list before cloning native atoms.
 /// The matrix engine independently checks every typed identity and duplicate.
@@ -437,6 +525,28 @@ impl PyMatrix {
     pub fn det(&self) -> PyResult<PyExpr> {
         let d = self.inner.det().map_err(matrix_err)?;
         Ok(PyExpr::from_expr(d))
+    }
+
+    /// Borrowed rational-source admission before public snapshot copies.
+    pub fn validate_rational_inertia_source(&self) -> PyResult<()> {
+        self.inner
+            .validate_rational_inertia_source()
+            .map_err(matrix_err)
+    }
+
+    /// Independently checked inertia of the real rational quadratic form.
+    #[pyo3(signature = (*, session=None))]
+    pub fn quadratic_form_inertia(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<(usize, usize, usize)> {
+        let mut generator = InertiaRequestMeter::new(py, session.as_deref());
+        let mut verifier = InertiaRequestMeter::new(py, session.as_deref());
+        let result = self
+            .inner
+            .inertia_with_meters(&mut generator, &mut verifier);
+        checked_inertia_counts(result, generator, verifier)
     }
 
     /// Ascending coefficients of the checked monic minimal polynomial over QQ.
@@ -1188,6 +1298,28 @@ impl PySparseMatrix {
     /// Exact rational determinant without allocating the dense matrix.
     pub fn det(&self) -> PyResult<PyExpr> {
         self.inner.det().map(PyExpr::from_expr).map_err(matrix_err)
+    }
+
+    /// Borrowed sparse admission before any dense inertia storage.
+    pub fn validate_rational_inertia_source(&self) -> PyResult<()> {
+        self.inner
+            .validate_rational_inertia_source()
+            .map_err(matrix_err)
+    }
+
+    /// Independently checked inertia without public dense conversion.
+    #[pyo3(signature = (*, session=None))]
+    pub fn quadratic_form_inertia(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<(usize, usize, usize)> {
+        let mut generator = InertiaRequestMeter::new(py, session.as_deref());
+        let mut verifier = InertiaRequestMeter::new(py, session.as_deref());
+        let result = self
+            .inner
+            .inertia_with_meters(&mut generator, &mut verifier);
+        checked_inertia_counts(result, generator, verifier)
     }
 
     /// Unique exact rational solution, retaining sparse inputs and outputs.

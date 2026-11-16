@@ -198,6 +198,35 @@ pub struct PySupervisedCallbackSession {
     state: Mutex<CallbackSessionState>,
 }
 
+impl PySupervisedCallbackSession {
+    /// Charge one native work unit atomically without changing the legacy
+    /// public callback accounting contract. Ownership checks can execute
+    /// Python, so inspect and commit the ledger only after they return.
+    pub(crate) fn charge_nested_steps_atomic(&self, py: Python<'_>, steps: u64) -> PyResult<u64> {
+        self.verify_ownership(py)?;
+        let mut st = self.state.lock().expect("session state lock");
+        if st.unknown_effect_tainted || st.cancelled {
+            return Err(PyRuntimeError::new_err(
+                "cancelled or tainted callback session cannot perform nested native work",
+            ));
+        }
+        let next = st.consumed_nested_steps.checked_add(steps);
+        if next.is_none_or(|total| total > self.max_nested_steps) {
+            st.cancelled = true;
+            if st.current_reentrancy_depth > 0 {
+                st.unknown_effect_tainted = true;
+            }
+            return Err(PyValueError::new_err(format!(
+                "nested native request budget exhausted: consumed {}, requested {steps}, max {}",
+                st.consumed_nested_steps, self.max_nested_steps
+            )));
+        }
+        let consumed = next.expect("admitted atomic nested charge");
+        st.consumed_nested_steps = consumed;
+        Ok(consumed)
+    }
+}
+
 #[pymethods]
 impl PySupervisedCallbackSession {
     #[new]

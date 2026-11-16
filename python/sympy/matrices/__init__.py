@@ -38,6 +38,7 @@ from .sparse import (
 
 # Capture the actual built-in owners before user code can alter the interfaces.
 from . import _jordan
+from . import _definiteness
 
 __all__ = [
     "DenseMatrix",
