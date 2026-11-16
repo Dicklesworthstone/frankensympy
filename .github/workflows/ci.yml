@@ -252,6 +252,7 @@ jobs:
               "python/tests/test_objective_program_transport.py",
               "python/tests/test_compiled_objective.py",
               "python/tests/test_complex_float_conversion.py",
+              "python/tests/test_float_conversion_termination.py",
               "python/tests/test_nroots_convergence.py",
               "python/tests/test_polynomial_pseudo_division.py",
               "python/tests/test_recursive_polynomial_division.py",

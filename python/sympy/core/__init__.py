@@ -2815,7 +2815,16 @@ class Expr(Basic):
         if ratio is not None:
             return float(ratio[0] / ratio[1])
         try:
-            return float(self.evalf())
+            evaluated = self.evalf()
+            if (
+                isinstance(evaluated, Expr)
+                and type(evaluated).__float__ is Expr.__float__
+                and _exact_ratio(evaluated) is None
+            ):
+                # An unevaluated or nonreal expression has no scalar
+                # conversion; retrying this method would recurse forever.
+                raise TypeError("expression did not evaluate to a real number")
+            return float(evaluated)
         except Exception:
             raise TypeError(f"cannot convert {type(self).__name__} to float")
 
