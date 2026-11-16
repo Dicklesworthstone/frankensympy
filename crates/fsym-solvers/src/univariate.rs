@@ -931,6 +931,80 @@ fn solve_rational(e: &Expr, x: &Symbol) -> Option<Result<Vec<Expr>, SolverError>
 // Inversion
 // ---------------------------------------------------------------------------
 
+/// Invert a nonintegral principal power without losing its other inverse
+/// branches. For a nonzero real target, write its argument as epsilon*pi,
+/// where epsilon is zero or one. Every possible base has the form
+///
+/// |rhs|^(1/exponent) * exp(i*pi*(epsilon + 2*k)/exponent),
+///
+/// and its principal argument must lie in (-pi, pi]. The phase test below
+/// uses exact rationals; membership in the original equation is still
+/// checked separately by `check_roots` after inversion of the base.
+fn invert_rational_power(
+    base: &Expr,
+    exponent: &BigRational,
+    rhs: Expr,
+    x: &Symbol,
+    depth: usize,
+) -> Result<Vec<Expr>, SolverError> {
+    let inverse = BigRational::one() / exponent;
+    let injective = exponent.abs() < BigRational::one();
+    let Some(target) = number(&rhs) else {
+        // Powers of magnitude below one are injective on their principal
+        // domain. The old single inverse is complete in this case, but its
+        // range and source-domain obligations still need the residual check.
+        if injective {
+            return invert(base, eval_pow(rhs, rq(inverse)), x, depth + 1);
+        }
+        return Err(SolverError::IncompleteSolutionSet(
+            "a multivalued rational-power inverse requires a resolved target phase".into(),
+        ));
+    };
+    if target.is_zero() {
+        return if exponent.is_positive() {
+            invert(base, Expr::from_i64(0), x, depth + 1)
+        } else {
+            Ok(Vec::new())
+        };
+    }
+    if injective {
+        // A principal power with |exponent| < 1 cannot attain a strictly
+        // negative real value: its argument has magnitude below pi.
+        if target.is_negative() {
+            return Ok(Vec::new());
+        }
+        return invert(base, eval_pow(rhs, rq(inverse)), x, depth + 1);
+    }
+    let numerator = exponent
+        .numer()
+        .abs()
+        .to_i64()
+        .filter(|n| *n <= 12)
+        .ok_or_else(|| {
+            SolverError::IncompleteSolutionSet(
+                "rational-power inverse branch count exceeds the supported bound".into(),
+            )
+        })?;
+    let epsilon = i64::from(target.is_negative());
+    let magnitude = eval_pow(rq(target.abs()), rq(inverse));
+    let mut out = Vec::new();
+    // This interval contains every admissible k because the reduced
+    // denominator is at least two and |epsilon + 2*k| <= |exponent|.
+    for k in -numerator..=numerator {
+        let phase = BigRational::from_integer(BigInt::from(epsilon + 2 * k)) / exponent;
+        if phase <= -BigRational::one() || phase > BigRational::one() {
+            continue;
+        }
+        // Retaining the principal (-1)^phase form lets the independent
+        // original-residual checker use the existing guarded nested-power
+        // identity. No approximate complex phase or sampled zero decides
+        // whether a branch is accepted.
+        let candidate = magnitude.clone() * eval_pow(Expr::from_i64(-1), rq(phase));
+        out.extend(invert(base, candidate, x, depth + 1)?);
+    }
+    Ok(out)
+}
+
 /// Solves `lhs = rhs` for `x` by peeling invertible outer operations.
 fn invert(lhs: &Expr, rhs: Expr, x: &Symbol, depth: usize) -> Result<Vec<Expr>, SolverError> {
     if depth > 24 {
@@ -982,11 +1056,7 @@ fn invert(lhs: &Expr, rhs: Expr, x: &Symbol, depth: usize) -> Result<Vec<Expr>, 
                     }
                     Ok(out)
                 }
-                Some(v) if !v.is_integer() => {
-                    // b**(p/q) = rhs -> b = rhs**(q/p), checked later.
-                    let inv = rq(BigRational::one() / v);
-                    invert(b, eval_pow(rhs, inv), x, depth + 1)
-                }
+                Some(v) if !v.is_integer() => invert_rational_power(b, &v, rhs, x, depth),
                 Some(v) if v.is_negative() && !is_free_of(b, x) => {
                     // b**(-n) = rhs -> b**n = 1/rhs: every n-th root
                     // branch, not only the principal one (1/y**2 = x has
@@ -1312,7 +1382,12 @@ fn candidate_in_domain(e: &Expr, x: &Symbol, root: &Expr) -> Result<bool, Solver
         };
         if let Some(base) = nonzero_requirement {
             let at_root = base.subs(&replacements);
-            match zero_status(&at_root) {
+            // Ground principal rational powers may be outside the ball
+            // evaluator's real-only power lane. Reuse the exact structural
+            // nonvanishing check used for Cardano denominators; an enclosure
+            // or a floating approximation is not needed for (-1)^r != 0.
+            let zero = zero_status(&at_root).or_else(|| cubic_nonzero(&at_root).then_some(false));
+            match zero {
                 Some(true) => return Ok(false),
                 Some(false) => {}
                 None => {
@@ -1507,8 +1582,16 @@ pub fn solve_univariate(e: &Expr, x: &Symbol) -> Result<Vec<Expr>, SolverError> 
     }
     let candidates = match invert(e, Expr::from_i64(0), x, 0) {
         Ok(c) => c,
+        Err(error @ (SolverError::IncompleteSolutionSet(_) | SolverError::InvalidSystem(_))) => {
+            return Err(error);
+        }
         Err(_) => match solve_in_generator(e, x) {
             Ok(c) => c,
+            Err(
+                error @ (SolverError::IncompleteSolutionSet(_) | SolverError::InvalidSystem(_)),
+            ) => {
+                return Err(error);
+            }
             Err(err) => eliminate_radical(e, x, 0).ok_or(err)?,
         },
     };

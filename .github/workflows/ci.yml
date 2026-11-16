@@ -129,6 +129,8 @@ jobs:
         with:
           cache-on-failure: true
       - run: python -m pip install --disable-pip-version-check pytest==8.4.2
+      - name: Complete principal rational-power inversion
+        run: cargo test --locked -p fsym-solvers --test principal_rational_powers -j1
       - name: Checked recursive polynomial pseudo-division
         run: cargo test --locked -p fsym-polys --test pseudo_division -j1
       - name: Normalized half-line transform identities
