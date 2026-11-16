@@ -206,7 +206,7 @@ fn raw_source_order_multiplicity_and_scalar_variants_cannot_be_normalized_away()
             admit_residual_candidate(
                 std::slice::from_ref(&expected),
                 &variables,
-                residual_candidate(&[changed.clone()], &variables),
+                residual_candidate(std::slice::from_ref(&changed), &variables),
                 &mut Unbounded
             ),
             Err(ProgramAdmissionError::SourceMismatch(
