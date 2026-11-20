@@ -674,6 +674,48 @@ positive axis; no solution family is extended across that singularity.
 
 ---
 
+## Checked scalar ODE forcing (development API)
+
+The native `dsolve_const_coeff_second_order_nonhomogeneous(a, b, c, f, x)`
+helper solves `a*y'' + b*y' + c*y = f(x)` for bounded rational polynomial
+forcing multiplied by exponentials and sine/cosine modes, including resonance:
+
+```python
+from sympy import Symbol, dsolve_const_coeff_second_order_nonhomogeneous, exp
+
+x = Symbol("x")
+y = dsolve_const_coeff_second_order_nonhomogeneous(1, -2, 1, x*exp(x), x)
+# Equivalent to exp(x)*(C1 + (C2 - C1)*x + x**3/6).
+```
+
+New forcing cases use a checked companion system and return an expression
+whose constants parameterize `y(0)` and `y'(0)`. The helper retains the
+established constant convention for its earlier simple forcing cases. Generic
+`dsolve` continues to use its existing undetermined-coefficients and
+variation-of-parameters dispatch.
+
+The source reader admits rational polynomials of degree at most sixteen and
+rational exponential rates and trigonometric frequencies. The forcing closure
+and two physical coordinates must fit the existing eight-dimensional system
+bound: a lone exponential mode supports polynomial degree at most five, and a
+lone oscillatory mode at most two. Combined modes share that allowance; work
+budgets and output verification bounds can refuse smaller inputs. Original
+poles, foreign typed coordinates, unknown functions, nonlinear phases and
+products of two oscillatory factors refuse explicitly. For example, the
+current engine reports compute-budget exhaustion for
+`y'' - 4*y' + 13*y = x*exp(2*x)*sin(3*x)` even though its six-state
+realization fits the dimension bound; that refusal has its own regression.
+
+The system verifier checks the coefficient realization and initial values.
+An independent scalar residual check then differentiates the returned answer
+against the complete original forcing. Exact rational work, separate
+cumulative generation/verification budgets and cancellation checkpoints are
+available through Rust's `ode::forcing::metered_second_order`. No numerical
+sampling establishes the identity, and these checked expressions are not
+portable proof certificates or a general ODE-domain completeness claim.
+
+---
+
 ## Quadratic rational telescoping (development API)
 
 The existing `summation` and `Sum.doit` entry points now admit rational

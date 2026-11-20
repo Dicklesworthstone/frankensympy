@@ -1,0 +1,101 @@
+{
+  "date": "2026-11-20",
+  "bead": "fra-7kf",
+  "status": "implemented_uncertified",
+  "scope": "Bounded original-source scalar second-order constant-coefficient ODE forcing via the checked system engine.",
+  "public_api": "dsolve_const_coeff_second_order_nonhomogeneous(a, b, c, f, x)",
+  "dispatch": "The direct typed helper reaches the native fallback. Generic dsolve retains its existing independent UC/VOP routing.",
+  "implementation": [
+    "crates/fsym-solvers/src/ode.rs",
+    "crates/fsym-solvers/src/ode/forcing.rs"
+  ],
+  "invariants": [
+    "Original source totality and typed coordinate/constant identity are admitted before zero simplification",
+    "Source decomposition proposes exact rational polynomial/exponential/trigonometric modes",
+    "Existing independent system checker validates the realization and initial coordinates",
+    "A separate scalar checker differentiates the returned expression against the complete original forcing",
+    "Metered API has separate cumulative generator and verifier ledgers, intrinsic caps and cancellation checkpoints",
+    "No approximate or upstream fallback after unsupported, resource, cancellation or verification failures"
+  ],
+  "bounds": {
+    "polynomial_degree": 16,
+    "distinct_modes": 8,
+    "system_dimension_including_physical_coordinates": 8,
+    "input_coefficient_bits": 1024,
+    "derived_coefficient_bits": 4096,
+    "per_phase_compute_steps": 200000000,
+    "per_phase_memory_bytes": 536870912,
+    "further_limits": "Existing system generation/verification and final expression bounds may refuse smaller sources. A lone exponential supports degree at most five; a lone oscillatory mode at most two. No guarantee that every grammar-admitted input completes."
+  },
+  "validation": {
+    "toolchain": "nightly-2026-08-20",
+    "initial_native_run": {
+      "exit_code": 101,
+      "compiled": true,
+      "new_tests_passed": 7,
+      "new_tests_failed": 1,
+      "reason": "Combined-mode test reached a typed ComputeSteps budget exhaustion, not a wrong result. No work cap was raised."
+    },
+    "final_native_run": {
+      "status": "passed",
+      "exit_code": 0,
+      "command": "cargo test -p fsym-solvers --test forced_scalar_ode --test ode_radicals --locked",
+      "forced_scalar_ode": {
+        "passed": 9,
+        "failed": 0
+      },
+      "ode_radicals": {
+        "passed": 4,
+        "failed": 0
+      },
+      "environment": "CARGO_BUILD_JOBS=1; CARGO_INCREMENTAL=0; dev/test debug=0; RUSTFLAGS=-D warnings -Zunstable-options --jobs-frontend=1 --jobs-backend=1",
+      "coverage": "Exact polynomial and resonant families, mixed modes, negative frequencies, independent witnesses/mutations, original domains/typed identities, cumulative phase budgets and cancellation"
+    },
+    "scoped_clippy": {
+      "status": "passed",
+      "exit_code": 0,
+      "command": "cargo clippy -p fsym-solvers --all-targets --locked -- -D warnings"
+    },
+    "format": {
+      "status": "passed",
+      "command": "cargo fmt --check",
+      "exit_code": 0
+    },
+    "public_tests": {
+      "file": "python/tests/test_forced_scalar_ode.py",
+      "cases": 7,
+      "ast": "passed",
+      "candidate_execution": "not_executed",
+      "reason": "Full production extension unavailable after two asupersync rustc SIGKILL build failures"
+    },
+    "independent_review": "Native forcing source, public typed route and final parity checker reviewed independently; no blocking finding remains.",
+    "ci": "New native test target and seven public cases selected in existing production gates",
+    "workspace_gates": "Not yet completed at this checkpoint; no full workspace or profile pass is claimed",
+    "source_base_commit": "9aae01a4e54ab895861b230a8f926fec692d5354",
+    "diagnostic_correction": "All mixed cases were inspected together. Exact negative sine/cosine parity was missing from the independent scalar residual checker; the bounded original-domain-admitted parity pass fixes it. No cap was raised."
+  },
+  "limits": [
+    "New fallback constants are value and first derivative at zero; earlier simple-forcing constant convention is preserved",
+    "Unknown functions, foreign axes, original poles, nonlinear or shifted phases, and products of two oscillatory factors refuse",
+    "Synchronous recursive residual checks are bounded and prepaid with before/after cancellation points; no forced mid-simplifier cancellation claim",
+    "Checked expressions are not portable certificates, global ODE-domain completeness, or broad WS19/profile closure"
+  ],
+  "source_sha256": {
+    "crates/fsym-solvers/src/ode.rs": "5e9603f267245960356b997afb61c0cda8cd9dded0ea016c9d81d941c6061223",
+    "crates/fsym-solvers/src/ode/forcing.rs": "cf4118871299cf4a315fb1bd7889ee600d50340c40545bdd13483c644743971e",
+    "crates/fsym-solvers/tests/forced_scalar_ode.rs": "579c31173903494145733eec87d278d31619a050d51cf06f9cc216bbfd26745e",
+    "python/tests/test_forced_scalar_ode.py": "c1fe2f8ddda8fc76a33b35d7b36c2d76a31b04809e93cd60f78fff2b16c7b45c"
+  },
+  "known_resource_refusals": [
+    {
+      "operator": [
+        1,
+        -4,
+        13
+      ],
+      "forcing": "x*exp(2*x)*sin(3*x)",
+      "outcome": "GeneralOdeSystemError::Meter(MeterError::Budget(BudgetError::Exhausted { dimension: ComputeSteps, .. }))",
+      "regression": "resonant_damped_oscillatory_forcing_retains_the_actual_budget_refusal"
+    }
+  ]
+}

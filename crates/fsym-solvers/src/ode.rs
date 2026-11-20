@@ -15,6 +15,9 @@ pub mod system;
 /// Checked nonzero local families of bounded Bernoulli equations.
 pub mod bernoulli;
 
+/// Original-source scalar forcing composed with the checked system engine.
+pub mod forcing;
+
 fn positive_rational_literal(expr: &Expr) -> bool {
     match expr {
         Expr::Integer(value) => value.is_positive(),
@@ -155,6 +158,54 @@ fn residual_is_exact_zero(residual: &Expr) -> bool {
     residual_is_exact_zero_on_domain(residual, None)
 }
 
+/// The entire identities sin(-z)=-sin(z), cos(-z)=cos(z) are independent
+/// of the forcing generator and valid even for complex z. Only signs of
+/// literal factors are moved; original-domain admission precedes this pass.
+fn normalize_circular_parity(expression: &Expr) -> Expr {
+    fn remove_negative_literal(factor: &mut Expr) -> bool {
+        match factor {
+            Expr::Integer(value) if value.is_negative() => {
+                *value = -&*value;
+                true
+            }
+            Expr::Rational(value) if value.is_negative() => {
+                *value = -&*value;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    match expression {
+        Expr::Add(children) => Expr::Add(children.iter().map(normalize_circular_parity).collect()),
+        Expr::Mul(children) => Expr::Mul(children.iter().map(normalize_circular_parity).collect()),
+        Expr::Pow(base, exponent) => Expr::Pow(
+            Arc::new(normalize_circular_parity(base)),
+            Arc::new(normalize_circular_parity(exponent)),
+        ),
+        Expr::Function(name, arguments) => {
+            let mut arguments: Vec<_> = arguments.iter().map(normalize_circular_parity).collect();
+            let mut negative = false;
+            if arguments.len() == 1 && matches!(name.as_str(), "sin" | "cos") {
+                if let Expr::Mul(factors) = &mut arguments[0] {
+                    for factor in factors {
+                        negative ^= remove_negative_literal(factor);
+                    }
+                } else {
+                    negative = remove_negative_literal(&mut arguments[0]);
+                }
+            }
+            let function = Expr::Function(name.clone(), arguments);
+            if negative && name == "sin" {
+                Expr::Mul(vec![Expr::from_i64(-1), function])
+            } else {
+                function
+            }
+        }
+        _ => expression.clone(),
+    }
+}
+
 fn residual_is_exact_zero_on_domain(residual: &Expr, positive_axis: Option<&Symbol>) -> bool {
     let admitted = |expression: &Expr| {
         crate::verifier_inputs_within_bounds([expression])
@@ -167,7 +218,11 @@ fn residual_is_exact_zero_on_domain(residual: &Expr, positive_axis: Option<&Symb
         Ok(expanded) if admitted(&expanded) => expanded,
         _ => return false,
     };
-    let simplified = match try_simplify(&expanded) {
+    let normalized = normalize_circular_parity(&expanded);
+    if !admitted(&normalized) {
+        return false;
+    }
+    let simplified = match try_simplify(&normalized) {
         Ok(simplified) if admitted(&simplified) => simplified,
         _ => return false,
     };
@@ -687,6 +742,13 @@ fn solve_particular_term(
 
 /// Solves second-order linear non-homogeneous ODE with constant coefficients:
 /// $a y''(x) + b y'(x) + c y(x) = f(x)$.
+///
+/// In addition to constant and elementary forcing, bounded rational
+/// polynomials times exponentials and sine/cosine modes use the independently
+/// checked system engine. Its returned constants parameterize the value and
+/// first derivative at zero. Every answer still passes the original scalar
+/// equation's residual check. See [`forcing::metered_second_order`] for the
+/// admitted grammar, resource bounds and separately metered phases.
 pub fn dsolve_const_coeff_second_order_nonhomogeneous(
     a: i64,
     b: i64,
@@ -697,6 +759,11 @@ pub fn dsolve_const_coeff_second_order_nonhomogeneous(
     c2: &Symbol,
 ) -> Result<Expr, SolverError> {
     require_fresh_integration_constants(x, &[c1, c2], &[f_expr])?;
+    if !ode_inputs_are_total(&[f_expr]) {
+        return Err(SolverError::InvalidSystem(
+            "second-order ODE forcing is not admitted on the complete real axis".to_string(),
+        ));
+    }
     let yh = dsolve_const_coeff_second_order(a, b, c, x, c1, c2)?;
     if f_expr.is_zero() {
         return Ok(yh);
@@ -713,7 +780,19 @@ pub fn dsolve_const_coeff_second_order_nonhomogeneous(
 
     let mut particular_terms = Vec::with_capacity(terms.len());
     for t in terms {
-        let yp_t = solve_particular_term(&a_rat, &b_rat, &c_rat, t, x)?;
+        let yp_t = match solve_particular_term(&a_rat, &b_rat, &c_rat, t, x) {
+            Ok(particular) => particular,
+            Err(SolverError::IncompleteSolutionSet(_)) => {
+                return forcing::second_order([a, b, c], f_expr, x, [c1, c2]).map_err(|error| {
+                    if error.is_unsupported() {
+                        SolverError::IncompleteSolutionSet(error.to_string())
+                    } else {
+                        SolverError::InvalidSystem(error.to_string())
+                    }
+                });
+            }
+            Err(error) => return Err(error),
+        };
         if !yp_t.is_zero() {
             particular_terms.push(yp_t);
         }
