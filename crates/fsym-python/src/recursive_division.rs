@@ -32,7 +32,7 @@ fn polynomial_error(error: PolyError) -> PyErr {
 /// entire original tree. Its denominator is a literal coefficient expression
 /// admitted by polynomial lowering; the full coefficient identity is checked
 /// before the recursive division sees either operand.
-fn polynomial_source(
+pub(crate) fn polynomial_source(
     source: &Expr,
     variables: &[Symbol],
     generator: &mut Budget,

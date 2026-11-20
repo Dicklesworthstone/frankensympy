@@ -25,6 +25,8 @@ from ..core import (
     _symbol_binding,
     _wrap,
 )
+# Eagerly retain builtin implementations before the first lazy eval import.
+from . import _evaluation_owners
 
 
 _GENS_ORDER = {
@@ -252,16 +254,24 @@ class Poly(Basic):
             return coeffs[deg - n]
         raise NotImplementedError("multivariate nth is not yet implemented")
 
-    def eval(self, *args: Any) -> Any:
-        """Evaluate polynomial at the given points."""
+    def eval(self, x: Any, a: Any = None, auto: bool = True) -> Any:
+        """Evaluate exact values, retaining every unassigned polynomial axis.
+
+        A value selects the first generator, a generator/value pair selects
+        one coordinate, a sequence assigns leading coordinates, and a mapping
+        follows insertion order. QQ/ZZ evaluation supports exact rational
+        values; ``auto=False`` prohibits extending ZZ to QQ. Partial results
+        retain Poly/PurePoly and their coefficient domain. Existing symbolic
+        and floating scalar substitutions keep the separate shell route;
+        they are outside the independently checked QQ coefficient map.
+        """
+        args = (x,) if a is None else (x, a)
         if _finitefield.is_finite(self):
+            if type(auto) is not bool:
+                raise TypeError("auto must be a bool for checked polynomial evaluation")
             return _finitefield.evaluate(self, args)
-        if len(args) == 1:
-            return self.as_expr().subs(self.gen, args[0])
-        elif len(args) == 2:
-            var, val = args
-            return self.as_expr().subs(var, val)
-        raise TypeError(f"eval takes 1 or 2 arguments, got {len(args)}")
+        from ._evaluation import evaluate
+        return evaluate(self, args, auto)
 
     def diff(self, *specs: Any) -> "Poly":
         """Differentiate polynomial."""

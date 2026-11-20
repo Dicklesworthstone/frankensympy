@@ -289,13 +289,15 @@ fn unsupported_shapes_precision_and_intrinsic_source_limits_fail_closed() {
         );
     }
     for unsupported in [
-        function("abs", x.clone()),
+        function("sign", x.clone()),
         Expr::Function("sin".into(), vec![x.clone(), x.clone()]),
         Expr::Const(Constant::I),
         power(x.clone(), 65),
     ] {
         assert!(enclose_objective(&unsupported, &vars, &exact(&[1]), 24).is_err());
     }
+    // Absolute value is smooth on sign-separated boxes, but not at its corner.
+    assert!(enclose_objective(&function("abs", x.clone()), &vars, &exact(&[0]), 24).is_err());
     let mut deep = x.clone();
     for _ in 0..=MAX_ROOT_BOX_DEPTH {
         deep = Expr::Add(vec![deep]);

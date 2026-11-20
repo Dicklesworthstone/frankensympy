@@ -610,6 +610,36 @@ undefined user functions with the same names do not acquire native capability.
 
 ---
 
+## Smooth absolute-value certificates (development API)
+
+The original-source residual/Jacobian and objective/Hessian checkers support
+`Abs` when the complete argument enclosure lies strictly above or strictly
+below zero. They prove the branch from exact rational interval bounds, then
+propagate its sign through every first and second derivative. This also lets
+absolute-value expressions participate in root-box and stationary-point
+certificates on smooth boxes:
+
+```python
+from sympy import Abs, Symbol, certify_root_box, enclose_objective
+
+x = Symbol("x")
+enclosure = enclose_objective(Abs(x), x, [(1, 3)])
+assert enclosure.gradient == ((1, 1),)
+assert enclosure.hessian == (((0, 0),),)
+
+root = certify_root_box(Abs(x) - 2, x, [(1, 3)])
+# The checked root is unique in this declared box.
+```
+
+A box touching or crossing the argument's zero remains unsupported by these
+C1/C2 checks. Held zero products and zeroth powers do not erase that condition
+or an original source pole. This is a smooth-branch certificate, not a
+subgradient or nonsmooth-optimization claim. Source replay retains the actual
+Python `Abs` capability and typed coordinates; an undefined function named
+`abs` does not acquire the same capability.
+
+---
+
 ## Exact quartic radicals (development API)
 
 The native rational-polynomial solver supports bounded general quartics through
@@ -1212,6 +1242,45 @@ undefined denominators under zero products or zero powers. General algebraic
 extensions, irrational nested radicals, approximate inputs and custom scalar
 hooks refuse explicitly. This extends the implemented exact arithmetic slice;
 the broad number-field and compatibility profiles remain open.
+
+## Exact partial polynomial evaluation (development API)
+
+`Poly.eval` and `PurePoly.eval` perform checked exact partial evaluation over
+`ZZ` and `QQ`. A partial result keeps its polynomial class, coefficient domain
+and remaining typed generators in their original order, including unused
+generators of a zero or constant result. Assigning every generator returns an
+exact scalar:
+
+```python
+from sympy import Poly, QQ, Rational, symbols
+
+x, y = symbols("x y")
+polynomial = Poly(x*y + x + y, x, y, domain=QQ)
+assert polynomial.eval(2) == Poly(3*y + 2, y, domain=QQ)
+assert polynomial.eval(y, 3) == Poly(4*x + 3, x, domain=QQ)
+assert polynomial.eval([2, 3]) == 11
+assert polynomial.eval({x: 2, y: 3}) == 11
+assert polynomial.eval({}) is polynomial
+
+promoted = Poly(x*y, x, y, domain="ZZ").eval(Rational(1, 2))
+assert promoted == Poly(y/2, y, domain=QQ)
+```
+
+The API also accepts positive or negative coordinate indices. Indices in an
+ordered mapping refer to the generators still present after earlier entries.
+Fractional assignments promote `ZZ` to `QQ`; `auto=False` refuses that
+promotion. The complete original source and all values are admitted even
+when an assignment later makes the result zero.
+
+The native generator projects sparse monomials, while a separate verifier
+reconstructs every resulting coefficient by repeated multiplication and
+checks the remaining ring. Native requests have cumulative generation and
+verification meters, cancellation checkpoints and bounded input sizes.
+Existing scalar symbolic and floating-point substitutions retain their
+preselected shell behavior; they do not receive this exact coefficient-map
+verification. An exact-lane failure never retries through that shell route.
+
+---
 
 ## Prime-field polynomials (development API)
 

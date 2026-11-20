@@ -206,7 +206,7 @@ fn stopped_generators_and_verifiers_do_not_publish_accepted_inertia() {
         let mut limits = BudgetLimits::uniform(u64::MAX, 0);
         limits.dimensions[dimension.index()] = 0;
         assert!(matches!(
-            a.inertia_with_meters(&mut Budget::new(limits.clone()), &mut Unbounded),
+            a.inertia_with_meters(&mut Budget::new(limits), &mut Unbounded),
             Err(MatrixError::ResourceLimit(_))
         ));
         assert!(matches!(
