@@ -21,7 +21,7 @@ use fsym_core::elementary::{eval_function, eval_pow, rational_expr};
 use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
 use fsym_polys::UnivariatePoly;
 use num_traits::{One, Signed, Zero};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 fn func(name: &str, arg: Expr) -> Expr {
     eval_function(name, std::slice::from_ref(&arg))
@@ -46,6 +46,37 @@ fn imag() -> Expr {
 
 fn is_free_of(e: &Expr, x: &Symbol) -> bool {
     !e.free_symbols().iter().any(|s| s == x)
+}
+
+/// Choose a deterministic auxiliary atom outside the complete input universe.
+/// Include bound atoms as well as free ones: inserting an auxiliary beneath a
+/// binder must not capture it. Equality uses the full typed symbol identity,
+/// and the solve coordinate remains reserved even when absent from the source.
+fn fresh_auxiliary(e: &Expr, x: &Symbol, stem: &str) -> Symbol {
+    let mut occupied = HashSet::from([x]);
+    let mut pending = vec![e];
+    while let Some(term) = pending.pop() {
+        match term {
+            Expr::Sym(symbol) => {
+                occupied.insert(symbol);
+            }
+            Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => {
+                pending.extend(args);
+            }
+            Expr::Pow(base, exponent) => {
+                pending.push(base);
+                pending.push(exponent);
+            }
+            Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => {}
+        }
+    }
+    let mut candidate = Symbol::new(stem);
+    let mut suffix = 0usize;
+    while occupied.contains(&candidate) {
+        candidate = Symbol::new(format!("{stem}_{suffix}"));
+        suffix += 1;
+    }
+    candidate
 }
 
 fn number(e: &Expr) -> Option<BigRational> {
@@ -1153,7 +1184,7 @@ fn solve_in_generator(e: &Expr, x: &Symbol) -> Result<Vec<Expr>, SolverError> {
         return Err(SolverError::NonLinear);
     }
     let g = gens.pop().expect("one generator");
-    let u = Symbol::new("_fsym_solve_u");
+    let u = fresh_auxiliary(e, x, "_fsym_solve_u");
     let ue = Expr::Sym(u.clone());
     let in_u = rewrite_in_generator(e, &g, &ue, x).ok_or(SolverError::NonLinear)?;
     if !is_free_of(&in_u, x) {
@@ -1563,7 +1594,7 @@ fn eliminate_radical(e: &Expr, x: &Symbol, depth: usize) -> Option<Vec<Expr>> {
     find_square_roots(e, x, &mut radicals);
     let r = radicals.into_iter().next()?;
     let Expr::Pow(g, _) = &r else { return None };
-    let u = Symbol::new(format!("_fsym_rad{depth}"));
+    let u = fresh_auxiliary(e, x, &format!("_fsym_rad{depth}"));
     let ue = Expr::Sym(u.clone());
     let with_u = e.subs_expr(&r, &ue);
     let p = expand(&with_u.subs(&HashMap::from([(u.clone(), Expr::from_i64(0))])));
