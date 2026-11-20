@@ -7,7 +7,7 @@
 use fsym_budget::{Budget, BudgetLimits, BudgetMeter, Dimension, MeterError, Unbounded};
 use fsym_calculus::fourier::{FourierError, HalfLineKernel, metered_half_line_transform};
 use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol, SymbolIdentity, parse};
-use fsym_simplify::simplify;
+use fsym_simplify::{expand, simplify, try_cancel};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -27,7 +27,23 @@ fn transform(source: &str, kernel: HalfLineKernel) -> Expr {
 }
 
 fn equal(left: Expr, right: Expr) {
-    assert_eq!(simplify(&(left - right)), Expr::from_i64(0));
+    // Rebuild exact scalar products before the local simplifier. In particular,
+    // positive rational radicals from two Gaussian normalizations can have
+    // different bases; local same-base collection alone is not an identity
+    // decision procedure for those products.
+    let difference = (left - right).subs(&HashMap::new());
+    assert_eq!(simplify(&difference), Expr::from_i64(0));
+}
+
+fn unnormalized_moment_difference(left: Expr, right: Expr) -> Expr {
+    // The exponential catalog has the common, nonzero factor sqrt(2/pi).
+    // Remove that exact factor, then independently normalize the QQ(k)
+    // identity. These fixtures have denominators (a^2+k^2)^n with rational
+    // a>0, so clearing them loses no real-frequency domain point. No sampled
+    // or floating comparison can establish this identity.
+    let inverse_normalization = parse("2^(-1/2)*pi^(1/2)").unwrap();
+    let rational = expand(&((left - right) * inverse_normalization));
+    try_cancel(&rational).unwrap()
 }
 
 fn at(value: &Expr, point: &str) -> Expr {
@@ -64,13 +80,28 @@ fn frequency_derivatives_agree_with_independently_transformed_moments() {
         ("exp(-3*x)", "x*exp(-3*x)"),
         ("x*exp(-3*x)", "x^2*exp(-3*x)"),
     ] {
-        equal(
-            fsym_calculus::diff(&transform(base, HalfLineKernel::Cosine), &k),
-            -transform(weighted, HalfLineKernel::Sine),
+        assert_eq!(
+            unnormalized_moment_difference(
+                fsym_calculus::diff(&transform(base, HalfLineKernel::Cosine), &k),
+                -transform(weighted, HalfLineKernel::Sine),
+            ),
+            Expr::from_i64(0),
         );
-        equal(
-            fsym_calculus::diff(&transform(base, HalfLineKernel::Sine), &k),
-            transform(weighted, HalfLineKernel::Cosine),
+        assert_eq!(
+            unnormalized_moment_difference(
+                fsym_calculus::diff(&transform(base, HalfLineKernel::Sine), &k),
+                transform(weighted, HalfLineKernel::Cosine),
+            ),
+            Expr::from_i64(0),
+        );
+        // A missing minus sign in the sine moment must still be detected by
+        // the exact comparator, even though both outputs share the same units.
+        assert_ne!(
+            unnormalized_moment_difference(
+                fsym_calculus::diff(&transform(base, HalfLineKernel::Cosine), &k),
+                transform(weighted, HalfLineKernel::Sine),
+            ),
+            Expr::from_i64(0),
         );
     }
 }
@@ -138,7 +169,6 @@ fn unsupported_shapes_do_not_publish_partial_or_distributional_answers() {
             "exp(-x)+sin(x)",
             "exp(-x)*sin(x)",
             "1/(1+x^2)",
-            "exp(-x)*exp(-2*x)",
         ] {
             assert!(
                 matches!(
@@ -148,6 +178,18 @@ fn unsupported_shapes_do_not_publish_partial_or_distributional_answers() {
                 "source {source}, kernel {kernel:?}",
             );
         }
+        // The parser legitimately combines this product into exp(-3*x).
+        // Retain the original product explicitly when testing the catalog's
+        // one-exponential-factor admission boundary.
+        let held = Expr::Mul(vec![parse("exp(-x)").unwrap(), parse("exp(-2*x)").unwrap()]);
+        assert!(matches!(
+            checked(&held, kernel),
+            Err(FourierError::Unsupported(_)),
+        ));
+        equal(
+            transform("exp(-x)*exp(-2*x)", kernel),
+            transform("exp(-3*x)", kernel),
+        );
     }
     assert!(matches!(
         checked(&parse("exp(-x^2)").unwrap(), HalfLineKernel::Sine),
