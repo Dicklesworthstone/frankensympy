@@ -18,6 +18,7 @@ pub mod capsule;
 pub mod claim;
 pub mod elementary_rational_definite;
 pub mod groebner;
+pub mod integer_linear_system;
 pub mod integer_normal_form;
 pub mod kernel;
 pub mod linear_system;

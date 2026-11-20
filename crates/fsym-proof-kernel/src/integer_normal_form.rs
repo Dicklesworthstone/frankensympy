@@ -165,7 +165,7 @@ fn bounded_entries<'de, D: Deserializer<'de>>(
     d.deserialize_seq(Entries)
 }
 
-fn bounded_integer_matrix<'de, D: Deserializer<'de>>(
+pub(super) fn bounded_integer_matrix<'de, D: Deserializer<'de>>(
     d: D,
 ) -> std::result::Result<RationalSparseMatrix, D::Error> {
     #[derive(Deserialize)]
@@ -186,7 +186,7 @@ fn bounded_integer_matrix<'de, D: Deserializer<'de>>(
     })
 }
 
-fn admit_integer_matrix(
+pub(super) fn admit_integer_matrix(
     matrix: &RationalSparseMatrix,
     work: &mut Reference<'_, impl BudgetMeter>,
 ) -> Result<()> {
@@ -271,7 +271,7 @@ fn check_inverse_product(
     Ok(())
 }
 
-fn multiply(
+pub(super) fn multiply(
     left: &[Row],
     right: &[Row],
     columns: usize,
@@ -338,6 +338,16 @@ pub fn verify_integer_smith(
     verifier: &mut impl BudgetMeter,
 ) -> Result<IntegerSmithReceipt> {
     let mut work = Reference::new(verifier);
+    verify_integer_smith_with_work(source, witness, &mut work)
+}
+
+// Larger certificates share this exact checker and its cumulative reference
+// envelope, rather than obtaining fresh internal limits for each subproof.
+pub(super) fn verify_integer_smith_with_work(
+    source: &RationalSparseMatrix,
+    witness: &IntegerSmithWitness,
+    work: &mut Reference<'_, impl BudgetMeter>,
+) -> Result<IntegerSmithReceipt> {
     work.tick(1)?;
     if witness.schema_version != INTEGER_SMITH_SCHEMA_VERSION {
         return Err(IntegerSmithError::Invalid("unknown witness schema"));
@@ -350,7 +360,7 @@ pub fn verify_integer_smith(
         &witness.left_inverse,
         &witness.right_inverse,
     ] {
-        admit_integer_matrix(matrix, &mut work)?;
+        admit_integer_matrix(matrix, work)?;
     }
     let (m, n) = (source.rows, source.columns);
     if (witness.diagonal.rows, witness.diagonal.columns) != (m, n)
@@ -374,7 +384,7 @@ pub fn verify_integer_smith(
         }
         if let Some(previous) = previous {
             work.tick(1)?;
-            if !entry.value.metered_rem(previous, &mut work)?.is_zero() {
+            if !entry.value.metered_rem(previous, work)?.is_zero() {
                 return Err(IntegerSmithError::Invalid(
                     "Smith invariant factors do not divide their successors",
                 ));
@@ -387,14 +397,14 @@ pub fn verify_integer_smith(
     let right = work.rows(&witness.right)?;
     let left_inverse = work.rows(&witness.left_inverse)?;
     let right_inverse = work.rows(&witness.right_inverse)?;
-    check_inverse_product(&left, &left_inverse, &mut work)?;
-    check_inverse_product(&left_inverse, &left, &mut work)?;
-    check_inverse_product(&right, &right_inverse, &mut work)?;
-    check_inverse_product(&right_inverse, &right, &mut work)?;
+    check_inverse_product(&left, &left_inverse, work)?;
+    check_inverse_product(&left_inverse, &left, work)?;
+    check_inverse_product(&right, &right_inverse, work)?;
+    check_inverse_product(&right_inverse, &right, work)?;
 
     let original = work.rows(source)?;
-    let left_original = multiply(&left, &original, n, &mut work)?;
-    check_product(&left_original, &right, &witness.diagonal, &mut work)?;
+    let left_original = multiply(&left, &original, n, work)?;
+    check_product(&left_original, &right, &witness.diagonal, work)?;
 
     let source_digest = work.digest(source)?;
     let diagonal_digest = work.digest(&witness.diagonal)?;

@@ -17,6 +17,12 @@
 //! including source admission and publication. Arithmetic uses the cooperative
 //! integer kernels; resource exhaustion or cancellation yields no accepted form.
 
+mod integer_system;
+pub use integer_system::{
+    IntegerLinearCandidate, IntegerMatrixRef, VerifiedIntegerLinearSystem,
+    generate_integer_linear_candidate, metered_solve_integer, verify_integer_linear_candidate,
+};
+
 use crate::{Matrix, MatrixError, SparseMatrix};
 use fsym_budget::{BudgetError, BudgetMeter, Dimension, MeterError, Unbounded};
 use fsym_core::arith::{RationalArithmeticError, metered_div_rem, metered_mul, metered_subtract};

@@ -44,7 +44,9 @@ mod inertia;
 pub use inertia::{RationalInertiaCandidate, VerifiedRationalInertia};
 mod normal_forms;
 pub use normal_forms::{
-    SmithNormalFormCandidate, VerifiedSmithNormalForm, generate_smith_normal_form_candidate,
+    IntegerLinearCandidate, IntegerMatrixRef, SmithNormalFormCandidate,
+    VerifiedIntegerLinearSystem, VerifiedSmithNormalForm, generate_integer_linear_candidate,
+    generate_smith_normal_form_candidate, metered_solve_integer, verify_integer_linear_candidate,
     verify_smith_normal_form_candidate,
 };
 
