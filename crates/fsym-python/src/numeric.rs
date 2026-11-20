@@ -983,6 +983,8 @@ pub(crate) fn check_certified_sources(sources: &[Expr], variables: &[Symbol]) ->
                         | "atanh"
                         | "erf"
                         | "erfc"
+                        | "abs"
+                        | "Abs"
                 ) && arguments.len() == 1 =>
             {
                 pending.push((&arguments[0], false));

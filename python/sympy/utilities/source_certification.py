@@ -9,7 +9,7 @@ from fractions import Fraction
 
 from ..core import _native, _symbol_binding
 from .lambdify import (
-    _argument_layout, _check_evaluation_budget, _functions, _numeric_source, _residual_source,
+    _argument_layout, _charge, _check_evaluation_budget, _functions, _numeric_source, _residual_source,
 )
 
 __all__ = [
@@ -58,12 +58,53 @@ def _source_budget(budget):
     return budget
 
 
+def _preserve_source_function_tags(sources):
+    """Restore closed surface tags after supervised numerical admission.
+
+    Numerical bytecode uses ``abs`` while the actual built-in Python class is
+    ``Abs``. Source-only receipts must retain the latter identity so lifting
+    cannot resolve an opaque user function named ``abs``. This pass receives
+    only exact native trees already admitted by the closed-class numerical
+    lowerer. It preserves held arithmetic and all original children, and never
+    changes ordinary compiled programs or their serialized source identities.
+    """
+    count = [0]
+
+    def visit(source, depth):
+        _charge(count, depth)
+        if source.is_number or source.is_symbol:
+            return source, False
+        tag = source.func_name
+        children = [visit(child, depth + 1) for child in source.args]
+        changed = tag == "abs" or any(changed for _, changed in children)
+        if not changed:
+            return source, False
+        arguments = [child for child, _ in children]
+        if source.is_add:
+            value = _native.Add(*arguments, evaluate=False).as_expr()
+        elif source.is_mul:
+            value = _native.Mul(*arguments, evaluate=False).as_expr()
+        elif source.is_pow:
+            value = _native.Pow(*arguments, evaluate=False).as_expr()
+        else:
+            value = _native.py_function("Abs" if tag == "abs" else tag, *arguments)
+        return value, True
+
+    result = []
+    for source in sources:
+        # Borrowed bounds precede .args and function-name copies. The shared
+        # count additionally bounds all residuals together during this pass.
+        _native.CompiledFunction._validate_source(source)
+        result.append(visit(source, 0)[0])
+    return result
+
+
 def _residual_context(residuals, args, budget):
     _check_evaluation_budget(budget)
     _, variables, bindings, assumptions, sources, inexact = _residual_source(residuals, args)
     if inexact:
         raise ValueError("certified methods require exact source literals; replace Float with explicit Rational")
-    native = _native.SourceResidualSystem(sources, bindings)
+    native = _native.SourceResidualSystem(_preserve_source_function_tags(sources), bindings)
     return _SourceContext(native, variables, assumptions)
 
 
@@ -78,7 +119,7 @@ def _objective_context(objective, args, budget):
     source = _numeric_source(objective, _functions(), [0], inexact=inexact)
     if inexact[0]:
         raise ValueError("certified methods require exact source literals; replace Float with explicit Rational")
-    native = _native.SourceObjective(source, bindings)
+    native = _native.SourceObjective(_preserve_source_function_tags([source])[0], bindings)
     return _SourceContext(native, variables, assumptions)
 
 
@@ -102,6 +143,9 @@ def enclose_residual_system(residuals, args, box, *, precision=32, budget=None):
     inside (-1, 1); atan accepts every bounded real argument interval.
     Principal asinh accepts every bounded real argument interval; acosh requires
     the complete interval strictly above one, and atanh strictly inside (-1, 1).
+    Abs is admitted when its complete argument enclosure is strictly positive
+    or strictly negative. Crossing or touching zero refuses even at a point,
+    and all original child-domain obligations still apply.
 
     The returned ``ResidualJacobianEnclosure`` retains the original source,
     typed coordinates and box. It makes no root-existence claim. Source
@@ -165,6 +209,9 @@ def enclose_objective(objective, args, box, *, precision=32, budget=None):
     on every bounded real argument interval.
     Asinh has no additional real domain restriction; acosh requires the whole
     argument interval strictly above one, and atanh strictly inside (-1, 1).
+    Abs uses the exact locally constant sign on a strictly separated argument
+    interval, including the full gradient and Hessian chain rule. An argument
+    enclosure containing zero refuses; no nonsmooth extremum is certified.
     Crossing or touching an unresolved seam, a missing branch, Float source,
     incompatible assumptions or unsupported source grammar refuses explicitly.
 

@@ -56,6 +56,118 @@ def test_exact_source_literals_outside_binary64_range_remain_usable():
     assert third.value == (s.Rational(1, 9), s.Rational(1, 9))
 
 
+@pytest.mark.parametrize("box,value,slope", [
+    ([(1, 3)], (1, 3), 1),
+    ([(-3, -1)], (1, 3), -1),
+    ([(2, 2)], (2, 2), 1),
+    ([(-2, -2)], (2, 2), -1),
+])
+def test_absolute_value_enclosures_use_the_exact_sign_of_the_complete_box(box, value, slope):
+    x = s.Symbol("source_abs_x")
+    source = s.Abs(x)
+    residual = s.enclose_residual_system(source, x, box)
+    objective = s.enclose_objective(source, x, box)
+    assert residual.residuals == (source,)
+    assert residual.residual_values == (value,)
+    assert residual.jacobian == (((slope, slope),),)
+    assert objective.objective == source
+    assert objective.value == value
+    assert objective.gradient == ((slope, slope),)
+    assert objective.hessian == (((0, 0),),)
+
+
+def test_composed_absolute_value_keeps_mixed_second_derivatives_and_typed_axes():
+    x, y = s.symbols("source_abs_chain_x source_abs_chain_y")
+    source = s.Abs(x*y)
+    box = [(-2, -1), (2, 3)]
+    residual = s.enclose_residual_system(source, (x, y), box)
+    objective = s.enclose_objective(source, (x, y), box)
+    # Midpoint-radius multiplication may enclose more than the exact image
+    # [2, 6]; the contract is containment, not an optimal interval width.
+    lo, hi = residual.residual_values[0]
+    assert 0 < lo <= 2 and hi >= 6
+    assert residual.jacobian == (((-3, -2), (1, 2)),)
+    assert objective.value == residual.residual_values[0]
+    assert objective.gradient == ((-3, -2), (1, 2))
+    assert objective.hessian == (((0, 0), (-1, -1)), ((-1, -1), (0, 0)))
+    assert tuple(binding.name for binding in objective.variables) == (x.name, y.name)
+
+
+@pytest.mark.parametrize("box,root,inverse", [
+    ([(1, 3)], 2, 1),
+    ([(-3, -1)], -2, -1),
+])
+def test_absolute_value_root_proofs_replay_against_the_original_source(box, root, inverse):
+    x = s.Symbol("source_abs_root_x")
+    source = s.Abs(x)-2
+    receipt = s.certify_root_box(source, x, box)
+    assert receipt.root_enclosure == ((root, root),)
+    assert receipt.preconditioner == ((inverse,),)
+    assert receipt.contraction_bound == 0
+    assert receipt.residuals == (source,)
+    replayed = s.RootBoxReceipt.from_bytes(receipt.to_bytes(), residuals=source, args=x)
+    assert replayed.root_enclosure == receipt.root_enclosure
+    assert replayed.residuals == receipt.residuals
+    with pytest.raises(ValueError):
+        s.RootBoxReceipt.from_bytes(receipt.to_bytes(), residuals=x-2, args=x)
+
+
+def test_absolute_value_stationary_proof_retains_local_curvature_and_scope():
+    x = s.Symbol("source_abs_stationary_x")
+    source = s.Abs(x)+(x-2)**2
+    result = s.certify_stationary_point(source, x, [(1, 2)])
+    assert result.objective == source
+    assert result.stationary_enclosure == ((s.Rational(3, 2), s.Rational(3, 2)),)
+    assert result.hessian_enclosure == (((2, 2),),)
+    assert result.kind == "strict_minimum"
+    assert result.contraction_bound == 0
+
+
+def test_absolute_value_source_lifting_preserves_the_builtin_and_rejects_opaque_names():
+    x = s.Symbol("source_abs_identity_x")
+    custom = s.Function("abs")
+    for operation in ENCLOSERS:
+        with pytest.raises(NotImplementedError):
+            operation(custom(x), x, [(1, 2)])
+    source = s.Abs(x)
+    result = s.enclose_objective(source, x, [(1, 2)])
+    assert type(result.objective) is s.Abs
+    assert result.objective == source
+    assert type(s.enclose_residual_system(source, x, [(1, 2)]).residuals[0]) is s.Abs
+    # Branch guards and held arithmetic pass through the same source-only
+    # mapping; ordinary numerical compilation still uses its existing IR.
+    piecewise = s.Piecewise((source, source > 0), (1, True), evaluate=False)
+    assert s.enclose_objective(piecewise, x, [(1, 2)]).gradient == ((1, 1),)
+    assert s.compile_numeric(x, source)(-3) == 3
+
+
+@pytest.mark.parametrize("box", [[(-1, 1)], [(0, 2)], [(-2, 0)], [(0, 0)]])
+@pytest.mark.parametrize("operation", ENCLOSERS)
+def test_absolute_value_corners_refuse_even_at_a_point_or_under_held_shortcuts(box, operation):
+    x = s.Symbol("source_abs_corner_x")
+    corner = s.Abs(x)
+    for source in (corner, s.Mul(0, corner, evaluate=False), s.Pow(corner, 0, evaluate=False)):
+        with pytest.raises(ValueError):
+            operation(source, x, box)
+
+
+@pytest.mark.parametrize("operation", ENCLOSERS)
+def test_absolute_value_does_not_hide_original_child_poles_or_reset_the_budget(operation):
+    x = s.Symbol("source_abs_domain_x")
+    pole = s.Pow(x, -1, evaluate=False)
+    hidden = s.Mul(0, pole, evaluate=False)
+    source = s.Abs(s.Add(2, hidden, evaluate=False), evaluate=False)
+    with pytest.raises(ValueError):
+        operation(source, x, [(-1, 1)])
+    budget = ample_budget(max_steps=0)
+    with pytest.raises(s.EvaluationBudgetExceeded):
+        operation(s.Abs(x), x, [(1, 2)], budget=budget)
+    cancelled = ample_budget()
+    cancelled.cancel()
+    with pytest.raises(s.EvaluationCancelled):
+        operation(s.Abs(x), x, [(1, 2)], budget=cancelled)
+
+
 def test_piecewise_root_retains_original_source_and_skips_inactive_logarithm():
     x = s.Symbol("source_piecewise_root_x")
     source = s.Piecewise((x-1, x > 0), (s.log(-x), True))
