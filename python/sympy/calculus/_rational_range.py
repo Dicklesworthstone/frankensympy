@@ -12,24 +12,26 @@ from functools import cmp_to_key
 
 from ..core import (
     Add, Dummy, Half, Integer, Mul, NegativeOne, One, Pow, Rational, Symbol,
-    Zero, _native, _native_expr, _require_closed_function_class, oo,
+    Zero, _charge_nested_if_active, _native, _native_expr,
+    _require_closed_function_class, _surface_binding_key, _symbol_binding, oo,
 )
 from ..sets.sets import (
-    EmptySet, Interval, Reals, Set, _EMPTY_SET, _REALS, _wrap_set,
+    Complement, EmptySet, FiniteSet, Intersection, Interval, Reals, Set, Union,
+    _EMPTY_SET, _REALS, _wrap_set,
 )
 from ..core._function_capabilities import _implementation, _owner_matches, _owner_record
-from .singularities import (
-    _get_symbol_and_interval, _monotonicity_chart, _monotonicity_interval,
-)
+from .singularities import _monotonicity_bound, _monotonicity_chart
 
 
 _ATOMS = (Integer, Rational, Zero, One, NegativeOne, Half)
+_DOMAINS = (Interval, Reals, EmptySet, FiniteSet, Union, Intersection, Complement)
 _MISSING = object()
 _EXACT_VALUE_NAMES = (
     "p", "q", "__int__", "__neg__", "__truediv__", "__rtruediv__",
     "__add__", "__radd__", "__mul__", "__rmul__", "__pow__", "__str__",
     "_assumptions", "_dummy_name", "_dummy_number", "name", "dummy_index",
-    "_native_set", "start", "end", "left_open", "right_open",
+    "_native_set", "_py_args", "_surface_elements",
+    "start", "end", "left_open", "right_open",
 )
 
 
@@ -61,7 +63,7 @@ def _surface_matches(owner, surface, exact):
 _SURFACE_OWNERS = tuple(
     (owner, _owner_record(owner), _exact_value_record(owner))
     for owner in dict.fromkeys(
-        owner for cls in (Add, Mul, Pow, Symbol, Dummy, *_ATOMS, Interval, Reals, EmptySet)
+        owner for cls in (Add, Mul, Pow, Symbol, Dummy, *_ATOMS, *_DOMAINS)
         for owner in (*type.__dict__["__mro__"].__get__(cls),
                       *type.__dict__["__mro__"].__get__(type(cls)))
     )
@@ -89,6 +91,15 @@ def _expression(bound):
     return -oo if bound[0] < 0 else oo if bound[0] > 0 else bound[1]
 
 
+def _check_atom(kind, native):
+    if not (native.is_integer if kind not in (Rational, Half)
+            else native.is_integer or native.is_rational):
+        raise NotImplementedError("exact rational number does not match its native value")
+    fixed = {Zero: (0, 1), One: (1, 1), NegativeOne: (-1, 1), Half: (1, 2)}.get(kind)
+    if fixed is not None and (native.exact_numerator(), native.exact_denominator()) != fixed:
+        raise NotImplementedError("exact rational constant does not match its native value")
+
+
 class _Work:
     """Intrinsic bounds shared by every Python-side stage of one request.
 
@@ -104,6 +115,7 @@ class _Work:
         self.operations += amount
         if self.operations > 4_000_000:
             raise NotImplementedError("exact rational range arithmetic limit exceeded")
+        _charge_nested_if_active(amount)
 
     def scalar(self, value):
         if max(abs(value.numerator).bit_length(), value.denominator.bit_length()) > 32_768:
@@ -120,6 +132,7 @@ class _Work:
         return self.scalar(left*right if multiply else left + right)
 
     def compare(self, left, right):
+        self.step()
         self.decisions += 1
         if self.decisions > 16_384:
             raise NotImplementedError("exact rational range comparison limit exceeded")
@@ -352,27 +365,128 @@ def _intersection(left, right, work):
     return lower, upper, left_open, right_open
 
 
-def _admit(expression, symbol, domain, work, guard=None):
-    # Admission precedes both source args access and interval lifting. Even an
-    # already-constructed Interval must not invoke a changed CRootOf.is_real,
-    # poly or index implementation while recovering its native endpoints.
+def _domain_pieces(domain, work, guard):
+    """Partition one exact real set expression without sampling its gaps.
+
+    The existing domain reader bounds and snapshots the complete native tree,
+    including every complement child, before any decision. An ordered list of
+    its exact boundaries then makes membership constant on each point/open
+    gap cell. Set operations become bounded Boolean operations on that common
+    partition, avoiding recursive solver calls or expanding intersections into
+    a Cartesian product of unions.
+    """
+    from ..core import _wrap
     from ..polys.rootoftools import CRootOf
+    from ..solvers._real_domain import _Domain
 
     _require_closed_function_class(CRootOf)
     _require_original_surface()
-    expression, domain, symbol = _get_symbol_and_interval(expression, domain, symbol)
-    interval = _monotonicity_interval(domain)
-    if interval is None:
-        return expression, symbol, []
-    chart = _monotonicity_chart(Mul(0, expression, evaluate=False), symbol, ">=")
-    if guard is not None:
-        guard()
-    pieces = []
-    for piece in _chart_pieces(chart):
-        clipped = _intersection(piece, interval, work)
+    work.step()
+    snapshot = _Domain(domain)
+    guard()
+    if not snapshot.real:
+        return STATIONARY_UNSUPPORTED
+
+    endpoints = {}
+    for native, descriptor in snapshot.domain_values:
+        work.step()
+        if descriptor is None:
+            return STATIONARY_UNSUPPORTED
+        value = _wrap(native)
+        if type(value) not in (*_ATOMS, CRootOf):
+            # Range evaluation currently accepts rational arithmetic in
+            # genuine indexed roots. Other exact/symbolic endpoint grammars
+            # remain outside this lane even if a solver can compare them.
+            if descriptor[0] != "infinity":
+                return STATIONARY_UNSUPPORTED
+        bound = _monotonicity_bound(value)
+        if descriptor[0] != "infinity":
+            endpoints.setdefault(descriptor, bound)
+
+    def compare(left, right):
+        work.step()
+        order = snapshot.compare(left, right)
+        if order is None:
+            raise NotImplementedError("exact rational domain boundary order is undecided")
+        return order
+
+    ordered = sorted(endpoints, key=cmp_to_key(compare))
+    indices, boundaries = {}, []
+    previous = None
+    for descriptor in ordered:
+        work.step()
+        if previous is None or compare(previous, descriptor):
+            boundaries.append(endpoints[descriptor])
+            previous = descriptor
+        # Distinct polynomials or bound names may denote the same real root.
+        # Every alias receives the same point cell, by checked exact order.
+        indices[descriptor] = len(boundaries) - 1
+    width = 2*len(boundaries) + 1
+
+    def partition(tree):
+        work.step(width)
+        kind = tree[0]
+        if kind == "EmptySet":
+            return [False]*width
+        if kind == "UniversalSet":
+            # This is an internal real-line cell universe. The complete
+            # outer domain was separately required to be a subset of Reals.
+            return [True]*width
+        if kind == "Interval":
+            lower, upper = tree[1:3]
+            first = ((0 if lower[1] < 0 else width) if lower[0] == "infinity"
+                     else 2*indices[lower] + (2 if tree[3] else 1))
+            stop = ((0 if upper[1] < 0 else width) if upper[0] == "infinity"
+                    else 2*indices[upper] + (1 if tree[4] else 2))
+            return [first <= position < stop for position in range(width)]
+        if kind == "FiniteSet":
+            cells = [False]*width
+            for descriptor in tree[1]:
+                work.step()
+                cells[2*indices[descriptor] + 1] = True
+            return cells
+        if kind == "Complement":
+            return [not cell for cell in partition(tree[1][0])]
+        cells = [kind == "Intersection"]*width
+        for child in tree[1]:
+            other = partition(child)
+            work.step(width)
+            if kind == "Union":
+                cells = [left or right for left, right in zip(cells, other)]
+            else:
+                cells = [left and right for left, right in zip(cells, other)]
+        return cells
+
+    cells = partition(snapshot.tree)
+    snapshot.unchanged()
+    guard()
+    work.step(width)
+    return _chart_pieces((boundaries, cells))
+
+
+def _intersect_pieces(left, right, work):
+    """Intersect sorted disjoint interval/point lists in one bounded sweep."""
+    result = []
+    i = j = 0
+    while i < len(left) and j < len(right):
+        work.step()
+        clipped = _intersection(left[i], right[j], work)
         if clipped is not None:
-            pieces.append(clipped)
-    return expression, symbol, pieces
+            result.append(clipped)
+        order = work.compare(left[i][1], right[j][1])
+        if order <= 0:
+            i += 1
+        if order >= 0:
+            j += 1
+    return result
+
+
+def _admit(expression, symbol, components, work, guard):
+    if not components:
+        return []
+    chart = _monotonicity_chart(Mul(0, expression, evaluate=False), symbol, ">=")
+    guard()
+    return _intersect_pieces(_chart_pieces(chart), components, work)
 
 
 def _merge(pieces, work):
@@ -414,10 +528,10 @@ def _as_set(pieces, work):
     return _wrap_set(_native.SymSet.union_many(parts))
 
 
-def _range_pieces(expression, symbol, domain, work, guard=None):
+def _range_pieces(expression, symbol, components, work, guard):
     from ..core import diff_with_receipt
 
-    expression, symbol, components = _admit(expression, symbol, domain, work, guard)
+    components = _admit(expression, symbol, components, work, guard)
     if not components:
         return []
     numerator, denominator = _fraction(expression, symbol, work)
@@ -465,19 +579,19 @@ def _range_pieces(expression, symbol, domain, work, guard=None):
     return _merge(pieces, work)
 
 
-def _rational_source_request(expression, symbol, domain):
+def _rational_source_request(expression, symbol, domain, work):
     """Select a rational lane and retain its original source until return.
 
     Unsupported grammar is decided before mathematical work. A selected
     request never converts an operational or verification failure into an
-    unsupported result. Stationary points and interval images share these
+    unsupported result. Stationary points, extrema and images share these
     exact-class, typed-symbol and mutable-source checks.
     """
     from ..core import Expr, _wrap
     from ..polys.rootoftools import CRootOf
 
     if (domain is not None and domain is not Reals and domain is not EmptySet
-            and not any(type(domain) is owner for owner in (Interval, Reals, EmptySet))):
+            and not any(type(domain) is owner for owner in _DOMAINS)):
         return STATIONARY_UNSUPPORTED
     if any(type(expression) is owner for owner in (int, str, Expr, _native.Expr)):
         _require_original_surface()
@@ -489,10 +603,36 @@ def _rational_source_request(expression, symbol, domain):
     _require_closed_function_class(CRootOf)
     domain = _REALS if domain is None or domain is Reals else _EMPTY_SET if domain is EmptySet else domain
     domain_native = _STATIONARY_DOMAIN_SLOT.__get__(domain, Set)
+    if domain_native is None and type(domain) in (Union, Intersection, Complement):
+        return STATIONARY_UNSUPPORTED
     if type(domain_native) is not _native.SymSet:
-        raise NotImplementedError("exact rational analysis requires valid original interval storage")
+        raise NotImplementedError("exact rational analysis requires valid original domain storage")
+    expected_kind = next(name for owner, name in (
+        (Interval, "Interval"), (Reals, "Interval"), (EmptySet, "EmptySet"),
+        (FiniteSet, "FiniteSet"), (Union, "Union"),
+        (Intersection, "Intersection"), (Complement, "Complement"),
+    ) if type(domain) is owner)
+    if domain_native.kind != expected_kind:
+        raise NotImplementedError("exact rational domain class does not match its native storage")
+    domain_native.real_domain_preflight()
+    if (type(domain) is Reals and
+            (domain_native.start != _native_expr(-oo) or domain_native.end != _native_expr(oo)
+             or not domain_native.left_open or not domain_native.right_open)):
+        raise NotImplementedError("exact rational Reals domain does not match its native storage")
+    try:
+        domain_arguments = object.__getattribute__(domain, "_py_args")
+    except AttributeError:
+        domain_arguments = _MISSING
+    if domain_arguments is not _MISSING and domain_arguments is not None:
+        raise NotImplementedError("exact rational domain does not match its native storage")
+    try:
+        domain_elements = object.__getattribute__(domain, "_surface_elements")
+    except AttributeError:
+        domain_elements = _MISSING
     pending = [(expression, 0)]
     records = []
+    domain_records = []
+    arithmetic = []
     symbols = set()
 
     def snapshot(node):
@@ -517,7 +657,65 @@ def _rational_source_request(expression, symbol, domain):
             facts = tuple(sorted(assumptions.items()))
         return node, _native_expr(node), storage, facts
 
+    if domain_elements is not _MISSING and domain_elements is not None:
+        if (type(domain) is not FiniteSet or type(domain_elements) is not tuple
+                or len(domain_elements) > 128):
+            raise NotImplementedError("exact rational domain requires bounded finite points in original storage")
+        # Preflight the borrowed graph before cloning members from native
+        # storage. FiniteSet keeps separate Python objects for their visible
+        # identity, so stale or forged tuples cannot silently use old members.
+        if domain_native.kind != "FiniteSet":
+            raise NotImplementedError("finite domain does not match its native storage")
+        members = domain_native.elements
+        if len(members) != len(domain_elements):
+            raise NotImplementedError("finite domain elements do not match their native storage")
+        for member, native in zip(domain_elements, members):
+            work.step()
+            if not any(type(member) is owner for owner in (*_ATOMS, CRootOf)):
+                return STATIONARY_UNSUPPORTED
+            if _native_expr(member) != native:
+                raise NotImplementedError("finite domain elements do not match their native storage")
+        member_nodes = [(member, 0) for member in domain_elements]
+        while member_nodes:
+            work.step()
+            node, depth = member_nodes.pop()
+            if len(domain_records) >= 16384 or depth > 64:
+                raise NotImplementedError("finite domain scalar source limit exceeded")
+            kind = type(node)
+            if not any(kind is owner for owner in (*_ATOMS, CRootOf, Add, Mul, Pow, Symbol, Dummy)):
+                raise NotImplementedError("finite domain elements require original exact scalar owners")
+            children = node.args
+            if type(children) is not tuple or len(children) > 256:
+                raise NotImplementedError("finite domain elements require bounded original arguments")
+            record = snapshot(node)
+            native = record[1]
+            if kind in (Symbol, Dummy):
+                if (children or not native.is_symbol or _surface_binding_key(native.symbol_binding)
+                        != _surface_binding_key(_symbol_binding(node))):
+                    raise NotImplementedError("finite domain symbol has inconsistent typed assumptions")
+            elif kind in _ATOMS:
+                if children:
+                    raise NotImplementedError("finite domain number does not match its native value")
+                _check_atom(kind, native)
+            elif kind is CRootOf:
+                native_children = native.args
+                if (native.func_name != "CRootOf" or len(children) != 2
+                        or len(native_children) != len(children)
+                        or any(_native_expr(child) != stored for child, stored
+                               in zip(children, native_children))):
+                    raise NotImplementedError("finite domain root does not match its original arguments")
+            else:
+                operation = "add" if kind is Add else "mul" if kind is Mul else "pow"
+                _native.ideal_source_arguments_native(
+                    native, operation, [_native_expr(child) for child in children],
+                )
+            domain_records.append(record)
+            if len(children) > 16384-len(domain_records)-len(member_nodes):
+                raise NotImplementedError("finite domain scalar source limit exceeded")
+            member_nodes.extend((child, depth + 1) for child in children)
+
     while pending:
+        work.step()
         node, depth = pending.pop()
         if len(records) >= 2048 or depth > 64:
             raise NotImplementedError("exact rational source limit exceeded")
@@ -535,20 +733,58 @@ def _rational_source_request(expression, symbol, domain):
             raise NotImplementedError("exact rational source limit exceeded")
         if kind in (Symbol, Dummy):
             symbols.add(node)
-        records.append(snapshot(node))
+        record = snapshot(node)
+        native = record[1]
+        if kind in (Symbol, Dummy):
+            if (not native.is_symbol or _surface_binding_key(native.symbol_binding)
+                    != _surface_binding_key(_symbol_binding(node))):
+                raise NotImplementedError("exact rational symbol has inconsistent typed assumptions")
+        elif kind in (Add, Mul, Pow):
+            operation = "add" if kind is Add else "mul" if kind is Mul else "pow"
+            arithmetic.append((native, operation, children))
+        else:
+            _check_atom(kind, native)
+        records.append(record)
         pending.extend((child, depth + 1) for child in children)
     if ((symbol is None and len(symbols) > 1)
             or (symbol is not None and type(symbol) is not Symbol and type(symbol) is not Dummy)
             or (symbol is not None and symbols - {symbol})):
         return STATIONARY_UNSUPPORTED
-    if symbol is not None:
-        records.append(snapshot(symbol))
+    # Select the complete grammar before running a structural check whose
+    # contract deliberately refuses Float/function atoms. Such unsupported
+    # syntax must still remain a formal imageset, rather than an attempted
+    # mathematical computation with a swallowed failure.
+    for native, operation, children in arithmetic:
+        work.step(len(children) + 1)
+        _native.ideal_source_arguments_native(
+            native, operation, [_native_expr(child) for child in children],
+        )
+    if symbol is None:
+        symbol = next(iter(symbols)) if symbols else Symbol("x")
+    coordinate = snapshot(symbol)
+    if (not coordinate[1].is_symbol or _surface_binding_key(coordinate[1].symbol_binding)
+            != _surface_binding_key(_symbol_binding(symbol))):
+        raise NotImplementedError("exact rational coordinate has inconsistent typed assumptions")
+    records.append(coordinate)
+    records.extend(domain_records)
 
     def unchanged():
         _require_original_surface()
         _require_closed_function_class(CRootOf)
         if _STATIONARY_DOMAIN_SLOT.__get__(domain, Set) is not domain_native:
             raise NotImplementedError("exact rational domain changed during checking")
+        try:
+            current_arguments = object.__getattribute__(domain, "_py_args")
+        except AttributeError:
+            current_arguments = _MISSING
+        if current_arguments is not domain_arguments:
+            raise NotImplementedError("exact rational domain changed during checking")
+        try:
+            current_elements = object.__getattribute__(domain, "_surface_elements")
+        except AttributeError:
+            current_elements = _MISSING
+        if current_elements is not domain_elements:
+            raise NotImplementedError("exact rational finite domain elements changed during checking")
         for node, native, storage, facts in records:
             if _native_expr(node) is not native:
                 raise NotImplementedError("exact rational source changed during checking")
@@ -570,36 +806,30 @@ def _rational_source_request(expression, symbol, domain):
 
 
 def rational_image(expression, symbol, domain, guard=None):
-    """Return an exact interval image, or decline unsupported input syntax.
+    """Return an exact real set image, or decline unsupported input syntax.
 
     This selector is used by imageset, where unsupported syntax remains a
     formal ImageSet. Bounds and source grammar are selected before running
     the checked range engine; all failures after selection stay terminal.
     """
-    from ..core import Expr
-    from ..polys.rootoftools import CRootOf
-
-    request = _rational_source_request(expression, symbol, domain)
-    if request is STATIONARY_UNSUPPORTED:
-        return STATIONARY_UNSUPPORTED
-    expression, symbol, domain, source_unchanged = request
-    if type(domain) is not EmptySet:
-        for bound in (domain.start, domain.end):
-            if type(bound) in _ATOMS or type(bound) is CRootOf:
-                continue
-            if type(bound) is Expr and (bound == oo or bound == -oo):
-                continue
-            return STATIONARY_UNSUPPORTED
-
-    def unchanged():
-        source_unchanged()
-        if guard is not None:
-            guard()
-
     work = _Work()
     try:
+        request = _rational_source_request(expression, symbol, domain, work)
+        if request is STATIONARY_UNSUPPORTED:
+            return STATIONARY_UNSUPPORTED
+        expression, symbol, domain, source_unchanged = request
+
+        def unchanged():
+            source_unchanged()
+            if guard is not None:
+                guard()
+
         unchanged()
-        pieces = _range_pieces(expression, symbol, domain, work, unchanged)
+        components = _domain_pieces(domain, work, unchanged)
+        unchanged()
+        if components is STATIONARY_UNSUPPORTED:
+            return STATIONARY_UNSUPPORTED
+        pieces = _range_pieces(expression, symbol, components, work, unchanged)
         unchanged()
         result = _as_set(pieces, work)
         unchanged()
@@ -611,7 +841,7 @@ def rational_image(expression, symbol, domain, guard=None):
 def rational_stationary_points(expression, symbol, domain):
     """Complete stationary points of an admitted original rational source.
 
-    Nonrational syntax and non-interval domains retain the existing public
+    Nonrational syntax and unsupported set domains retain the existing public
     solver route, selected before any native mathematical check. Once this
     lane admits a source, failed checks and exhausted bounds are terminal.
     The derivative's two complete sign charts establish its exact zero set;
@@ -619,14 +849,18 @@ def rational_stationary_points(expression, symbol, domain):
     """
     from ..core import diff_with_receipt
 
-    request = _rational_source_request(expression, symbol, domain)
-    if request is STATIONARY_UNSUPPORTED:
-        return STATIONARY_UNSUPPORTED
-    expression, symbol, domain, unchanged = request
-
     work = _Work()
     try:
-        expression, symbol, components = _admit(expression, symbol, domain, work, unchanged)
+        request = _rational_source_request(expression, symbol, domain, work)
+        if request is STATIONARY_UNSUPPORTED:
+            return STATIONARY_UNSUPPORTED
+        expression, symbol, domain, unchanged = request
+        unchanged()
+        components = _domain_pieces(domain, work, unchanged)
+        unchanged()
+        if components is STATIONARY_UNSUPPORTED:
+            return STATIONARY_UNSUPPORTED
+        components = _admit(expression, symbol, components, work, unchanged)
         unchanged()
         if not components:
             result = _as_set([], work)
@@ -643,14 +877,8 @@ def rational_stationary_points(expression, symbol, domain):
             raise ValueError("inconsistent stationary-point critical-root charts")
         zeros = _chart_pieces((roots, [left and right for left, right in
                                       zip(nonnegative, nonpositive)]))
-        pieces = []
-        for component in components:
-            for zero in zeros:
-                work.step()
-                clipped = _intersection(component, zero, work)
-                if clipped is not None:
-                    pieces.append(clipped)
-        result = _as_set(_merge(pieces, work), work)
+        pieces = _intersect_pieces(components, zeros, work)
+        result = _as_set(pieces, work)
         unchanged()
         return result
     except (OverflowError, ValueError) as exc:
@@ -659,19 +887,46 @@ def rational_stationary_points(expression, symbol, domain):
         ) from None
 
 
+def _rational_analysis_request(request, domain, operation, work):
+    """Complete one retained request without resetting its work ledger."""
+    try:
+        if request is STATIONARY_UNSUPPORTED:
+            if (domain is not None and domain is not Reals and domain is not EmptySet
+                    and not isinstance(domain, Set)):
+                raise TypeError("exact rational analysis domain must be a real set")
+            raise NotImplementedError("exact rational analysis requires a supported rational source and real domain")
+        expression, symbol, domain, unchanged = request
+        unchanged()
+        components = _domain_pieces(domain, work, unchanged)
+        unchanged()
+        if components is STATIONARY_UNSUPPORTED:
+            raise NotImplementedError("exact rational analysis requires rational or real CRootOf domain boundaries")
+        if operation == "domain":
+            pieces = _admit(expression, symbol, components, work, unchanged)
+            result = _as_set(pieces, work)
+            unchanged()
+            return result
+        pieces = _range_pieces(expression, symbol, components, work, unchanged)
+        unchanged()
+        if operation == "range":
+            result = _as_set(pieces, work)
+            unchanged()
+            return result
+        if pieces:
+            bound = pieces[0][0] if operation == "minimum" else pieces[-1][1]
+            result = _expression(bound)
+            unchanged()
+            return result
+    except (OverflowError, ValueError) as exc:
+        raise NotImplementedError("exact rational %s could not be determined: %s" % (operation, exc)) from None
+    raise ValueError("%s value not defined for empty domain." % operation.capitalize())
+
+
 def rational_analysis(expression, symbol, domain, operation):
     """One bounded public request; exhausted/unsupported decisions refuse."""
     work = _Work()
     try:
-        if operation == "domain":
-            _, _, pieces = _admit(expression, symbol, domain, work)
-            return _as_set(pieces, work)
-        pieces = _range_pieces(expression, symbol, domain, work)
-        if operation == "range":
-            return _as_set(pieces, work)
-        if pieces:
-            bound = pieces[0][0] if operation == "minimum" else pieces[-1][1]
-            return _expression(bound)
+        request = _rational_source_request(expression, symbol, domain, work)
     except (OverflowError, ValueError) as exc:
         raise NotImplementedError("exact rational %s could not be determined: %s" % (operation, exc)) from None
-    raise ValueError("%s value not defined for empty domain." % operation.capitalize())
+    return _rational_analysis_request(request, domain, operation, work)

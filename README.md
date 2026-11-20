@@ -835,12 +835,36 @@ before evaluating endpoints. Transcendental values are never ordered by
 floating samples. A defined negative principal fractional power is not
 silently treated as a real odd root.
 
-This bounded lane accepts one elementary function of one rational expression
-on an exact real interval; it refuses correlated sums such as `exp(x) + x`,
-nested elementary functions, unsupported domains, and exhausted exact checks.
-It is a shell composition over existing checked native results, with intrinsic
-resource bounds; it does not supply a new portable range certificate or close
-the full SymPy compatibility profile.
+Domains may be exact real intervals, finite sets, unions, intersections, or
+complements of those sets, including disconnected and unbounded sets. Finite
+boundaries must be rational or genuine real `CRootOf` values. The rational
+`stationary_points` and `imageset` lanes accept the same compound domains.
+This lets the result of `continuous_domain` feed directly into range and
+extremum calculations:
+
+```python
+from sympy import Complement, FiniteSet, Interval, exp
+
+punctured = Complement(Interval(0, 2), FiniteSet(1))
+function_range(x**2, x, punctured)
+# Union(Interval.Ropen(0, 1), Interval.Lopen(1, 4))
+function_range(exp(x), x, punctured)
+# Union(Interval.Ropen(1, exp(1)), Interval.Lopen(exp(1), exp(2)))
+```
+
+The domain tree becomes one exact partition of points and open gaps, which is
+intersected with the original source's definedness before any image is
+published. All components share one work ledger and complete native sign
+charts. A point removed from the source cannot be restored by a union in the
+requested domain; an isolated point can restore an attained value only when
+the source is defined there.
+
+This bounded lane accepts one elementary function of one rational expression;
+it refuses correlated sums such as `exp(x) + x`, nested elementary functions,
+unsupported domain leaves, and exhausted exact checks. It is a shell
+composition over existing checked native results, with intrinsic resource
+bounds; it does not supply a new portable range certificate or close the full
+SymPy compatibility profile.
 
 ---
 

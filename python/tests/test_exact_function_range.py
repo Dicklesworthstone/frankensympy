@@ -275,14 +275,21 @@ class ExactFunctionRangeTests(unittest.TestCase):
         x = self.x
         bound = s.Symbol("range_symbolic_bound")
         domains = (s.Interval(bound, 2), s.Interval(0, s.sqrt(2)),
-                   s.Interval(s.Float("0.5"), 1), s.FiniteSet(0, 1),
-                   s.Union(s.Interval(-2, -1), s.Interval(1, 2)))
+                   s.Interval(s.Float("0.5"), 1))
         for domain in domains:
             with self.subTest(domain=domain):
                 with self.assertRaises(NotImplementedError):
                     s.function_range(x, x, domain)
         with self.assertRaises(TypeError):
             s.function_range(x, x, [0, 1])
+
+    def test_finite_and_disconnected_domains_have_complete_images(self):
+        x = self.x
+        self.assertEqual(s.function_range(x*x, x, s.FiniteSet(-2, 1, 3)),
+                         s.FiniteSet(1, 4, 9))
+        self.assertEqual(s.function_range(x*x, x,
+                         s.Union(s.Interval(-3, -2), s.Interval.Lopen(1, 2))),
+                         s.Interval.Lopen(1, 9))
 
     def test_original_domain_failure_precedes_derivative_work(self):
         x = self.x

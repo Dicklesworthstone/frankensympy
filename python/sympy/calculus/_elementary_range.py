@@ -13,15 +13,16 @@ Its intrinsic bounds and the native checks' meters remain separate.
 from fractions import Fraction
 
 from ..core import (
-    Dummy, Expr, Integer, Rational, Symbol, _charge_nested_if_active,
+    Dummy, Expr, Integer, Rational, Symbol,
     _native, _native_expr, _wrap,
 )
 from ..sets.sets import _wrap_set
+from . import _rational_range as _rational
 from ._elementary_domain import _Source
 from ._rational_range import (
-    STATIONARY_UNSUPPORTED, _NEGATIVE_INFINITY, _POSITIVE_INFINITY, _Work,
-    _expression, _finite, _intersection, _merge, _range_pieces,
-    _rational_source_request, _require_original_surface, rational_analysis,
+    STATIONARY_UNSUPPORTED, _NEGATIVE_INFINITY, _POSITIVE_INFINITY,
+    _domain_pieces, _expression, _finite, _intersection, _merge, _range_pieces,
+    _rational_analysis_request, _rational_source_request, _require_original_surface,
 )
 
 
@@ -47,7 +48,6 @@ def _scalar(node, work):
 def _select(node, work):
     """Select the whole grammar before running mathematical algorithms."""
     work.step()
-    _charge_nested_if_active(1)
     if node.rational:
         return node, "identity", None, Fraction(1), Fraction(0)
     if node.tag in _FUNCTIONS and node.children[0].rational:
@@ -141,7 +141,6 @@ def _evaluate(tag, value):
 def _endpoint(bound, tag, power, work):
     """Exact values and one-sided real limits at the branch endpoints."""
     work.step()
-    _charge_nested_if_active(1)
     if tag == "Abs":
         return bound  # The algebraic input image has already been folded.
     if bound[0]:
@@ -210,21 +209,27 @@ def _render(pieces, operation):
 
 def elementary_analysis(expression, symbol, domain, operation):
     """Select an exact rational or elementary image; failures stay terminal."""
-    # Preserve the established rational lane and its original input envelope.
-    request = _rational_source_request(expression, symbol, domain)
+    # Both lanes retain one request-wide ledger through source selection,
+    # domain partitioning, rational images and elementary endpoint mapping.
+    work = _rational._Work()
+    try:
+        request = _rational_source_request(expression, symbol, domain, work)
+    except (OverflowError, ValueError) as exc:
+        raise NotImplementedError(
+            "exact rational %s could not be determined: %s" % (operation, exc)
+        ) from None
     if request is not STATIONARY_UNSUPPORTED:
-        return rational_analysis(expression, symbol, domain, operation)
+        return _rational_analysis_request(request, domain, operation, work)
     _require_original_surface()
     if type(expression) is str:
         if len(expression) > 4096:
             raise ValueError("elementary range source text exceeds 4096 characters")
         expression = _wrap(_native_expr(expression))
-    work = _Work()
     capture = _Source()
     tree = capture.read(expression)
     if tree.rational:
         # Keep existing unsupported-domain behavior for the rational API.
-        return rational_analysis(expression, symbol, domain, operation)
+        return _rational_analysis_request(request, domain, operation, work)
     leaf, tag, power, scale, offset = _select(tree, work)
     source_symbols = tuple(capture.capture.symbols)
     if symbol is None:
@@ -236,7 +241,12 @@ def elementary_analysis(expression, symbol, domain, operation):
     capture.symbol(symbol)
     if any(coordinate != symbol for coordinate in source_symbols):
         _unsupported()
-    request = _rational_source_request(_wrap(leaf.native), symbol, domain)
+    try:
+        request = _rational_source_request(_wrap(leaf.native), symbol, domain, work)
+    except (OverflowError, ValueError) as exc:
+        raise NotImplementedError(
+            "exact elementary %s could not be determined: %s" % (operation, exc)
+        ) from None
     if request is STATIONARY_UNSUPPORTED:
         _unsupported()
     base, symbol, domain, base_unchanged = request
@@ -247,7 +257,11 @@ def elementary_analysis(expression, symbol, domain, operation):
 
     try:
         unchanged()
-        pieces = _range_pieces(base, symbol, domain, work, unchanged)
+        components = _domain_pieces(domain, work, unchanged)
+        unchanged()
+        if components is STATIONARY_UNSUPPORTED:
+            _unsupported()
+        pieces = _range_pieces(base, symbol, components, work, unchanged)
         unchanged()
         pieces, direction = _branch_image(pieces, tag, power, work)
         mapped = []

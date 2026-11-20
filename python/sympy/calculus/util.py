@@ -113,10 +113,11 @@ def continuous_domain(expression: Any, symbol: Any = None, domain: Any = None) -
 def stationary_points(expression: Any, symbol: Any = None, domain: Any = None) -> Set:
     """Return the points in the function's domain where its derivative is zero.
 
-    Exact rational functions on connected real intervals use complete checked
-    sign charts and retain original held denominator exclusions. An omitted
-    domain means the real line in this lane; other syntax keeps the existing
-    symbolic solver route.
+    Exact rational functions on bounded real set expressions use complete
+    checked sign charts and retain original held denominator exclusions.
+    Intervals, finite sets, unions, intersections and relative complements
+    retain exact rational or real CRootOf boundaries. An omitted domain means
+    the real line in this lane; other syntax keeps the symbolic solver route.
     """
     from ..core import diff
     from ..solvers import solveset
@@ -180,12 +181,14 @@ def periodicity(f: Any, symbol: Any = None, check: bool = False) -> Any:
 def function_range(f: Any, symbol: Any, domain: Any) -> Set:
     """Return the exact image of an admitted rational or elementary function.
 
-    Original domain holes split the input interval before complete critical
-    point and one-sided endpoint analysis. Open endpoints, algebraic bounds
-    and unbounded images are retained; no sampled value establishes a range.
-    Supported elementary functions of a rational expression and rational
-    affine output transformations use exact branch restriction and monotone
-    images. Independent varying operands and unknown real branches refuse.
+    Intervals, finite sets and their bounded unions, intersections and relative
+    complements share one exact domain partition. Original holes split its
+    components before complete critical-point and one-sided endpoint analysis.
+    Open endpoints, real CRootOf bounds and unbounded images are retained;
+    no sampled value establishes a range. Supported elementary functions of
+    a rational expression and rational affine output transformations use
+    exact branch restriction and monotone images. Independent varying
+    operands and unknown real branches refuse.
     """
     return _range_analysis(f, symbol, domain, "range")
 

@@ -270,6 +270,7 @@ jobs:
               "python/tests/test_objective_program_transport.py",
               "python/tests/test_source_certification.py",
               "python/tests/test_polynomial_evaluation.py",
+              "python/tests/test_rational_compound_domains.py",
               "python/tests/test_compiled_objective.py",
               "python/tests/test_complex_float_conversion.py",
               "python/tests/test_float_conversion_termination.py",
