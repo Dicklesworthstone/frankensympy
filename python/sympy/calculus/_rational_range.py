@@ -477,13 +477,13 @@ def _rational_source_request(expression, symbol, domain):
     from ..polys.rootoftools import CRootOf
 
     if (domain is not None and domain is not Reals and domain is not EmptySet
-            and type(domain) not in (Interval, Reals, EmptySet)):
+            and not any(type(domain) is owner for owner in (Interval, Reals, EmptySet))):
         return STATIONARY_UNSUPPORTED
-    if type(expression) in (int, str, Expr, _native.Expr):
+    if any(type(expression) is owner for owner in (int, str, Expr, _native.Expr)):
         _require_original_surface()
         expression = _wrap(_native_expr(expression))
     kinds = (Add, Mul, Pow, Symbol, Dummy, *_ATOMS)
-    if type(expression) not in kinds:
+    if not any(type(expression) is owner for owner in kinds):
         return STATIONARY_UNSUPPORTED
     _require_original_surface()
     _require_closed_function_class(CRootOf)
@@ -522,13 +522,14 @@ def _rational_source_request(expression, symbol, domain):
         if len(records) >= 2048 or depth > 64:
             raise NotImplementedError("exact rational source limit exceeded")
         kind = type(node)
-        if kind not in kinds:
+        if not any(kind is owner for owner in kinds):
             return STATIONARY_UNSUPPORTED
         children = node.args
         if (type(children) is not tuple or (kind is Pow and len(children) != 2)
                 or (kind in (Symbol, Dummy, *_ATOMS) and children)):
             raise NotImplementedError("exact rational analysis requires valid original source arguments")
-        if kind is Pow and type(children[1]) not in (Integer, Zero, One, NegativeOne):
+        if kind is Pow and not any(type(children[1]) is owner
+                                   for owner in (Integer, Zero, One, NegativeOne)):
             return STATIONARY_UNSUPPORTED
         if len(children) > 256 or len(children) > 2048 - len(records) - len(pending) - 1:
             raise NotImplementedError("exact rational source limit exceeded")
@@ -537,7 +538,7 @@ def _rational_source_request(expression, symbol, domain):
         records.append(snapshot(node))
         pending.extend((child, depth + 1) for child in children)
     if ((symbol is None and len(symbols) > 1)
-            or (symbol is not None and type(symbol) not in (Symbol, Dummy))
+            or (symbol is not None and type(symbol) is not Symbol and type(symbol) is not Dummy)
             or (symbol is not None and symbols - {symbol})):
         return STATIONARY_UNSUPPORTED
     if symbol is not None:

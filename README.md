@@ -777,6 +777,43 @@ profile, or provide a portable proof-kernel/runtime-reservation receipt.
 
 ---
 
+## Exact elementary ranges and extrema (development API)
+
+The Python `function_range`, `minimum`, and `maximum` APIs compose the checked
+rational-function image engine with supported elementary maps. This includes
+`exp`, `log`, principal rational powers on their admitted real branch,
+`asin`, `acos`, `atan`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`,
+`asech`, and `Abs`. Rational scaling and translation may wrap the result.
+
+```python
+from sympy import Interval, S, Symbol, acos, exp, function_range, maximum
+
+x = Symbol("x")
+function_range(exp(1/x), x, S.Reals)
+# Union(Interval.open(0, 1), Interval.open(1, oo))
+function_range(acos(x), x, Interval.Lopen(-1, 1))
+# Interval.Ropen(0, pi)
+maximum(2 - 3*exp(x), x, S.Reals)
+# 2: the supremum need not be attained.
+```
+
+The engine restricts the complete inner image to the outer function's real
+branch before mapping its endpoints. It preserves original held poles,
+singleton images, unattained asymptotes, and open or closed endpoints.
+Absolute value and `cosh` fold and merge the exact algebraic input image
+before evaluating endpoints. Transcendental values are never ordered by
+floating samples. A defined negative principal fractional power is not
+silently treated as a real odd root.
+
+This bounded lane accepts one elementary function of one rational expression
+on an exact real interval; it refuses correlated sums such as `exp(x) + x`,
+nested elementary functions, unsupported domains, and exhausted exact checks.
+It is a shell composition over existing checked native results, with intrinsic
+resource bounds; it does not supply a new portable range certificate or close
+the full SymPy compatibility profile.
+
+---
+
 ## Custom functions in residual systems (development API)
 
 Ordinary arithmetic retains the actual Python function applications, including

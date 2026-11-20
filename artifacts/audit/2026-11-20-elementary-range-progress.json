@@ -1,0 +1,97 @@
+{
+  "date": "2026-11-20",
+  "bead": "fra-a5x",
+  "status": "implemented_uncertified",
+  "scope": "Exact real images and infima/suprema of supported elementary functions of one rational expression, with rational affine outer maps.",
+  "implementation": [
+    "python/sympy/calculus/_elementary_range.py",
+    "python/sympy/calculus/_rational_range.py",
+    "python/sympy/calculus/util.py"
+  ],
+  "invariants": [
+    "Complete original rational-domain image before real-branch restriction",
+    "Exact algebraic clipping/folding/merging before transcendental endpoint evaluation",
+    "Known strict monotonicity preserves order and endpoint attainment",
+    "Held poles and invalid sources survive zero products and zeroth powers",
+    "Unknown principal-real branches and correlated operands refuse",
+    "Original typed source and domain are checked before publication",
+    "Operational and cancellation failures never invoke approximate fallback"
+  ],
+  "validation": {
+    "python_ast": {
+      "status": "passed",
+      "files": [
+        "python/sympy/calculus/_elementary_range.py",
+        "python/sympy/calculus/_rational_range.py",
+        "python/sympy/calculus/util.py",
+        "python/tests/test_elementary_function_range.py",
+        "python/tests/test_elementary_function_range_review.py",
+        "python/tests/test_exact_function_range.py"
+      ]
+    },
+    "independent_source_review": {
+      "status": "completed",
+      "owner": "range_review",
+      "findings_fixed": [
+        "asech endpoint form",
+        "identity-only selector admission",
+        "empty-domain extremum exception"
+      ]
+    },
+    "isolated_sympy_1_14_0": {
+      "status": "passed",
+      "ordinary_image_and_extrema_cases": 31,
+      "meaning": "Expected ordinary fixtures only; not candidate execution or a mathematical certificate"
+    },
+    "independent_candidate_tests": {
+      "file": "python/tests/test_elementary_function_range_review.py",
+      "authored_cases": 53,
+      "status": "not_executed"
+    },
+    "candidate_pytest": {
+      "status": "blocked_during_collection",
+      "exit_code": 2,
+      "reason": "No fsym_python extension after both production builds failed",
+      "files": [
+        "python/tests/test_elementary_function_range.py",
+        "python/tests/test_elementary_function_range_review.py",
+        "python/tests/test_exact_function_range.py",
+        "python/tests/test_elementary_continuous_domain.py"
+      ]
+    },
+    "production_extension_builds": {
+      "count": 2,
+      "exit_code": 101,
+      "failed_crate": "asupersync",
+      "reason": "rustc terminated by signal 9 (SIGKILL), no Rust source diagnostic",
+      "toolchain": "nightly-2026-08-20",
+      "retry": "Same sources, features and pins; single frontend/backend compiler jobs, single Cargo job, no debug info"
+    },
+    "ci": {
+      "status": "selected_for_execution",
+      "workflow": ".github/workflows/ci.yml",
+      "inventories": 2
+    }
+  },
+  "oracle_discrepancies": [
+    {
+      "case": "cosh(x) on (-1,1] and [-1,1)",
+      "exact_result": "[1, cosh(1)]",
+      "upstream_1_14_result": "[1, cosh(1))",
+      "reason": "The included endpoint attains cosh(1); tests assert the exact-image contract and do not claim upstream parity."
+    }
+  ],
+  "limits": [
+    "One elementary map over QQ(x); nested maps and correlated varying operands are unsupported",
+    "Exact connected interval input envelope inherited from rational range engine",
+    "No portable range certificate, caller-owned protected budget claim, profile certification, timing claim or broad workstream closure"
+  ],
+  "source_sha256": {
+    "python/sympy/calculus/_elementary_range.py": "2c58caf9ea4662e4c378ebd0da1fd1bb89ef7d4f7d3a70d4656d03a1ec22f168",
+    "python/sympy/calculus/_rational_range.py": "441afaa0173fd7dcbc58af34ea59e979a5a1199ce5f11d2aab9a168a8dcce47d",
+    "python/sympy/calculus/util.py": "3c8f339dc2a12cdf168bfccb3d52cd4f28874d3b2bb91505dbfe5912eed70cde",
+    "python/tests/test_elementary_function_range.py": "2200efad803b80b5a0900921213c6af2bdd32a64d6b982e380f41c55778fab9c",
+    "python/tests/test_elementary_function_range_review.py": "0de62d8ba9433bf163b366b73fddad9573020223373ec0796b921ea77e49a0c8",
+    "python/tests/test_exact_function_range.py": "a705e340f4658c1643138e30dcfc7552b4dcb134251c3dee64a79dc0cf6e746c"
+  }
+}

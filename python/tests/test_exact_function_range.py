@@ -243,7 +243,9 @@ class ExactFunctionRangeTests(unittest.TestCase):
     def test_unsupported_functions_inexact_inputs_and_parameters_refuse(self):
         x = self.x
         y = s.Symbol("range_parameter")
-        for source in (s.sin(x), s.sqrt(x), s.Float("1.5")*x, x*y):
+        with self.assertRaises(NotImplementedError):
+            s.function_range(s.sin(x), x, s.Interval(1, 2))
+        for source in (s.Float("1.5")*x, x*y):
             with self.subTest(source=source):
                 with self.assertRaises(NotImplementedError):
                     s.function_range(source, x, s.Interval(1, 2))

@@ -8,10 +8,10 @@ from ..sets import Complement, EmptySet, FiniteSet, Interval, Reals, Set
 from .singularities import singularities
 from ._rational_range import (
     STATIONARY_UNSUPPORTED as _STATIONARY_UNSUPPORTED,
-    rational_analysis as _rational_analysis,
     rational_stationary_points as _rational_stationary_points,
 )
 from ._elementary_domain import elementary_continuous_domain as _continuous_domain
+from ._elementary_range import elementary_analysis as _range_analysis
 
 pi = Expr("pi")
 
@@ -178,13 +178,16 @@ def periodicity(f: Any, symbol: Any = None, check: bool = False) -> Any:
 
 
 def function_range(f: Any, symbol: Any, domain: Any) -> Set:
-    """Return the exact image of an admitted rational function.
+    """Return the exact image of an admitted rational or elementary function.
 
     Original domain holes split the input interval before complete critical
     point and one-sided endpoint analysis. Open endpoints, algebraic bounds
     and unbounded images are retained; no sampled value establishes a range.
+    Supported elementary functions of a rational expression and rational
+    affine output transformations use exact branch restriction and monotone
+    images. Independent varying operands and unknown real branches refuse.
     """
-    return _rational_analysis(f, symbol, domain, "range")
+    return _range_analysis(f, symbol, domain, "range")
 
 
 def maximum(f: Any, symbol: Any = None, domain: Any = None) -> Any:
@@ -194,7 +197,7 @@ def maximum(f: Any, symbol: Any = None, domain: Any = None) -> Any:
     it. An unbounded image returns oo. An empty admitted domain raises
     ValueError; unsupported or exhausted exact decisions refuse explicitly.
     """
-    return _rational_analysis(f, symbol, domain, "maximum")
+    return _range_analysis(f, symbol, domain, "maximum")
 
 
 def minimum(f: Any, symbol: Any = None, domain: Any = None) -> Any:
@@ -204,7 +207,7 @@ def minimum(f: Any, symbol: Any = None, domain: Any = None) -> Any:
     -oo. This uses the same original-domain and complete range analysis as
     function_range.
     """
-    return _rational_analysis(f, symbol, domain, "minimum")
+    return _range_analysis(f, symbol, domain, "minimum")
 
 
 __all__ = [
