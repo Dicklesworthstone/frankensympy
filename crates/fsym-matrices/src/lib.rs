@@ -42,6 +42,11 @@ pub use jordan::{
 };
 mod inertia;
 pub use inertia::{RationalInertiaCandidate, VerifiedRationalInertia};
+mod normal_forms;
+pub use normal_forms::{
+    SmithNormalFormCandidate, VerifiedSmithNormalForm, generate_smith_normal_form_candidate,
+    verify_smith_normal_form_candidate,
+};
 
 use fsym_core::algebraic::{AlgebraicNumber, count_real_roots_in_interval, sturm_sequence};
 use fsym_core::ball::RealBall;
@@ -116,6 +121,8 @@ pub enum MatrixError {
     DivisionByZero,
     #[error("Matrix certificate verification currently supports exact rational entries only")]
     UnsupportedCertificateDomain,
+    #[error("Integer matrix normal forms require literal integer entries")]
+    UnsupportedIntegerDomain,
     #[error("Metered determinant computation supports exact rational entries only")]
     UnsupportedDeterminantDomain,
     #[error("Exact matrix arithmetic invariant failed: {0}")]
