@@ -2,12 +2,16 @@
 
 #![forbid(unsafe_code)]
 
-use fsym_budget::{BudgetMeter, MeterError};
+mod integer_system;
+
+use fsym_budget::{BudgetError, BudgetMeter, DIMENSION_COUNT, MeterError};
 use fsym_core::{BigInt, BigRational, Constant, Expr};
 use fsym_matrices::{
     Matrix, MatrixError, MatrixExponentialError, RationalLinearSolution, SparseMatrix,
-    VerifiedRationalInertia,
+    VerifiedRationalInertia, VerifiedSmithNormalForm,
 };
+use fsym_proof_kernel::integer_normal_form::IntegerSmithWitness;
+use fsym_proof_kernel::sparse_rref::RationalSparseMatrix;
 use fsym_runtime::{Budget, BudgetLimits, Dimension};
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::{
@@ -85,9 +89,8 @@ impl BudgetMeter for InertiaRequestMeter<'_, '_> {
         for &(dimension, amount) in charges {
             if dimension == Dimension::ComputeSteps {
                 let Some(total) = steps.checked_add(amount) else {
-                    return self.refuse(PyValueError::new_err(
-                        "matrix inertia request step charge overflow",
-                    ));
+                    return self
+                        .refuse(PyValueError::new_err("matrix request step charge overflow"));
                 };
                 steps = total;
             }
@@ -111,6 +114,187 @@ fn checked_inertia_counts(
     let checked = result.map_err(matrix_err)?;
     let receipt = checked.receipt();
     Ok((receipt.positive(), receipt.negative(), receipt.zero()))
+}
+
+/// Keep two private envelopes through output lifting while both phases debit
+/// the same active Python request. Native generation cannot borrow verification
+/// capacity, and lifting cannot restart the generation allowance.
+struct NormalFormRequestMeter<'py, 'session> {
+    request: InertiaRequestMeter<'py, 'session>,
+    budget: Budget,
+}
+
+impl<'py, 'session> NormalFormRequestMeter<'py, 'session> {
+    fn new(py: Python<'py>, session: Option<&'session PySupervisedCallbackSession>) -> Self {
+        let mut limits = BudgetLimits::uniform(256 * 1024 * 1024, 0);
+        limits.dimensions[Dimension::ComputeSteps.index()] = 20_000_000;
+        limits.dimensions[Dimension::AllocationCount.index()] = 20_000_000;
+        Self {
+            request: InertiaRequestMeter::new(py, session),
+            budget: Budget::new(limits),
+        }
+    }
+}
+
+impl BudgetMeter for NormalFormRequestMeter<'_, '_> {
+    fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
+        self.charge_batch(&[(dimension, amount)])
+    }
+
+    fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+        // Preflight every private dimension before forwarding the request
+        // charge. Either refusal leaves both ledgers' counters unchanged.
+        // The private ledger is exclusively owned, so this exact batch cannot
+        // fail after the session has accepted it.
+        let mut totals = [0u64; DIMENSION_COUNT];
+        for &(dimension, amount) in charges {
+            if amount == 0 {
+                return Err(BudgetError::ZeroCharge.into());
+            }
+            let index = dimension.index();
+            totals[index] = totals[index]
+                .checked_add(amount)
+                .ok_or(BudgetError::ChargeOverflow { dimension })?;
+        }
+        for dimension in Dimension::ALL {
+            let amount = totals[dimension.index()];
+            let remaining = self.budget.remaining(dimension);
+            if amount > remaining {
+                return Err(BudgetError::Exhausted {
+                    dimension,
+                    requested: amount,
+                    remaining,
+                }
+                .into());
+            }
+        }
+        self.request.charge_batch(charges)?;
+        self.budget.charge_batch(charges)
+    }
+
+    fn checkpoint(&mut self) -> Result<(), MeterError> {
+        self.request.checkpoint()
+    }
+}
+
+enum IntegerMatrixSource<'a> {
+    Dense(&'a Matrix),
+    Sparse(&'a SparseMatrix),
+}
+
+impl IntegerMatrixSource<'_> {
+    fn compute(
+        self,
+        generator: &mut impl BudgetMeter,
+        verifier: &mut impl BudgetMeter,
+    ) -> Result<VerifiedSmithNormalForm, MatrixError> {
+        match self {
+            Self::Dense(source) => source.metered_smith_normal_form(generator, verifier),
+            Self::Sparse(source) => source.metered_smith_normal_form(generator, verifier),
+        }
+    }
+}
+
+fn checked_smith_output<'py, 'session, T>(
+    source: IntegerMatrixSource<'_>,
+    py: Python<'py>,
+    session: Option<&'session PySupervisedCallbackSession>,
+    lift: impl FnOnce(IntegerSmithWitness, &mut NormalFormRequestMeter<'py, 'session>) -> PyResult<T>,
+) -> PyResult<T> {
+    let mut generator = NormalFormRequestMeter::new(py, session);
+    let mut verifier = NormalFormRequestMeter::new(py, session);
+    let result = (|| {
+        let accepted = source
+            .compute(&mut generator, &mut verifier)
+            .map_err(matrix_err)?;
+        let (_, witness, _) = accepted.into_parts();
+        let output = lift(witness, &mut generator)?;
+        generator.checkpoint().map_err(to_value_error)?;
+        verifier.checkpoint().map_err(to_value_error)?;
+        Ok(output)
+    })();
+    // Preserve the session's original exhausted/cancelled/ownership exception.
+    match generator.request.failure.or(verifier.request.failure) {
+        Some(error) => Err(error),
+        None => result,
+    }
+}
+
+fn charge_integer_matrix_output(
+    matrix: &RationalSparseMatrix,
+    dense: bool,
+    meter: &mut impl BudgetMeter,
+) -> PyResult<usize> {
+    let cells = matrix
+        .rows
+        .checked_mul(matrix.columns)
+        .ok_or_else(|| PyValueError::new_err("integer normal-form output shape overflow"))?;
+    if matrix.rows > 64 || matrix.columns > 64 || matrix.entries.len() > cells {
+        return Err(PyValueError::new_err(
+            "integer normal-form output exceeds its shape envelope",
+        ));
+    }
+    let count = if dense { cells } else { matrix.entries.len() };
+    let mut bytes = count.saturating_mul(std::mem::size_of::<Expr>() + 64);
+    let mut steps = count + 1;
+    for entry in &matrix.entries {
+        if !entry.value.is_integer() || entry.value.numer().bits() > 8192 {
+            return Err(PyValueError::new_err(
+                "integer normal-form output has invalid coefficients",
+            ));
+        }
+        let limbs = entry.value.numer().limb_count().max(1) as usize;
+        bytes += limbs * 8;
+        steps += limbs;
+    }
+    meter.checkpoint().map_err(to_value_error)?;
+    meter
+        .charge_batch(&[
+            (Dimension::ComputeSteps, steps as u64),
+            (Dimension::MemoryBytes, bytes.max(1) as u64),
+            (Dimension::AllocationCount, matrix.entries.len() as u64 + 1),
+        ])
+        .map_err(to_value_error)?;
+    Ok(cells)
+}
+
+fn integer_dense_output(
+    matrix: RationalSparseMatrix,
+    meter: &mut impl BudgetMeter,
+) -> PyResult<PyMatrix> {
+    let cells = charge_integer_matrix_output(&matrix, true, meter)?;
+    let mut entries = Vec::new();
+    entries
+        .try_reserve_exact(cells)
+        .map_err(|_| PyValueError::new_err("integer normal-form output allocation refused"))?;
+    entries.resize_with(cells, || Expr::from_i64(0));
+    for entry in matrix.entries {
+        entries[entry.row * matrix.columns + entry.column] =
+            Expr::Integer(entry.value.numer().clone());
+    }
+    Ok(PyMatrix {
+        inner: Matrix::new(matrix.rows, matrix.columns, entries).map_err(matrix_err)?,
+    })
+}
+
+fn integer_sparse_output(
+    matrix: RationalSparseMatrix,
+    meter: &mut impl BudgetMeter,
+) -> PyResult<PySparseMatrix> {
+    charge_integer_matrix_output(&matrix, false, meter)?;
+    let entries = matrix
+        .entries
+        .into_iter()
+        .map(|entry| {
+            (
+                (entry.row, entry.column),
+                Expr::Integer(entry.value.numer().clone()),
+            )
+        })
+        .collect();
+    Ok(PySparseMatrix {
+        inner: SparseMatrix::new(matrix.rows, matrix.columns, entries).map_err(matrix_err)?,
+    })
 }
 
 /// Borrow and bound the Python coordinate list before cloning native atoms.
@@ -532,6 +716,60 @@ impl PyMatrix {
         self.inner
             .validate_rational_inertia_source()
             .map_err(matrix_err)
+    }
+
+    /// Borrowed integer admission before any public source copying.
+    pub fn validate_integer_normal_form_source(&self) -> PyResult<()> {
+        self.inner
+            .validate_integer_normal_form_source()
+            .map_err(matrix_err)
+    }
+
+    /// Canonical positive integer Smith form, after independent acceptance.
+    #[pyo3(signature = (*, session=None))]
+    pub fn smith_normal_form(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<Self> {
+        checked_smith_output(
+            IntegerMatrixSource::Dense(&self.inner),
+            py,
+            session.as_deref(),
+            |witness, meter| integer_dense_output(witness.diagonal, meter),
+        )
+    }
+
+    /// Checked `(D, U, V)` with positive invariant factors and `D = U A V`.
+    #[pyo3(signature = (*, session=None))]
+    pub fn smith_normal_decomposition(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<(Self, Self, Self)> {
+        checked_smith_output(
+            IntegerMatrixSource::Dense(&self.inner),
+            py,
+            session.as_deref(),
+            |witness, meter| {
+                Ok((
+                    integer_dense_output(witness.diagonal, meter)?,
+                    integer_dense_output(witness.left, meter)?,
+                    integer_dense_output(witness.right, meter)?,
+                ))
+            },
+        )
+    }
+
+    /// Complete integer family `(particular, kernel)` or checked inconsistency.
+    #[pyo3(signature = (rhs, *, session=None))]
+    pub fn solve_integer(
+        &self,
+        rhs: &Bound<'_, PyAny>,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<Option<(Self, Self)>> {
+        integer_system::solve_dense(&self.inner, rhs, py, session.as_deref())
     }
 
     /// Independently checked inertia of the real rational quadratic form.
@@ -1305,6 +1543,60 @@ impl PySparseMatrix {
         self.inner
             .validate_rational_inertia_source()
             .map_err(matrix_err)
+    }
+
+    /// Borrowed integer admission before any public sparse source copying.
+    pub fn validate_integer_normal_form_source(&self) -> PyResult<()> {
+        self.inner
+            .validate_integer_normal_form_source()
+            .map_err(matrix_err)
+    }
+
+    /// Canonical positive integer Smith form as a dense matrix.
+    #[pyo3(signature = (*, session=None))]
+    pub fn smith_normal_form(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<PyMatrix> {
+        checked_smith_output(
+            IntegerMatrixSource::Sparse(&self.inner),
+            py,
+            session.as_deref(),
+            |witness, meter| integer_dense_output(witness.diagonal, meter),
+        )
+    }
+
+    /// Checked sparse `(D, U, V)`, retaining bounded sparse output storage.
+    #[pyo3(signature = (*, session=None))]
+    pub fn smith_normal_decomposition(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<(Self, Self, Self)> {
+        checked_smith_output(
+            IntegerMatrixSource::Sparse(&self.inner),
+            py,
+            session.as_deref(),
+            |witness, meter| {
+                Ok((
+                    integer_sparse_output(witness.diagonal, meter)?,
+                    integer_sparse_output(witness.left, meter)?,
+                    integer_sparse_output(witness.right, meter)?,
+                ))
+            },
+        )
+    }
+
+    /// Complete integer family with dense or sparse RHS, preserving sparse output.
+    #[pyo3(signature = (rhs, *, session=None))]
+    pub fn solve_integer(
+        &self,
+        rhs: &Bound<'_, PyAny>,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<Option<(Self, Self)>> {
+        integer_system::solve_sparse(&self.inner, rhs, py, session.as_deref())
     }
 
     /// Independently checked inertia without public dense conversion.

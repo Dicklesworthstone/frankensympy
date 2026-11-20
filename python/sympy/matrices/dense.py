@@ -89,6 +89,28 @@ class _AlgebraicEigenspaceUnsupported(NotImplementedError):
 class MatrixBase:
     """Base class for all matrix objects."""
 
+    def smith_normal_decomposition(self):
+        """Native checked integer ``(D, U, V)`` with ``D == U*self*V``.
+
+        Literal integer sources through 64 rows/columns are supported. This
+        extension preserves the built-in matrix class and refuses unsupported
+        domains or exhausted work without publishing a partial decomposition.
+        """
+        from .normalforms import smith_normal_decomposition
+        return smith_normal_decomposition(self)
+
+    def solve_integer(self, rhs):
+        """Return the complete integer family ``(P, K)`` for ``self*X=rhs``.
+
+        Every integer solution is ``P + K*T`` for arbitrary integer T.
+        Checked integer inconsistency returns None. This native extension
+        admits literal integer matrices and preserves self's built-in class;
+        RHS storage and mutability may differ. Unsupported inputs and
+        exhausted work raise without publishing a partial family.
+        """
+        from ._integer_solve import solve_integer
+        return solve_integer(self, rhs)
+
     @property
     def is_positive_definite(self):
         from ._definiteness import classify

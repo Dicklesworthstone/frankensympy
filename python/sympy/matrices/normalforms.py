@@ -1,0 +1,228 @@
+"""Independently checked bounded integer Smith normal forms.
+
+``smith_normal_form`` implements the inferred-integer slice and returns a
+mutable dense Matrix, including for immutable or sparse inputs. The native
+extension ``smith_normal_decomposition`` also returns integral unimodular
+transforms, preserving the input's built-in matrix class. Its convention is
+``D = U*A*V`` with positive nonzero invariant factors followed by zeros.
+
+Both operations admit literal integer entries, at most 64 rows and columns,
+and at most 4096 bits per original coefficient. They refuse unsupported
+domains, modified built-in owners, source mutation and exhausted work without
+falling back to an unchecked algorithm. This bounded capability does not
+certify the complete SymPy matrix or principal-ideal-domain interface.
+"""
+
+from ..core import (
+    Basic, Half, Integer, NegativeOne, One, Rational, Zero,
+    _active_callback_session, _charge_nested_if_active, _native,
+)
+from ..core._function_capabilities import _implementation, _owner_matches, _owner_record
+from .dense import ImmutableDenseMatrix, Matrix, MatrixBase
+from .sparse import (
+    ImmutableSparseMatrix, SparseMatrix, _check_rational_source,
+    _rational_source_snapshot, _reduction_binding,
+)
+
+_DICT = type.__dict__["__dict__"]
+_MRO = type.__dict__["__mro__"]
+_CLASSES = (Matrix, ImmutableDenseMatrix, SparseMatrix, ImmutableSparseMatrix)
+_ATOMS = (Integer, Rational, Zero, One, NegativeOne, Half)
+_NAMES = ("_native_storage", "_matrix_shape", "_surface", "_mutation_generation")
+_SLOTS = {base: tuple(_DICT.__get__(base)[name] for name in _NAMES)
+          for base in (Matrix, SparseMatrix)}
+_ATOM_NAMES = ("_value", "_struct_args", "_surface_args")
+_ATOM_SLOTS = tuple(_DICT.__get__(Basic)[name] for name in _ATOM_NAMES)
+_MISSING = object()
+_NATIVE_EXPR = _native.Expr
+_NATIVE = {Matrix: _native.Matrix, SparseMatrix: _native.SparseMatrix}
+_NATIVE_NAMES = (
+    "shape", "validate_integer_normal_form_source",
+    "smith_normal_form", "smith_normal_decomposition",
+)
+_NATIVE_METHODS = {
+    base: tuple(_DICT.__get__(native)[name] for name in _NATIVE_NAMES)
+    for base, native in _NATIVE.items()
+}
+_OWNERS = tuple((owner, _owner_record(owner), _MRO.__get__(owner))
+                for owner in dict.fromkeys(
+                    owner for cls in (*_CLASSES, MatrixBase, Basic, *_ATOMS)
+                    for owner in (*_MRO.__get__(cls), *_MRO.__get__(type(cls)))
+                ))
+_NATIVE_VIEWS = tuple(
+    (cls, _reduction_binding(cls, "_native"),
+     _implementation(_reduction_binding(cls, "_native")))
+    for cls in _CLASSES
+)
+
+
+def _interfaces():
+    for owner, recorded, parents in _OWNERS:
+        current = _MRO.__get__(owner)
+        if (len(current) != len(parents)
+                or any(a is not b for a, b in zip(current, parents))
+                or not _owner_matches(owner, recorded)):
+            raise NotImplementedError("integer Smith form requires original built-in implementations")
+    for cls, original, recorded in _NATIVE_VIEWS:
+        current = _reduction_binding(cls, "_native")
+        tokens = _implementation(current)
+        if (current is not original or len(tokens) != len(recorded)
+                or any(a is not b for a, b in zip(tokens, recorded))):
+            raise NotImplementedError("integer Smith form requires the original native storage view")
+    for cls in _CLASSES:
+        base = Matrix if cls in (Matrix, ImmutableDenseMatrix) else SparseMatrix
+        if any(_reduction_binding(cls, name) is not slot
+               for name, slot in zip(_NAMES, _SLOTS[base])):
+            raise NotImplementedError("integer Smith form requires original matrix storage descriptors")
+    for base in _SLOTS:
+        namespace = _DICT.__get__(_NATIVE[base])
+        if any(namespace.get(name) is not method
+               for name, method in zip(_NATIVE_NAMES, _NATIVE_METHODS[base])):
+            raise NotImplementedError("integer Smith form requires original native interfaces")
+    if any(_reduction_binding(Basic, name) is not slot
+           for name, slot in zip(_ATOM_NAMES, _ATOM_SLOTS)):
+        raise NotImplementedError("integer Smith form requires original scalar storage descriptors")
+
+
+def _atom_state(value):
+    result = []
+    for slot in _ATOM_SLOTS:
+        try:
+            result.append(slot.__get__(value, Basic))
+        except AttributeError:
+            result.append(_MISSING)
+    return tuple(result)
+
+
+class _IntegerSource:
+    def __init__(self, matrix):
+        if not any(type(matrix) is cls for cls in _CLASSES):
+            raise NotImplementedError("integer Smith form requires a built-in Matrix")
+        self.session = _active_callback_session()
+        # Terminal active requests stop before any retained/native cell copies.
+        _charge_nested_if_active()
+        _interfaces()
+        self.matrix = matrix
+        self.base = Matrix if type(matrix) in (Matrix, ImmutableDenseMatrix) else SparseMatrix
+        native, shape, surface, generation = (
+            slot.__get__(matrix, self.base) for slot in _SLOTS[self.base]
+        )
+        if (type(shape) is not tuple or len(shape) != 2
+                or any(type(size) is not int or size < 0 for size in shape)
+                or type(generation) is not int or generation < 0):
+            raise ValueError("integer Smith form has an invalid source snapshot")
+        rows, columns = shape
+        if max(rows, columns) > 64:
+            raise ValueError("integer Smith form supports at most 64 rows and columns")
+        native_type = _NATIVE[self.base]
+        native_shape, preflight, _form, _decompose = _NATIVE_METHODS[self.base]
+        if type(native) is not native_type:
+            raise NotImplementedError("integer Smith form requires literal integer native storage")
+        if native_shape.__get__(native, native_type) != shape:
+            raise ValueError("integer Smith form native and retained shapes differ")
+        self.atoms = []
+        if surface is not None:
+            storage_type = tuple if self.base is Matrix else dict
+            if (type(surface) is not storage_type or len(surface) > rows * columns
+                    or self.base is Matrix and len(surface) != rows * columns):
+                raise ValueError("integer Smith form has invalid retained matrix cells")
+            if self.base is SparseMatrix:
+                for key in dict.keys(surface):
+                    if (type(key) is not tuple or len(key) != 2
+                            or type(key[0]) is not int or type(key[1]) is not int
+                            or not 0 <= key[0] < rows or not 0 <= key[1] < columns):
+                        raise ValueError("integer Smith form has an invalid retained coordinate")
+            cells = surface if self.base is Matrix else dict.values(surface)
+            for cell in cells:
+                if not any(type(cell) is atom for atom in _ATOMS):
+                    raise NotImplementedError("integer Smith form requires literal integer source atoms")
+                state = _atom_state(cell)
+                if type(state[0]) is not _NATIVE_EXPR:
+                    raise ValueError("integer Smith form has invalid native scalar storage")
+                if any(value is not _MISSING and value is not None
+                       and (type(value) is not tuple or len(value) != 0)
+                       for value in state[1:]):
+                    raise ValueError("integer Smith form requires literal retained atoms")
+                self.atoms.append((cell, state))
+        # Borrowed native admission bounds every integer before the existing
+        # source binder copies any native coefficient or sparse dictionary.
+        _charge_nested_if_active(rows * columns + 1)
+        preflight(native)
+        captured = _rational_source_snapshot(
+            matrix, dense=self.base is Matrix, context="integer Smith form",
+        )
+        if captured is None:
+            raise NotImplementedError("integer Smith form requires an exact integer source")
+        self.native, self.snapshot = captured
+        self.shape = shape
+        self.unchanged()
+
+    def unchanged(self):
+        _interfaces()
+        _check_rational_source(self.snapshot)
+        for cell, stored in self.atoms:
+            if any(current is not previous
+                   for current, previous in zip(_atom_state(cell), stored)):
+                raise RuntimeError("integer Smith source atom mutated during decomposition")
+
+    def calculate(self, decomposition):
+        self.unchanged()
+        _shape, _preflight, form, decompose = _NATIVE_METHODS[self.base]
+        rows, columns = self.shape
+        if decomposition:
+            native = decompose(self.native, session=self.session)
+            if type(native) is not tuple or len(native) != 3:
+                raise RuntimeError("integer Smith decomposition returned invalid result storage")
+            native_type = _NATIVE[self.base]
+            shapes = ((rows, columns), (rows, rows), (columns, columns))
+            matrix_type, base = type(self.matrix), self.base
+        else:
+            native = (form(self.native, session=self.session),)
+            native_type = _NATIVE[Matrix]
+            shapes = (self.shape,)
+            matrix_type, base = Matrix, Matrix
+        self.unchanged()
+        descriptor = _NATIVE_METHODS[base][0]
+        if any(type(value) is not native_type
+               or descriptor.__get__(value, native_type) != shape
+               for value, shape in zip(native, shapes)):
+            raise RuntimeError("integer Smith decomposition returned invalid output shapes")
+        _charge_nested_if_active(sum(row * column for row, column in shapes) + len(shapes))
+        result = []
+        for value, shape in zip(native, shapes):
+            # The already checked storage is installed through captured slots;
+            # neither public constructors nor replaceable _native setters run.
+            matrix = object.__new__(matrix_type)
+            for slot, item in zip(_SLOTS[base], (value, shape, None, 0)):
+                slot.__set__(matrix, item)
+            result.append(matrix)
+        self.unchanged()
+        _charge_nested_if_active()
+        return tuple(result) if decomposition else result[0]
+
+
+def smith_normal_form(matrix, domain=None):
+    """Return the canonical integer Smith form as a mutable dense Matrix.
+
+    This bounded slice infers ZZ from literal integer entries. Explicit domain
+    objects, rational fields and polynomial coefficient rings are unsupported.
+    Zero-area rectangular shapes are retained. Every accepted result has been
+    checked with integral unimodular transformations against the original input.
+    """
+    if domain is not None:
+        raise NotImplementedError("smith_normal_form supports the inferred integer domain only")
+    return _IntegerSource(matrix).calculate(False)
+
+
+def smith_normal_decomposition(matrix):
+    """Return independently checked ``(D, U, V)`` satisfying ``D == U*matrix*V``.
+
+    This FrankenSymPy extension preserves all four built-in matrix classes.
+    D has the original rectangular shape; U and V are square integer matrices
+    of row and column dimension respectively, with independently checked integer
+    inverses. Their concrete entries are not an upstream compatibility promise.
+    """
+    return _IntegerSource(matrix).calculate(True)
+
+
+__all__ = ["smith_normal_form", "smith_normal_decomposition"]

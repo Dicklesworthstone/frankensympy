@@ -1014,6 +1014,39 @@ Explicit custom commutativity or equality/hash protocols require their own
 supported algebra. Arithmetic graphs and formal differentiation are bounded; arbitrary non-cooperative
 Python hooks retain the existing supervised-boundary limitations.
 
+## Exact integer linear algebra (development API)
+
+The bounded integer lane computes Smith forms and complete integer solutions
+with independent proof-kernel acceptance:
+
+```python
+from sympy import Matrix
+from sympy.matrices.normalforms import smith_normal_form
+
+assert smith_normal_form(Matrix([[4, 6], [3, 9]])) == Matrix([[1, 0], [0, 18]])
+
+A = Matrix([[2, 4]])
+P, K = A.solve_integer(Matrix([[6]]))
+assert P == Matrix([[3], [0]])
+assert K == Matrix([[-2], [1]])
+# Every integer solution is P + K*T, with an arbitrary integer parameter T.
+assert A.solve_integer(Matrix([[1]])) is None
+```
+
+`A.smith_normal_decomposition()` returns `(D, U, V)` with `D = U*A*V`.
+Acceptance proves both transformations have integer inverses and that the
+positive invariant factors divide their successors. Integer solving checks
+divisibility in the transformed right-hand side and returns a complete primitive
+kernel, or checked inconsistency. Multiple RHS columns and all four built-in
+dense/sparse mutable/immutable classes are supported; decomposition and solve
+outputs preserve the coefficient matrix's class.
+
+Each dimension is bounded by 64 and original coefficients by 4096 bits, with
+separate cumulative generation and verification limits. These bounds may still
+refuse difficult inputs. See [integer normal forms and systems](docs/INTEGER_NORMAL_FORMS.md)
+for the exact contracts, examples, failure semantics, and retained evidence.
+The broad WS10/WS19 and compatibility-profile gates remain open.
+
 ## Exact sparse linear algebra (development API)
 
 ### Sparse selection and block assembly

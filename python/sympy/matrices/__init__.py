@@ -39,6 +39,8 @@ from .sparse import (
 # Capture the actual built-in owners before user code can alter the interfaces.
 from . import _jordan
 from . import _definiteness
+from . import normalforms
+from . import _integer_solve
 
 __all__ = [
     "DenseMatrix",
