@@ -1,0 +1,193 @@
+....................FFF................................................. [ 41%]
+.........................F.............................................. [ 82%]
+..............................                                           [100%]
+=================================== FAILURES ===================================
+_____________ test_symbolic_repeated_blocks_keep_the_generic_route _____________
+
+    def test_symbolic_repeated_blocks_keep_the_generic_route():
+        variable = s.Symbol("jordan_parameter")
+        matrix = s.diag(s.jordan_cell(variable, 2), s.jordan_cell(variable, 2))
+>       transform, jordan = matrix.jordan_form()
+                            ^^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_matrix_jordan.py:156: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/sympy/matrices/dense.py:1036: in jordan_form
+    spectrum = self.eigenvals()
+               ^^^^^^^^^^^^^^^^
+python/sympy/matrices/dense.py:851: in eigenvals
+    symbolic = self._symbolic_eigenvals()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/matrices/dense.py:871: in _symbolic_eigenvals
+    cp = expand(self.charpoly(lam).as_expr())
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+expression = _lambda**4 - 4*_lambda**3*jordan_parameter + 6*_lambda**2*jordan_parameter**2 - 4*_lambda*jordan_parameter**3 + jordan_parameter**4
+deep = True, modulus = None, power_base = True, power_exp = True, mul = True
+log = True, multinomial = True, basic = True, hints = {}
+result = _lambda**4 - 4*_lambda**3*jordan_parameter + 6*_lambda**2*jordan_parameter**2 - 4*_lambda*jordan_parameter**3 + jordan_parameter**4
+force = False, _ = 0
+previous = _lambda**4 - 4*_lambda**3*jordan_parameter + 6*_lambda**2*jordan_parameter**2 - 4*_lambda*jordan_parameter**3 + jordan_parameter**4
+
+    def expand(expression: Any, deep: bool = True, modulus: Any = None, power_base: bool = True,
+               power_exp: bool = True, mul: bool = True, log: bool = True,
+               multinomial: bool = True, basic: bool = True, **hints: Any) -> Expr:
+        """Upstream ``expand`` with hints: ``mul``/``multinomial`` (native),
+        ``power_exp`` (exp(x + y) -> exp(x)*exp(y)), ``log`` (with ``force``
+        or positivity), ``trig=True``, ``func=True``; hints iterate to a fixed
+        point. Held Adds keep their oracle-pinned behavior."""
+        if _contains_opaque(expression):
+            from ._surface_transforms import expand as surface_expand
+    
+            return surface_expand(
+                expression, deep=deep, modulus=modulus, power_base=power_base,
+                power_exp=power_exp, mul=mul, log=log, multinomial=multinomial,
+                basic=basic, **hints,
+            )
+        if isinstance(expression, Add) and hasattr(expression, "_args"):
+            return _expand_held(expression)
+        result = sympify(expression)
+        force = bool(hints.get("force", False))
+        for _ in range(6):
+            previous = result
+            if mul or multinomial:
+>               result = _lift_builtin_result(_native_expr(result).expand())
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'fsym_python.Expr' object has no attribute 'expand'
+
+python/sympy/core/__init__.py:6066: AttributeError
+____________ test_irrational_repeated_blocks_keep_the_generic_route ____________
+
+    def test_irrational_repeated_blocks_keep_the_generic_route():
+        value = s.sqrt(2)
+        matrix = s.diag(s.jordan_cell(value, 2), s.jordan_cell(value, 2))
+>       transform, jordan = matrix.jordan_form()
+                            ^^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_matrix_jordan.py:164: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/sympy/matrices/dense.py:1036: in jordan_form
+    spectrum = self.eigenvals()
+               ^^^^^^^^^^^^^^^^
+python/sympy/matrices/dense.py:854: in eigenvals
+    evals = self.eigenvalues()
+            ^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = Matrix([
+[sqrt(2),       1,       0,       0],
+[      0, sqrt(2),       0,       0],
+[      0,       0, sqrt(2),       1],
+[      0,       0,       0, sqrt(2)]])
+
+    def eigenvalues(self):
+        """Return a complete exact spectrum, retaining algebraic multiplicities.
+    
+        The native radical lane keeps its established forms. An unsupported
+        root degree may use exact indexed real roots, but only after the
+        characteristic polynomial is independently checked and every one of
+        its roots is proved real. Mixed unresolved complex spectra refuse.
+        """
+        native = self._native
+        try:
+>           return [_lift_native_result(e) for e in native.eigenvalues()]
+                                                    ^^^^^^^^^^^^^^^^^^^^
+E           ValueError: Characteristic polynomial has symbolic coefficients; exact eigenvalues require numeric entries
+
+python/sympy/matrices/dense.py:784: ValueError
+_ test_rational_source_with_irrational_spectrum_leaves_the_native_rational_lane _
+
+    def test_rational_source_with_irrational_spectrum_leaves_the_native_rational_lane():
+        matrix = s.Matrix([[0, 2], [1, 0]])
+>       transform, jordan = matrix.jordan_form()
+                            ^^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_matrix_jordan.py:171: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/sympy/matrices/dense.py:1046: in jordan_form
+    N = clean(self - ev * I_n)
+        ^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/matrices/dense.py:1021: in clean
+    return M.applyfunc(lambda e: expand(e))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/matrices/dense.py:1778: in applyfunc
+    res = f(self[r, c])
+          ^^^^^^^^^^^^^
+python/sympy/matrices/dense.py:1021: in <lambda>
+    return M.applyfunc(lambda e: expand(e))
+                                 ^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+expression = sqrt(2), deep = True, modulus = None, power_base = True
+power_exp = True, mul = True, log = True, multinomial = True, basic = True
+hints = {}, result = sqrt(2), force = False, _ = 0, previous = sqrt(2)
+
+    def expand(expression: Any, deep: bool = True, modulus: Any = None, power_base: bool = True,
+               power_exp: bool = True, mul: bool = True, log: bool = True,
+               multinomial: bool = True, basic: bool = True, **hints: Any) -> Expr:
+        """Upstream ``expand`` with hints: ``mul``/``multinomial`` (native),
+        ``power_exp`` (exp(x + y) -> exp(x)*exp(y)), ``log`` (with ``force``
+        or positivity), ``trig=True``, ``func=True``; hints iterate to a fixed
+        point. Held Adds keep their oracle-pinned behavior."""
+        if _contains_opaque(expression):
+            from ._surface_transforms import expand as surface_expand
+    
+            return surface_expand(
+                expression, deep=deep, modulus=modulus, power_base=power_base,
+                power_exp=power_exp, mul=mul, log=log, multinomial=multinomial,
+                basic=basic, **hints,
+            )
+        if isinstance(expression, Add) and hasattr(expression, "_args"):
+            return _expand_held(expression)
+        result = sympify(expression)
+        force = bool(hints.get("force", False))
+        for _ in range(6):
+            previous = result
+            if mul or multinomial:
+>               result = _lift_builtin_result(_native_expr(result).expand())
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'fsym_python.Expr' object has no attribute 'expand'
+
+python/sympy/core/__init__.py:6066: AttributeError
+_ CheckedLinearSystemTests.test_existing_symbolic_coefficient_lane_remains_available _
+
+self = <test_affine_linear_systems.CheckedLinearSystemTests testMethod=test_existing_symbolic_coefficient_lane_remains_available>
+
+    def test_existing_symbolic_coefficient_lane_remains_available(self):
+        x, y, parameter = symbols("x y parameter")
+>       self.assertEqual(self.solution(Matrix([[1, 1, parameter]]), x, y),
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                         (parameter - y, y))
+
+python/tests/test_affine_linear_systems.py:75: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/tests/test_affine_linear_systems.py:14: in solution
+    return tuple(next(iter(linsolve(system, *variables))))
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/solvers.py:268: in linsolve
+    return _solve_augmented_matrix_to_set(M, sym_list)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/solvers/solvers.py:142: in _solve_augmented_matrix_to_set
+    sol.append(_cancel(val) if generic else simplify(val))
+                                            ^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+expression = parameter - y
+
+    def simplify(expression: Any) -> Expr:
+        if _contains_opaque(expression):
+            from ._surface_transforms import simplify as surface_simplify
+    
+            return surface_simplify(expression)
+>       return _lift_builtin_result(_native_expr(expression).simplify())
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'fsym_python.Expr' object has no attribute 'simplify'
+
+python/sympy/core/__init__.py:6105: AttributeError
+=========================== short test summary info ============================
+FAILED python/tests/test_matrix_jordan.py::test_symbolic_repeated_blocks_keep_the_generic_route
+FAILED python/tests/test_matrix_jordan.py::test_irrational_repeated_blocks_keep_the_generic_route
+FAILED python/tests/test_matrix_jordan.py::test_rational_source_with_irrational_spectrum_leaves_the_native_rational_lane
+FAILED python/tests/test_affine_linear_systems.py::CheckedLinearSystemTests::test_existing_symbolic_coefficient_lane_remains_available
+4 failed, 170 passed in 15.96s

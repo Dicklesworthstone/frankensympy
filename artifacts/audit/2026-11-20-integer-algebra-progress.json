@@ -1,0 +1,283 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-11-20T21:45:29.938628+00:00",
+  "status": "targeted_native_and_source_scoped_python_passed_broader_gates_open",
+  "repository": "https://github.com/Dicklesworthstone/frankensympy",
+  "integration_base": "f1f76fb95ef414604ee7c36db2b62318ef61ddd8",
+  "publication": {
+    "branch": "main",
+    "pull_request": false,
+    "prior_implementation_commits": [
+      {
+        "sha": "25887d2bc6e30fbe8bd3375516936bd39f0f37b7",
+        "purpose": "Independent Smith verifier",
+        "exact_remote_commit_fetched_and_verified": true
+      },
+      {
+        "sha": "4a953cc03eea65f851801d5663fb367a44c2ace9",
+        "purpose": "Capture-free solver auxiliaries",
+        "exact_remote_commit_fetched_and_verified": true
+      },
+      {
+        "sha": "937aeee4d4ca6946070e821417ad02865a077ae8",
+        "purpose": "Checked native Smith generation",
+        "exact_remote_commit_fetched_and_verified": true
+      },
+      {
+        "sha": "07022996c9136ccfad81295c792f5afc48bfa8da",
+        "purpose": "Complete integer systems and proof replay",
+        "exact_remote_commit_fetched_and_verified": true
+      },
+      {
+        "sha": "e49718ad6a2ff97873b5702b1b6db17cda6a4c41",
+        "purpose": "Public integer matrix APIs and documentation",
+        "exact_remote_commit_fetched_and_verified": true
+      }
+    ],
+    "containing_commit": "Compound-domain endpoint fixes, regression selection, and this evidence are in the containing direct-main commit."
+  },
+  "features": [
+    "Checked integer Smith forms with positive divisible invariant factors, integer U/V and both inverse witnesses, D=U*A*V.",
+    "Complete integer A*X=B families X=P+K*T with a primitive full integer kernel; independently checked divisibility/zero-row contradictions.",
+    "Dense/sparse mutable/immutable Python sources and coefficient-class-preserving solutions; shared active request budgets and source mutation guards.",
+    "Fresh typed auxiliary solver symbols prevent user variables/parameters from being captured.",
+    "Compound real-domain calculus retains finite holes and original poles; generated elementary/algebraic endpoints are canonical, finite-only images avoid differentiation, unknown selected rational domains refuse terminally."
+  ],
+  "bounds": {
+    "input_dimension_maximum": 64,
+    "input_integer_bits": 4096,
+    "intermediate_integer_bits": 8192,
+    "separate_generator_and_verifier_step_envelopes": 20000000,
+    "separate_allocation_envelopes_bytes": 268435456,
+    "coverage": "Difficult inputs may refuse within the input shape/coefficient bounds; no complete within-envelope or compatibility-profile claim."
+  },
+  "toolchain": {
+    "rustc": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "channel": "nightly-2026-08-20",
+    "python": "3.12.14",
+    "pytest": "8.4.2",
+    "native_environment": {
+      "CARGO_HOME": "/workspace/scratch/1fb91a982279/cargo-home",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_INCREMENTAL": "0",
+      "RUSTC": "/home/agent/.rustup/toolchains/nightly-2026-08-20-x86_64-unknown-linux-gnu/bin/rustc",
+      "RUSTDOC": "/home/agent/.rustup/toolchains/nightly-2026-08-20-x86_64-unknown-linux-gnu/bin/rustdoc"
+    },
+    "native_test_environment_additions": {
+      "CARGO_PROFILE_TEST_DEBUG": "0"
+    },
+    "component_environment_additions": {
+      "CARGO_TARGET_DIR": "/workspace/scratch/1fb91a982279/frankensympy/target",
+      "PYO3_PYTHON": "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python"
+    },
+    "python_environment": {
+      "PYTHONPATH": "/workspace/scratch/1fb91a982279/python-integer-math-component-2026-11-20/extension:/workspace/scratch/1fb91a982279/frankensympy/python:/workspace/scratch/1fb91a982279/python-test-deps",
+      "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+      "PYTHONDONTWRITEBYTECODE": "1"
+    },
+    "python_interpreter": "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python"
+  },
+  "native_tests": {
+    "status": "passed",
+    "exit_code": 0,
+    "command": "cargo test --offline --locked -p fsym-proof-kernel -p fsym-matrices -p fsym-solvers --test integer_normal_form --test smith_normal_form --test integer_linear_system --test auxiliary_symbols -j1",
+    "passed": 51,
+    "failed": 0,
+    "ignored": 0,
+    "suites": {
+      "matrix_integer_linear_system": 11,
+      "matrix_smith_normal_form": 10,
+      "kernel_integer_linear_system": 14,
+      "kernel_integer_normal_form": 12,
+      "solver_auxiliary_symbols": 4
+    },
+    "corpora": {
+      "small_2x2_smith_forms": 625,
+      "known_integer_equivalence_families": 24,
+      "small_diophantine_rows": 441
+    },
+    "log": {
+      "path": "artifacts/validation/2026-11-20-integer-algebra/native-tests.log",
+      "sha256": "ecfbc2cd6ef2701fbe62b8d10f4efc56084d86a2d8c89410c0b236999cd79fac"
+    },
+    "earlier_runs": "Repeated coverage, not additional unique tests."
+  },
+  "native_clippy": {
+    "status": "passed",
+    "exit_code": 0,
+    "command": "cargo clippy --offline --locked -p fsym-proof-kernel -p fsym-matrices -p fsym-solvers --all-targets -j1 -- -D warnings",
+    "log": {
+      "path": "artifacts/validation/2026-11-20-integer-algebra/native-clippy.log",
+      "sha256": "6f7ea55dad960f9af839ea3bd077cb0b7602fccae6aa8c88e92816e3fd41ff79"
+    },
+    "corrected_initial_findings": "Removed redundant clone() calls on Copy BudgetLimits in two new matrix tests; no lint suppression."
+  },
+  "formatting": {
+    "repository_owned_rust_packages": "passed cargo fmt --package <each crates/* package> -- --check",
+    "final_changed_tests": "passed pinned rustfmt --check --edition 2024",
+    "python_ast": "passed",
+    "whitespace": "passed git diff --check",
+    "full_including_external_donors": "cargo fmt --all -- --check reached pre-existing asupersync donor formatting differences and was stopped; no full donor formatting pass."
+  },
+  "production_python_build": {
+    "status": "failed",
+    "command": "cargo build --locked -p fsym-python --lib -j1",
+    "observed_failure": "rustc compiling asupersync received signal 9 SIGKILL; no source compiler diagnostic. Overall Cargo exit code was not recovered from the ended session.",
+    "diagnosis_limit": "A killed compiler is observed; no measured memory diagnosis is claimed.",
+    "log": {
+      "path": "artifacts/validation/2026-11-20-integer-algebra/production-python-build.log",
+      "sha256": "da85d00ad1fe4831c53263be41558610adccc2916aeaafb04ebb13526ad0660e"
+    }
+  },
+  "workspace_check": {
+    "status": "failed",
+    "exit_code": 137,
+    "command": "cargo check --locked --workspace --all-targets -j1",
+    "observed_failure": "The Cargo process was killed; last emitted package was Checking asupersync. The shell reported Killed and the captured session exited 137.",
+    "log": {
+      "path": "artifacts/validation/2026-11-20-integer-algebra/workspace-check.log",
+      "sha256": "cc3e62ab4ea929979d7d0b0c2681b2c5d67c1473cd7e48221a94c00782f58754"
+    }
+  },
+  "component": {
+    "scope": "Supplementary mathematical/PyO3 component only; production async runtime and six helpers absent; no replacement functions or upstream production engine",
+    "recipe": "artifacts/validation/2026-11-15-continuation/prepare_python_component.py",
+    "recipe_adaptation": "Only ROOT and OUTPUT variables changed; current bridge sources recursively copied. No production manifest/source omission.",
+    "build_command": "cargo build --offline --locked --lib --features extension-module -j1",
+    "build_status": "passed",
+    "build_exit_code": 0,
+    "build_log": {
+      "path": "artifacts/validation/2026-11-20-integer-algebra/component-build.log",
+      "sha256": "0f73f6a6e07f9a4560119634fb91df8027882afce821ca7a74756ef705800b15"
+    },
+    "original_path_packages": 27,
+    "component_wrappers": 2,
+    "registry_packages": 56,
+    "registry_lock_identity_checksums": "All 56 registry name/version/source/checksum tuples equal production lockfile entries.",
+    "omitted_members": [
+      "lib.rs::eval_error",
+      "lib.rs::eval_region",
+      "lib.rs::simplify_expr",
+      "lib.rs::expand_expr",
+      "expr.rs::PyExpr.simplify",
+      "expr.rs::PyExpr.expand"
+    ],
+    "changed_scratch_bridge_files": [
+      "expr.rs",
+      "lib.rs"
+    ],
+    "source_function_replacements": [],
+    "retained_callback_scope": "Complete original callbacks.rs, including nested-step accounting, cancellation, ownership, and taint; async runtime absent.",
+    "source_binding": "artifacts/validation/2026-11-20-integer-algebra/source-binding.json",
+    "strict_clippy": {
+      "status": "passed",
+      "exit_code": 0,
+      "command": "cargo clippy --offline --locked --lib --features extension-module -j1 -- -D warnings",
+      "scope": "Exact retained mathematical/PyO3 component sources; six runtime helpers absent.",
+      "log": {
+        "path": "artifacts/validation/2026-11-20-integer-algebra/component-clippy.log",
+        "sha256": "3d20a9758d7c489d0f9f73227eb5c8b3d003f4bf2716e9696bce1a9d98be1127"
+      }
+    }
+  },
+  "python_tests": {
+    "runner": "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python -m pytest -q",
+    "source": "Actual repository python/sympy shell with the source-scoped component extension, not upstream SymPy.",
+    "integer": {
+      "status": "passed",
+      "exit_code": 0,
+      "passed": 180,
+      "failed": 0,
+      "skipped": 0,
+      "elapsed_seconds": 117.75,
+      "targets": [
+        "test_smith_normal_form.py",
+        "test_integer_solve.py"
+      ],
+      "log": {
+        "path": "artifacts/validation/2026-11-20-integer-algebra/integer-python.log",
+        "sha256": "df578f9423a698246b0d09009c6151dc1cd390578ba6495134832c17cd5a12b4"
+      }
+    },
+    "calculus": {
+      "status": "passed",
+      "exit_code": 0,
+      "passed": 269,
+      "failed": 0,
+      "skipped": 0,
+      "elapsed_seconds": 402.69,
+      "targets": {
+        "test_compound_domain_calculus.py": 47,
+        "test_rational_compound_domains.py": 47,
+        "test_exact_function_range.py": 41,
+        "test_exact_stationary_points.py": 24,
+        "test_imageset_exact.py": 40,
+        "test_elementary_function_range.py": 17,
+        "test_elementary_function_range_review.py": 53
+      },
+      "log": {
+        "path": "artifacts/validation/2026-11-20-integer-algebra/calculus-python.log",
+        "sha256": "c559895b4cf4fb4844002232fcdb8f4eb388eda95d1bf88252fb6d9ea3b01d97"
+      },
+      "initial_attempt": {
+        "passed": 216,
+        "failed": 51,
+        "elapsed_seconds": 83.48,
+        "corrected": "Generated neutral arithmetic, rational reflection/affine evaluation, and algebraic identity endpoints. Original admission and poles/holes preserved. Two new regression cases were added; no test was weakened or skipped."
+      }
+    },
+    "neighbors": {
+      "status": "partial_pass_with_four_explicit_failures",
+      "exit_code": 1,
+      "passed": 170,
+      "failed": 4,
+      "elapsed_seconds": 15.96,
+      "per_file": {
+        "test_matrix_jordan.py": [
+          22,
+          3
+        ],
+        "test_sparse_affine.py": [
+          70,
+          0
+        ],
+        "test_affine_linear_systems.py": [
+          15,
+          1
+        ],
+        "test_mixed_matrix_products.py": [
+          55,
+          0
+        ],
+        "test_callback_effects_and_ownership.py": [
+          8,
+          0
+        ]
+      },
+      "failures": {
+        "test_symbolic_repeated_blocks_keep_the_generic_route": "Component omits Expr.expand.",
+        "test_rational_source_with_irrational_spectrum_leaves_the_native_rational_lane": "Component omits Expr.expand.",
+        "test_existing_symbolic_coefficient_lane_remains_available": "Component omits Expr.simplify.",
+        "test_irrational_repeated_blocks_keep_the_generic_route": "Unchanged irrational-coefficient characteristic-polynomial/Jordan route remains unsupported. Compared pre-feature paths; no Jordan/root implementation changed."
+      },
+      "log": {
+        "path": "artifacts/validation/2026-11-20-integer-algebra/neighbor-python.log",
+        "sha256": "140c584527748799521ab180bc3a40a12b4340cd697de531bf6082cb10fc2640"
+      }
+    }
+  },
+  "independent_review": "Separate reviewer checked proof-kernel boundary, current bridge equality and generated-endpoint corrections; no blocker remained in the accepted slices.",
+  "gates_not_closed": [
+    "Full production Python/runtime build",
+    "Full-workspace checks/tests/Clippy",
+    "Asynchronous runtime cancellation",
+    "Complete SymPy compatibility profiles",
+    "Broader WS10/WS18/WS19 and proof/performance campaigns"
+  ],
+  "bead_status_priority_dependencies_unchanged": [
+    "fra-kfo",
+    "fra-a5x",
+    "fra-7kf"
+  ]
+}

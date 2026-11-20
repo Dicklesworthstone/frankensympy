@@ -104,7 +104,8 @@ class _Work:
     """Intrinsic bounds shared by every Python-side stage of one request.
 
     Native chart, root and algebraic checks retain their separate bounded
-    generator/verifier meters. No caller-owned runtime budget is implied.
+    generator/verifier meters. An active supervised callback additionally
+    pays for this Python-side work from its shared nested-step allowance.
     """
 
     def __init__(self):
@@ -259,6 +260,8 @@ def _quotient_value(numerator, denominator, work):
         if b == 0:
             raise ValueError("zero rational endpoint denominator")
         return _rational(work.binary(a, 1/b, True))
+    if type(denominator) in _ATOMS and denominator.p == denominator.q:
+        return numerator
     quotient = Mul(numerator, Pow(denominator, Integer(-1), evaluate=False), evaluate=False)
     return _algebraic_value(quotient, work)
 
@@ -279,7 +282,8 @@ def _polynomial_value(coefficients, point, work):
             continue
         value = _rational(coefficient)
         if exponent:
-            value = Mul(value, Pow(point, Integer(exponent), evaluate=False), evaluate=False)
+            power = point if exponent == 1 else Pow(point, Integer(exponent), evaluate=False)
+            value = power if coefficient == 1 else Mul(value, power, evaluate=False)
         terms.append(value)
     if not terms:
         return Integer(0)
@@ -443,7 +447,10 @@ def _domain_pieces(domain, work, guard):
             cells = [False]*width
             for descriptor in tree[1]:
                 work.step()
-                cells[2*indices[descriptor] + 1] = True
+                # Infinities in an extended-real child set are outside
+                # this real-line partition, including under complement.
+                if descriptor[0] != "infinity":
+                    cells[2*indices[descriptor] + 1] = True
             return cells
         if kind == "Complement":
             return [not cell for cell in partition(tree[1][0])]
@@ -535,11 +542,11 @@ def _range_pieces(expression, symbol, components, work, guard):
     if not components:
         return []
     numerator, denominator = _fraction(expression, symbol, work)
-    derivative, _receipt = diff_with_receipt(expression, symbol)
-    if guard is not None:
+    critical = []
+    if any(work.compare(lower, upper) < 0 for lower, upper, _, _ in components):
+        derivative, _receipt = diff_with_receipt(expression, symbol)
         guard()
-    critical, _cells = _monotonicity_chart(derivative, symbol, ">=")
-    if guard is not None:
+        critical, _cells = _monotonicity_chart(derivative, symbol, ">=")
         guard()
     pieces = []
     for lower, upper, left_open, right_open in components:
@@ -595,6 +602,10 @@ def _rational_source_request(expression, symbol, domain, work):
         return STATIONARY_UNSUPPORTED
     if any(type(expression) is owner for owner in (int, str, Expr, _native.Expr)):
         _require_original_surface()
+        if type(expression) is str and len(expression) > 4096:
+            raise NotImplementedError("exact rational source text limit exceeded")
+        if type(expression) is int and expression.bit_length() > 4096:
+            raise NotImplementedError("exact rational source coefficient limit exceeded")
         expression = _wrap(_native_expr(expression))
     kinds = (Add, Mul, Pow, Symbol, Dummy, *_ATOMS)
     if not any(type(expression) is owner for owner in kinds):
@@ -722,6 +733,15 @@ def _rational_source_request(expression, symbol, domain, work):
         kind = type(node)
         if not any(kind is owner for owner in kinds):
             return STATIONARY_UNSUPPORTED
+        record = snapshot(node)
+        native = record[1]
+        # Bound the complete borrowed graph before args can clone children.
+        # The later argument binding and retained records keep this admitted
+        # original authoritative through native checking and publication.
+        if not records:
+            work.step()
+            if not _native.real_constraint_source_preflight_native(native):
+                return STATIONARY_UNSUPPORTED
         children = node.args
         if (type(children) is not tuple or (kind is Pow and len(children) != 2)
                 or (kind in (Symbol, Dummy, *_ATOMS) and children)):
@@ -733,8 +753,6 @@ def _rational_source_request(expression, symbol, domain, work):
             raise NotImplementedError("exact rational source limit exceeded")
         if kind in (Symbol, Dummy):
             symbols.add(node)
-        record = snapshot(node)
-        native = record[1]
         if kind in (Symbol, Dummy):
             if (not native.is_symbol or _surface_binding_key(native.symbol_binding)
                     != _surface_binding_key(_symbol_binding(node))):
@@ -859,7 +877,10 @@ def rational_stationary_points(expression, symbol, domain):
         components = _domain_pieces(domain, work, unchanged)
         unchanged()
         if components is STATIONARY_UNSUPPORTED:
-            return STATIONARY_UNSUPPORTED
+            # A rational source has already been selected. Generic
+            # differentiation can erase its original held poles, so an
+            # undecidable compound domain must remain a terminal refusal.
+            raise NotImplementedError("exact rational analysis requires decidable real domain endpoints")
         components = _admit(expression, symbol, components, work, unchanged)
         unchanged()
         if not components:

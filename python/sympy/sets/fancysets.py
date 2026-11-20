@@ -461,9 +461,9 @@ def imageset(*args: Any) -> Set:
 
     ``imageset(Lambda(x, f), S)`` or ``imageset(x, f, S)``. Finite products
     are evaluated with simultaneous Lambda arguments. Exact rational images
-    of bounded real set expressions use complete checked critical points and
-    original domain exclusions; unsupported images remain formal ``ImageSet``
-    objects.
+    of real intervals and their bounded set combinations use complete checked
+    critical points and original domain exclusions; unsupported images remain
+    formal ``ImageSet`` objects.
     """
     from ..core import Dummy, Symbol
     from .sets import Complement, EmptySet, Intersection, Interval, Reals, Union
@@ -493,8 +493,9 @@ def imageset(*args: Any) -> Set:
             guard()
         return finite
     if (type(lam) is Lambda and len(bases) == 1
-            and type(bases[0]) in (Interval, Reals, Union, Intersection, Complement)
-            and type(lam.signature[0]) in (Symbol, Dummy)):
+            and any(type(bases[0]) is owner for owner in (
+                Interval, Reals, Union, Intersection, Complement))
+            and (type(lam.signature[0]) is Symbol or type(lam.signature[0]) is Dummy)):
         from ..calculus._rational_range import STATIONARY_UNSUPPORTED, rational_image
 
         checked = rational_image(lam.expr, lam.signature[0], bases[0], guard)

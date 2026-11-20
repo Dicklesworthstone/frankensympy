@@ -387,7 +387,7 @@ fn both_phases_refuse_compute_memory_and_allocation_exhaustion() {
         let mut limits = BudgetLimits::uniform(u64::MAX, 0);
         limits.dimensions[dimension.index()] = 0;
         assert!(matches!(
-            a.metered_solve_integer(&b, &mut Budget::new(limits.clone()), &mut Unbounded),
+            a.metered_solve_integer(&b, &mut Budget::new(limits), &mut Unbounded),
             Err(MatrixError::ResourceLimit(_))
         ));
         assert!(matches!(

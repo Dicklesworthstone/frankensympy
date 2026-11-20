@@ -325,7 +325,7 @@ fn both_phases_honor_independent_compute_memory_and_allocation_limits() {
         let mut limits = BudgetLimits::uniform(u64::MAX, 0);
         limits.dimensions[dimension.index()] = 0;
         assert!(matches!(
-            source.metered_smith_normal_form(&mut Budget::new(limits.clone()), &mut Unbounded),
+            source.metered_smith_normal_form(&mut Budget::new(limits), &mut Unbounded),
             Err(MatrixError::ResourceLimit(_))
         ));
         assert!(matches!(

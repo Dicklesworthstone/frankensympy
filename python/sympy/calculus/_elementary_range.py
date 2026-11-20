@@ -80,9 +80,12 @@ def _select(node, work):
     return leaf, tag, power, scale, offset
 
 
-def _negate(bound):
+def _negate(bound, work):
     if bound[0]:
         return -bound[0], None
+    if type(bound[1]) in _rational._ATOMS:
+        value = work.scalar(Fraction(bound[1].p, bound[1].q))
+        return _finite(_rational._rational(work.binary(Fraction(-1), value, True)))
     return _finite(_wrap(_native.py_mul(_native.py_integer(-1), _native_expr(bound[1]))))
 
 
@@ -101,7 +104,7 @@ def _fold_absolute(pieces, work):
     positive = _clip(pieces, (zero, _POSITIVE_INFINITY, False, True), work)
     for lower, upper, left_open, right_open in _clip(
             pieces, (_NEGATIVE_INFINITY, zero, True, False), work):
-        positive.append((_negate(upper), _negate(lower), right_open, left_open))
+        positive.append((_negate(upper, work), _negate(lower, work), right_open, left_open))
     return _merge(positive, work)
 
 
@@ -181,12 +184,20 @@ def _endpoint(bound, tag, power, work):
     return _evaluate(tag, value)
 
 
-def _affine(bound, scale, offset):
+def _affine(bound, scale, offset, work):
     if bound[0]:
         return (bound[0] if scale > 0 else -bound[0]), None
-    native = _native.py_mul(_native.py_rational(scale.numerator, scale.denominator),
-                           _native_expr(bound[1]))
-    native = _native.py_add(native, _native.py_rational(offset.numerator, offset.denominator))
+    if scale == 1 and offset == 0:
+        return bound
+    if type(bound[1]) in _rational._ATOMS:
+        value = work.scalar(Fraction(bound[1].p, bound[1].q))
+        value = work.binary(work.binary(scale, value, True), offset)
+        return _finite(_rational._rational(value))
+    native = _native_expr(bound[1])
+    if scale != 1:
+        native = _native.py_mul(_native_expr(_rational._rational(scale)), native)
+    if offset:
+        native = _native.py_add(native, _native_expr(_rational._rational(offset)))
     return _finite(_wrap(native))
 
 
@@ -280,7 +291,7 @@ def elementary_analysis(expression, symbol, domain, operation):
             translated = []
             for lower, upper, left_open, right_open, singleton in mapped:
                 work.step()
-                lo, hi = _affine(lower, scale, offset), _affine(upper, scale, offset)
+                lo, hi = _affine(lower, scale, offset, work), _affine(upper, scale, offset, work)
                 if scale < 0:
                     lo, hi, left_open, right_open = hi, lo, right_open, left_open
                 translated.append((lo, hi, left_open, right_open, singleton))

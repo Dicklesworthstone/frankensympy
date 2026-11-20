@@ -1,0 +1,84 @@
+   Compiling fsym-solvers v0.1.0 (/workspace/scratch/1fb91a982279/frankensympy/crates/fsym-solvers)
+   Compiling fsym-matrices v0.1.0 (/workspace/scratch/1fb91a982279/frankensympy/crates/fsym-matrices)
+    Finished `test` profile [unoptimized] target(s) in 23.67s
+     Running tests/integer_linear_system.rs (target/debug/build/fsym-matrices/d0b6e84ce66bc34c/out/integer_linear_system-d0b6e84ce66bc34c)
+
+running 11 tests
+test both_original_domains_are_admitted_before_empty_shortcuts ... ok
+test both_phases_refuse_compute_memory_and_allocation_exhaustion ... ok
+test rationally_consistent_but_integer_impossible_is_a_checked_outcome ... ok
+test sources_residual_only_lattices_and_false_contradictions_are_rejected ... ok
+test primitive_integer_kernel_represents_every_integer_parameter ... ok
+test empty_equations_variables_and_rhs_columns_keep_mathematical_shapes ... ok
+test full_column_rank_tall_sources_have_a_unique_integer_solution ... ok
+test transformed_zero_rows_and_all_rhs_columns_are_checked ... ok
+test cancellation_across_the_complete_solve_never_becomes_inconsistency ... ok
+test mixed_dense_sparse_inputs_have_identical_canonical_evidence ... ok
+test exhaustive_small_diophantine_rows_match_the_integer_gcd_criterion ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+
+     Running tests/smith_normal_form.rs (target/debug/build/fsym-matrices/07f23d1e8718d79d/out/smith_normal_form-07f23d1e8718d79d)
+
+running 10 tests
+test both_phases_honor_independent_compute_memory_and_allocation_limits ... ok
+test original_domain_and_size_are_checked_before_zero_rank_shortcuts ... ok
+test forged_sources_transforms_and_diagonals_do_not_gain_acceptance ... ok
+test exact_large_coefficients_never_pass_through_binary64 ... ok
+test cancellation_at_generation_verification_and_publication_yields_no_form ... ok
+test tall_wide_and_rank_deficient_forms_are_complete ... ok
+test divisibility_repair_and_negative_pivots_produce_canonical_factors ... ok
+test seeded_integer_equivalences_preserve_every_invariant_factor ... ok
+test exhaustive_two_by_two_forms_match_independent_determinantal_divisors ... ok
+test empty_and_rectangular_zero_sources_keep_their_full_shape ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.98s
+
+     Running tests/integer_linear_system.rs (target/debug/build/fsym-proof-kernel/e1b08ccc88c887cd/out/integer_linear_system-e1b08ccc88c887cd)
+
+running 14 tests
+test forged_schema_source_normal_form_and_contradiction_indices_fail_closed ... ok
+test noninteger_or_oversized_data_cannot_be_hidden_by_a_contradiction ... ok
+test each_rhs_column_has_its_own_integer_parameter_and_divisibility_conditions ... ok
+test canonical_particular_and_binding_digests_retain_all_original_rhs_data ... ok
+test complete_primitive_integer_family_and_portable_replay ... ok
+test resource_exhaustion_is_not_an_integer_inconsistency_verdict ... ok
+test rational_solvability_does_not_imply_integer_solvability ... ok
+test all_proof_phases_and_repeated_calls_share_the_callers_budget ... ok
+test zero_area_shapes_and_zero_rhs_columns_keep_their_exact_solution_semantics ... ok
+test dependent_rows_require_transformed_zero_rhs_rows ... ok
+test full_rank_system_has_one_checked_integer_solution ... ok
+test zero_residual_and_full_rational_rank_do_not_certify_a_complete_integer_kernel ... ok
+test portable_witness_decoding_bounds_outputs_and_rejects_forged_flags ... ok
+test every_phase_cancels_without_publishing_a_solution_or_inconsistency ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.02s
+
+     Running tests/integer_normal_form.rs (target/debug/build/fsym-proof-kernel/139e4df32fdcefcb/out/integer_normal_form-139e4df32fdcefcb)
+
+running 12 tests
+test product_identity_without_integer_invertibility_cannot_destroy_rank_or_scale_the_module ... ok
+test dimensions_and_coefficient_growth_are_admitted_before_reference_products ... ok
+test exhausted_work_storage_and_allocations_remain_terminal ... ok
+test source_and_witness_storage_cannot_hide_fractional_or_malformed_entries ... ok
+test valid_equivalence_is_insufficient_without_positive_divisible_contiguous_diagonal ... ok
+test exact_integer_normal_form_and_portable_replay_bind_every_matrix ... ok
+test zero_and_empty_shapes_require_genuine_unimodular_transformations ... ok
+test rectangular_forms_preserve_rank_and_all_coordinates ... ok
+test original_source_and_every_witness_component_are_checked ... ok
+test repeat_verification_consumes_the_same_callers_budget ... ok
+test portable_witness_decoder_bounds_matrices_and_rejects_extra_authority ... ok
+test every_observed_safe_point_cancels_without_an_accepted_receipt ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running tests/auxiliary_symbols.rs (target/debug/build/fsym-solvers/60d0a7a38a86d127/out/auxiliary_symbols-60d0a7a38a86d127)
+
+running 4 tests
+test a_user_parameter_cannot_cancel_the_transcendental_generator ... ok
+test radical_elimination_preserves_original_branch_checks_for_reserved_names ... ok
+test same_printed_name_with_typed_identity_keeps_the_same_solutions ... ok
+test transcendental_generator_solving_is_invariant_under_coordinate_renaming ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.90s
+
