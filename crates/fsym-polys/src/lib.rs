@@ -7,6 +7,7 @@
 
 pub mod checked_groebner;
 pub mod division;
+pub mod evaluation;
 pub mod factorization;
 pub mod fglm;
 pub mod finite_field;
@@ -50,6 +51,7 @@ pub mod univariate;
 
 pub use checked_groebner::*;
 pub use division::*;
+pub use evaluation::*;
 pub use factorization::*;
 pub use fglm::*;
 pub use finite_field::*;
