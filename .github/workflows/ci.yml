@@ -129,6 +129,8 @@ jobs:
         with:
           cache-on-failure: true
       - run: python -m pip install --disable-pip-version-check pytest==8.4.2
+      - name: Original-source smooth absolute-value certificates
+        run: cargo test --locked -p fsym-core --test abs_certification --test objective_enclosure --test root_box_general -j1
       - name: Principal-angle interval and original-source certificates
         run: cargo test --locked -p fsym-core --test atan2_enclosures --test atan2_certification -j1
       - name: Compiled principal-angle programs and derivative admission

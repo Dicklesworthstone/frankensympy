@@ -29,7 +29,10 @@ fn power(base: Expr, exponent: i64) -> Expr {
 #[test]
 fn coordinate_partials_and_hessians_have_the_exact_quadrant_independent_signs() {
     let variables = [Symbol::new("y"), Symbol::new("x")];
-    let source = atan2(Expr::Sym(variables[0].clone()), Expr::Sym(variables[1].clone()));
+    let source = atan2(
+        Expr::Sym(variables[0].clone()),
+        Expr::Sym(variables[1].clone()),
+    );
     for (y, x) in [(2, 3), (2, -3), (-2, 3), (-2, -3), (0, 3), (2, 0)] {
         let domain = [RealBall::from_i64(y), RealBall::from_i64(x)];
         let denominator = x * x + y * y;
@@ -48,9 +51,8 @@ fn coordinate_partials_and_hessians_have_the_exact_quadrant_independent_signs() 
                 RealBall::exact(q(2 * x * y, square)),
             ],
         ];
-        let c1 =
-            enclose_residual_jacobian(std::slice::from_ref(&source), &variables, &domain, 24)
-                .unwrap();
+        let c1 = enclose_residual_jacobian(std::slice::from_ref(&source), &variables, &domain, 24)
+            .unwrap();
         let c2 = enclose_objective(&source, &variables, &domain, 24).unwrap();
         assert_eq!(c1.jacobian()[0], first);
         assert_eq!(c2.gradient(), first);
@@ -104,7 +106,10 @@ fn nonlinear_argument_hessians_and_both_mixed_chain_terms_are_retained() {
 #[test]
 fn complete_rectangle_derivative_bounds_include_independent_rational_anchors() {
     let variables = [Symbol::new("y"), Symbol::new("x")];
-    let source = atan2(Expr::Sym(variables[0].clone()), Expr::Sym(variables[1].clone()));
+    let source = atan2(
+        Expr::Sym(variables[0].clone()),
+        Expr::Sym(variables[1].clone()),
+    );
     let domain = [interval(q(1, 1), q(2, 1)), interval(q(-2, 1), q(2, 1))];
     let c1 =
         enclose_residual_jacobian(std::slice::from_ref(&source), &variables, &domain, 24).unwrap();
@@ -133,7 +138,10 @@ fn complete_rectangle_derivative_bounds_include_independent_rational_anchors() {
 #[test]
 fn cut_origin_and_held_shortcuts_cannot_publish_differentiability_receipts() {
     let variables = [Symbol::new("y"), Symbol::new("x")];
-    let angle = atan2(Expr::Sym(variables[0].clone()), Expr::Sym(variables[1].clone()));
+    let angle = atan2(
+        Expr::Sym(variables[0].clone()),
+        Expr::Sym(variables[1].clone()),
+    );
     let sources = [
         angle.clone(),
         Expr::Mul(vec![Expr::from_i64(0), angle.clone()]),
@@ -170,7 +178,10 @@ fn both_original_children_and_exact_arity_are_admitted_before_angle_identities()
     for source in [
         atan2(Expr::from_i64(0), invalid.clone()),
         atan2(invalid.clone(), Expr::from_i64(1)),
-        atan2(Expr::from_i64(1), Expr::Mul(vec![Expr::from_i64(0), invalid])),
+        atan2(
+            Expr::from_i64(1),
+            Expr::Mul(vec![Expr::from_i64(0), invalid]),
+        ),
     ] {
         assert!(matches!(
             enclose_residual_jacobian(std::slice::from_ref(&source), &variables, &domain, 24),

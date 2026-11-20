@@ -415,6 +415,10 @@ fn evaluate_inner(
                 return Err(RootBoxError::Unsupported("non-unary objective function"));
             };
             let argument = evaluate_inner(argument, variables, domain, depth + 1, work)?;
+            if matches!(name.as_str(), "abs" | "Abs") {
+                let (value, slope) = work.absolute_branch(&argument.value)?;
+                return chain_jet(argument, value, slope, RealBall::from_i64(0), work);
+            }
             work.elementary(&argument.value)?;
             if matches!(name.as_str(), "log" | "ln") {
                 return logarithm(argument, work);

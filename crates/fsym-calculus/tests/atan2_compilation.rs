@@ -106,11 +106,15 @@ fn binary_opcode_transport_and_provenance_reject_reversed_arguments() {
         vec![CompiledOp::Atan2],
         vec![CompiledOp::LoadVar(0), CompiledOp::Atan2],
     ] {
-        assert_eq!(CompiledExpr::try_from_ops(ops), Err(EvalError::StackUnderflow));
+        assert_eq!(
+            CompiledExpr::try_from_ops(ops),
+            Err(EvalError::StackUnderflow)
+        );
     }
     for arguments in [vec![], vec![Expr::symbol("y")], vec![Expr::from_i64(1); 3]] {
         assert!(
-            CompiledExpr::try_compile(&Expr::Function("atan2".into(), arguments), &mapping).is_err()
+            CompiledExpr::try_compile(&Expr::Function("atan2".into(), arguments), &mapping)
+                .is_err()
         );
     }
 }
@@ -215,9 +219,17 @@ fn held_zero_and_zero_products_keep_original_undefined_angles_and_cuts() {
     let objective = VerifiedObjective::try_compile(&held, &variables()).unwrap();
     for point in [[0.0, 0.0], [0.0, -1.0]] {
         assert!(residual.evaluate_sparse(&point).is_err());
-        assert!(residual.jacobian_vector_product(&point, &[0.0, 0.0]).is_err());
+        assert!(
+            residual
+                .jacobian_vector_product(&point, &[0.0, 0.0])
+                .is_err()
+        );
         assert!(objective.evaluate(&point).is_err());
-        assert!(objective.hessian_vector_product(&point, &[0.0, 0.0]).is_err());
+        assert!(
+            objective
+                .hessian_vector_product(&point, &[0.0, 0.0])
+                .is_err()
+        );
     }
     assert_eq!(
         residual.evaluate_sparse(&[1.0, 1.0]).unwrap().residuals,
@@ -251,7 +263,10 @@ fn admitted_transport_rebuilds_smooth_domain_checks_and_rejects_changed_source_o
 #[test]
 fn identical_printed_names_remain_distinct_ordered_angle_arguments() {
     let y = Symbol::new("coordinate");
-    let x = Symbol::with_identity("coordinate", SymbolIdentity::from_assumptions_digest([43; 32]));
+    let x = Symbol::with_identity(
+        "coordinate",
+        SymbolIdentity::from_assumptions_digest([43; 32]),
+    );
     let expression = angle(Expr::Sym(y.clone()), Expr::Sym(x.clone()));
     let residual = VerifiedResidualSystem::try_compile(&[expression], &[y, x]).unwrap();
     let evaluated = residual.evaluate_sparse(&[4.0, 3.0]).unwrap();
@@ -352,12 +367,7 @@ fn cancelled_shared_evaluation_never_partially_publishes_caller_buffers() {
         VerifiedResidualSystem::try_compile(&[Expr::symbol("y"), source()], &variables()).unwrap();
     let mut counted = InterruptAt::new(BudgetLimits::uniform(1_000_000, 37));
     residual
-        .try_eval_sparse_into_with_meter(
-            &[4.0, 3.0],
-            &mut [0.0; 2],
-            &mut [0.0; 3],
-            &mut counted,
-        )
+        .try_eval_sparse_into_with_meter(&[4.0, 3.0], &mut [0.0; 2], &mut [0.0; 3], &mut counted)
         .unwrap();
     for stop in [1, counted.checkpoints / 2, counted.checkpoints] {
         let mut values = [71.0, 73.0];

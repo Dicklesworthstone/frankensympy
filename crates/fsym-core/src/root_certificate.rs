@@ -807,6 +807,30 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
         self.arithmetic(&[a], &[])?;
         checked(a.inv()?)
     }
+    /// Absolute value is affine only after the complete argument enclosure
+    /// establishes one strict sign. This local rule does not claim a derivative
+    /// at zero, or infer a global sign from a midpoint/sample. The caller first
+    /// checks the original argument, including every held domain obligation.
+    fn absolute_branch(
+        &mut self,
+        argument: &RealBall,
+    ) -> Result<(RealBall, RealBall), RootBoxError> {
+        self.arithmetic(&[argument], &[])?;
+        let positive = argument.is_positive();
+        self.arithmetic(&[argument], &[])?;
+        let negative = argument.is_negative();
+        if !positive && !negative {
+            return Err(RootBoxError::Domain(
+                "absolute value argument is not strictly separated from zero",
+            ));
+        }
+        self.arithmetic(&[argument], &[])?;
+        if positive {
+            Ok((argument.clone(), RealBall::from_i64(1)))
+        } else {
+            Ok((argument.neg(), RealBall::from_i64(-1)))
+        }
+    }
     fn scale(&mut self, a: &RealBall, q: &BigRational) -> Result<RealBall, RootBoxError> {
         self.arithmetic(&[a], &[q])?;
         checked(a.mul(&RealBall::exact(q.clone())))
@@ -1223,6 +1247,10 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
                     return Err(RootBoxError::Unsupported("non-unary function"));
                 };
                 let a = self.eval(arg, variables, domain, depth + 1)?;
+                if matches!(name.as_str(), "abs" | "Abs") {
+                    let (value, slope) = self.absolute_branch(&a.value)?;
+                    return self.chain(a, value, slope);
+                }
                 self.elementary(&a.value)?;
                 let (value, slope) = match name.as_str() {
                     "sin" => (a.value.sin(digits)?, a.value.cos(digits)?),

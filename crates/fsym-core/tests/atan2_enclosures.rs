@@ -104,7 +104,12 @@ fn continuous_rectangles_keep_full_corner_ranges_across_both_axes() {
     let positive = interval(q(1, 1), q(2, 1));
     let crossing = interval(q(-2, 1), q(2, 1));
     for (y, x, lower, upper) in [
-        (positive.clone(), positive.clone(), low.lower(), high.upper()),
+        (
+            positive.clone(),
+            positive.clone(),
+            low.lower(),
+            high.upper(),
+        ),
         (
             positive.clone(),
             crossing.clone(),
@@ -210,10 +215,7 @@ fn exact_positive_rescaling_is_invariant_beyond_binary_float_ranges() {
         BigRational::new(BigInt::from(1), huge),
     ] {
         let factor = RealBall::exact(factor);
-        assert_eq!(
-            y.mul(&factor).atan2(&x.mul(&factor), 24).unwrap(),
-            expected,
-        );
+        assert_eq!(y.mul(&factor).atan2(&x.mul(&factor), 24).unwrap(), expected,);
     }
 }
 
@@ -251,23 +253,14 @@ fn ground_expression_dispatch_keeps_quadrants_arity_and_both_original_domains() 
     let pi = pi_reference();
     let quarter = pi.div(&RealBall::from_i64(4)).unwrap();
     for (y, x, multiplier) in [(1, 1, 1), (1, -1, 3), (-1, 1, -1), (-1, -1, -3)] {
-        let source = Expr::Function(
-            "atan2".into(),
-            vec![Expr::from_i64(y), Expr::from_i64(x)],
-        );
+        let source = Expr::Function("atan2".into(), vec![Expr::from_i64(y), Expr::from_i64(x)]);
         let actual = source.evalf_ball(24).unwrap();
         enclosed_tightly(&actual, &quarter.mul(&RealBall::from_i64(multiplier)));
         assert!(actual.radius() <= &decimal_unit(24));
     }
-    let negative_axis = Expr::Function(
-        "atan2".into(),
-        vec![Expr::from_i64(0), Expr::from_i64(-1)],
-    );
+    let negative_axis = Expr::Function("atan2".into(), vec![Expr::from_i64(0), Expr::from_i64(-1)]);
     enclosed_tightly(&negative_axis.evalf_ball(24).unwrap(), &pi);
-    let origin = Expr::Function(
-        "atan2".into(),
-        vec![Expr::from_i64(0), Expr::from_i64(0)],
-    );
+    let origin = Expr::Function("atan2".into(), vec![Expr::from_i64(0), Expr::from_i64(0)]);
     assert!(origin.evalf_ball(24).is_err());
     for arity in [0, 1, 3] {
         let source = Expr::Function("atan2".into(), vec![Expr::from_i64(1); arity]);
@@ -279,6 +272,10 @@ fn ground_expression_dispatch_keeps_quadrants_arity_and_both_original_domains() 
         vec![held_zero.clone(), Expr::from_i64(1)],
         vec![Expr::from_i64(0), held_zero],
     ] {
-        assert!(Expr::Function("atan2".into(), arguments).evalf_ball(24).is_err());
+        assert!(
+            Expr::Function("atan2".into(), arguments)
+                .evalf_ball(24)
+                .is_err()
+        );
     }
 }
