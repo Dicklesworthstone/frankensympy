@@ -1,0 +1,398 @@
+{
+  "schema_version": 1,
+  "session_date": "2026-11-20",
+  "repository": "Dicklesworthstone/frankensympy",
+  "purpose": "Bounded public algebra functionality and source-bound execution evidence; no broad workstream or profile closure.",
+  "implementation_commits": {
+    "ode_fresh_auxiliary_identities": "6d47716df81f0afd97ccb69ff255c3e5dd9532d3",
+    "complete_real_elementary_affine_solving": "d72e6c4673461f0c7c2d4fdfb86aca675c01d471",
+    "complex_matrix_definiteness": "79f1732b3b43fc08fd2b80c11d6a91f4738d4ac9",
+    "exact_residual_zero_decision": "e831230a27d8745ec6bfcc3d24b83dc9732e4263",
+    "float_polynomial_evaluation": "964a0dd5cde940f83c74d34d2bc5afed5b7a7d3f",
+    "rational_original_source_candidates": "e58aff96a21582109a5694dff2f524cc56b9fba7"
+  },
+  "functional_scope": {
+    "solveset": "A*f(a*x+b)+B over real domains with exact rational affine coefficients and f in exp/log/sinh/cosh/tanh/asinh/acosh/atanh. Complete finite branches, exact range decisions, retained original holes and conditional undecidable domain restrictions.",
+    "matrix_definiteness": "All five definiteness properties on the four built-in dense/sparse mutable/immutable matrix classes; exact Gaussian-rational inputs through dimension 32, Hermitian-part semantics and complete inertia counts. Reuses concurrent native bridge e3822ae and preserves 30dbf0e source-binding hardening.",
+    "solve": "Original held rational finite systems, including equation/operand ordering, typed coordinates, checked pole filtering and check=False numerator candidates. Public solve_poly_system remains polynomial-only.",
+    "ode": "Fresh internal Dummy identities prevent capture of user parameters; checkodesol uses exact rational numerator-zero decisions without unnecessary polynomial GCD.",
+    "poly_eval": "Preselected scalar Float arithmetic folds numeric powers/products/sums while preserving symbolic and exact-only terms; original owner/source checks remain through publication."
+  },
+  "component_contract": {
+    "scope": "Supplementary mathematical/PyO3 component only; production async runtime and six helpers absent; no replacement functions or upstream production engine",
+    "production_math_source_commit": "79f1732b3b43fc08fd2b80c11d6a91f4738d4ac9",
+    "final_bridge_and_shell_source_commit": "e58aff96a21582109a5694dff2f524cc56b9fba7",
+    "compiled_mathematical_dependency_sources_identical_between_commits": true,
+    "callback_session_source_unchanged": true,
+    "budget_implementation": "Unchanged production crates/fsym-budget, re-exported by the separate component runtime adapter.",
+    "omitted_members": [
+      "lib.rs::eval_error",
+      "lib.rs::eval_region",
+      "lib.rs::simplify_expr",
+      "lib.rs::expand_expr",
+      "expr.rs::PyExpr.simplify",
+      "expr.rs::PyExpr.expand"
+    ],
+    "omitted_block_sha256": {
+      "lib.rs": "f52e906f92117916e059a4b263a34f23ff82847faa03ba10977e648aed182340",
+      "expr.rs": "77d218e828cd2109d557ec1037404af50020af1a44392473d9521c9f6038486a"
+    },
+    "source_function_replacements": [],
+    "bridge_source_files": 43,
+    "unchanged_bridge_files": 41,
+    "registry_package_count": 56,
+    "registry_packages_match_production_lock": true,
+    "component_cargo_lock_sha256": "3bf263f6e5d95fb3015349cdc69636ea66b45f2ecfe4ee2c607fd4383936ad68",
+    "source_scope_manifest_sha256": "283fbcbaa618bcb15d246b353dfa803e631833fd1142077952e7cb3798780ed5",
+    "initial_math_scope_manifest_sha256": "fa79a9704802531be641a6450add76fe42aa08ee1ce75b44d64b5ce0edcab93f",
+    "reference_recipe": "artifacts/audit/2026-11-14-math-component-scope.json",
+    "executed_recipe_sha256": "27a9f73b6ee8373241d5127e03e8efa865635d4f8fbaf3d890fa1e64a1d8e181",
+    "critical_original_bridge_sha256": {
+      "callbacks.rs": "7da9c31c51a7cec0975f4a307707529e9ec0c294f9be88fd0d1e4a521a4448d9",
+      "matrix.rs": "9e7507dfd54b4c68542271ad24c9e66fa4a17f7813aab5aeb4bc69dcc1eb0901",
+      "polynomial_systems.rs": "e86d9ed3dc6f606cfe43589d8da4764c58f5e0b13cd581edad09b5ecc51168d4",
+      "lib.rs": "8fb48ac86cef69929b548632affe0ff1c1a32e39b102351e5c4969cde83b4610",
+      "expr.rs": "95bd2cc170e05b1f07323f547320f222340fc32691545adebc964e004f8ab462",
+      "polynomial_evaluation.rs": "e2c1c7399cfddc76f330a1b30593e800caba1b3baec692fa7f988ced1078cc71"
+    },
+    "critical_component_bridge_sha256": {
+      "callbacks.rs": "7da9c31c51a7cec0975f4a307707529e9ec0c294f9be88fd0d1e4a521a4448d9",
+      "matrix.rs": "9e7507dfd54b4c68542271ad24c9e66fa4a17f7813aab5aeb4bc69dcc1eb0901",
+      "polynomial_systems.rs": "e86d9ed3dc6f606cfe43589d8da4764c58f5e0b13cd581edad09b5ecc51168d4",
+      "lib.rs": "eb51f987e0b56b93639f8a8d1624bac1bdc6a2cc1f78538c079c64e407a4dfd1",
+      "expr.rs": "a0b00291c5dcb0980c602dffe7c73c490788549a67a5f2d73ecad1bb3e4d2944",
+      "polynomial_evaluation.rs": "e2c1c7399cfddc76f330a1b30593e800caba1b3baec692fa7f988ced1078cc71"
+    },
+    "production_manifests_modified": false
+  },
+  "component_builds": [
+    {
+      "source_commit": "79f1732b3b43fc08fd2b80c11d6a91f4738d4ac9",
+      "command": [
+        "cargo",
+        "build",
+        "--locked",
+        "--offline",
+        "--manifest-path",
+        "/workspace/scratch/4558d9876799/validation-python-component-79f1732/Cargo.toml",
+        "--features",
+        "extension-module",
+        "-j1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 731.6747658252716,
+      "cargo_target_dir": "/workspace/scratch/4558d9876799/build-env/target"
+    },
+    {
+      "source_commit": "e58aff96a21582109a5694dff2f524cc56b9fba7",
+      "command": [
+        "cargo",
+        "build",
+        "--locked",
+        "--offline",
+        "--manifest-path",
+        "/workspace/scratch/4558d9876799/validation-python-component-e58aff9/Cargo.toml",
+        "--features",
+        "extension-module",
+        "-j1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 161.55679476000023,
+      "cargo_target_dir": "/workspace/scratch/4558d9876799/build-env/target",
+      "registry_packages_match_production_lock": true,
+      "max_rss_kib": 798700
+    }
+  ],
+  "candidate_runs": {
+    "initial_frozen_component": {
+      "source_commit": "79f1732b3b43fc08fd2b80c11d6a91f4738d4ac9",
+      "command": [
+        "/workspace/scratch/4558d9876799/build-env/python/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "--tb=short",
+        "--junitxml=/workspace/scratch/4558d9876799/validation-python-component-79f1732/initial-tests.xml",
+        "/workspace/scratch/4558d9876799/validation-source-79f1732/python/tests/test_matrix_hermitian_definiteness.py",
+        "/workspace/scratch/4558d9876799/validation-source-79f1732/python/tests/test_matrix_definiteness.py",
+        "/workspace/scratch/4558d9876799/validation-source-79f1732/python/tests/test_matrix_definiteness_budget.py",
+        "/workspace/scratch/4558d9876799/validation-source-79f1732/python/tests/test_elementary_real_solving.py"
+      ],
+      "exit_code": 1,
+      "counts": {
+        "tests": 262,
+        "failures": 8,
+        "errors": 0,
+        "skipped": 4,
+        "passed": 250
+      },
+      "extension_sha256": "b575199787d33d07bb8cfc8c58e63bb9bccb81cf4d5f25ae2df125dbc5cb3d2c",
+      "source_hashes_unchanged": true,
+      "bridge_hashes_unchanged": true,
+      "source_function_replacements": [],
+      "import_provenance": {
+        "sympy": "/workspace/scratch/4558d9876799/validation-source-79f1732/python/sympy/__init__.py",
+        "native": "/workspace/scratch/4558d9876799/validation-python-component-79f1732/extension/fsym_python.so",
+        "pytest": "8.4.2"
+      },
+      "original_result_sha256": "5d9e46ecc418d08c43e7394f79a9fc80c4dc0bd57ec189fac73a34a04fb76dc8"
+    },
+    "current_matrix_and_float_shell": {
+      "python_source_commit": "30dbf0e64f9c2f55d4bfa006a622c7477d560359",
+      "native_source_commit": "79f1732b3b43fc08fd2b80c11d6a91f4738d4ac9",
+      "command": [
+        "/workspace/scratch/4558d9876799/build-env/python/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "--tb=short",
+        "--junitxml=/workspace/scratch/4558d9876799/validation-python-shell-30dbf0e/tests.xml",
+        "/workspace/scratch/4558d9876799/validation-python-shell-30dbf0e/python/tests/test_matrix_hermitian_definiteness.py",
+        "/workspace/scratch/4558d9876799/validation-python-shell-30dbf0e/python/tests/test_hermitian_definiteness.py",
+        "/workspace/scratch/4558d9876799/validation-python-shell-30dbf0e/python/tests/test_matrix_definiteness.py",
+        "/workspace/scratch/4558d9876799/validation-python-shell-30dbf0e/python/tests/test_matrix_definiteness_budget.py",
+        "/workspace/scratch/4558d9876799/validation-python-shell-30dbf0e/python/tests/test_polynomial_evaluation.py"
+      ],
+      "exit_code": 1,
+      "counts": {
+        "tests": 406,
+        "failures": 9,
+        "errors": 0,
+        "skipped": 4,
+        "passed": 393
+      },
+      "by_suite": {
+        "python.tests.test_matrix_hermitian_definiteness": {
+          "passed": 102,
+          "failed": 0,
+          "skipped": 0
+        },
+        "python.tests.test_hermitian_definiteness": {
+          "passed": 106,
+          "failed": 8,
+          "skipped": 0
+        },
+        "python.tests.test_matrix_definiteness": {
+          "passed": 88,
+          "failed": 0,
+          "skipped": 4
+        },
+        "python.tests.test_matrix_definiteness_budget": {
+          "passed": 8,
+          "failed": 0,
+          "skipped": 0
+        },
+        "python.tests.test_polynomial_evaluation": {
+          "passed": 89,
+          "failed": 1,
+          "skipped": 0
+        }
+      },
+      "extension_sha256": "b575199787d33d07bb8cfc8c58e63bb9bccb81cf4d5f25ae2df125dbc5cb3d2c",
+      "source_hashes_unchanged": true,
+      "source_function_replacements": [],
+      "import_provenance": {
+        "sympy": "/workspace/scratch/4558d9876799/validation-python-shell-30dbf0e/python/sympy/__init__.py",
+        "native": "/workspace/scratch/4558d9876799/validation-python-component-79f1732/extension/fsym_python.so",
+        "pytest": "8.4.2"
+      },
+      "original_result_sha256": "8dae317576737e49d9cf3643dd7fcaacd253dcfe78b05808634fbd5154d3a870"
+    },
+    "corrected_numeric_owner_import": {
+      "python_source_commit": "30dbf0e64f9c2f55d4bfa006a622c7477d560359",
+      "native_source_commit": "79f1732b3b43fc08fd2b80c11d6a91f4738d4ac9",
+      "command": [
+        "/workspace/scratch/4558d9876799/build-env/python/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "--tb=short",
+        "/workspace/scratch/4558d9876799/validation-hermitian-import-fix/test_hermitian_definiteness.py",
+        "-k",
+        "closed_numeric_owners",
+        "--junitxml=/workspace/scratch/4558d9876799/validation-hermitian-import-fix/tests.xml"
+      ],
+      "exit_code": 0,
+      "counts": {
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 8
+      },
+      "extension_sha256": "b575199787d33d07bb8cfc8c58e63bb9bccb81cf4d5f25ae2df125dbc5cb3d2c",
+      "assertions_unchanged": true,
+      "corrected_test_blob": "b3d2c7acf85e79fa37edf66d9187584d8f28ce01",
+      "original_result_sha256": "c3904347609d76d1de73dbeb7e1f9b2b717d233213d0dd95ffb25f6f08b353c2"
+    },
+    "rational_system_and_admission": {
+      "source_commit": "e58aff96a21582109a5694dff2f524cc56b9fba7",
+      "command": [
+        "/workspace/scratch/4558d9876799/build-env/python/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "--tb=short",
+        "--junitxml=/workspace/scratch/4558d9876799/validation-python-component-e58aff9/tests.xml",
+        "/workspace/scratch/4558d9876799/validation-source-e58aff9/python/tests/test_solve_source_domains.py",
+        "/workspace/scratch/4558d9876799/validation-source-e58aff9/python/tests/test_solve_system_assumptions.py",
+        "/workspace/scratch/4558d9876799/validation-source-e58aff9/python/tests/test_rational_system_sources.py::test_finite_polynomial_api_remains_polynomial_only",
+        "/workspace/scratch/4558d9876799/validation-source-e58aff9/python/tests/test_localized_components.py::test_finite_api_remains_polynomial_only_and_finite_localization_keeps_its_shape",
+        "/workspace/scratch/4558d9876799/validation-source-e58aff9/python/tests/test_polynomial_system_checked.py::test_held_equation_preserves_both_original_undefined_sides",
+        "/workspace/scratch/4558d9876799/validation-source-e58aff9/python/tests/test_polynomial_system_checked.py::test_rational_overdetermined_system_and_generator_order",
+        "/workspace/scratch/4558d9876799/validation-source-e58aff9/python/tests/test_checkodesol_rational_residuals.py::test_rational_zero_rejects_a_zero_denominator_before_accepting_zero",
+        "/workspace/scratch/4558d9876799/validation-source-e58aff9/python/tests/test_checkodesol_rational_residuals.py::test_rational_zero_preserves_fraction_construction_cancellation"
+      ],
+      "exit_code": 0,
+      "counts": {
+        "tests": 72,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 72
+      },
+      "by_suite": {
+        "validation-source-e58aff9.python.tests.test_solve_source_domains.SolveOriginalSourceDomainTests": {
+          "passed": 27,
+          "failed": 0,
+          "skipped": 0
+        },
+        "validation-source-e58aff9.python.tests.test_solve_system_assumptions": {
+          "passed": 39,
+          "failed": 0,
+          "skipped": 0
+        },
+        "validation-source-e58aff9.python.tests.test_rational_system_sources": {
+          "passed": 1,
+          "failed": 0,
+          "skipped": 0
+        },
+        "validation-source-e58aff9.python.tests.test_localized_components": {
+          "passed": 1,
+          "failed": 0,
+          "skipped": 0
+        },
+        "validation-source-e58aff9.python.tests.test_polynomial_system_checked": {
+          "passed": 2,
+          "failed": 0,
+          "skipped": 0
+        },
+        "validation-source-e58aff9.python.tests.test_checkodesol_rational_residuals": {
+          "passed": 2,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "extension_sha256": "283cc0dd05f18d3685191ccac47c8e76d170a59ee73b9063e612621447f83125",
+      "source_hashes_unchanged": true,
+      "bridge_hashes_unchanged": true,
+      "source_function_replacements": [],
+      "import_provenance": {
+        "sympy": "/workspace/scratch/4558d9876799/validation-source-e58aff9/python/sympy/__init__.py",
+        "native": "/workspace/scratch/4558d9876799/validation-python-component-e58aff9/extension/fsym_python.so",
+        "pytest": "8.4.2"
+      },
+      "original_result_sha256": "2da07bbbdccd97ec3b7d57caf5f5771a2f701cf0aac4d4baa116efd6a8c7b92f"
+    }
+  },
+  "distinct_automated_cases": {
+    "normalization": "Module basename and full parametrized testcase name; later unchanged-assertion correction supersedes the earlier observation.",
+    "total": 538,
+    "final_observed_status": {
+      "passed": 533,
+      "skipped": 4,
+      "failed": 1
+    },
+    "by_functional_area_passed": {
+      "elementary_real": 60,
+      "hermitian_new": 102,
+      "hermitian_concurrent": 114,
+      "existing_matrix": 88,
+      "matrix_budget": 8,
+      "polynomial_evaluation": 89,
+      "solve_source_domains": 27,
+      "solve_system_assumptions": 39,
+      "unchanged_polynomial_contracts": 4,
+      "rational_zero_adversaries": 2
+    }
+  },
+  "failure_resolution_and_limits": [
+    "The frozen 79f component had eight zero-domain fallback failures because Expr.simplify was omitted. All eight pass against the existing concurrent 30dbf0e shell, which handles the native zero-domain refusal directly.",
+    "The current concurrent Hermitian suite had eight ImportErrors from importing Zero at top level. The containing commit changes only that import to sympy.core.Zero; all eight original assertions pass unchanged. No production export or assertion was changed.",
+    "One existing polynomial GCD/resultant/Groebner composition case reaches deliberately omitted Expr.expand. It remains a recorded component limitation, with the complete test still selected in production CI.",
+    "Four skips are pre-existing pinned-oracle-only cubic observations; no new skip or weakened golden was introduced.",
+    "The full public ODE auxiliary/checkodesol suites need production simplify/expand and remain unexecuted here. Direct predicate execution is separate from that public runtime gate.",
+    "Concurrent commits outside these immutable source snapshots are preserved on main; these component runs are not a validation claim for all later concurrent changes."
+  ],
+  "direct_exact_residual_experiment": {
+    "source_commit": "e58aff96a21582109a5694dff2f524cc56b9fba7",
+    "scope": "Supplementary mathematical/PyO3 component only; production async runtime and six helpers absent; no replacement functions or upstream production engine",
+    "command": [
+      "/workspace/scratch/4558d9876799/build-env/python/bin/python",
+      "-c",
+      "import json\nfrom sympy import Symbol, Rational, exp, diff\nfrom sympy.polys._opaque import rational_zero\nx = Symbol('actual_rational_residual_axis')\ndenominator = x/2 + Rational(1, 4) - exp(2*(x-1))/4\ncandidate = 1/denominator\nidentity = diff(candidate, x) + 2*candidate - x*candidate*candidate\nperturbed = candidate + Rational(1, 10**60)*x\nnonidentity = diff(perturbed, x) + 2*perturbed - x*perturbed*perturbed\nverdicts = (rational_zero(identity), rational_zero(nonidentity))\nassert verdicts == (True, False), verdicts\nprint(json.dumps({'exact_identity': verdicts[0], 'tiny_exact_perturbation': verdicts[1],\n                  'native_transform_and_ring_unchanged': True, 'function_replacements': []}))\n"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 95.68544504200008,
+    "extension_sha256": "283cc0dd05f18d3685191ccac47c8e76d170a59ee73b9063e612621447f83125",
+    "source_hashes_unchanged": true,
+    "public_checkodesol_gate_executed": false,
+    "public_checkodesol_limitation": "The component omits the asynchronous simplify/expand helpers; this independently executes the real exact rational residual predicate.",
+    "output": "{\"exact_identity\": true, \"tiny_exact_perturbation\": false, \"native_transform_and_ring_unchanged\": true, \"function_replacements\": []}\n",
+    "stderr": "",
+    "source_function_replacements": []
+  },
+  "independent_upstream_expected_fixtures": {
+    "version": "SymPy 1.14.0",
+    "isolation": "python -I, import verified outside the repository checkout",
+    "float_fixtures": {
+      "passed": 8,
+      "failed": 0
+    },
+    "rational_system_fixtures": {
+      "passed": 20,
+      "failed": 0
+    },
+    "initial_matrix_fixtures": {
+      "passed": 36,
+      "failed": 0
+    },
+    "ode_auxiliary_fixtures": {
+      "passed": 5,
+      "failed": 2,
+      "scope": "Two unknown-parameter Euler solution-family shape differences in upstream; not a candidate execution result."
+    },
+    "candidate_execution_claim": false
+  },
+  "source_checks": {
+    "changed_python_ast_parsing": "passed",
+    "scoped_whitespace": "passed",
+    "changed_rust_pinned_formatting": "passed on nightly-2026-08-20",
+    "full_workspace_check_clippy_tests": "not completed in this session"
+  },
+  "production_validation": {
+    "status": "pending",
+    "local_attempts": "Production extension attempts did not complete after shared execution interruptions; component evidence does not certify the asynchronous production dependency graph.",
+    "github_actions": {
+      "observed_head": "bacb125b1a6337b05a74de5f42c4ae790b58a67a",
+      "ci_run": 44855269968,
+      "ci_status": "queued",
+      "remote_verification_run": 44855269965,
+      "remote_verification_status": "pending"
+    },
+    "workstream_and_profile_claims_promoted": false
+  },
+  "residual_beads": [
+    "fra-7kf",
+    "fra-kfo",
+    "fra-o4g"
+  ]
+}

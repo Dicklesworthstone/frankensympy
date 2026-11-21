@@ -153,7 +153,7 @@ def test_replaced_oversized_scalar_is_bounded_before_native_binding(cls, monkeyp
 @pytest.mark.parametrize("cls", CLASSES)
 @pytest.mark.parametrize("fixed", (False, True))
 def test_closed_numeric_owners_match_their_exact_native_payload(cls, fixed, monkeypatch):
-    from sympy import Zero
+    from sympy.core import Zero
 
     entry = Zero() if fixed else Integer(2)
     replacement = Integer(2) if fixed else Rational(3, 2)
