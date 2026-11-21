@@ -17,9 +17,14 @@ use num_traits::{One, Signed, Zero};
 use thiserror::Error;
 
 mod comparison;
+mod query;
 pub use comparison::{
     RealRootComparisonCertificate, VerifiedRealRootComparison, compare_real_roots,
     verify_real_root_comparison,
+};
+pub use query::{
+    RealRootQuery, VerifiedRealRootQuery, isolate_real_roots_in_interval, refine_real_root_interval,
+    verify_real_root_query,
 };
 
 pub const MAX_REAL_ROOT_DEGREE: usize = 64;
