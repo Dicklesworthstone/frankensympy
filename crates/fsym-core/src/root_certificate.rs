@@ -1001,6 +1001,21 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
             _ => Err(RootBoxError::Unsupported("reciprocal hyperbolic function")),
         }
     }
+    /// Analytic sinc at every real argument, including boxes crossing zero.
+    /// This independently recomputes the jet from the original source; the
+    /// numerical differentiator's private derivative nodes are not trusted.
+    fn sinc(&mut self, argument: &RealBall) -> Result<[RealBall; 3], RootBoxError> {
+        self.arithmetic(&[argument], &[])?;
+        let digits = self.precision;
+        let jet = argument.sinc_jet_with_work(digits, &mut |steps, bytes, allocations| {
+            self.charge(steps, bytes, allocations)
+        })?;
+        for value in &jet {
+            check_ball(value)?;
+        }
+        self.step()?;
+        Ok(jet)
+    }
     /// Entire real error functions and their Gaussian first derivative.
     /// The original argument is evaluated before a zero chain factor can
     /// erase one of its own domain obligations.
@@ -1350,6 +1365,10 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
                     "asin" | "acos" => self.inverse_circular(&a.value, name == "acos")?,
                     "asinh" | "acosh" | "atanh" => self.inverse_hyperbolic(&a.value, name)?,
                     "erf" | "erfc" => self.error_function(&a.value, name == "erfc")?,
+                    "sinc" => {
+                        let [value, slope, _] = self.sinc(&a.value)?;
+                        (value, slope)
+                    }
                     "atan" => {
                         let square = self.power(&a.value, 2)?;
                         let denominator = self.add(&RealBall::from_i64(1), &square)?;

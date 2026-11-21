@@ -1342,6 +1342,7 @@ impl Expr {
                     "atanh" => map(arg.atanh(precision_digits)),
                     "erf" => map(arg.erf(precision_digits)),
                     "erfc" => map(arg.erfc(precision_digits)),
+                    "sinc" => map(arg.sinc(precision_digits)),
                     "tan" => {
                         let s = map(arg.sin(precision_digits + 4))?;
                         let c = map(arg.cos(precision_digits + 4))?;

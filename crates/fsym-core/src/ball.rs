@@ -9,6 +9,7 @@ mod atan2;
 mod error_functions;
 mod inverse_circular;
 mod inverse_hyperbolic;
+mod sinc;
 
 use crate::arith::RationalArithmeticError;
 use crate::{BigInt, BigRational};

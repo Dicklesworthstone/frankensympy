@@ -487,6 +487,10 @@ fn evaluate_inner(
                     let curvature = work.mul(&factor, &slope)?;
                     (value, slope, curvature)
                 }
+                "sinc" => {
+                    let [value, slope, curvature] = work.sinc(&argument.value)?;
+                    (value, slope, curvature)
+                }
                 "atan" => {
                     let square = work.power(&argument.value, 2)?;
                     let denominator = work.add(&RealBall::from_i64(1), &square)?;
