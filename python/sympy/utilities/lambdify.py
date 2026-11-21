@@ -60,8 +60,10 @@ _FUNCTION_ARGS = Function.__dict__["_args"]
 # ln/abs/sqrt are not additional source aliases: opaque classes can use them.
 _CLOSED_NATIVE_FUNCTIONS = {
     "sin": "sin", "cos": "cos", "tan": "tan",
+    "cot": "cot", "sec": "sec", "csc": "csc",
     "asin": "asin", "acos": "acos", "atan": "atan", "atan2": "atan2",
     "sinh": "sinh", "cosh": "cosh", "tanh": "tanh",
+    "coth": "coth", "sech": "sech", "csch": "csch",
     "asinh": "asinh", "acosh": "acosh", "atanh": "atanh",
     "exp": "exp", "log": "log", "Abs": "abs",
     "floor": "floor", "ceiling": "ceiling", "gamma": "gamma",
@@ -116,10 +118,50 @@ class _FunctionTable:
         raise KeyError("unregistered numerical function class")
 
 
+def _math_cot(value):
+    return 1 / math.tan(value)
+
+
+def _math_sec(value):
+    return 1 / math.cos(value)
+
+
+def _math_csc(value):
+    return 1 / math.sin(value)
+
+
+def _math_coth(value):
+    # Preserve the pinned math printer's arithmetic and exceptions. The
+    # explicit native backend separately uses stable finite-real intrinsics.
+    positive, negative = math.exp(value), math.exp(-value)
+    return (positive + negative) / (positive - negative)
+
+
+def _math_sech(value):
+    positive, negative = math.exp(value), math.exp(-value)
+    return 1 / (0.5 * positive + 0.5 * negative)
+
+
+def _math_csch(value):
+    positive, negative = math.exp(value), math.exp(-value)
+    return 1 / (0.5 * positive - 0.5 * negative)
+
+
+def _require_numeric_function_arity(name, size):
+    expected = 2 if name == "atan2" else 1
+    if size != expected:
+        arguments = "two numerical arguments" if expected == 2 else "one numerical argument"
+        raise ValueError(f"{name} requires exactly {arguments}")
+
+
 def _functions():
     # Exact classes, never class names supplied by a user subclass.
-    from ..functions.elementary.trigonometric import sin, cos, tan, asin, acos, atan, atan2
-    from ..functions.elementary.hyperbolic import sinh, cosh, tanh, asinh, acosh, atanh
+    from ..functions.elementary.trigonometric import (
+        sin, cos, tan, cot, sec, csc, asin, acos, atan, atan2,
+    )
+    from ..functions.elementary.hyperbolic import (
+        sinh, cosh, tanh, coth, sech, csch, asinh, acosh, atanh,
+    )
     from ..functions.elementary.exponential import exp, log
     from ..functions.elementary.integers import floor, ceiling
     from ..functions.special.gamma_functions import gamma
@@ -128,9 +170,12 @@ def _functions():
 
     return _FunctionTable((
         (sin, ("sin", math.sin)), (cos, ("cos", math.cos)), (tan, ("tan", math.tan)),
+        (cot, ("cot", _math_cot)), (sec, ("sec", _math_sec)), (csc, ("csc", _math_csc)),
         (asin, ("asin", math.asin)), (acos, ("acos", math.acos)), (atan, ("atan", math.atan)),
         (atan2, ("atan2", math.atan2)),
         (sinh, ("sinh", math.sinh)), (cosh, ("cosh", math.cosh)), (tanh, ("tanh", math.tanh)),
+        (coth, ("coth", _math_coth)), (sech, ("sech", _math_sech)),
+        (csch, ("csch", _math_csch)),
         (asinh, ("asinh", math.asinh)), (acosh, ("acosh", math.acosh)),
         (atanh, ("atanh", math.atanh)), (exp, ("exp", math.exp)), (log, ("log", math.log)),
         (Abs, ("abs", abs)), (floor, ("floor", math.floor)), (ceiling, ("ceiling", math.ceil)),
@@ -475,8 +520,8 @@ def _numeric_source(value, functions, count, depth=0, *, inexact=None):
             return _native_numeric_source(_BASIC_VALUE.__get__(value, Basic), count, depth, inexact=inexact)
         if type(arguments) is not tuple or len(arguments) > _MAX_NODES:
             raise ValueError("numeric source requires bounded exact stored arguments")
-        if function is not None and function[0] == "atan2" and len(arguments) != 2:
-            raise ValueError("atan2 requires exactly two numerical arguments")
+        if function is not None:
+            _require_numeric_function_arity(function[0], len(arguments))
         children = [_numeric_source(arg, functions, count, depth + 1, inexact=inexact)
                     for arg in arguments]
         if cls is Add:
@@ -1421,8 +1466,8 @@ def _math_native_program(source, positions, functions, count, program, depth):
             function = next(spec[1] for _, spec in functions.items() if spec[0] == native_name)
             kind = "function"
         children = node.args
-        if kind == "function" and native_name == "atan2" and len(children) != 2:
-            raise ValueError("atan2 requires exactly two numerical arguments")
+        if kind == "function":
+            _require_numeric_function_arity(native_name, len(children))
         for child in children:
             visit(child, level + 1)
         if kind == "function":
@@ -1488,8 +1533,8 @@ def _math_program(value, positions, functions, count, program, depth=0):
         arguments = native.args
     if type(arguments) is not tuple or len(arguments) > _MAX_NODES:
         raise ValueError("numeric source requires bounded exact stored arguments")
-    if cls in functions and functions[cls][0] == "atan2" and len(arguments) != 2:
-        raise ValueError("atan2 requires exactly two numerical arguments")
+    if cls in functions:
+        _require_numeric_function_arity(functions[cls][0], len(arguments))
     for child in arguments:
         _math_program(child, positions, functions, count, program, depth + 1)
     if cls is Add:
