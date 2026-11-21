@@ -40,13 +40,14 @@ def test_original_held_poles_are_rejected_before_rational_normalization(held_can
         candidate = Add(candidate, hole, evaluate=False)
     else:
         source = Add(source, hole, evaluate=False)
-    with patch("sympy.polys._opaque.cancel", side_effect=AssertionError("original pole erased")):
+    with patch("sympy.polys._opaque.rational_zero", side_effect=AssertionError("original pole erased")):
         assert checkodesol(source, Eq(y, candidate, evaluate=False), y) == (False, source)
 
 
 def test_exact_rational_normalization_resource_failure_remains_terminal():
     _, y, source, candidate = rational_flow()
-    with patch("sympy.polys._opaque.cancel", side_effect=ValueError("exact rational budget exhausted")):
+    with patch("sympy.polys._opaque._Polynomial.fraction",
+               side_effect=ValueError("exact rational budget exhausted")):
         with pytest.raises(ValueError, match="exact rational budget exhausted"):
             checkodesol(source, Eq(y, candidate), y)
 
@@ -54,7 +55,7 @@ def test_exact_rational_normalization_resource_failure_remains_terminal():
 def test_noncommutative_declaration_cannot_enter_scalar_rational_normalization():
     x = Symbol("noncommutative_residual_coordinate", commutative=False)
     _, y, source, candidate = rational_flow(x)
-    with patch("sympy.polys._opaque.cancel", side_effect=AssertionError("noncommutative source admitted")):
+    with patch("sympy.polys._opaque.rational_zero", side_effect=AssertionError("noncommutative source admitted")):
         try:
             result = checkodesol(source, Eq(y, candidate), y)
         except NotImplementedError:
@@ -84,3 +85,38 @@ def test_unsupported_fractional_residual_keeps_the_unverified_result():
     verified, residual = checkodesol(source, x**Rational(1, 3), y)
     assert verified is False
     assert residual != 0
+
+
+@pytest.mark.parametrize("offset, expected", [
+    (Integer(0), True), (Rational(1, 10**60), False),
+])
+def test_zero_identity_and_tiny_perturbation_need_no_polynomial_gcd(offset, expected):
+    x, y, source, candidate = rational_flow()
+    with patch("sympy.polys._opaque._native.poly_multivariate_gcd_native",
+               side_effect=AssertionError("zero identity must not compute a GCD")):
+        result = checkodesol(source, Eq(y, candidate + offset*x), y)
+    assert result[0] is expected
+    if expected:
+        assert result[1] == 0
+    else:
+        assert result[1] != 0
+
+
+def test_rational_zero_rejects_a_zero_denominator_before_accepting_zero():
+    from sympy.polys._opaque import rational_zero
+
+    x = Symbol("rational_zero_invalid_denominator")
+    with patch("sympy.polys._opaque._Polynomial.fraction", return_value=({}, {})):
+        with pytest.raises(ValueError, match="zero denominator"):
+            rational_zero(x)
+
+
+def test_rational_zero_preserves_fraction_construction_cancellation():
+    from sympy.polys._opaque import rational_zero
+
+    x = Symbol("rational_zero_cancelled")
+    failure = RuntimeError("injected rational coefficient cancellation")
+    with patch("sympy.polys._opaque._Polynomial.fraction", side_effect=failure):
+        with pytest.raises(RuntimeError) as caught:
+            rational_zero(x/(x+1))
+    assert caught.value is failure

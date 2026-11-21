@@ -369,6 +369,41 @@ def factor(expression, gens=(), *, listing=False):
     return (result[0], list(zip(result[1:], multiplicities))) if listing else result
 
 
+def rational_zero(expression):
+    """Check a zero identity in the bounded formal rational-function algebra.
+
+    True establishes an empty exact numerator with a nonzero denominator
+    polynomial. False is only failure to establish this identity in the free
+    algebra: function atoms need not be algebraically independent, and no
+    pointwise nonzero claim follows. The caller must separately preserve the
+    original source's definedness; denominator polynomials may have zeros.
+
+    Unlike cancellation, this decision needs no polynomial GCD or quotient
+    reconstruction. All source admission, coefficient limits and active caller
+    accounting remain the same as the existing retained polynomial transforms.
+    """
+    values, _ = _inputs(expression, ())
+    decision = None
+
+    def operation(lowered):
+        nonlocal decision
+        raw = lowered[-1]
+        ring = _Polynomial((raw,), formal=lowered[:-1])
+        numerator, denominator = ring.fraction(raw)
+        if not denominator:
+            raise ValueError("retained rational zero test has a zero denominator")
+        decision = not numerator
+        # native_transform transports expressions, not Boolean verdicts. This
+        # internal marker lets its full admission/restoration boundary finish;
+        # the decision must not depend on the marker's lifted Python class.
+        return _integer(0)
+
+    native_transform(values, operation, atomize_functions=True)
+    if type(decision) is not bool:
+        raise ValueError("retained rational zero test did not produce a verdict")
+    return decision
+
+
 def cancel(expression, gens=()):
     values, requested_count = _inputs(expression, gens)
 
