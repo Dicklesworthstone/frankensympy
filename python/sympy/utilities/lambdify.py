@@ -28,11 +28,13 @@ from ._piecewise_numeric import (
     Piecewise as _Piecewise, branches as _piecewise_branches,
     condition as _piecewise_condition,
 )
+from ._portable_program import load_portable_residual_system
 
 __all__ = [
     "EvaluationBudget", "EvaluationBudgetExceeded", "EvaluationCancelled", "NumericRootCandidate",
     "NumericLeastSquaresCandidate",
-    "compile_numeric", "compile_residual_system", "load_residual_system", "lambdify",
+    "compile_numeric", "compile_residual_system", "load_residual_system",
+    "load_portable_residual_system", "lambdify",
 ]
 
 EvaluationBudget = _native.EvaluationBudget
@@ -735,6 +737,28 @@ class _ResidualCallable:
         are bounded admission work outside `EvaluationBudget`.
         """
         return self.native_system.to_bytes()
+
+    def to_portable_bytes(self, *, budget=None):
+        """Export a residual/Jacobian candidate for Python and native Sessions.
+
+        The canonical format retains the original typed sources, derivative
+        proofs and bytecode under the empty ambient context, with a 1 MiB
+        limit. ``load_portable_residual_system`` and the native Session replay
+        API require the receiver's own exact sources and ordered variables
+        before independently admitting the retained evidence. Root receipts,
+        Python objects, argument nesting and execution state are not stored.
+
+        Native encoding and the returned byte buffer consume the supplied
+        cumulative ``EvaluationBudget``; omission uses one bounded private
+        ledger. Cancellation or failure publishes no bytes. The existing
+        ``to_bytes`` representation remains available for legacy loaders.
+        """
+        from .source_certification import _source_budget
+
+        budget = _source_budget(budget)
+        data = self.native_system.to_portable_bytes(budget=budget)
+        _check_evaluation_budget(budget)
+        return data
 
     def replay_root_certificate(self, data, *, budget=None):
         """Recheck portable root-proof bytes against this program's frozen source.

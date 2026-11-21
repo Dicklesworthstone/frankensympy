@@ -1529,13 +1529,14 @@ from .simplify import (
 from .utilities.lambdify import (
     EvaluationBudget, EvaluationBudgetExceeded, EvaluationCancelled, NumericRootCandidate,
     NumericLeastSquaresCandidate,
-    compile_numeric, compile_residual_system, load_residual_system, lambdify,
+    compile_numeric, compile_residual_system, load_portable_residual_system,
+    load_residual_system, lambdify,
 )
 from .utilities.hybrid import compile_numeric_hybrid
 from .utilities.hybrid_system import compile_hybrid_residual_system
 from .utilities.objective import (
     MinimizationSearchError, NumericMinimizationCandidate,
-    StationarySearchError, compile_objective, load_objective,
+    StationarySearchError, compile_objective, load_objective, load_portable_objective,
 )
 from .utilities.source_certification import (
     certify_box_extremum, certify_root_box, certify_stationary_point,
@@ -2730,7 +2731,9 @@ __all__ = [
     "compile_hybrid_residual_system",
     "compile_residual_system",
     "load_residual_system",
+    "load_portable_residual_system",
     "compile_objective", "load_objective",
+    "load_portable_objective",
     "enclose_residual_system",
     "certify_root_box",
     "enclose_objective",

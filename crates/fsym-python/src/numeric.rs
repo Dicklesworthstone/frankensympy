@@ -47,6 +47,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyFloat, PyInt, PyList, PyTuple};
 use std::collections::HashMap;
 
+pub(crate) mod program_artifact;
 mod root_artifact;
 
 const MAX_VARIABLES: usize = 256;
@@ -1627,6 +1628,26 @@ pub struct PyVerifiedResidualSystem {
 }
 
 impl PyVerifiedResidualSystem {
+    fn check_source_plan_with_meter(
+        residuals: &[Expr],
+        variables: &[Symbol],
+        meter: &mut impl BudgetMeter,
+    ) -> Result<(), VerifiedCompilationError> {
+        let source_plan = plan_sparse_sources_with_meter(residuals, variables, meter)?;
+        if source_plan.source_nodes > MAX_SOURCE_NODES
+            || source_plan.differentiation_units > MAX_TOTAL_OPS
+        {
+            return Err(VerifiedCompilationError::AdmissionLimit {
+                resource: "Python differentiation work",
+                actual: source_plan
+                    .source_nodes
+                    .max(source_plan.differentiation_units) as u64,
+                max: MAX_TOTAL_OPS as u64,
+            });
+        }
+        Ok(())
+    }
+
     fn check_requested_source(residuals: &[Expr], variables: &[Symbol]) -> PyResult<()> {
         variable_map(variables)?;
         let mut source_nodes = 0;
@@ -1690,18 +1711,7 @@ impl PyVerifiedResidualSystem {
         let residuals = extract_expressions_metered(residuals, budget.as_deref())?;
         let variables = extract_variables_metered(variables, budget.as_deref())?;
         let system = with_certification_meter(py, budget.as_deref(), |meter| {
-            let source_plan = plan_sparse_sources_with_meter(&residuals, &variables, meter)?;
-            if source_plan.source_nodes > MAX_SOURCE_NODES
-                || source_plan.differentiation_units > MAX_TOTAL_OPS
-            {
-                return Err(VerifiedCompilationError::AdmissionLimit {
-                    resource: "Python differentiation work",
-                    actual: source_plan
-                        .source_nodes
-                        .max(source_plan.differentiation_units) as u64,
-                    max: MAX_TOTAL_OPS as u64,
-                });
-            }
+            Self::check_source_plan_with_meter(&residuals, &variables, meter)?;
             VerifiedResidualSystem::try_compile_with_meter(&residuals, &variables, meter)
         })?;
         let result = Self::admit(system)?;
@@ -1859,6 +1869,37 @@ impl PyVerifiedResidualSystem {
             .detach(|| self.system.to_json_bytes())
             .map_err(Self::transport_error)?;
         Ok(PyBytes::new(py, &encoded))
+    }
+
+    /// Export the canonical context-bound format shared with native Session.
+    /// This explicit format leaves the legacy to_bytes representation intact.
+    #[pyo3(signature = (*, budget=None))]
+    fn to_portable_bytes<'py>(
+        &self,
+        py: Python<'py>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        program_artifact::export_residual(py, &self.system, budget.as_deref())
+    }
+
+    /// Independently bind a native Session candidate to the receiving Python
+    /// source before admitting retained derivative proofs and bytecode.
+    #[staticmethod]
+    #[pyo3(signature = (data, *, residuals, variables, budget=None))]
+    fn from_portable_bytes(
+        data: &Bound<'_, PyAny>,
+        residuals: &Bound<'_, PyAny>,
+        variables: &Bound<'_, PyAny>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Self> {
+        program_artifact::check_data(data, budget.as_deref())?;
+        let residuals = extract_expressions_metered(residuals, budget.as_deref())?;
+        let variables = extract_variables_metered(variables, budget.as_deref())?;
+        let system =
+            program_artifact::replay_residual(data, &residuals, &variables, budget.as_deref())?;
+        let result = Self::admit(system)?;
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
     }
 
     /// Replay proof admission and bind to the caller's exact expected typed source.

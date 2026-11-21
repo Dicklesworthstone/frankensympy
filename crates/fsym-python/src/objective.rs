@@ -4,6 +4,7 @@
 
 use crate::binding::PySymbolBinding;
 use crate::expr::PyExpr;
+use crate::numeric::program_artifact;
 use crate::numeric::{
     ball_bounds, check_certified_sources, check_source, donor_float_option, donor_newton_guards,
     exact_box, exact_rational, exact_vector, extract_variables, extract_variables_metered,
@@ -366,6 +367,44 @@ impl PyVerifiedObjective {
             let candidate = decode_objective_candidate(encoded, meter)?;
             admit_objective_candidate(source, &variables, candidate, meter)
         })?;
+        let result = Self { objective };
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
+    }
+
+    /// Export the canonical context-bound format shared with native Session.
+    /// This explicit format leaves the legacy to_bytes representation intact.
+    #[pyo3(signature = (*, budget=None))]
+    fn to_portable_bytes<'py>(
+        &self,
+        py: Python<'py>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        program_artifact::export_objective(py, &self.objective, budget.as_deref())
+    }
+
+    /// Independently bind a native Session candidate to the receiving source
+    /// before admitting both derivative stages and their bytecode provenance.
+    #[staticmethod]
+    #[pyo3(signature = (data, *, source, variables, budget=None))]
+    fn from_portable_bytes(
+        data: &Bound<'_, PyAny>,
+        source: &Bound<'_, PyAny>,
+        variables: &Bound<'_, PyAny>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Self> {
+        program_artifact::check_data(data, budget.as_deref())?;
+        if !source.is_exact_instance(&data.py().get_type::<PyExpr>()) {
+            return Err(PyTypeError::new_err(
+                "objective must be an exact native Expr object",
+            ));
+        }
+        let source = source.extract::<PyRef<'_, PyExpr>>()?;
+        let source = &source.inner;
+        let variables = extract_variables_metered(variables, budget.as_deref())?;
+        check_source(source, &mut 0)?;
+        let objective =
+            program_artifact::replay_objective(data, source, &variables, budget.as_deref())?;
         let result = Self { objective };
         with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
         Ok(result)

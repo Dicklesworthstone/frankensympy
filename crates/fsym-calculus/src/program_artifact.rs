@@ -10,6 +10,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod context;
+
 use crate::compile::{CompiledExpr, CompiledOp, MAX_COMPILE_OPS};
 use crate::sparse_hessian::{ObjectiveCandidate, ObjectiveCompilationError, VerifiedObjective};
 use crate::sparse_jacobian::{MAX_SPARSE_AXES, SparseJacobian};

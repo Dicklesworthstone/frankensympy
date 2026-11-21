@@ -215,6 +215,9 @@ pub(crate) fn evaluation_error<E: Error + 'static>(error: E) -> PyErr {
         ) || matches!(
             current.downcast_ref::<CompileError>(),
             Some(CompileError::AllocationFailure)
+        ) || matches!(
+            current.downcast_ref::<fsym_core::root_certificate::artifact::CertificationError>(),
+            Some(fsym_core::root_certificate::artifact::CertificationError::AllocationFailure)
         ) {
             return PyMemoryError::new_err(error.to_string());
         }

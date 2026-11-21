@@ -362,6 +362,46 @@ same versioned proof format and independently replay proof and source binding
 on load. Imported bundles must also satisfy the current aggregate source,
 operation and proof-work bounds.
 
+Compiled residual and objective programs can also move between Python and native
+Sessions through the shared, context-bound format:
+
+```python
+from sympy import (
+    EvaluationBudget, compile_objective, compile_residual_system,
+    load_portable_objective, load_portable_residual_system, symbols,
+)
+
+x, y = symbols("x y")
+budget = EvaluationBudget()
+source = [x**2 + y, x - y]
+program = compile_residual_system(source, (x, y), budget=budget)
+saved = program.to_portable_bytes(budget=budget)
+restored = load_portable_residual_system(
+    saved, residuals=source, args=(x, y), budget=budget,
+)
+assert restored.evaluate(2, 3, budget=budget) == ([7, -1], [[4, 1], [1, -1]])
+
+objective = x**2 + x*y + 3*y**2
+cost = compile_objective(objective, (x, y), budget=budget)
+saved_cost = cost.to_portable_bytes(budget=budget)
+loaded_cost = load_portable_objective(
+    saved_cost, objective=objective, args=(x, y), budget=budget,
+)
+assert loaded_cost.hessian_vector_product([3, -2], 2, -1, budget=budget) == [4, -9]
+```
+
+The same UTF-8 bytes are the artifact payload for native
+`ExportCompiledResidualSystem`/`ReplayCompiledResidualSystem` and
+`ExportCompiledObjective`/`ReplayCompiledObjective`. Receivers supply the exact
+original native source and ordered typed variables; replay checks context,
+retained proofs, omitted derivatives and bytecode before publishing a program.
+Python uses the default empty ambient context and preserves declared symbol
+identities. The format is bounded to 1 MiB; encoding and replay share the supplied
+budget with compilation and evaluation. Existing `to_bytes`,
+`load_residual_system`, and `load_objective` formats remain available unchanged.
+These artifacts carry checked derivative programs; numerical values remain
+approximate, and root or stationary-point certificates are separate.
+
 The public compiler admits up to 256 variables and 4,096 residuals, with
 65,536 source nodes, 65,536 stored bytecode operations, and 65,536 units of
 row-local differentiation work. Each row contributes its source-node count

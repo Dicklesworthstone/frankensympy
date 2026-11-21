@@ -14,10 +14,11 @@ from ..core import (
 from .lambdify import (
     _argument_layout, _call_arguments, _check_evaluation_budget, _functions, _numeric_source,
 )
+from ._portable_program import load_portable_objective
 
 __all__ = [
     "MinimizationSearchError", "NumericMinimizationCandidate",
-    "StationarySearchError", "compile_objective", "load_objective",
+    "StationarySearchError", "compile_objective", "load_objective", "load_portable_objective",
 ]
 
 
@@ -201,6 +202,28 @@ class _ObjectiveCallable:
 
         budget = _source_budget(budget)
         data = self.native_objective.to_bytes(budget=budget)
+        _check_evaluation_budget(budget)
+        return data
+
+    def to_portable_bytes(self, *, budget=None):
+        """Export an objective/gradient/Hessian candidate for native Sessions.
+
+        The canonical 1 MiB format retains exact typed sources, both derivative
+        proof stages and bytecode under the empty ambient context. Python's
+        ``load_portable_objective`` and native Session replay independently
+        bind the receiver's expected objective and ordered variables before
+        admitting the evidence. Stationary-point and extremum certificates,
+        Python objects, argument nesting and running state are not stored.
+
+        Native encoding and the returned byte buffer share one cumulative
+        ``EvaluationBudget``; omission uses a bounded private ledger. Failure
+        or cancellation publishes no bytes. Existing ``to_bytes`` and
+        ``load_objective`` keep their context-free candidate format.
+        """
+        from .source_certification import _source_budget
+
+        budget = _source_budget(budget)
+        data = self.native_objective.to_portable_bytes(budget=budget)
         _check_evaluation_budget(budget)
         return data
 
