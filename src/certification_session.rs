@@ -536,6 +536,17 @@ pub enum CertificationRequest {
         #[serde(default)]
         options: CompiledRootSolveOptions,
     },
+    /// Solve for the first residual_count coordinates while keeping every
+    /// remaining coordinate fixed. The complete original source and checked
+    /// Jacobian remain active; binary64 convergence grants no root certificate.
+    SolveCompiledParametricSystem {
+        schema_version: u32,
+        program: CompiledResidualSystemId,
+        initial: Vec<String>,
+        parameters: Vec<String>,
+        #[serde(default)]
+        options: CompiledRootSolveOptions,
+    },
     /// Propose a numerical root, then independently check its original sources
     /// on an exact box. Positive decimal/rational radii and precision are explicit;
     /// no widening or backend fallback occurs. Only a successful protected check
@@ -978,6 +989,7 @@ impl CertificationRequest {
             | Self::EvaluateJacobianVectorProduct { schema_version, .. }
             | Self::EvaluateJacobianTransposeVectorProduct { schema_version, .. }
             | Self::SolveCompiledResidualSystem { schema_version, .. }
+            | Self::SolveCompiledParametricSystem { schema_version, .. }
             | Self::SolveAndCertifyCompiledResidualSystem { schema_version, .. }
             | Self::SolveCompiledLeastSquares { schema_version, .. }
             | Self::ReleaseCompiledResidualSystem { schema_version, .. }
@@ -1236,6 +1248,22 @@ pub enum CertificationResponse {
         backend: CompiledRootBackend,
         outcome: &'static str,
         numeric_model: &'static str,
+        root: Vec<f64>,
+        residual_norm: f64,
+        iterations: usize,
+        termination: &'static str,
+        context_digest: [u8; 32],
+    },
+    CompiledParametricSystemSolved {
+        schema_version: u32,
+        system: ResidualSystemId,
+        program: CompiledResidualSystemId,
+        backend: CompiledRootBackend,
+        outcome: &'static str,
+        numeric_model: &'static str,
+        unknowns: Vec<Symbol>,
+        parameter_variables: Vec<Symbol>,
+        parameters: Vec<f64>,
         root: Vec<f64>,
         residual_norm: f64,
         iterations: usize,
@@ -3255,6 +3283,15 @@ impl CertificationState {
             } => self
                 .compiled
                 .solve(program, &initial, backend, &options, budget),
+            CertificationRequest::SolveCompiledParametricSystem {
+                program,
+                initial,
+                parameters,
+                options,
+                ..
+            } => self
+                .compiled
+                .solve_parametric(program, &initial, &parameters, &options, budget),
             CertificationRequest::SolveAndCertifyCompiledResidualSystem {
                 program,
                 certificate,

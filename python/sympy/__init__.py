@@ -1535,7 +1535,7 @@ from .simplify import (
 
 from .utilities.lambdify import (
     EvaluationBudget, EvaluationBudgetExceeded, EvaluationCancelled, NumericRootCandidate,
-    NumericLeastSquaresCandidate,
+    NumericParametricRootCandidate, NumericLeastSquaresCandidate,
     compile_numeric, compile_residual_system, load_portable_residual_system,
     load_residual_system, lambdify,
 )
@@ -2755,6 +2755,7 @@ __all__ = [
     "EvaluationBudgetExceeded",
     "EvaluationCancelled",
     "NumericRootCandidate",
+    "NumericParametricRootCandidate",
     "NumericLeastSquaresCandidate",
     "ResidualJacobianEnclosure",
     "RootBoxReceipt",

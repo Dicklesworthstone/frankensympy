@@ -32,10 +32,7 @@ fn held_sum(base: Expr, primitive: &str) -> Expr {
 fn dense_and_sparse_objective_trials_backtrack_before_publishing_an_endpoint() {
     for (primitive, initial, expected) in domain_cases() {
         let source = held_sum(
-            Expr::Pow(
-                Arc::new(Expr::symbol("x")),
-                Arc::new(Expr::from_i64(2)),
-            ),
+            Expr::Pow(Arc::new(Expr::symbol("x")), Arc::new(Expr::from_i64(2))),
             primitive,
         );
         let objective = VerifiedObjective::try_compile(&source, &[Symbol::new("x")]).unwrap();
@@ -64,8 +61,7 @@ fn dense_and_sparse_objective_trials_backtrack_before_publishing_an_endpoint() {
 fn dense_and_sparse_least_squares_retry_math_domains_and_recheck_original_sources() {
     for (primitive, initial, expected) in domain_cases() {
         let source = held_sum(Expr::symbol("x"), primitive);
-        let system =
-            VerifiedResidualSystem::try_compile(&[source], &[Symbol::new("x")]).unwrap();
+        let system = VerifiedResidualSystem::try_compile(&[source], &[Symbol::new("x")]).unwrap();
         for solve in [least_squares, sparse_least_squares] {
             assert!(matches!(
                 solve(&system, &[0.0], &LeastSquaresOptions::default()),

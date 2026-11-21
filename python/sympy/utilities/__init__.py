@@ -7,7 +7,7 @@ from .iterables import (
 from ..simplify.cse_main import numbered_symbols
 from .lambdify import (
     EvaluationBudget, EvaluationBudgetExceeded, EvaluationCancelled, NumericRootCandidate,
-    NumericLeastSquaresCandidate,
+    NumericParametricRootCandidate, NumericLeastSquaresCandidate,
     compile_numeric, compile_residual_system, load_portable_residual_system,
     load_residual_system, lambdify,
 )
@@ -40,6 +40,7 @@ __all__ = [
     "certify_box_extremum", "optimize_box_certified",
     "EvaluationBudget", "EvaluationBudgetExceeded", "EvaluationCancelled",
     "NumericRootCandidate",
+    "NumericParametricRootCandidate",
     "NumericLeastSquaresCandidate",
     "StationarySearchError", "MinimizationSearchError", "NumericMinimizationCandidate",
     "ResidualJacobianEnclosure", "RootBoxReceipt",

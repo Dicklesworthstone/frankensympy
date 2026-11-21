@@ -281,6 +281,56 @@ impl CompiledState {
         Ok(response)
     }
 
+    /// Solve only the leading unknown coordinates. The source and complete
+    /// typed axis order remain attached to the reusable resident program.
+    pub(super) fn solve_parametric(
+        &self,
+        id: CompiledResidualSystemId,
+        initial: &[String],
+        parameters: &[String],
+        options: &CompiledRootSolveOptions,
+        budget: &mut Budget,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        budget.checkpoint()?;
+        let resident = self
+            .programs
+            .get(&id)
+            .ok_or(CertificationSessionError::UnknownCompiledSystem)?;
+        let (proposal, parameters) = super::compiled_solvers::solve_parametric_root(
+            &resident.program,
+            initial,
+            parameters,
+            options,
+            budget,
+        )?;
+        let axes = resident.program.vars();
+        charge(
+            budget,
+            axes.len() + 1,
+            axes.iter().map(|axis| axis.name.len() + 128).sum::<usize>()
+                + resident.source.as_str().len(),
+        )?;
+        let dimension = resident.program.num_residuals();
+        let response = CertificationResponse::CompiledParametricSystemSolved {
+            schema_version: CERTIFICATION_REQUEST_SCHEMA,
+            system: resident.source.clone(),
+            program: id,
+            backend: CompiledRootBackend::FrankenNumpy,
+            outcome: "approximate",
+            numeric_model: "binary64",
+            unknowns: axes[..dimension].to_vec(),
+            parameter_variables: axes[dimension..].to_vec(),
+            parameters,
+            root: proposal.root,
+            residual_norm: proposal.residual_norm,
+            iterations: proposal.iterations,
+            termination: "residual_tolerance",
+            context_digest: resident.context_digest,
+        };
+        admit_response(&response, budget)?;
+        Ok(response)
+    }
+
     pub(super) fn least_squares(
         &self,
         id: CompiledResidualSystemId,

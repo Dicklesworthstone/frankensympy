@@ -19,8 +19,8 @@ use fsym_numeric_consumer::{
     MAX_SPARSE_NEWTON_VARIABLES, MinimizationProposal, MinimizeOptions, NewtonGuards,
     ObjectiveConsumerError, RootProposal, SystemConsumerError,
     frankenscipy_analytic_system_with_meter, frankenscipy_fsolve_system_with_meter,
-    least_squares_with_meter, minimize_with_meter, newton_refine_with_meter,
-    propose_root_box_with_meter, propose_stationary_box_with_meter,
+    least_squares_with_meter, minimize_with_meter, newton_refine_parametric_with_meter,
+    newton_refine_with_meter, propose_root_box_with_meter, propose_stationary_box_with_meter,
     sparse_least_squares_with_meter, sparse_newton_refine_with_meter,
 };
 use serde::{Deserialize, Serialize};
@@ -189,6 +189,58 @@ pub(super) fn solve_root(
         }
         .into());
     }
+    let guards = root_controls(options, budget)?;
+    let initial = numeric_values(initial, variables, "initial", budget)?;
+    let proposal = match backend {
+        CompiledRootBackend::FrankenNumpy => {
+            newton_refine_with_meter(system, &initial, &guards, budget)
+        }
+        CompiledRootBackend::FrankenScipy => {
+            frankenscipy_fsolve_system_with_meter(system, &initial, budget)
+        }
+        CompiledRootBackend::FrankenScipyAnalytic => {
+            frankenscipy_analytic_system_with_meter(system, &initial, budget)
+        }
+        CompiledRootBackend::Sparse => {
+            sparse_newton_refine_with_meter(system, &initial, &guards, budget)
+        }
+    }?;
+    budget.checkpoint()?;
+    Ok(proposal)
+}
+
+/// Keep the parameter coordinates fixed in the complete, checked source.
+/// The returned parameter vector is exactly the binary64 input used in every
+/// evaluation, so callers cannot confuse a proposal with an exact input claim.
+pub(super) fn solve_parametric_root(
+    system: &VerifiedResidualSystem,
+    initial: &[String],
+    parameters: &[String],
+    options: &CompiledRootSolveOptions,
+    budget: &mut Budget,
+) -> Result<(RootProposal, Vec<f64>), CertificationSessionError> {
+    budget.checkpoint()?;
+    let unknowns = system.num_residuals();
+    let total = system.num_vars();
+    if unknowns == 0 || unknowns >= total || total > MAX_CONSUMER_VARIABLES {
+        return Err(SystemConsumerError::InvalidRequest(
+            "parametric roots require one unknown per residual, at least one parameter, and at most 16 total variables",
+        )
+        .into());
+    }
+    let guards = root_controls(options, budget)?;
+    let initial = numeric_values(initial, unknowns, "initial unknowns", budget)?;
+    let parameters = numeric_values(parameters, total - unknowns, "parameters", budget)?;
+    let proposal =
+        newton_refine_parametric_with_meter(system, &initial, &parameters, &guards, budget)?;
+    budget.checkpoint()?;
+    Ok((proposal, parameters))
+}
+
+fn root_controls(
+    options: &CompiledRootSolveOptions,
+    budget: &mut Budget,
+) -> Result<NewtonGuards, CertificationSessionError> {
     let mut guards = NewtonGuards::default();
     if let Some(iterations) = options.max_iterations {
         if iterations > MAX_CONSUMER_NEWTON_ITERATIONS {
@@ -223,23 +275,7 @@ pub(super) fn solve_root(
         )
         .into());
     }
-    let initial = numeric_values(initial, variables, "initial", budget)?;
-    let proposal = match backend {
-        CompiledRootBackend::FrankenNumpy => {
-            newton_refine_with_meter(system, &initial, &guards, budget)
-        }
-        CompiledRootBackend::FrankenScipy => {
-            frankenscipy_fsolve_system_with_meter(system, &initial, budget)
-        }
-        CompiledRootBackend::FrankenScipyAnalytic => {
-            frankenscipy_analytic_system_with_meter(system, &initial, budget)
-        }
-        CompiledRootBackend::Sparse => {
-            sparse_newton_refine_with_meter(system, &initial, &guards, budget)
-        }
-    }?;
-    budget.checkpoint()?;
-    Ok(proposal)
+    Ok(guards)
 }
 
 pub(super) fn solve_least_squares(

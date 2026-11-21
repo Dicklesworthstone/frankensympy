@@ -557,7 +557,8 @@ source and replay it under new session-local names:
 
 The product is `[-5,3,0]`. The received handle also supports
 `EvaluateResidualJacobian`, `EvaluateJacobianTransposeVectorProduct`,
-`SolveCompiledResidualSystem`, `SolveCompiledLeastSquares`, reexport, and
+`SolveCompiledResidualSystem`, `SolveCompiledParametricSystem`,
+`SolveCompiledLeastSquares`, reexport, and
 `ReleaseCompiledResidualSystem` just like a locally compiled program.
 
 For an objective, use `ExportCompiledObjective` with `program`, followed by
@@ -635,6 +636,7 @@ the registered source, or select a replacement backend after a refusal.
 | Request | Explicit backend | Successful numerical result |
 | --- | --- | --- |
 | `SolveCompiledResidualSystem` | `frankennumpy`, `frankenscipy`, `frankenscipy_analytic`, or `sparse` | A point meeting the residual tolerance for a square system |
+| `SolveCompiledParametricSystem` | Fixed `frankennumpy` | A root of the unknown prefix at the supplied fixed parameter suffix |
 | `SolveCompiledLeastSquares` | `dense` or `sparse` | A point meeting the tolerance for the gradient of `0.5 * sum(residuals^2)` |
 | `MinimizeCompiledObjective` | Fixed Hessian-assisted descent using the admitted FrankenNumPy adapter | A point meeting the objective-gradient tolerance |
 
@@ -686,6 +688,57 @@ Use `CertifyRootBox` or `CertifyStationaryPoint` for their exact original-source
 interval claims, or the combined operations below to generate and verify a
 witness in one request. A numerical proposal does not bypass those independent
 checks.
+
+### Sweep fixed parameters without recompilation
+
+For a system with `m` residuals, declare the `m` unknown coordinates first and
+one or more parameter coordinates afterwards. Compile once, then submit
+different fixed parameter values with the same program:
+
+```json
+{"id":"register-parametric-source","type":"RegisterResidualSystem","payload":{"schema_version":1,"system":"system:parameter-sweep","residuals":["x^2-p"],"variables":["x","p"]}}
+{"id":"compile-parameter-sweep","type":"CompileResidualSystem","payload":{"schema_version":1,"system":"system:parameter-sweep","program":"program:parameter-sweep"}}
+{"id":"solve-p2","type":"SolveCompiledParametricSystem","payload":{"schema_version":1,"program":"program:parameter-sweep","initial":["1"],"parameters":["2"]}}
+{"id":"solve-p9","type":"SolveCompiledParametricSystem","payload":{"schema_version":1,"program":"program:parameter-sweep","initial":["1"],"parameters":["9"]}}
+```
+
+The results have kind `compiled_parametric_system_solved`, approximate roots
+near `sqrt(2)` and `3`, and the actual fixed binary64 `parameters` used for
+the solve. Ordered typed `unknowns` and `parameter_variables` identify the
+coordinate split. Parameter strings follow the finite decimal numerical-input
+rules below; reporting `0.1` does not claim exact rational `1/10`.
+
+The Newton step uses only the unknown Jacobian block. Each evaluation still
+checks the complete original source and every stored derivative, including
+parameter derivatives. Held poles and nonsmooth source endpoints cannot
+disappear through substitution, a zero product, a zero power or a zero residual.
+A singular unknown Jacobian, oversized step or exhausted iteration allowance
+refuses. An initial point already meeting the residual tolerance remains only
+an approximate candidate, including when its Jacobian is singular.
+
+This request uses the same cumulative ledger and FrankenNumPy controls as
+`SolveCompiledResidualSystem`. It requires `1 <= m < variables <= 16`,
+keeps all parameter values fixed, and performs no recompilation or backend
+fallback. Its response has `outcome: "approximate"` and
+`numeric_model: "binary64"`; it does not publish a family certificate.
+
+The Python interface exposes the same reusable path:
+
+```python
+from sympy import symbols, compile_residual_system
+
+x, p = symbols("x p")
+program = compile_residual_system([x**2 - p], (x, p))
+candidate = program.solve_parametric_candidate([1], [2])
+assert candidate.unknown_variables == (x,)
+assert candidate.parameters == (p,)
+assert candidate.parameter_values == (2.0,)
+assert candidate.evidence == "approximate"
+```
+
+The candidate retains the exact native program owner and its frozen typed
+coordinate order. Legacy and portable program replay retain this method;
+replay still independently admits the original program.
 
 ### Solve and certify an exact root box
 
@@ -784,9 +837,11 @@ unknown backend names and numeric controls encoded as JSON numbers refuse as
 
 Session registration retains its existing bounds of 1–16 ordered variables and
 1–64 residuals; selecting a sparse backend does not enlarge those registration
-limits. Root solving requires equal residual and variable counts. These drivers
-preserve the original source and derivative domain checks, including held poles
-and Hessian singularities at stationary points. Nonfinite results refuse.
+limits. Ordinary root solving requires equal residual and variable counts;
+fixed-parameter root solving instead requires one unknown per residual followed
+by a nonempty parameter suffix. These drivers preserve the original source and
+derivative domain checks, including held poles, nonsmooth source endpoints and
+Hessian singularities at stationary points. Nonfinite results refuse.
 
 Input conversion, controls, unsuccessful trials, actual consumer work, and
 response admission spend the same ordinary cumulative session budget. The

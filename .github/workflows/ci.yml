@@ -579,6 +579,7 @@ jobs:
               "python/tests/test_relational_source_identity.py",
               "python/tests/test_closed_numeric_source_admission.py",
               "python/tests/test_numeric_donor_consumers.py",
+              "python/tests/test_parametric_root_candidate.py",
               "python/tests/test_analytic_donor_backend.py",
               "python/tests/test_least_squares_consumer.py",
               "python/tests/test_sparse_least_squares_consumer.py",

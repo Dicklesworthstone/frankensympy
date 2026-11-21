@@ -40,10 +40,10 @@ use fsym_core::{
 use fsym_numeric_consumer::{
     LeastSquaresOptions, LeastSquaresTermination, MAX_CONSUMER_NEWTON_ITERATIONS,
     MAX_CONSUMER_VARIABLES, MAX_LEAST_SQUARES_RESIDUALS, MAX_SPARSE_LEAST_SQUARES_RESIDUALS,
-    MAX_SPARSE_LEAST_SQUARES_VARIABLES, MAX_SPARSE_NEWTON_VARIABLES, NewtonGuards,
+    MAX_SPARSE_LEAST_SQUARES_VARIABLES, MAX_SPARSE_NEWTON_VARIABLES, NewtonGuards, RootProposal,
     SystemConsumerError, frankenscipy_analytic_system_with_meter,
-    frankenscipy_fsolve_system_with_meter, least_squares_with_meter, newton_refine_with_meter,
-    sparse_least_squares_with_meter, sparse_newton_refine_with_meter,
+    frankenscipy_fsolve_system_with_meter, least_squares_with_meter, newton_refine_parametric_with_meter,
+    newton_refine_with_meter, sparse_least_squares_with_meter, sparse_newton_refine_with_meter,
 };
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -1717,6 +1717,47 @@ impl PyVerifiedResidualSystem {
     }
 }
 
+/// Immutable approximate root proposal bound to its original residual system.
+#[pyclass(name = "NumericParametricRootProposal", module = "fsym_python", frozen)]
+pub struct PyNumericParametricRootProposal {
+    proposal: RootProposal,
+    system: Py<PyVerifiedResidualSystem>,
+    parameters: Vec<f64>,
+}
+
+#[pymethods]
+impl PyNumericParametricRootProposal {
+    #[getter]
+    fn system(&self, py: Python<'_>) -> Py<PyVerifiedResidualSystem> {
+        self.system.clone_ref(py)
+    }
+
+    #[getter]
+    fn root<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+        PyTuple::new(py, self.proposal.root.iter().copied())
+    }
+
+    #[getter]
+    fn parameter_values<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+        PyTuple::new(py, self.parameters.iter().copied())
+    }
+
+    #[getter]
+    fn residual_norm(&self) -> f64 {
+        self.proposal.residual_norm
+    }
+
+    #[getter]
+    fn iterations(&self) -> usize {
+        self.proposal.iterations
+    }
+
+    #[getter]
+    fn evidence(&self) -> &'static str {
+        "approximate"
+    }
+}
+
 #[pymethods]
 impl PyVerifiedResidualSystem {
     #[new]
@@ -1802,6 +1843,47 @@ impl PyVerifiedResidualSystem {
         // to reattach the interpreter cannot publish a successful proposal.
         let result =
             (proposal.root, proposal.residual_norm, proposal.iterations).into_pyobject(py)?;
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
+    }
+
+    /// Refine unknown coordinates while retaining every fixed parameter and
+    /// every original-source and derivative domain in the checked program.
+    #[pyo3(signature = (initial, parameters, *, tol=None, maxiter=None, max_step_norm=None, budget=None))]
+    fn solve_parametric_candidate(
+        slf: &Bound<'_, Self>,
+        initial: &Bound<'_, PyAny>,
+        parameters: &Bound<'_, PyAny>,
+        tol: Option<&Bound<'_, PyAny>>,
+        maxiter: Option<&Bound<'_, PyAny>>,
+        max_step_norm: Option<&Bound<'_, PyAny>>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Py<PyNumericParametricRootProposal>> {
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        let guards = donor_newton_guards(tol, maxiter, max_step_norm)?;
+        let owner = slf.borrow();
+        let unknowns = owner.system.residuals().len();
+        let total = owner.system.vars().len();
+        if !(1..total).contains(&unknowns) || total > MAX_CONSUMER_VARIABLES {
+            return Err(PyValueError::new_err(
+                "parametric root proposals require one unknown per residual, at least one parameter, and at most 16 total variables",
+            ));
+        }
+        let inputs = input_values_metered(initial, unknowns, budget.as_deref())?;
+        let parameters = input_values_metered(parameters, total - unknowns, budget.as_deref())?;
+        let program = &owner.system;
+        let py = slf.py();
+        let proposal = with_evaluation_meter(py, budget.as_deref(), |meter| {
+            newton_refine_parametric_with_meter(program, &inputs, &parameters, &guards, meter)
+        })?;
+        let result = Py::new(
+            py,
+            PyNumericParametricRootProposal {
+                proposal,
+                system: slf.clone().unbind(),
+                parameters,
+            },
+        )?;
         with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
         Ok(result)
     }

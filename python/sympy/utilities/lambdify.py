@@ -21,7 +21,7 @@ from ..core import (
     _exact_ratio, _exact_surface_types,
     _native, _native_expr, _require_closed_function_class,
     _require_closed_native_function_tag, _require_closed_native_functions,
-    _require_symbol, _symbol_binding, _wrap,
+    _require_symbol, _surface_binding_key, _symbol_binding, _wrap,
 )
 
 from ._piecewise_numeric import (
@@ -32,7 +32,7 @@ from ._portable_program import load_portable_residual_system
 
 __all__ = [
     "EvaluationBudget", "EvaluationBudgetExceeded", "EvaluationCancelled", "NumericRootCandidate",
-    "NumericLeastSquaresCandidate",
+    "NumericParametricRootCandidate", "NumericLeastSquaresCandidate",
     "compile_numeric", "compile_residual_system", "load_residual_system",
     "load_portable_residual_system", "lambdify",
 ]
@@ -652,6 +652,99 @@ class NumericRootCandidate:
                 f"iterations={self.iterations!r}, backend={self.backend!r})")
 
 
+class NumericParametricRootCandidate:
+    """Immutable approximate unknown root at fixed, source-bound parameters.
+
+    The native proposal owns the original checked residual system. variables
+    retains the captured typed coordinate owners: the first m for m residuals
+    are unknowns, and the remaining suffix are parameters. No substitution or
+    recompilation changes the original residual and derivative domains.
+
+    parameter_values records the actual finite binary64 values used, including
+    any rounding from exact numeric inputs. No existence, uniqueness, rounding
+    error, declared-assumption or uniform parameter-family claim is made.
+    """
+
+    __slots__ = ("_proposal", "_native_system", "_variables")
+
+    def __init__(self, proposal, native_system, variables):
+        if hasattr(self, "_proposal"):
+            raise AttributeError("parametric root candidates are immutable")
+        if type(proposal) is not _native.NumericParametricRootProposal:
+            raise TypeError("an immutable native parametric root proposal is required")
+        if type(native_system) is not _native.VerifiedResidualSystem:
+            raise TypeError("an immutable native residual system is required")
+        if native_system is not proposal.system:
+            raise ValueError("parametric root proposal belongs to a different residual system")
+        from ._certified_numeric import _sequence
+        variables = _sequence(variables, native_system.variable_count, "parametric variables")
+        bindings = tuple(_native_expr(_require_symbol(axis)).symbol_binding for axis in variables)
+        if any(binding is None for binding in bindings):
+            raise ValueError("parametric variables must retain native symbol atoms")
+        supplied = tuple(_surface_binding_key(binding) for binding in bindings)
+        expected = tuple(_surface_binding_key(axis) for axis in native_system.variables)
+        if supplied != expected:
+            raise ValueError("parametric variables do not match the captured typed coordinate order")
+        object.__setattr__(self, "_proposal", proposal)
+        object.__setattr__(self, "_native_system", native_system)
+        object.__setattr__(self, "_variables", variables)
+
+    def __setattr__(self, name, value):
+        raise AttributeError("parametric root candidates are immutable")
+
+    def __delattr__(self, name):
+        raise AttributeError("parametric root candidates are immutable")
+
+    @property
+    def native_system(self):
+        """The immutable original compiled system that generated this proposal."""
+        return self._native_system
+
+    @property
+    def root(self):
+        """Approximate coordinates in unknown_variables order."""
+        return self._proposal.root
+
+    @property
+    def variables(self):
+        """All original coordinate owners, unknowns followed by parameters."""
+        return self._variables
+
+    @property
+    def unknown_variables(self):
+        return self._variables[:self.native_system.residual_count]
+
+    @property
+    def parameters(self):
+        return self._variables[self.native_system.residual_count:]
+
+    @property
+    def parameter_values(self):
+        """The fixed binary64 values actually used, in parameters order."""
+        return self._proposal.parameter_values
+
+    @property
+    def residual_norm(self):
+        return self._proposal.residual_norm
+
+    @property
+    def iterations(self):
+        return self._proposal.iterations
+
+    @property
+    def backend(self):
+        return "frankennumpy"
+
+    @property
+    def evidence(self):
+        return "approximate"
+
+    def __repr__(self):
+        return (f"NumericParametricRootCandidate(root={self.root!r}, "
+                f"parameter_values={self.parameter_values!r}, "
+                f"residual_norm={self.residual_norm!r}, iterations={self.iterations!r})")
+
+
 class NumericLeastSquaresCandidate:
     """Immutable approximate stationary point of half the squared residual norm.
 
@@ -995,6 +1088,63 @@ class _ResidualCallable:
             max_step_norm=max_step_norm, budget=budget,
         )
         result = NumericRootCandidate(root, self.variables, norm, iterations, backend)
+        _check_evaluation_budget(budget)
+        return result
+
+    def solve_parametric_candidate(self, initial, parameters, *, tol=None, maxiter=None,
+                                   max_step_norm=None, budget=None):
+        """Solve unknown coordinates while keeping the declared parameters fixed.
+
+        For m residuals, the first m compiled variables are unknowns and all
+        remaining variables are parameters, matching certify_parametric_root_box.
+        Both groups must be nonempty, with at most 16 total variables. initial
+        and parameters are flat built-in lists/tuples in their respective
+        coordinate order; a one-coordinate group also accepts a scalar.
+
+        The frozen full-source program is reused across parameter values.
+        Every iteration evaluates the original residuals and all checked
+        derivative domains at the combined point. Only unknown Jacobian columns
+        drive the pinned FrankenNumPy Newton solve; parameters never become
+        optimization variables. No source substitution or recompilation occurs.
+
+        Controls match solve_candidate's FrankenNumPy route: tol=1e-12,
+        maxiter=64 (0..1024) and max_step_norm=1e6. A zero iteration limit only
+        checks the initial point. Oversized steps, singular nonconverged
+        Jacobians and invalid source/derivative domains refuse explicitly;
+        no alternative backend or finite differences are selected.
+
+        NumericParametricRootCandidate retains the immutable source owner,
+        original typed coordinate objects and actual binary64 parameter values.
+        A fresh residual infinity norm at most tol permits only an approximate
+        proposal, including at a singular root. Use certify_parametric_root_box
+        with explicit exact boxes for an independent local or uniform claim.
+        One supplied EvaluationBudget spans input snapshots, all iterations,
+        source evaluations, donor work and final publication; failures retain
+        consumed work and cancellation is cooperative around native kernels.
+        """
+        from ..solvers.numerical import _candidate_options
+
+        _check_evaluation_budget(budget)
+        unknowns = self.native_system.residual_count
+        total = self.native_system.variable_count
+        if not 1 <= unknowns < total <= 16:
+            raise ValueError(
+                "parametric root proposals require one unknown per residual, at least one "
+                "parameter, and at most 16 total variables"
+            )
+        tol, maxiter, max_step_norm = _candidate_options(
+            "frankennumpy", tol, maxiter, max_step_norm, allow_python=False,
+        )
+        initial = initial if type(initial) in (list, tuple) else (initial,)
+        parameters = parameters if type(parameters) in (list, tuple) else (parameters,)
+        initial = _call_arguments((None,) * unknowns, initial, native=True)
+        parameters = _call_arguments((None,) * (total - unknowns), parameters, native=True)
+        _check_evaluation_budget(budget)
+        proposal = self.native_system.solve_parametric_candidate(
+            initial, parameters, tol=tol, maxiter=maxiter,
+            max_step_norm=max_step_norm, budget=budget,
+        )
+        result = NumericParametricRootCandidate(proposal, self.native_system, self.variables)
         _check_evaluation_budget(budget)
         return result
 

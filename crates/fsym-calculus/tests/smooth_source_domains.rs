@@ -81,8 +81,7 @@ fn scalar_values_keep_closed_endpoints_while_derivative_bundles_require_open_dom
         let scalar = compile(&source);
         assert!(scalar.try_eval_finite(&[endpoint]).unwrap().is_finite());
         assert!(scalar.try_eval_finite(&[interior]).unwrap().is_finite());
-        let system =
-            VerifiedResidualSystem::try_compile(&[source], &[Symbol::new("x")]).unwrap();
+        let system = VerifiedResidualSystem::try_compile(&[source], &[Symbol::new("x")]).unwrap();
         residual_error(system.evaluate_sparse(&[endpoint]), name);
         assert!(system.evaluate_sparse(&[interior]).is_ok(), "{name}");
     }
@@ -98,16 +97,16 @@ fn zero_products_powers_and_vectors_cannot_publish_erased_source_boundaries() {
             let vars = [Symbol::new("x")];
             let scalar_value = compile(&source).try_eval_finite(&[endpoint]).unwrap();
             let system =
-                VerifiedResidualSystem::try_compile(std::slice::from_ref(&source), &vars)
-                    .unwrap();
+                VerifiedResidualSystem::try_compile(std::slice::from_ref(&source), &vars).unwrap();
             assert!(system.sparse_jacobian().entries.is_empty());
             for program in [
-                CompiledResidualSystem::try_compile(std::slice::from_ref(&source), &vars)
-                    .unwrap(),
+                CompiledResidualSystem::try_compile(std::slice::from_ref(&source), &vars).unwrap(),
                 system.try_dense_program().unwrap(),
             ] {
                 let mut values = [71.0];
-                program.try_eval_residuals(&[endpoint], &mut values).unwrap();
+                program
+                    .try_eval_residuals(&[endpoint], &mut values)
+                    .unwrap();
                 assert_eq!(values, [scalar_value]);
                 let mut derivatives = [83.0];
                 assert_eq!(
@@ -153,8 +152,7 @@ fn zero_products_powers_and_vectors_cannot_publish_erased_source_boundaries() {
             assert_eq!(product, [97.0]);
 
             // Nonempty gradient and Hessian buffers must both remain atomic.
-            let objective_source =
-                Expr::Add(vec![power(Expr::symbol("x"), 2, 1), source.clone()]);
+            let objective_source = Expr::Add(vec![power(Expr::symbol("x"), 2, 1), source.clone()]);
             let objective = VerifiedObjective::try_compile(&objective_source, &vars).unwrap();
             let mut gradient = [101.0];
             let mut hessian = vec![103.0; objective.hessian_pattern().len()];
@@ -229,8 +227,7 @@ fn inactive_piecewise_boundaries_are_not_hoisted_into_derivative_evaluation() {
         );
         let vars = [Symbol::new("x")];
         let system =
-            VerifiedResidualSystem::try_compile(&[source.clone(), source.clone()], &vars)
-                .unwrap();
+            VerifiedResidualSystem::try_compile(&[source.clone(), source.clone()], &vars).unwrap();
         assert!(system.shared_subexpression_count() > 0);
         let evaluated = system.try_eval_dense(&[endpoint]).unwrap();
         assert_eq!(evaluated.residuals, [endpoint * endpoint; 2]);
@@ -255,8 +252,7 @@ fn integer_powers_remain_smooth_at_zero_and_on_negative_bases() {
         ] {
             let vars = [Symbol::new("x")];
             let residual =
-                VerifiedResidualSystem::try_compile(std::slice::from_ref(&source), &vars)
-                    .unwrap();
+                VerifiedResidualSystem::try_compile(std::slice::from_ref(&source), &vars).unwrap();
             let objective = VerifiedObjective::try_compile(&source, &vars).unwrap();
             for point in [0.0_f64, -0.0, -2.0, 2.0] {
                 let expected = point.powi(exponent as i32);
@@ -292,8 +288,7 @@ fn literal_exponent_bounds_preserve_nonintegral_source_status() {
             let held = Expr::Mul(vec![Expr::from_i64(0), source]);
             // This legacy adapter isolates source admission from stricter
             // proof-arithmetic bounds in full derivative generation.
-            let system =
-                CompiledResidualSystem::try_compile(&[held], &[Symbol::new("x")]).unwrap();
+            let system = CompiledResidualSystem::try_compile(&[held], &[Symbol::new("x")]).unwrap();
             assert_eq!(
                 system.try_eval_jacobian(&[0.0], &mut [71.0]),
                 Err(EvalError::NonsmoothSource("power"))
@@ -301,10 +296,7 @@ fn literal_exponent_bounds_preserve_nonintegral_source_status() {
         }
     }
     for exponent in [
-        BigRational::new(
-            BigInt::from(9_007_199_254_740_993_i64),
-            BigInt::from(1),
-        ),
+        BigRational::new(BigInt::from(9_007_199_254_740_993_i64), BigInt::from(1)),
         BigRational::new(
             BigInt::from(1_152_921_504_606_846_977_i64),
             BigInt::from(1_152_921_504_606_846_976_i64),
@@ -358,10 +350,7 @@ impl BudgetMeter for InterruptAt {
 
 #[test]
 fn rejected_boundary_work_keeps_one_ledger_and_cancellation_remains_terminal() {
-    let source = Expr::Mul(vec![
-        Expr::from_i64(0),
-        function("sqrt", Expr::symbol("x")),
-    ]);
+    let source = Expr::Mul(vec![Expr::from_i64(0), function("sqrt", Expr::symbol("x"))]);
     let system = VerifiedResidualSystem::try_compile(&[source], &[Symbol::new("x")]).unwrap();
     let mut measured = InterruptAt::new();
     let mut values = [71.0];
