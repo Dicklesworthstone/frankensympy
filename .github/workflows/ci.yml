@@ -584,6 +584,7 @@ jobs:
               "python/tests/test_sparse_root_consumer.py",
               "python/tests/test_sparse_compilation.py",
               "python/tests/test_objective_minimization.py",
+              "python/tests/test_sparse_objective_minimization.py",
               "python/tests/test_certified_minimization.py",
               "python/tests/test_certified_donor_backends.py",
               "python/tests/test_held_power_surface_identity.py",

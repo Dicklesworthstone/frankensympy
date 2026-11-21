@@ -112,7 +112,7 @@ class NumericMinimizationCandidate:
 
     @property
     def backend(self):
-        return "frankennumpy"
+        return self._proposal.backend
 
     @property
     def evidence(self):
@@ -336,14 +336,18 @@ class _ObjectiveCallable:
             self, initial, tol, maxiter, precision, max_attempts, budget=budget,
         )
 
-    def minimize(self, initial, *, gtol=None, maxiter=None, max_step=None,
+    def minimize(self, initial, *, backend="frankennumpy", gtol=None, maxiter=None, max_step=None,
                  budget=None):
         """Find an approximate stationary point by bounded Newton descent.
 
         initial is a finite real scalar for one variable or a flat built-in
         list/tuple in variables order, including with nested evaluation args.
-        The checked gradient and Hessian drive equilibrated pinned FrankenNumPy
-        linear solves, bounded diagonal regularization and Armijo backtracking.
+        The default backend="frankennumpy" uses equilibrated pinned dense
+        linear solves and supports 1..16 variables. backend="sparse" supports
+        1..64 variables using the ordered sparse Hessian and bounded native
+        preconditioned conjugate-gradient steps, without a dense Hessian.
+        Both use bounded diagonal regularization and Armijo backtracking.
+        The selected backend never falls back to another solver.
         Controls default to gtol=1e-10, maxiter=64 and max_step=1e6. The gradient
         tolerance is nonnegative, maxiter is 0..1024, and the positive step
         limit clips the infinity norm before at most 64 line-search trials.
@@ -358,8 +362,9 @@ class _ObjectiveCallable:
         objective and both derivative domains. Mathematical domain/nonfinite
         trial failures backtrack; operational errors remain terminal. One
         supplied EvaluationBudget accounts cumulatively for native buffers,
-        failed trials, donor work and final reevaluation. Cancellation is
-        cooperative around synchronous donor work. Python object allocation
+        failed trials, linear work and final reevaluation. Sparse iterations
+        have cooperative cancellation points; dense cancellation is observed
+        around synchronous donor work. Python object allocation
         remains outside the ledger; earlier compilation is included when the
         same budget was passed to ``compile_objective``. No fallback resets
         its work.
@@ -367,9 +372,12 @@ class _ObjectiveCallable:
         from ..solvers.numerical import _candidate_options
 
         _check_evaluation_budget(budget)
+        if type(backend) is not str or backend not in ("frankennumpy", "sparse"):
+            raise ValueError("minimization backend must be 'frankennumpy' or 'sparse'")
         dimension = self.native_objective.variable_count
-        if not 1 <= dimension <= 16:
-            raise ValueError("minimization requires 1..16 variables")
+        limit = 64 if backend == "sparse" else 16
+        if not 1 <= dimension <= limit:
+            raise ValueError(f"minimization requires 1..{limit} variables")
         gtol, maxiter, max_step = _candidate_options(
             "frankennumpy", 1e-10 if gtol is None else gtol, maxiter,
             max_step, allow_python=False,
@@ -377,7 +385,7 @@ class _ObjectiveCallable:
         values = initial if type(initial) in (list, tuple) else (initial,)
         inputs = _call_arguments((None,) * dimension, values, native=True)
         proposal = self.native_objective.minimize(
-            inputs, gtol=gtol, maxiter=maxiter, max_step=max_step, budget=budget,
+            inputs, backend=backend, gtol=gtol, maxiter=maxiter, max_step=max_step, budget=budget,
         )
         result = NumericMinimizationCandidate(
             proposal, self.native_objective, self.variables,

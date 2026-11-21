@@ -28,7 +28,8 @@ use fsym_core::{
     verify_box_optimization, verify_stationary_point,
 };
 use fsym_numeric_consumer::{
-    MAX_MINIMIZE_VARIABLES, MinimizationProposal, MinimizeOptions, minimize_with_meter,
+    MAX_MINIMIZE_VARIABLES, MAX_SPARSE_MINIMIZE_VARIABLES, MinimizationProposal, MinimizeOptions,
+    minimize_with_meter, sparse_minimize_with_meter,
 };
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -523,16 +524,26 @@ impl PyVerifiedObjective {
 
     /// Propose a finite stationary point using bounded damped Newton descent.
     /// This is approximate evidence, including at a stationary maximum or saddle.
-    #[pyo3(signature = (initial, *, gtol=None, maxiter=None, max_step=None, budget=None))]
+    #[pyo3(signature = (initial, *, backend="frankennumpy", gtol=None, maxiter=None, max_step=None, budget=None))]
     fn minimize(
         slf: &Bound<'_, Self>,
         initial: &Bound<'_, PyAny>,
+        backend: &str,
         gtol: Option<&Bound<'_, PyAny>>,
         maxiter: Option<&Bound<'_, PyAny>>,
         max_step: Option<&Bound<'_, PyAny>>,
         budget: Option<PyRef<'_, PyEvaluationBudget>>,
     ) -> PyResult<Py<PyNumericMinimizationProposal>> {
         // Admit every control before any initial-coordinate conversion or work.
+        let (sparse, limit) = match backend {
+            "frankennumpy" => (false, MAX_MINIMIZE_VARIABLES),
+            "sparse" => (true, MAX_SPARSE_MINIMIZE_VARIABLES),
+            _ => {
+                return Err(PyValueError::new_err(
+                    "minimization backend must be 'frankennumpy' or 'sparse'",
+                ));
+            }
+        };
         let guards = donor_newton_guards(None, maxiter, max_step)?;
         let gradient_tolerance = donor_float_option(
             gtol,
@@ -542,10 +553,12 @@ impl PyVerifiedObjective {
         )?;
         let objective = slf.borrow();
         let dimension = objective.objective.variables().len();
-        if !(1..=MAX_MINIMIZE_VARIABLES).contains(&dimension) {
-            return Err(PyValueError::new_err(
-                "minimization requires 1..16 variables",
-            ));
+        if !(1..=limit).contains(&dimension) {
+            return Err(PyValueError::new_err(if sparse {
+                "sparse minimization requires 1..64 variables"
+            } else {
+                "minimization requires 1..16 variables"
+            }));
         }
         let inputs = input_values_metered(initial, dimension, budget.as_deref())?;
         let options = MinimizeOptions {
@@ -558,13 +571,18 @@ impl PyVerifiedObjective {
         let program = &objective.objective;
         let py = slf.py();
         let proposal = with_evaluation_meter(py, budget.as_deref(), |meter| {
-            minimize_with_meter(program, &inputs, &options, meter)
+            if sparse {
+                sparse_minimize_with_meter(program, &inputs, &options, meter)
+            } else {
+                minimize_with_meter(program, &inputs, &options, meter)
+            }
         })?;
         let result = Py::new(
             py,
             PyNumericMinimizationProposal {
                 proposal,
                 objective: slf.clone().unbind(),
+                backend: if sparse { "sparse_newton_cg" } else { "frankennumpy" },
             },
         )?;
         with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
@@ -646,10 +664,16 @@ impl PyVerifiedObjective {
 pub struct PyNumericMinimizationProposal {
     proposal: MinimizationProposal,
     objective: Py<PyVerifiedObjective>,
+    backend: &'static str,
 }
 
 #[pymethods]
 impl PyNumericMinimizationProposal {
+    #[getter]
+    fn backend(&self) -> &'static str {
+        self.backend
+    }
+
     #[getter]
     fn objective(&self, py: Python<'_>) -> Py<PyVerifiedObjective> {
         self.objective.clone_ref(py)

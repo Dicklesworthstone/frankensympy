@@ -636,16 +636,27 @@ candidate = objective.minimize([-1.2, 1.0], gtol=1e-10, maxiter=64)
 # candidate.value and candidate.gradient are evaluated again at that point.
 assert candidate.evidence == "approximate"
 
+# The explicit sparse backend supports up to 64 variables and keeps the
+# checked Hessian sparse through every conjugate-gradient linearization.
+sparse_candidate = objective.minimize([-1.2, 1.0], backend="sparse")
+assert sparse_candidate.backend == "sparse_newton_cg"
+
 receipt = objective.minimize_certified([-1.2, 1.0])
 assert receipt.kind == "strict_minimum"
 ```
 
-The numerical search uses the pinned FrankenNumPy linear solver with the checked
-Hessian, coordinate scaling, explicit diagonal regularization and bounded
-Armijo backtracking. It admits 1 through 16 variables and at most 1024 iterations.
+The default numerical search uses the pinned FrankenNumPy linear solver and
+admits 1 through 16 variables. The explicit `backend="sparse"` uses native,
+bounded preconditioned conjugate gradients on the ordered sparse Hessian and
+admits 1 through 64 variables, without forming a dense Hessian. Both retain
+coordinate scaling, explicit diagonal regularization, bounded Armijo
+backtracking and a limit of 1024 outer iterations. A truncated inner solve only
+proposes a descent direction; success requires a freshly evaluated original
+gradient. Neither backend silently selects another solver.
 Domain-invalid trial points are rejected; cancellation, allocation and budget
 failures remain terminal. A caller's `EvaluationBudget` is cumulative across
-rejected trials, donor work and final publication.
+rejected trials, linear work and final publication. Sparse inner iterations
+also observe cooperative cancellation between products.
 
 An approximate candidate establishes only a small floating gradient; an initial
 maximum or saddle can also be stationary. `minimize_certified` separately checks
