@@ -850,9 +850,12 @@ fn evaluate_system<M: BudgetMeter>(
     jacobian: &mut [f64],
     meter: &mut M,
 ) -> Result<(), SystemConsumerError> {
-    // Only these small dense consumers materialize a numerical Jacobian. The
-    // accepted artifact retains sparse programs, and every original source is
-    // evaluated before its stored derivatives, including hidden domain holes.
+    // Only these small dense consumers materialize a numerical Jacobian. Use
+    // the accepted artifact's derivative-aware evaluator: evaluating its
+    // scalar bytecode directly would admit values at nonsmooth source points
+    // such as the principal atan2 cut. The checked path also retains every
+    // original source and stored derivative before atomically publishing both
+    // buffers, under this same cumulative caller ledger.
     let rows = system.residuals().len();
     let columns = system.vars().len();
     let cells = rows
@@ -862,19 +865,14 @@ fn evaluate_system<M: BudgetMeter>(
         ))?;
     point_dimension(residuals, rows, "residual buffer")?;
     point_dimension(jacobian, cells, "Jacobian buffer")?;
-    charge(meter, (residuals.len() + jacobian.len()) as u64, 0, 0)?;
-    for (value, program) in residuals.iter_mut().zip(system.residual_programs()) {
-        *value = program.try_eval_finite_with_meter(point, meter)?;
-    }
-    jacobian.fill(0.0);
-    for entry in &system.sparse_jacobian().entries {
-        charge(meter, 1, 0, 0)?;
-        jacobian[entry.row * columns + entry.col] = entry
-            .compiled_deriv
-            .try_eval_finite_with_meter(point, meter)?;
-    }
-    finite(residuals, "residual", meter)?;
-    finite(jacobian, "Jacobian", meter)
+    system
+        .try_eval_dense_into_with_meter(point, residuals, jacobian, meter)
+        .map_err(|error| match error {
+            // Preserve the dense consumer's existing typed evaluation and
+            // cancellation causes when delegating to the checked evaluator.
+            ResidualEvaluationError::Evaluation(error) => SystemConsumerError::Evaluation(error),
+            error => SystemConsumerError::SparseEvaluation(error),
+        })
 }
 
 fn evaluate_residuals<M: BudgetMeter>(
