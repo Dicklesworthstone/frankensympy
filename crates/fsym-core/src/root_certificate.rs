@@ -930,6 +930,77 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
         self.elementary(a)?;
         interval_exp(a, self)
     }
+    /// Direct reciprocal circular rules. The denominator enclosure must
+    /// exclude zero on the whole box before either value or slope is formed.
+    /// In particular, a vanishing outer chain factor cannot erase a pole.
+    fn reciprocal_circular(
+        &mut self,
+        argument: &RealBall,
+        name: &str,
+    ) -> Result<(RealBall, RealBall), RootBoxError> {
+        self.elementary(argument)?;
+        let sine = checked(argument.sin(self.precision)?)?;
+        self.elementary(argument)?;
+        let cosine = checked(argument.cos(self.precision)?)?;
+        match name {
+            "cot" => {
+                let inverse = self.inv(&sine)?;
+                let value = self.mul(&cosine, &inverse)?;
+                let slope = self.power(&inverse, 2)?.neg();
+                Ok((value, slope))
+            }
+            "sec" => {
+                let value = self.inv(&cosine)?;
+                let square = self.power(&value, 2)?;
+                let slope = self.mul(&sine, &square)?;
+                Ok((value, slope))
+            }
+            "csc" => {
+                let value = self.inv(&sine)?;
+                let square = self.power(&value, 2)?;
+                let slope = self.mul(&cosine, &square)?.neg();
+                Ok((value, slope))
+            }
+            _ => Err(RootBoxError::Unsupported("reciprocal circular function")),
+        }
+    }
+    /// Real hyperbolic reciprocals from independently enclosed exponentials.
+    /// The quotient uses the complete interval, never its midpoint or a
+    /// sampled sign. Coth and csch therefore refuse a possible sinh zero;
+    /// sech is admitted across zero whenever its positive cosh is resolved.
+    fn reciprocal_hyperbolic(
+        &mut self,
+        argument: &RealBall,
+        name: &str,
+    ) -> Result<(RealBall, RealBall), RootBoxError> {
+        let plus = self.exp(argument)?;
+        let minus = self.exp(&argument.neg())?;
+        let difference = self.sub(&plus, &minus)?;
+        let sum = self.add(&plus, &minus)?;
+        let sinh = self.div(&difference, &RealBall::from_i64(2))?;
+        let cosh = self.div(&sum, &RealBall::from_i64(2))?;
+        match name {
+            "coth" => {
+                let inverse = self.inv(&sinh)?;
+                let value = self.mul(&cosh, &inverse)?;
+                let slope = self.power(&inverse, 2)?.neg();
+                Ok((value, slope))
+            }
+            "sech" => {
+                let value = self.inv(&cosh)?;
+                let square = self.power(&value, 2)?;
+                let slope = self.mul(&sinh, &square)?.neg();
+                Ok((value, slope))
+            }
+            "csch" => {
+                let value = self.inv(&sinh)?;
+                let square = self.power(&value, 2)?;
+                let slope = self.mul(&cosh, &square)?.neg();
+                Ok((value, slope))
+            }
+            _ => Err(RootBoxError::Unsupported("reciprocal hyperbolic function")),
+        }
+    }
     /// Entire real error functions and their Gaussian first derivative.
     /// The original argument is evaluated before a zero chain factor can
     /// erase one of its own domain obligations.
@@ -1293,6 +1364,8 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
                             self.power(&inverse, 2)?,
                         )
                     }
+                    "cot" | "sec" | "csc" => self.reciprocal_circular(&a.value, name)?,
+                    "coth" | "sech" | "csch" => self.reciprocal_hyperbolic(&a.value, name)?,
                     "sinh" | "cosh" | "tanh" => {
                         let plus = self.exp(&a.value)?;
                         let minus = self.exp(&a.value.neg())?;

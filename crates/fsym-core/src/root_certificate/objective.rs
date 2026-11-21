@@ -506,6 +506,42 @@ fn evaluate_inner(
                     let curvature = work.mul(&RealBall::from_i64(2), &product)?;
                     (value, slope, curvature)
                 }
+                "cot" | "sec" | "csc" => {
+                    let (value, slope) = work.reciprocal_circular(&argument.value, name)?;
+                    let curvature = if name == "cot" {
+                        // cot''(u) = -2*cot(u)*cot'(u).
+                        let product = work.mul(&value, &slope)?;
+                        work.mul(&RealBall::from_i64(-2), &product)?
+                    } else {
+                        // Both reciprocal sine and cosine satisfy
+                        // f''(u) = f(u)*(2*f(u)^2 - 1).
+                        let square = work.power(&value, 2)?;
+                        let twice = work.mul(&RealBall::from_i64(2), &square)?;
+                        let factor = work.sub(&twice, &RealBall::from_i64(1))?;
+                        work.mul(&value, &factor)?
+                    };
+                    (value, slope, curvature)
+                }
+                "coth" | "sech" | "csch" => {
+                    let (value, slope) = work.reciprocal_hyperbolic(&argument.value, name)?;
+                    let curvature = if name == "coth" {
+                        // coth''(u) = -2*coth(u)*coth'(u).
+                        let product = work.mul(&value, &slope)?;
+                        work.mul(&RealBall::from_i64(-2), &product)?
+                    } else {
+                        let square = work.power(&value, 2)?;
+                        let twice = work.mul(&RealBall::from_i64(2), &square)?;
+                        // sech'' = sech*(1-2*sech^2), whereas
+                        // csch'' = csch*(1+2*csch^2).
+                        let factor = if name == "sech" {
+                            work.sub(&RealBall::from_i64(1), &twice)?
+                        } else {
+                            work.add(&RealBall::from_i64(1), &twice)?
+                        };
+                        work.mul(&value, &factor)?
+                    };
+                    (value, slope, curvature)
+                }
                 "sinh" | "cosh" | "tanh" => {
                     let plus = work.exp(&argument.value)?;
                     let minus = work.exp(&argument.value.neg())?;

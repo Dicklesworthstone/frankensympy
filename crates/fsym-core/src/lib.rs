@@ -1356,13 +1356,16 @@ impl Expr {
                             _ => map(s.inv()),
                         }
                     }
-                    "sinh" | "cosh" | "tanh" => {
+                    "sinh" | "cosh" | "tanh" | "coth" | "sech" | "csch" => {
                         let ep = map(arg.exp(precision_digits + 4))?;
                         let em = map(arg.neg().exp(precision_digits + 4))?;
                         let two = RealBall::from_i64(2);
                         match name.as_str() {
                             "sinh" => map(ep.sub(&em).div(&two)),
                             "cosh" => map(ep.add(&em).div(&two)),
+                            "coth" => map(ep.add(&em).div(&ep.sub(&em))),
+                            "sech" => map(two.div(&ep.add(&em))),
+                            "csch" => map(two.div(&ep.sub(&em))),
                             _ => map(ep.sub(&em).div(&ep.add(&em))),
                         }
                     }

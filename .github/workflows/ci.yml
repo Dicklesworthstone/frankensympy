@@ -135,6 +135,8 @@ jobs:
           cargo test --locked -p fsym-matrices --test hermite_normal_form -j1
       - name: Original-source smooth absolute-value certificates
         run: cargo test --locked -p fsym-core --test abs_certification --test objective_enclosure --test root_box_general -j1
+      - name: Reciprocal elementary original-source certificates
+        run: cargo test --locked -p fsym-core --test reciprocal_enclosures -j1
       - name: Exact rational polynomial partial evaluation
         run: cargo test --locked -p fsym-polys --test evaluation -j1
       - name: Principal-angle interval and original-source certificates
