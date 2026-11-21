@@ -60,9 +60,12 @@ _NATIVE_CELLS = {
     Matrix: ("flat", _DICT.__get__(_NATIVE[Matrix])["flat"]),
     SparseMatrix: ("todok", _DICT.__get__(_NATIVE[SparseMatrix])["todok"]),
 }
-_SCALAR_NATIVE_NAMES = ("raw_args", "is_integer", "is_rational", "is_add", "is_mul", "is_pow")
+_SCALAR_NATIVE_NAMES = ("raw_args", "is_integer", "is_rational", "is_add", "is_mul", "is_pow",
+                        "multiquadratic_source_size")
 _SCALAR_NATIVE = tuple(_DICT.__get__(_NATIVE_EXPR)[name] for name in _SCALAR_NATIVE_NAMES)
 _NATIVE_ZERO = _SCALAR_SLOTS[0].__get__(Zero(), Basic)
+_FIXED_NATIVE = {cls: _SCALAR_SLOTS[0].__get__(cls(), Basic)
+                 for cls in (Zero, One, NegativeOne, Half)}
 _UNKNOWN = (None,) * 5
 
 
@@ -129,12 +132,12 @@ def _unchanged(matrix, base, state, retained, scalars=()):
                 raise RuntimeError("Matrix symbol assumptions mutated during definiteness evaluation")
 
 
-def _closed(entries):
+def _closed(entries, *, gaussian=False):
     from ..assumptions._query import typed_symbol
     from ..core._opaque_arithmetic import _children
 
     pending = [(entry, 0) for entry in entries]
-    count = 0
+    count = expanded = 0
     records = []
     while pending:
         value, depth = pending.pop()
@@ -149,6 +152,17 @@ def _closed(entries):
         stored = tuple(_slot(slot, value) for slot in slots)
         if stored[0] is not None and type(stored[0]) is not _NATIVE_EXPR:
             raise NotImplementedError("matrix definiteness requires original native scalar storage")
+        if gaussian:
+            if type(stored[0]) is not _NATIVE_EXPR:
+                raise NotImplementedError("matrix definiteness requires original native scalar storage")
+            # Retained handles are mutable independently of matrix storage.
+            # Bound each current graph before equality, child copies or any
+            # scalar property can traverse a replaced handle.
+            size = _SCALAR_NATIVE[-1](stored[0])
+            expanded += size
+            if expanded > 4096 * 65:
+                raise ValueError("Gaussian definiteness binding exceeds its expression envelope")
+            _charge_nested_if_active(size + 1)
         # Native child recovery may lift Constant-I into a fresh exact Expr.
         # Admit its native constant identity, never a printed name or an
         # arbitrary generic Expr that happens to render as an imaginary unit.
@@ -165,9 +179,6 @@ def _closed(entries):
             typed_symbol(value)
             facts = tuple(dict.items(declared))
         records.append((value, slots, stored, declared, facts))
-        children = _least_squares_stored_children(value)
-        if children is None:
-            children = _children(value)
         # A scalar can carry more than one retained argument slot. Inspect
         # every present tuple, including one hidden behind another slot's
         # lookup precedence, before granting a native mathematical result.
@@ -182,14 +193,18 @@ def _closed(entries):
             if sum(map(len, retained)) > 4096 - count - len(pending):
                 raise ValueError("symbolic definiteness source exceeds its expression envelope")
             children = tuple(child for candidate in retained for child in candidate)
+        else:
+            children = _least_squares_stored_children(value)
+            if children is None:
+                children = _children(value)
         if children is not None:
             if type(children) is not tuple or count + len(pending) + len(children) > 4096:
                 raise ValueError("symbolic definiteness source exceeds its expression envelope")
             pending.extend((child, depth + 1) for child in children)
     # Admit the entire retained graph before an assumption property can inspect
     # any child. Owner checks alone do not bind mutable scalar payloads.
-    if any(value.is_commutative is not True or value.is_finite is False
-           for value, *_ in records):
+    if not gaussian and any(value.is_commutative is not True or value.is_finite is False
+                            for value, *_ in records):
         return None
     return tuple(records)
 
@@ -212,24 +227,33 @@ def _bind_gaussian(native, base, retained, scalars):
     reconstruction, printing or custom scalar callback is needed.
     """
     _charge_nested_if_active(len(retained) + len(scalars) + 1)
+    # Admission bounded these immutable handles. Live scalar slots may change
+    # meanwhile; publication checks detect that separately, before generation.
+    values = {id(scalar): stored[0] for scalar, _slots, stored, _declared, _facts in scalars}
     entries = _NATIVE_CELLS[base][1](native)
     cells = enumerate(retained) if base is Matrix else dict.items(retained)
     for coordinate, entry in cells:
-        value = _slot(_SCALAR_SLOTS[0], entry)
+        value = values.get(id(entry))
         expected = entries[coordinate] if base is Matrix else entries.get(coordinate, _NATIVE_ZERO)
         if type(value) is not _NATIVE_EXPR or _NATIVE_EQUAL(value, expected) is not True:
             raise RuntimeError("Matrix retained cells differ from the native Hermitian source")
     if base is SparseMatrix and any(coordinate not in retained for coordinate in entries):
         raise RuntimeError("Matrix retained cells differ from the native Hermitian source")
-    raw_args, integer, rational, add, mul, power = _SCALAR_NATIVE
+    raw_args, integer, rational, add, mul, power, _size = _SCALAR_NATIVE
     kinds = {Add: add, Mul: mul, Pow: power}
     for scalar, _slots, stored, _declared, _facts in scalars:
         value = stored[0]
         if type(value) is not _NATIVE_EXPR:
             raise RuntimeError("Matrix retained scalar has no native Hermitian source")
         if any(type(scalar) is atom for atom in _ATOMS):
-            if not (integer.__get__(value, _NATIVE_EXPR) or rational.__get__(value, _NATIVE_EXPR)):
+            integer_value = integer.__get__(value, _NATIVE_EXPR)
+            rational_value = rational.__get__(value, _NATIVE_EXPR)
+            integer_owner = type(scalar) in (Integer, Zero, One, NegativeOne)
+            if not (integer_value if integer_owner else integer_value or rational_value):
                 raise RuntimeError("Matrix retained atom differs from its native Hermitian source")
+            expected = _FIXED_NATIVE.get(type(scalar))
+            if expected is not None and _NATIVE_EQUAL(value, expected) is not True:
+                raise RuntimeError("Matrix retained constant differs from its native Hermitian source")
         elif type(scalar) is _IMAGINARY_TYPE:
             if _NATIVE_EQUAL(value, _IMAGINARY_VALUE) is not True:
                 raise RuntimeError("Matrix retained imaginary unit differs from its native source")
@@ -244,7 +268,7 @@ def _bind_gaussian(native, base, retained, scalars):
             if len(children) != len(expected):
                 raise RuntimeError("Matrix retained arguments differ from the native Hermitian source")
             for child, original in zip(children, expected):
-                child_value = _slot(_SCALAR_SLOTS[0], child)
+                child_value = values.get(id(child))
                 if (type(child_value) is not _NATIVE_EXPR
                         or _NATIVE_EQUAL(child_value, original) is not True):
                     raise RuntimeError("Matrix retained arguments differ from the native Hermitian source")
@@ -254,13 +278,17 @@ def _gaussian_result(matrix, base, state, retained, scalars, session):
     _unchanged(matrix, base, state, retained, scalars)
     result = _HERMITIAN_METHODS[base][1](state[0], session=session)
     _unchanged(matrix, base, state, retained, scalars)
-    if (type(result) is not tuple or len(result) != 3
-            or any(type(count) is not int or count < 0 for count in result)
-            or sum(result) != state[1][0]):
-        raise RuntimeError("matrix definiteness received incomplete Hermitian inertia")
-    positive, negative, _zero = result
-    dimension = state[1][0]
+    properties = _inertia_properties(result, state[1][0])
     _charge_nested_if_active()
+    return properties
+
+
+def _inertia_properties(counts, dimension):
+    if (type(counts) is not tuple or len(counts) != 3
+            or any(type(count) is not int or count < 0 for count in counts)
+            or sum(counts) != dimension):
+        raise RuntimeError("matrix definiteness received incomplete Hermitian inertia")
+    positive, negative, _zero = counts
     return (positive == dimension, negative == 0,
             negative == dimension, positive == 0,
             positive > 0 and negative > 0)
@@ -354,15 +382,21 @@ def classify(matrix):
                 return positive == rows, negative == 0, negative == rows, positive == 0, positive > 0 and negative > 0
     # This is admission before generation, not a retry after failed algebra.
     # Source parsing checks original nested domains and charges the same active
-    # session. Only the two explicit source-admission refusals select the
-    # symbolic/unknown route; budget, cancellation, coefficient and arithmetic
-    # failures remain terminal, as does every failure after generation starts.
+    # session. Only unsupported grammar selects symbolic fallback. An undefined
+    # original source stays unknown; budget, cancellation, coefficient and
+    # arithmetic failures remain terminal after generation starts.
     gaussian = False
     if native is not None and rows <= 32:
         try:
             admitted = _HERMITIAN_METHODS[base][0](native, session=session)
-        except (NotImplementedError, ZeroDivisionError) as error:
-            if type(error) not in (NotImplementedError, ZeroDivisionError):
+        except ZeroDivisionError as error:
+            if type(error) is not ZeroDivisionError:
+                raise
+            _unchanged(matrix, base, state, surface)
+            _charge_nested_if_active()
+            return _UNKNOWN
+        except NotImplementedError as error:
+            if type(error) is not NotImplementedError:
                 raise
         else:
             if admitted is not None:
@@ -389,7 +423,7 @@ def classify(matrix):
                 raise ValueError("matrix definiteness has invalid sparse coordinates")
         retained = dict(surface)
         cells = tuple(retained.get((i, j), Zero()) for i in range(rows) for j in range(rows))
-    scalars = _closed(cells)
+    scalars = _closed(cells, gaussian=gaussian)
     if scalars is None:
         _unchanged(matrix, base, state, retained)
         return _UNKNOWN

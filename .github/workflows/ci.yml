@@ -308,6 +308,7 @@ jobs:
               "python/tests/test_matrix_definiteness.py",
               "python/tests/test_matrix_hermitian_definiteness.py",
               "python/tests/test_matrix_definiteness_budget.py",
+              "python/tests/test_hermitian_definiteness.py",
               "python/tests/test_affine_linear_systems.py",
               "python/tests/test_half_line_transforms.py",
               "python/tests/test_fourier_transforms.py",
