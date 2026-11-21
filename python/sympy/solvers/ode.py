@@ -581,19 +581,22 @@ def _characteristic_root_groups(rts):
 
 def _homogeneous_basis(coeffs, x):
     """Fundamental solutions of sum a_k y^(k) = 0 with constant a_k."""
-    from ..core import Symbol as _S, Integer, expand
+    from ..core import Dummy, Integer, expand
     from ..polys.polytools import Poly, roots
 
-    r = _S("_fsym_r")
+    # The characteristic coordinate is independent of every user coefficient,
+    # including a parameter with the same printed name.
+    r = Dummy("_fsym_r")
     char = sum((c * r**k for k, c in enumerate(coeffs)), Integer(0))
     rts = roots(Poly(expand(char), r))
     if sum(rts.values()) != len(coeffs) - 1:
         raise NotImplementedError("dsolve: characteristic roots are not all expressible")
     groups = _characteristic_root_groups(rts)
-    real = sorted(
-        (group for group in groups if group[0] == "real"),
-        key=lambda group: float(group[1]),
-    )
+    real = [group for group in groups if group[0] == "real"]
+    # Real assumptions do not supply a numeric order for a parameter. Keep
+    # the exact root construction order unless every real root is numeric.
+    if all(group[1].is_number is True for group in real):
+        real.sort(key=lambda group: float(group[1]))
     return real + [group for group in groups if group[0] != "real"]
 
 
@@ -632,11 +635,11 @@ def _assemble(groups, x, start=1):
 def _char_solutions(coeffs, x):
     """Fundamental solutions and collect terms of sum a_k y^(k) = 0 with
     constant a_k (upstream ``_get_const_characteristic_eq_sols``)."""
-    from ..core import Symbol as _S, Integer, expand
+    from ..core import Dummy, Integer, expand
     from ..functions import exp, sin, cos
     from ..polys.polytools import Poly, roots
 
-    r = _S("_fsym_r")
+    r = Dummy("_fsym_r")
     char = sum((c * r**k for k, c in enumerate(coeffs)), Integer(0))
     rts = roots(Poly(expand(char), r))
     if sum(rts.values()) != len(coeffs) - 1:
@@ -662,11 +665,11 @@ def _euler_solutions(coeffs, x):
     Powers and logarithms share one branch away from x = 0, in particular
     the ordinary real logarithm on x > 0. No family crosses the singularity.
     """
-    from ..core import Symbol as _S, Integer, expand
+    from ..core import Dummy, Integer, expand
     from ..functions import cos, log, sin
     from ..polys.polytools import Poly, roots
 
-    r = _S("_fsym_r")
+    r = Dummy("_fsym_r")
     char = Integer(0)
     for k, a in enumerate(coeffs):
         falling = Integer(1)
@@ -760,10 +763,12 @@ def _uc_trial_set(g, x, coeffs):
 
 
 def _particular_uc(trial, g, coeffs, x):
-    from ..core import Add, Integer, Symbol as _S, expand
+    from ..core import Add, Dummy, Integer, expand
     from .. import solve as _solve
 
-    a = [_S(f"_fsym_a{i}") for i in range(len(trial))]
+    # Trial coefficients are unknowns of an auxiliary linear system. Ordinary
+    # Symbols would also substitute a same-named parameter in g or coeffs.
+    a = [Dummy(f"_fsym_a{i}") for i in range(len(trial))]
     yp = sum((ai * t for ai, t in zip(a, trial)), Integer(0))
     resid = expand(_apply_operator(coeffs, yp, x) - g)
     groups: dict = {}

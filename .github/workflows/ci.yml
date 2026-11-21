@@ -298,6 +298,7 @@ jobs:
               "python/tests/test_assumptions_soundness.py",
               "python/tests/test_solve_assumptions.py",
               "python/tests/test_checkodesol_rational_residuals.py",
+              "python/tests/test_ode_auxiliary_identity.py",
               "python/tests/test_bernoulli_initial_conditions.py::test_rational_point_binds_the_checked_nonseparable_family",
               "python/tests/test_bernoulli_initial_conditions.py::test_zero_linear_coefficient_and_negative_initial_value",
               "python/tests/test_bernoulli_initial_conditions.py::test_consistent_overdetermined_values_select_a_particular_solution",
