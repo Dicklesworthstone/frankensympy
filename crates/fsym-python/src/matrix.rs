@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod integer_system;
+mod modular_inverse;
 
 use fsym_budget::{BudgetError, BudgetMeter, DIMENSION_COUNT, MeterError};
 use fsym_core::{BigInt, BigRational, Constant, Expr};
@@ -886,6 +887,20 @@ impl PyMatrix {
                     integer_dense_output(witness.right_inverse, meter)?,
                 ))
             },
+        )
+    }
+
+    /// Checked inverse over Z/mZ, including composite moduli. None is returned
+    /// only after a nonunit Smith factor has been independently verified.
+    #[pyo3(signature = (modulus, *, session=None))]
+    pub fn inverse_mod(
+        &self,
+        modulus: &Bound<'_, PyAny>,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<Option<PyMatrix>> {
+        modular_inverse::inverse(
+            (&self.inner).into(), modulus, py, session.as_deref(),
         )
     }
 
@@ -1783,6 +1798,20 @@ impl PySparseMatrix {
                     integer_sparse_output(witness.right_inverse, meter)?,
                 ))
             },
+        )
+    }
+
+    /// Checked inverse over Z/mZ, including composite moduli. None is returned
+    /// only after a nonunit Smith factor has been independently verified.
+    #[pyo3(signature = (modulus, *, session=None))]
+    pub fn inverse_mod(
+        &self,
+        modulus: &Bound<'_, PyAny>,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<Option<PyMatrix>> {
+        modular_inverse::inverse(
+            (&self.inner).into(), modulus, py, session.as_deref(),
         )
     }
 

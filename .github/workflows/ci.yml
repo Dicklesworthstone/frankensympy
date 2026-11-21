@@ -132,7 +132,7 @@ jobs:
       - name: Independently checked integer column Hermite forms
         run: |
           cargo test --locked -p fsym-proof-kernel --test integer_hermite -j1
-          cargo test --locked -p fsym-matrices --test hermite_normal_form -j1
+          cargo test --locked -p fsym-matrices --test hermite_normal_form --test modular_inverse -j1
       - name: Original-source smooth absolute-value certificates
         run: cargo test --locked -p fsym-core --test abs_certification --test objective_enclosure --test root_box_general -j1
       - name: Reciprocal elementary original-source certificates
@@ -206,7 +206,7 @@ jobs:
           cargo test --locked -p fsym-core --test raw_product_value -j1
           cargo test --locked -p fsym-core --test binding_substitution -j1
           cargo test --locked -p fsym-core --test objective_enclosure --test stationary_certificate --test box_extremum --test box_optimization --test root_box_general --test piecewise_certificates -j1
-          cargo test --locked -p fsym-core --test root_isolation --test root_box_general --test root_box_certificate --test root_artifact -j1
+          cargo test --locked -p fsym-core --test root_isolation --test root_box_general --test root_box_certificate --test root_artifact --test real_root_query -j1
           cargo test --locked -p fsym-core --test parametric_root -j1
           cargo test --locked -p fsym-core --test parametric_cover -j1
           cargo test --locked -p fsym-core --test parametric_sensitivity -j1
@@ -283,10 +283,12 @@ jobs:
               "-q", "-p", "no:cacheprovider",
               "python/tests/test_boolean_identity.py",
               "python/tests/test_hermite_normal_form.py",
+              "python/tests/test_matrix_inv_mod.py",
               "python/tests/test_reciprocal_numeric.py",
               "python/tests/test_objective_program_transport.py",
               "python/tests/test_source_certification.py",
               "python/tests/test_polynomial_evaluation.py",
+              "python/tests/test_polynomial_root_analysis.py",
               "python/tests/test_rational_compound_domains.py",
               "python/tests/test_compound_domain_calculus.py",
               "python/tests/test_compiled_objective.py",
@@ -300,6 +302,7 @@ jobs:
               "python/tests/test_principal_power_solve.py",
               "python/tests/test_solveset_source_domains.py",
               "python/tests/test_elementary_real_solving.py",
+              "python/tests/test_radical_real_solving.py",
               "python/tests/test_elementary_continuous_domain.py",
               "python/tests/test_elementary_function_range.py",
               "python/tests/test_elementary_function_range_review.py",

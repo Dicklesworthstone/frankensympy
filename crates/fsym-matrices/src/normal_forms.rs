@@ -22,6 +22,12 @@ pub use integer_system::{
     IntegerLinearCandidate, IntegerMatrixRef, VerifiedIntegerLinearSystem,
     generate_integer_linear_candidate, metered_solve_integer, verify_integer_linear_candidate,
 };
+mod modular_inverse;
+pub use modular_inverse::{
+    IntegerModularInverseCandidate, VerifiedIntegerModularInverse,
+    generate_integer_modular_inverse_candidate, metered_inverse_mod,
+    verify_integer_modular_inverse_candidate,
+};
 mod hermite;
 pub use hermite::{
     HermiteNormalFormCandidate, VerifiedHermiteNormalForm, generate_hermite_normal_form_candidate,

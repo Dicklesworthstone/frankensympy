@@ -89,6 +89,17 @@ class _AlgebraicEigenspaceUnsupported(NotImplementedError):
 class MatrixBase:
     """Base class for all matrix objects."""
 
+    def inv_mod(self, m):
+        """Return the checked inverse modulo an integer m >= 2.
+
+        Composite moduli are supported through integer Smith decomposition,
+        including matrices whose entries are all nonunits. The result is a
+        mutable dense Matrix with canonical residues. Literal integer sources
+        through 64 rows/columns and 4096-bit entries/moduli are supported.
+        """
+        from ._inv_mod import inverse_mod
+        return inverse_mod(self, m)
+
     def smith_normal_decomposition(self):
         """Native checked integer ``(D, U, V)`` with ``D == U*self*V``.
 

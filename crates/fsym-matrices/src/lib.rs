@@ -52,6 +52,9 @@ mod normal_forms;
 pub use normal_forms::{
     HermiteNormalFormCandidate, IntegerLinearCandidate, IntegerMatrixRef, SmithNormalFormCandidate,
     VerifiedHermiteNormalForm, VerifiedIntegerLinearSystem, VerifiedSmithNormalForm,
+    IntegerModularInverseCandidate, VerifiedIntegerModularInverse,
+    generate_integer_modular_inverse_candidate, metered_inverse_mod,
+    verify_integer_modular_inverse_candidate,
     generate_hermite_normal_form_candidate, generate_integer_linear_candidate,
     generate_smith_normal_form_candidate, metered_solve_integer,
     verify_hermite_normal_form_candidate, verify_integer_linear_candidate,
@@ -133,6 +136,8 @@ pub enum MatrixError {
     UnsupportedCertificateDomain,
     #[error("Integer matrix normal forms require literal integer entries")]
     UnsupportedIntegerDomain,
+    #[error("Invalid modular matrix modulus: {0}")]
+    InvalidModulus(&'static str),
     #[error("Metered determinant computation supports exact rational entries only")]
     UnsupportedDeterminantDomain,
     #[error("Exact matrix arithmetic invariant failed: {0}")]

@@ -41,6 +41,7 @@ from . import _jordan
 from . import _definiteness
 from . import normalforms
 from . import _integer_solve
+from . import _inv_mod
 
 __all__ = [
     "DenseMatrix",

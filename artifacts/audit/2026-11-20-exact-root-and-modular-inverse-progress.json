@@ -1,0 +1,66 @@
+{
+  "schema": "frankensympy.exact_functionality_progress.v1",
+  "scope": "Continuation: complete principal-square-root real sets, exact polynomial root queries, modular matrix inverse.",
+  "base_commit": "96c9485cb1479be69a2058a672a1c2f954386d39",
+  "implementations": {
+    "principal_square_root": {
+      "commit": "3e35cb7ed8a48a1e397fb7facb36c6673aa2a57f",
+      "source": "python/sympy/solvers/_radical_real.py",
+      "tests": "python/tests/test_radical_real_solving.py",
+      "written_cases": 52
+    },
+    "polynomial_root_queries": {
+      "core_commit": "53a0a74d1d16a0992962846779b6a02ae0916fe8",
+      "public_commit": "924db122cbe73d42c7f09763fe7258c4ed59191c",
+      "native_tests": "crates/fsym-core/tests/real_root_query.rs",
+      "public_tests": "python/tests/test_polynomial_root_analysis.py",
+      "written_native_tests": 11
+    },
+    "modular_matrix_inverse": {
+      "source": "crates/fsym-matrices/src/normal_forms/modular_inverse.rs",
+      "verifier": "crates/fsym-proof-kernel/src/integer_modular_inverse.rs",
+      "native_tests": "crates/fsym-matrices/tests/modular_inverse.rs",
+      "public_tests": "python/tests/test_matrix_inv_mod.py",
+      "written_native_tests": 11,
+      "determinant_unit_comparisons_in_native_corpus": 405,
+      "expected_public_cases_not_collected": 135
+    }
+  },
+  "executed_before_outage": {
+    "current_python_commit": "96c9485cb1479be69a2058a672a1c2f954386d39",
+    "reused_math_binary_sha256": "283cc0dd05f18d3685191ccac47c8e76d170a59ee73b9063e612621447f83125",
+    "source_equivalence": "150 mathematical source files across nine crates and 11 relevant bridge sources byte-identical; current numerical compilation/consumer changes excluded.",
+    "observed": [
+      "Current-shell sqrt(x**2)-x and sqrt((x-1)**2)/(x-1)-1 solveset failures reproduced without omitted runtime helpers.",
+      "Existing native rational constraints produced [0,oo), (1,oo), {-1,0}, and the required isolated quintic root.",
+      "Existing checked Smith decomposition and integer modular inverse prerequisites exercised.",
+      "Isolated SymPy 1.14 public modulus/class/exception conventions checked; no oracle used as production fallback."
+    ]
+  },
+  "additional_executed_evidence": {
+    "modular_inverse_fixtures": "Five expected inverse fixtures checked using exact JavaScript BigInt arithmetic for both residual identities; this does not execute the candidate Rust/Python implementation."
+  },
+  "candidate_execution": {
+    "new_native_tests": "NOT RUN",
+    "new_public_tests": "NOT RUN",
+    "rustfmt": "NOT RUN",
+    "cargo_check": "NOT RUN",
+    "clippy": "NOT RUN",
+    "production_extension": "NOT BUILT",
+    "reason": "The separate frozen-current component build ended exit101 when rustc compiling pyo3-macros-backend received SIGKILL; afterward the executor became unavailable. No kernel/OOM cause asserted.",
+    "failed_build": {
+      "source_commit": "96c9485cb1479be69a2058a672a1c2f954386d39",
+      "elapsed_seconds": 108.8,
+      "max_observed_child_rss_kib": 505008
+    },
+    "component_scope": "Actual mathematical/verifier/session/budget sources, pinned dependencies, same six known runtime helper omissions; never a full production async graph test."
+  },
+  "independent_reviews": "Core mathematical acceptance boundaries, native type/API use, shell source/owner binding, cumulative budgets and focused tests reviewed by separate agents. Review findings were corrected before final integration. Static review is not compilation or execution.",
+  "publication": "Meaningful incremental GitHub commits directly to main, expected-head leases, no PR, no force update. Exact remote paths and blob identities independently verified after each successful ref update.",
+  "remaining_limits": [
+    "One principal square root affine over rational functions; unsupported radical grammars remain conditional.",
+    "Real polynomial queries over QQ/ZZ through degree64 and bounded4096-bit original coefficients/controls. Bisection isolators can differ from upstream. Complex rectangles, extension fields and joint polynomial isolation remain unsupported.",
+    "Matrix inverse supports positive integer moduli>=2, dimensions<=64, bounded4096-bit original entries/modulus; output is mutable dense Matrix."
+  ],
+  "claim_changes": "None. WS08/WS10/WS19 and full runtime/profile gates remain open."
+}

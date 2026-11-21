@@ -43,14 +43,14 @@ impl<'a> From<&'a SparseMatrix> for IntegerMatrixRef<'a> {
 }
 
 impl IntegerMatrixRef<'_> {
-    fn shape(self) -> (usize, usize) {
+    pub(super) fn shape(self) -> (usize, usize) {
         match self {
             Self::Dense(matrix) => (matrix.rows(), matrix.cols()),
             Self::Sparse(matrix) => (matrix.rows(), matrix.cols()),
         }
     }
 
-    fn admit(self, work: &mut Work<'_, impl BudgetMeter>) -> Result<()> {
+    pub(super) fn admit(self, work: &mut Work<'_, impl BudgetMeter>) -> Result<()> {
         match self {
             Self::Dense(matrix) => {
                 matrix.validate_shape()?;
@@ -80,7 +80,7 @@ impl IntegerMatrixRef<'_> {
         Ok(())
     }
 
-    fn snapshot(self, work: &mut Work<'_, impl BudgetMeter>) -> Result<RationalSparseMatrix> {
+    pub(super) fn snapshot(self, work: &mut Work<'_, impl BudgetMeter>) -> Result<RationalSparseMatrix> {
         match self {
             Self::Dense(matrix) => snapshot(
                 matrix.rows,
@@ -311,7 +311,7 @@ pub fn generate_integer_linear_candidate(
     })
 }
 
-fn same_source(
+pub(super) fn same_source(
     original: &RationalSparseMatrix,
     supplied: &RationalSparseMatrix,
     work: &mut Work<'_, impl BudgetMeter>,

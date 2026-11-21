@@ -100,6 +100,10 @@ def _atom_state(value):
     return tuple(result)
 
 
+class _NonliteralIntegerSource(NotImplementedError):
+    """A source cell is outside the literal-integer lane."""
+
+
 class _IntegerSource:
     def __init__(self, matrix):
         if not any(type(matrix) is cls for cls in _CLASSES):
@@ -141,7 +145,7 @@ class _IntegerSource:
             cells = surface if self.base is Matrix else dict.values(surface)
             for cell in cells:
                 if not any(type(cell) is atom for atom in _ATOMS):
-                    raise NotImplementedError("integer Smith form requires literal integer source atoms")
+                    raise _NonliteralIntegerSource("integer Smith form requires literal integer source atoms")
                 state = _atom_state(cell)
                 if type(state[0]) is not _NATIVE_EXPR:
                     raise ValueError("integer Smith form has invalid native scalar storage")
