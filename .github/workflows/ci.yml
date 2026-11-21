@@ -143,6 +143,8 @@ jobs:
         run: cargo test --locked -p fsym-core --test atan2_enclosures --test atan2_certification -j1
       - name: Compiled principal-angle programs and derivative admission
         run: cargo test --locked -p fsym-calculus --test atan2_compilation -j1
+      - name: Compiled reciprocal elementary programs and derivative admission
+        run: cargo test --locked -p fsym-calculus --test reciprocal_function_programs -j1
       - name: Complete finite real rational systems
         run: |
           cargo test --locked -p fsym-solvers --test real_rational --test rational_systems --test real_rur -j1

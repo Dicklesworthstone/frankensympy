@@ -82,6 +82,19 @@ pub fn evalf_ball(expr: &Expr, precision_digits: u32) -> Result<RealBall, CoreEr
 }
 
 pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
+    diff_unsimplified_with_coth(expr, var, false)
+}
+
+/// The numerical derivative lane keeps coth' away from subtraction of two
+/// rounded ones. Public symbolic derivatives retain their existing form.
+pub(crate) fn numeric_diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
+    diff_unsimplified_with_coth(expr, var, true)
+}
+
+fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> Expr {
+    // Every recursive chain/product derivative uses the same representation;
+    // this also covers coth inside an outer function or a mixed derivative.
+    let diff = |child: &Expr, variable: &Symbol| diff_with_coth(child, variable, stable_coth);
     match expr {
         Expr::Sym(s) => {
             if s == var {
@@ -338,6 +351,16 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
             } else if name == "coth" && args.len() == 1 {
                 let u = &args[0];
                 let du = diff(u, var);
+                if stable_coth {
+                    return Expr::Mul(vec![
+                        Expr::from_i64(-1),
+                        Expr::pow(
+                            Expr::Function("csch".to_string(), vec![u.clone()]),
+                            Expr::from_i64(2),
+                        ),
+                        du,
+                    ]);
+                }
                 let coth_u_sq = Expr::pow(
                     Expr::Function("coth".to_string(), vec![u.clone()]),
                     Expr::from_i64(2),
@@ -815,7 +838,15 @@ fn eliminate_zero_products(expr: &Expr) -> Expr {
 
 /// Compute the symbolic derivative of an expression with respect to a symbol: ∂expr / ∂var.
 pub fn diff(expr: &Expr, var: &Symbol) -> Expr {
-    let unsimplified = diff_unsimplified(expr, var);
+    diff_with_coth(expr, var, false)
+}
+
+pub(crate) fn numeric_diff(expr: &Expr, var: &Symbol) -> Expr {
+    diff_with_coth(expr, var, true)
+}
+
+fn diff_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> Expr {
+    let unsimplified = diff_unsimplified_with_coth(expr, var, stable_coth);
     let cleaned = eliminate_zero_products(&unsimplified);
     simplify(&cleaned)
 }

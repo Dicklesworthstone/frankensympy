@@ -488,7 +488,7 @@ fn propose_zero_omissions<M: BudgetMeter + ?Sized>(
         .map_err(|_| CompileError::AllocationFailure)?;
     for entry in std::mem::take(&mut system.entries) {
         charge_derivative_kernel(&system.residuals[entry.row], meter)?;
-        let derivative = crate::diff(&system.residuals[entry.row], &system.vars[entry.col]);
+        let derivative = crate::numeric_diff(&system.residuals[entry.row], &system.vars[entry.col]);
         charge_compilation_work(meter, 1, 0, 0)?;
         if !derivative.is_zero() {
             nonzeros.push((entry.row, entry.col));

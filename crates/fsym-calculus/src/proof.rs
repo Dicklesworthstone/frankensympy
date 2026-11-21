@@ -26,10 +26,18 @@ pub const RULE_DIFF_POW_GENERAL: &str = "diff_power_general";
 pub const RULE_DIFF_SIN: &str = "diff_sin";
 pub const RULE_DIFF_COS: &str = "diff_cos";
 pub const RULE_DIFF_TAN: &str = "diff_tan";
+/// Reciprocal-function chain rules hold on the common smooth domain. They
+/// do not discharge the original sine/cosine denominator obligations.
+pub const RULE_DIFF_COT: &str = "diff_cot";
+pub const RULE_DIFF_SEC: &str = "diff_sec";
+pub const RULE_DIFF_CSC: &str = "diff_csc";
 pub const RULE_DIFF_EXP: &str = "diff_exp";
 pub const RULE_DIFF_SINH: &str = "diff_sinh";
 pub const RULE_DIFF_COSH: &str = "diff_cosh";
 pub const RULE_DIFF_TANH: &str = "diff_tanh";
+pub const RULE_DIFF_COTH: &str = "diff_coth";
+pub const RULE_DIFF_SECH: &str = "diff_sech";
+pub const RULE_DIFF_CSCH: &str = "diff_csch";
 pub const RULE_DIFF_LOG: &str = "diff_log";
 pub const RULE_DIFF_ASIN: &str = "diff_asin";
 pub const RULE_DIFF_ACOS: &str = "diff_acos";
@@ -77,10 +85,16 @@ pub fn classify_diff_rule(expr: &Expr, var: &Symbol) -> &'static str {
             ("sin", 1) => RULE_DIFF_SIN,
             ("cos", 1) => RULE_DIFF_COS,
             ("tan", 1) => RULE_DIFF_TAN,
+            ("cot", 1) => RULE_DIFF_COT,
+            ("sec", 1) => RULE_DIFF_SEC,
+            ("csc", 1) => RULE_DIFF_CSC,
             ("exp", 1) => RULE_DIFF_EXP,
             ("sinh", 1) => RULE_DIFF_SINH,
             ("cosh", 1) => RULE_DIFF_COSH,
             ("tanh", 1) => RULE_DIFF_TANH,
+            ("coth", 1) => RULE_DIFF_COTH,
+            ("sech", 1) => RULE_DIFF_SECH,
+            ("csch", 1) => RULE_DIFF_CSCH,
             ("log" | "ln", 1) => RULE_DIFF_LOG,
             ("asin", 1) => RULE_DIFF_ASIN,
             ("acos", 1) => RULE_DIFF_ACOS,
@@ -102,6 +116,17 @@ pub fn classify_diff_rule(expr: &Expr, var: &Symbol) -> &'static str {
 /// establishing the claim: $\vdash \text{diff}(\text{expr}, \text{var}) = \text{deriv}$.
 pub fn verified_diff(expr: &Expr, var: &Symbol) -> (Expr, DerivationTree) {
     let deriv = diff_unsimplified(expr, var);
+    derivative_tree(expr, var, deriv)
+}
+
+/// Internal numeric programs use a stable coth derivative without changing
+/// the public symbolic derivative or its ordinary receipt representation.
+pub(crate) fn verified_numeric_diff(expr: &Expr, var: &Symbol) -> (Expr, DerivationTree) {
+    let deriv = crate::numeric_diff_unsimplified(expr, var);
+    derivative_tree(expr, var, deriv)
+}
+
+fn derivative_tree(expr: &Expr, var: &Symbol, deriv: Expr) -> (Expr, DerivationTree) {
     let diff_term = make_diff_term(expr, var);
     let rule_name = classify_diff_rule(expr, var);
 
@@ -170,6 +195,25 @@ pub fn verify_diff_derivation(
     var: &Symbol,
     deriv: &Expr,
 ) -> Result<(), KernelError> {
+    verify_diff_derivation_with_coth(tree, expr, var, deriv, false)
+}
+
+pub(crate) fn verify_numeric_diff_derivation(
+    tree: &DerivationTree,
+    expr: &Expr,
+    var: &Symbol,
+    deriv: &Expr,
+) -> Result<(), KernelError> {
+    verify_diff_derivation_with_coth(tree, expr, var, deriv, true)
+}
+
+fn verify_diff_derivation_with_coth(
+    tree: &DerivationTree,
+    expr: &Expr,
+    var: &Symbol,
+    deriv: &Expr,
+    stable_coth: bool,
+) -> Result<(), KernelError> {
     if tree.steps.is_empty() {
         return Err(KernelError::UnknownStep(tree.root));
     }
@@ -215,7 +259,7 @@ pub fn verify_diff_derivation(
             }
 
             // Independent structural verification of the reduction rule
-            verify_rule_reduction_semantics(expr, var, deriv, expected_rule_name)?;
+            verify_rule_reduction_semantics(expr, var, deriv, expected_rule_name, stable_coth)?;
         }
         other => {
             return Err(KernelError::RuleMismatch(format!(
@@ -270,20 +314,31 @@ fn reference_eliminate_zero_products(expr: &Expr) -> Expr {
 }
 
 /// Verifier-local reference sub-derivative (never invokes `crate::diff` or `crate::diff_unsimplified`).
-pub(crate) fn reference_sub_derivative(expr: &Expr, var: &Symbol) -> Expr {
+pub(crate) fn reference_numeric_sub_derivative(expr: &Expr, var: &Symbol) -> Expr {
+    reference_sub_derivative_with_coth(expr, var, true)
+}
+
+fn reference_sub_derivative_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> Expr {
     // Native Expr has no binders: absence from its structural free-symbol
     // set proves constancy with respect to this variable, including powers
     // and functions outside the reference rule table.
     if !expr.free_symbols().contains(var) {
         return Expr::from_i64(0);
     }
-    let raw = reference_unsimplified_diff(expr, var);
+    let raw = reference_unsimplified_diff_with_coth(expr, var, stable_coth);
     let cleaned = reference_eliminate_zero_products(&raw);
     fsym_simplify::simplify(&cleaned)
 }
 
 /// Verifier-local formal differentiation rule table (independent of `crate::diff_unsimplified`).
 fn reference_unsimplified_diff(expr: &Expr, var: &Symbol) -> Expr {
+    reference_unsimplified_diff_with_coth(expr, var, false)
+}
+
+fn reference_unsimplified_diff_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> Expr {
+    let reference_sub_derivative = |child: &Expr, variable: &Symbol| {
+        reference_sub_derivative_with_coth(child, variable, stable_coth)
+    };
     match expr {
         Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => Expr::from_i64(0),
         Expr::Sym(s) if s == var => Expr::from_i64(1),
@@ -426,6 +481,28 @@ fn reference_unsimplified_diff(expr: &Expr, var: &Symbol) -> Expr {
                     );
                     Expr::Mul(vec![Expr::Add(vec![Expr::from_i64(1), tan_u_sq]), du])
                 }
+                "cot" => {
+                    let square = Expr::pow(
+                        Expr::Function("cot".to_string(), vec![u.clone()]),
+                        Expr::from_i64(2),
+                    );
+                    Expr::Mul(vec![
+                        Expr::from_i64(-1),
+                        Expr::Add(vec![Expr::from_i64(1), square]),
+                        du,
+                    ])
+                }
+                "sec" => Expr::Mul(vec![
+                    Expr::Function("sec".to_string(), vec![u.clone()]),
+                    Expr::Function("tan".to_string(), vec![u.clone()]),
+                    du,
+                ]),
+                "csc" => Expr::Mul(vec![
+                    Expr::from_i64(-1),
+                    Expr::Function("csc".to_string(), vec![u.clone()]),
+                    Expr::Function("cot".to_string(), vec![u.clone()]),
+                    du,
+                ]),
                 "exp" => Expr::Mul(vec![Expr::Function("exp".to_string(), vec![u.clone()]), du]),
                 "sinh" => Expr::Mul(vec![
                     Expr::Function("cosh".to_string(), vec![u.clone()]),
@@ -448,6 +525,41 @@ fn reference_unsimplified_diff(expr: &Expr, var: &Symbol) -> Expr {
                         du,
                     ])
                 }
+                "coth" => {
+                    if stable_coth {
+                        return Expr::Mul(vec![
+                            Expr::from_i64(-1),
+                            Expr::pow(
+                                Expr::Function("csch".to_string(), vec![u.clone()]),
+                                Expr::from_i64(2),
+                            ),
+                            du,
+                        ]);
+                    }
+                    let square = Expr::pow(
+                        Expr::Function("coth".to_string(), vec![u.clone()]),
+                        Expr::from_i64(2),
+                    );
+                    Expr::Mul(vec![
+                        Expr::Add(vec![
+                            Expr::from_i64(1),
+                            Expr::Mul(vec![Expr::from_i64(-1), square]),
+                        ]),
+                        du,
+                    ])
+                }
+                "sech" => Expr::Mul(vec![
+                    Expr::from_i64(-1),
+                    Expr::Function("sech".to_string(), vec![u.clone()]),
+                    Expr::Function("tanh".to_string(), vec![u.clone()]),
+                    du,
+                ]),
+                "csch" => Expr::Mul(vec![
+                    Expr::from_i64(-1),
+                    Expr::Function("csch".to_string(), vec![u.clone()]),
+                    Expr::Function("coth".to_string(), vec![u.clone()]),
+                    du,
+                ]),
                 "sqrt" => Expr::Mul(vec![
                     Expr::Rational(BigRational::new(1.into(), 2.into())),
                     Expr::pow(
@@ -570,7 +682,14 @@ fn verify_rule_reduction_semantics(
     var: &Symbol,
     deriv: &Expr,
     rule_name: &str,
+    stable_coth: bool,
 ) -> Result<(), KernelError> {
+    let reference_sub_derivative = |child: &Expr, variable: &Symbol| {
+        reference_sub_derivative_with_coth(child, variable, stable_coth)
+    };
+    let reference_unsimplified_diff = |source: &Expr, variable: &Symbol| {
+        reference_unsimplified_diff_with_coth(source, variable, stable_coth)
+    };
     match rule_name {
         RULE_DIFF_CONST => {
             if !deriv.is_zero() {
@@ -989,6 +1108,33 @@ fn verify_rule_reduction_semantics(
                 return Err(KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected atan(u) for diff_atan".to_string(),
+                });
+            }
+        }
+        RULE_DIFF_COT | RULE_DIFF_SEC | RULE_DIFF_CSC | RULE_DIFF_COTH | RULE_DIFF_SECH
+        | RULE_DIFF_CSCH => {
+            let expected_name = match rule_name {
+                RULE_DIFF_COT => "cot",
+                RULE_DIFF_SEC => "sec",
+                RULE_DIFF_CSC => "csc",
+                RULE_DIFF_COTH => "coth",
+                RULE_DIFF_SECH => "sech",
+                _ => "csch",
+            };
+            if !matches!(expr, Expr::Function(name, args) if name == expected_name && args.len() == 1)
+            {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: format!("Expected unary {expected_name} for {rule_name}"),
+                });
+            }
+            let expected_rhs = reference_unsimplified_diff(expr, var);
+            if deriv != &expected_rhs {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: format!(
+                        "{expected_name} derivative mismatch: expected {expected_rhs}, got {deriv}"
+                    ),
                 });
             }
         }

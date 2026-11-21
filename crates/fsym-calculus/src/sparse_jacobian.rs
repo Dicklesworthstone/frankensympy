@@ -7,7 +7,9 @@ use crate::compile::{
     admit_compilation_name, charge_compilation_work, charge_evaluation_allocation,
     charge_evaluation_steps, compilation_diagnostic, compilation_finish,
 };
-use crate::proof::{reference_sub_derivative, verified_diff, verify_diff_derivation};
+use crate::proof::{
+    reference_numeric_sub_derivative, verified_numeric_diff, verify_numeric_diff_derivation,
+};
 use fsym_budget::{BudgetMeter, Dimension, Unbounded};
 use fsym_core::{BigInt, Constant, Expr, Symbol};
 use fsym_proof_kernel::{DerivationTree, derivation_verification_units};
@@ -621,7 +623,8 @@ impl SparseJacobian {
         for (row, columns) in plan.row_dependencies.iter().enumerate() {
             for &col in columns {
                 charge_derivative_kernel(&residuals[row], meter)?;
-                let (symbolic_deriv, derivation) = verified_diff(&residuals[row], &vars[col]);
+                let (symbolic_deriv, derivation) =
+                    verified_numeric_diff(&residuals[row], &vars[col]);
                 charge_compilation_work(meter, 1, 0, 0)?;
                 if !symbolic_deriv.is_zero() {
                     let compiled_deriv =
@@ -1155,7 +1158,7 @@ pub fn verify_sparse_jacobian_certificate_with_meter<M: BudgetMeter + ?Sized>(
     for entry in &system.entries {
         charge_derivative_kernel(&system.residuals[entry.row], meter)?;
         charge_expression_copy(&entry.symbolic_deriv, meter)?;
-        verify_diff_derivation(
+        verify_numeric_diff_derivation(
             &entry.derivation,
             &system.residuals[entry.row],
             &system.vars[entry.col],
@@ -1201,7 +1204,7 @@ pub fn verify_sparse_jacobian_certificate_with_meter<M: BudgetMeter + ?Sized>(
             } else {
                 charge_derivative_kernel(&system.residuals[row], meter)?;
                 let derivative =
-                    reference_sub_derivative(&system.residuals[row], &system.vars[col]);
+                    reference_numeric_sub_derivative(&system.residuals[row], &system.vars[col]);
                 charge_compilation_work(meter, 1, 0, 0)?;
                 if !derivative.is_zero() {
                     return Err(JacobianVerificationError::OmittedNonzero {
@@ -1671,12 +1674,18 @@ pub fn compiled_expression_matches_with_meter<M: BudgetMeter + ?Sized>(
                         "sin" => CompiledOp::Sin,
                         "cos" => CompiledOp::Cos,
                         "tan" => CompiledOp::Tan,
+                        "cot" => CompiledOp::Cot,
+                        "sec" => CompiledOp::Sec,
+                        "csc" => CompiledOp::Csc,
                         "asin" => CompiledOp::Asin,
                         "acos" => CompiledOp::Acos,
                         "atan" => CompiledOp::Atan,
                         "sinh" => CompiledOp::Sinh,
                         "cosh" => CompiledOp::Cosh,
                         "tanh" => CompiledOp::Tanh,
+                        "coth" => CompiledOp::Coth,
+                        "sech" => CompiledOp::Sech,
+                        "csch" => CompiledOp::Csch,
                         "asinh" => CompiledOp::Asinh,
                         "acosh" => CompiledOp::Acosh,
                         "atanh" => CompiledOp::Atanh,

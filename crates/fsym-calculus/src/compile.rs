@@ -318,6 +318,11 @@ pub enum CompiledOp {
     Sin,
     Cos,
     Tan,
+    /// Direct reciprocal circular functions. Their source operations remain
+    /// visible so finite evaluation cannot cancel away an original pole.
+    Cot,
+    Sec,
+    Csc,
     /// Principal real inverse circular functions. Finite evaluation rejects
     /// asin/acos outside [-1, 1] before any later arithmetic can hide NaN.
     Asin,
@@ -329,6 +334,11 @@ pub enum CompiledOp {
     Sinh,
     Cosh,
     Tanh,
+    /// Direct reciprocal hyperbolic functions, evaluated without constructing
+    /// overflowing sinh/cosh intermediates for large finite arguments.
+    Coth,
+    Sech,
+    Csch,
     /// Principal real inverse hyperbolic functions. Finite evaluation rejects
     /// acosh below one and atanh at/outside its poles before later operations.
     Asinh,
@@ -593,12 +603,18 @@ impl CompiledExpr {
             | CompiledOp::Sin
             | CompiledOp::Cos
             | CompiledOp::Tan
+            | CompiledOp::Cot
+            | CompiledOp::Sec
+            | CompiledOp::Csc
             | CompiledOp::Asin
             | CompiledOp::Acos
             | CompiledOp::Atan
             | CompiledOp::Sinh
             | CompiledOp::Cosh
             | CompiledOp::Tanh
+            | CompiledOp::Coth
+            | CompiledOp::Sech
+            | CompiledOp::Csch
             | CompiledOp::Asinh
             | CompiledOp::Acosh
             | CompiledOp::Atanh
@@ -920,12 +936,18 @@ impl CompiledExpr {
                     "sin" => CompiledOp::Sin,
                     "cos" => CompiledOp::Cos,
                     "tan" => CompiledOp::Tan,
+                    "cot" => CompiledOp::Cot,
+                    "sec" => CompiledOp::Sec,
+                    "csc" => CompiledOp::Csc,
                     "asin" => CompiledOp::Asin,
                     "acos" => CompiledOp::Acos,
                     "atan" => CompiledOp::Atan,
                     "sinh" => CompiledOp::Sinh,
                     "cosh" => CompiledOp::Cosh,
                     "tanh" => CompiledOp::Tanh,
+                    "coth" => CompiledOp::Coth,
+                    "sech" => CompiledOp::Sech,
+                    "csch" => CompiledOp::Csch,
                     "asinh" => CompiledOp::Asinh,
                     "acosh" => CompiledOp::Acosh,
                     "atanh" => CompiledOp::Atanh,
@@ -1288,6 +1310,18 @@ impl CompiledExpr {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
                     stack.push(v.tan());
                 }
+                CompiledOp::Cot => {
+                    let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    stack.push(v.tan().recip());
+                }
+                CompiledOp::Sec => {
+                    let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    stack.push(v.cos().recip());
+                }
+                CompiledOp::Csc => {
+                    let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    stack.push(v.sin().recip());
+                }
                 CompiledOp::Asin => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
                     stack.push(v.asin());
@@ -1332,6 +1366,27 @@ impl CompiledExpr {
                 CompiledOp::Tanh => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
                     stack.push(v.tanh());
+                }
+                CompiledOp::Coth => {
+                    let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    stack.push(v.tanh().recip());
+                }
+                CompiledOp::Sech => {
+                    let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    let tail = (-v.abs()).exp();
+                    stack.push(2.0 * tail / (1.0 + tail * tail));
+                }
+                CompiledOp::Csch => {
+                    let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    let value = if v.abs() < 1.0 {
+                        // sinh retains tiny/subnormal arguments; subtracting
+                        // two nearly equal exponentials would invent a pole.
+                        v.sinh().recip()
+                    } else {
+                        let tail = (-v.abs()).exp();
+                        (2.0 * tail / (1.0 - tail * tail)).copysign(v)
+                    };
+                    stack.push(value);
                 }
                 CompiledOp::Asinh => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
