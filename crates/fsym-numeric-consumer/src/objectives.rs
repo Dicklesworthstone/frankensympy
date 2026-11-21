@@ -469,6 +469,9 @@ fn trial_domain_failure(error: &ObjectiveConsumerError) -> bool {
             | ObjectiveConsumerError::Evaluation(ObjectiveEvaluationError::Evaluation(
                 EvalError::NonFiniteValue
                     | EvalError::NonPositivePowerBase
+                    | EvalError::UndefinedAngle
+                    | EvalError::NonsmoothAngle
+                    | EvalError::NonsmoothSource(_)
                     | EvalError::NoMatchingPiecewiseBranch
             ))
             | ObjectiveConsumerError::NonFinite(_)

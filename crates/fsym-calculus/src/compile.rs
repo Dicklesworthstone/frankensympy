@@ -245,6 +245,8 @@ pub enum EvalError {
     UndefinedAngle,
     #[error("The principal two-argument angle is not differentiable on its negative-axis cut")]
     NonsmoothAngle,
+    #[error("The original `{0}` source has no admitted smooth neighborhood at this point")]
+    NonsmoothSource(&'static str),
     #[error("Compiled constant is NaN or negative zero, which is not a canonical compiler output")]
     NonCanonicalConstant,
     #[error("Compiled numerical evaluation encountered a non-finite input or intermediate value")]
@@ -1285,6 +1287,13 @@ impl CompiledExpr {
                 }
                 CompiledOp::Pow(p) => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    // Literal exponent components fit exactly within 53 bits,
+                    // so a nonintegral source quotient cannot round to an
+                    // integral exponent. Keep its positive-base smooth domain
+                    // even when later zero arithmetic erases its derivatives.
+                    if smooth_only && v == 0.0 && p.fract() != 0.0 {
+                        return Err(EvalError::NonsmoothSource("power"));
+                    }
                     stack.push(v.powf(*p));
                 }
                 CompiledOp::PowPositive => {
@@ -1324,10 +1333,16 @@ impl CompiledExpr {
                 }
                 CompiledOp::Asin => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    if smooth_only && v.abs() == 1.0 {
+                        return Err(EvalError::NonsmoothSource("asin"));
+                    }
                     stack.push(v.asin());
                 }
                 CompiledOp::Acos => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    if smooth_only && v.abs() == 1.0 {
+                        return Err(EvalError::NonsmoothSource("acos"));
+                    }
                     stack.push(v.acos());
                 }
                 CompiledOp::Atan => {
@@ -1394,6 +1409,9 @@ impl CompiledExpr {
                 }
                 CompiledOp::Acosh => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    if smooth_only && v == 1.0 {
+                        return Err(EvalError::NonsmoothSource("acosh"));
+                    }
                     stack.push(v.acosh());
                 }
                 CompiledOp::Atanh => {
@@ -1418,10 +1436,16 @@ impl CompiledExpr {
                 }
                 CompiledOp::Sqrt => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    if smooth_only && v == 0.0 {
+                        return Err(EvalError::NonsmoothSource("sqrt"));
+                    }
                     stack.push(v.sqrt());
                 }
                 CompiledOp::Abs => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    if smooth_only && v == 0.0 {
+                        return Err(EvalError::NonsmoothSource("abs"));
+                    }
                     stack.push(v.abs());
                 }
                 CompiledOp::Equal
@@ -1610,7 +1634,7 @@ impl CompiledResidualSystem {
 
     /// Evaluate the Jacobian after its original sources, sharing one meter
     /// across both phases and publishing only after a final safe point.
-    /// Original principal angles must have a smooth neighborhood, including
+    /// Original source operations must have a smooth neighborhood, including
     /// when a verified sparse program has been exported to this dense adapter.
     pub fn try_eval_jacobian_with_meter<M: BudgetMeter + ?Sized>(
         &self,

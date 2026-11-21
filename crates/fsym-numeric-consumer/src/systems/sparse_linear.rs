@@ -25,11 +25,17 @@ pub(super) fn trial_domain_failure(error: &SystemConsumerError) -> bool {
             | SystemConsumerError::Evaluation(
                 EvalError::NonFiniteValue
                     | EvalError::NonPositivePowerBase
+                    | EvalError::UndefinedAngle
+                    | EvalError::NonsmoothAngle
+                    | EvalError::NonsmoothSource(_)
                     | EvalError::NoMatchingPiecewiseBranch
             )
             | SystemConsumerError::SparseEvaluation(ResidualEvaluationError::Evaluation(
                 EvalError::NonFiniteValue
                     | EvalError::NonPositivePowerBase
+                    | EvalError::UndefinedAngle
+                    | EvalError::NonsmoothAngle
+                    | EvalError::NonsmoothSource(_)
                     | EvalError::NoMatchingPiecewiseBranch
             ))
     )
