@@ -582,7 +582,11 @@ impl PyVerifiedObjective {
             PyNumericMinimizationProposal {
                 proposal,
                 objective: slf.clone().unbind(),
-                backend: if sparse { "sparse_newton_cg" } else { "frankennumpy" },
+                backend: if sparse {
+                    "sparse_newton_cg"
+                } else {
+                    "frankennumpy"
+                },
             },
         )?;
         with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;

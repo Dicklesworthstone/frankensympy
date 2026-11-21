@@ -348,6 +348,8 @@ class _ObjectiveCallable:
         preconditioned conjugate-gradient steps, without a dense Hessian.
         Both use bounded diagonal regularization and Armijo backtracking.
         The selected backend never falls back to another solver.
+        Larger objectives can require an explicit EvaluationBudget during
+        compilation; selecting sparse does not enlarge default allowances.
         Controls default to gtol=1e-10, maxiter=64 and max_step=1e6. The gradient
         tolerance is nonnegative, maxiter is 0..1024, and the positive step
         limit clips the infinity norm before at most 64 line-search trials.

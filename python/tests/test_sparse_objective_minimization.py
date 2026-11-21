@@ -8,11 +8,17 @@ from sympy.core import _native
 def test_sparse_minimizer_uses_all_sixty_four_coordinates():
     axes = tuple(s.Symbol(f"sparse_minimize_{i}") for i in range(64))
     source = s.Add(*(axis**2 for axis in axes), evaluate=False)
-    program = s.compile_objective(source, axes)
+    # Dimension support does not enlarge the private compilation allowance.
+    # The caller explicitly funds proof generation and admission of 64 axes.
+    # Memory debits account for cumulative work, not peak physical storage.
+    budget = s.EvaluationBudget(
+        max_steps=1 << 31, max_memory_bytes=1 << 34, max_allocations=1 << 22,
+    )
+    program = s.compile_objective(source, axes, budget=budget)
     initial = [i-31 for i in range(64)]
     with pytest.raises(ValueError, match="16 variables"):
         program.minimize(initial)
-    result = program.minimize(initial, backend="sparse")
+    result = program.minimize(initial, backend="sparse", budget=budget)
     assert result.point == pytest.approx((0,)*64, abs=1e-10)
     assert result.gradient == pytest.approx((0,)*64, abs=1e-10)
     assert result.value == pytest.approx(0, abs=1e-18)

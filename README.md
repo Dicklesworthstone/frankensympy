@@ -658,6 +658,14 @@ failures remain terminal. A caller's `EvaluationBudget` is cumulative across
 rejected trials, linear work and final publication. Sparse inner iterations
 also observe cooperative cancellation between products.
 
+Large objectives can require an explicit `EvaluationBudget` during
+`compile_objective(..., budget=budget)`. Choose adequate compute, memory and
+allocation limits for that source. Supporting 64 variables in the sparse
+solver does not enlarge default compilation or execution allowances; passing
+the same budget to compilation and minimization keeps their costs cumulative.
+Its memory allowance tracks cumulative byte charges, including proof work,
+and does not reserve physical RAM.
+
 An approximate candidate establishes only a small floating gradient; an initial
 maximum or saddle can also be stationary. `minimize_certified` separately checks
 the original exact source, the full proposed box, root contraction and sufficient
@@ -1066,6 +1074,45 @@ a product is reduced, including with zero direction or weights. A shared
 `EvaluationBudget` and `SupervisedCallbackSession` cover the full request;
 completed callback effects remain observable if a later operation fails.
 Compilation and existing dense APIs retain their original admission limits.
+
+The same compiled graph can solve repeatedly with selected parameters fixed.
+Use an exact built-in dict whose keys are the captured typed `Symbol` or
+`Dummy` identities and whose values are finite reals:
+
+```python
+from sympy import Add, Dummy, Function, Symbol, compile_hybrid_residual_system
+
+x, y = Symbol("x"), Symbol("y")
+gain, offset = Symbol("gain"), Dummy("offset")
+
+class LinearLaw(Function):
+    nargs = 2
+
+parameterized = compile_hybrid_residual_system(
+    [Add(LinearLaw(x, gain, evaluate=False), y, -offset, evaluate=False), x - y],
+    (gain, x, offset, y),              # Fixed coordinates need not be last.
+    jacobian=[[x, gain, -1, 1], [0, 1, 0, -1]],
+    callbacks={LinearLaw: lambda value, coefficient: coefficient * value},
+)
+first = parameterized.solve([0, 0], parameters={gain: 2, offset: 6})
+second = parameterized.solve([0, 0], parameters={offset: 12, gain: 3})
+assert all(abs(float(first[i, 0]) - 2) < 1e-10 for i in range(2))
+assert all(abs(float(second[i, 0]) - 3) < 1e-10 for i in range(2))
+```
+
+Here positions 0 and 2 are fixed, while the initial vector and returned column
+Matrix follow the remaining coordinates `(x, y)` in original order. Mapping
+order does not affect coordinate order. Parameter values are captured before
+callbacks run; changing the caller's dict during a solve does not change that
+request. At least one unknown must remain, and the existing square or
+overdetermined solve requirements apply to those unknowns.
+
+Every residual evaluation retains the complete original source. When a Jacobian
+is requested, all original derivative columns run before selecting the unknown
+columns, including fixed-parameter domains and callbacks. The existing exact
+zero binary64 residual exit can precede derivative evaluation. The supplied
+Jacobian and returned roots remain approximate, without derivative proofs or
+root certificates; the same session and budget span each complete solve.
 
 Exact built-in `Piecewise` expressions can retain custom callback branches and
 conditions. The hybrid compiler evaluates conditions in stored order, preserves

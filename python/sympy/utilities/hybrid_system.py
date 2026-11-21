@@ -5,8 +5,9 @@ inputs. They do not create symbolic derivative proofs or root certificates.
 """
 
 import math
+from itertools import islice
 
-from ..core import Basic, Eq, Relational, Zero, _native
+from ..core import Basic, Dummy, Eq, Relational, Symbol, Zero, _native, _surface_binding_key
 from .hybrid import (
     _BASIC_VALUE, _HybridCallable, _callback_bindings, _compile_graph, _evaluation_budget,
     _evaluation_session, _native_operator, _output_snapshot, _session_ready, _snapshot_source,
@@ -135,6 +136,56 @@ def _initial_point(initial, columns):
     return [_finite_real(value, "initial value") for value in captured]
 
 
+def _axis_binding(axis):
+    """Read a typed atom without consulting mutable assumptions or overrides."""
+    if type(axis) is not Symbol and type(axis) is not Dummy:
+        raise TypeError("hybrid parameter keys must be exact Symbol or Dummy objects")
+    source = _BASIC_VALUE.__get__(axis, Basic)
+    if type(source) is not _native.Expr or not source.is_symbol:
+        raise ValueError("hybrid parameter axis must retain its captured native symbol")
+    return source.symbol_binding
+
+
+def _parameter_coordinates(parameters, variable_keys, budget, session):
+    """Capture fixed values and the remaining axes before any callback effect."""
+    columns = len(variable_keys)
+    if parameters is None:
+        return tuple(range(columns)), None
+    if type(parameters) is not dict:
+        raise TypeError("hybrid solve parameters must be an exact built-in dict")
+    count = len(parameters)
+    if count > columns:
+        raise ValueError("hybrid solve has more parameters than compiled variables")
+    _system_work(budget, session, columns * (count + 2) + 1)
+    try:
+        items = tuple(islice(dict.items(parameters), columns + 1))
+    except RuntimeError:
+        raise ValueError("hybrid solve parameters changed during their snapshot") from None
+    if len(items) != count or len(parameters) != count:
+        raise ValueError("hybrid solve parameters changed during their snapshot")
+    if not items:
+        return tuple(range(columns)), None
+
+    from ..solvers.numerical import _finite_real
+
+    fixed = [None] * columns
+    for axis, value in items:
+        key = _surface_binding_key(_axis_binding(axis))
+        index = next((index for index, captured in enumerate(variable_keys)
+                      if key == captured), None)
+        if index is None:
+            raise ValueError("hybrid solve parameter is not a captured typed variable")
+        if fixed[index] is not None:
+            raise ValueError("hybrid solve has duplicate typed parameter identities")
+        fixed[index] = _finite_real(value, "parameter value")
+    unknowns = tuple(index for index, value in enumerate(fixed) if value is None)
+    if not unknowns:
+        raise ValueError("hybrid solve requires at least one unbound variable")
+    _session_ready(session)
+    _check_evaluation_budget(budget)
+    return unknowns, tuple(fixed)
+
+
 def _canonical_zero(value, snapshot):
     """Omit only already-admitted, originally exact integer-zero atoms."""
     cls = type(value)
@@ -188,9 +239,11 @@ def _product_vector(vector, expected, lane, budget, session):
 class _HybridResidualSystem:
     """One immutable residual/Jacobian graph with explicit user provenance."""
 
-    __slots__ = ("_program", "_residual_program", "_rows", "_columns", "_jacobian_pattern")
+    __slots__ = (
+        "_program", "_residual_program", "_rows", "_columns", "_jacobian_pattern", "_variable_keys",
+    )
 
-    def __init__(self, program, residual_program, rows, columns, pattern=()):
+    def __init__(self, program, residual_program, rows, columns, pattern=(), variable_keys=()):
         if hasattr(self, "_program"):
             raise AttributeError("hybrid residual systems are immutable")
         object.__setattr__(self, "_program", program)
@@ -198,6 +251,7 @@ class _HybridResidualSystem:
         object.__setattr__(self, "_rows", rows)
         object.__setattr__(self, "_columns", columns)
         object.__setattr__(self, "_jacobian_pattern", tuple(pattern))
+        object.__setattr__(self, "_variable_keys", tuple(variable_keys))
 
     def __setattr__(self, name, value):
         raise AttributeError("hybrid residual systems are immutable")
@@ -365,7 +419,7 @@ class _HybridResidualSystem:
             _check_evaluation_budget(budget)
             return result
 
-    def solve(self, initial, *, tol=1e-12, maxiter=200, budget=None, session=None):
+    def solve(self, initial, *, parameters=None, tol=1e-12, maxiter=200, budget=None, session=None):
         """Return an approximate column Matrix using bounded pivoted-QR Newton.
 
         The explicit Jacobian is a caller assertion, never verified derivative
@@ -374,6 +428,17 @@ class _HybridResidualSystem:
         A zero binary64 residual may terminate before derivative evaluation.
         Initial values are a flat exact list/tuple in ``variables`` order,
         or a scalar for one variable, even if ordinary arguments are nested.
+
+        ``parameters`` optionally fixes selected compiled axes without
+        recompiling. It is an exact dict from captured typed Symbol/Dummy
+        identities to finite real values. All other axes are unknowns, in
+        their original order; ``initial`` and the returned Matrix contain
+        only those unknowns. At least one unknown must remain. Parameter
+        values and identities are snapshotted before callbacks run. Every
+        evaluation keeps the full source, and every Jacobian evaluation
+        checks all original columns before selecting unknown columns.
+        Changing the caller's mapping or symbol assumptions during a solve
+        cannot change the captured parameter values or coordinate binding.
 
         One callback session and EvaluationBudget span all iterations, native
         fragments, logical dense work and backtracking. An omitted ledger is
@@ -391,19 +456,38 @@ class _HybridResidualSystem:
         _check_evaluation_budget(budget)
         with _evaluation_session(session) as active, _evaluation_budget(budget) as budget:
             tolerance = _newton_options(tol, maxiter)
-            if self._rows < self._columns:
+            unknowns, fixed = _parameter_coordinates(
+                parameters, self._variable_keys, budget, active,
+            )
+            columns = len(unknowns)
+            if self._rows < columns:
                 raise ValueError("hybrid solve needs at least as many equations as variables")
-            values = _initial_point(initial, self._columns)
+            values = _initial_point(initial, columns)
+
+            def source_point(point):
+                if fixed is None:
+                    return point
+                _system_work(budget, active, self._columns + columns + 1)
+                full = list(fixed)
+                for index, value in zip(unknowns, point):
+                    full[index] = value
+                return full
 
             def residuals(point, *, budget=None):
-                return self._residual_program._evaluate(point, budget, active)
+                return self._residual_program._evaluate(source_point(point), budget, active)
 
             def jacobian(point, *, budget=None):
-                return self._evaluate_dense(point, budget, active)[1]
+                complete = self._evaluate_dense(source_point(point), budget, active)[1]
+                if fixed is None:
+                    return complete
+                # Parameter derivative domains and effects run before columns
+                # are projected out of the numerical linear solve.
+                _system_work(budget, active, self._rows * columns + 1)
+                return [[row[index] for index in unknowns] for row in complete]
 
             def trial_residuals(point, *, budget=None):
                 return self._residual_program._evaluate(
-                    point, budget, active, reject_native_domain=True,
+                    source_point(point), budget, active, reject_native_domain=True,
                 )
 
             def charge_work(units):
@@ -411,7 +495,7 @@ class _HybridResidualSystem:
                 active.charge_nested_steps(units)
 
             root = _iterate_system_functions(
-                values, tolerance, maxiter, rows=self._rows, columns=self._columns,
+                values, tolerance, maxiter, rows=self._rows, columns=columns,
                 residuals=residuals, jacobian=jacobian, trial_residuals=trial_residuals,
                 budget=budget, charge_work=charge_work,
             )
@@ -456,6 +540,13 @@ def compile_hybrid_residual_system(residuals, args, *, jacobian, callbacks):
     are finite flat exact lists/tuples in variable and residual order.
     Products and partial sums must remain finite.
 
+    ``solve(initial, parameters={axis: value, ...})`` reuses this exact graph
+    while fixing selected typed axes. Initial values and the returned Matrix
+    follow the remaining variables in their original order. Every Jacobian
+    evaluation retains all original columns, including parameter derivative
+    callbacks. The existing zero-residual exit can precede derivative
+    evaluation; no substitution, recompilation or proof is implied.
+
     Numerical calls accept ``budget`` and ``session``. Dense reconstruction,
     product reductions, batches and solves retain one owning session and
     cumulative ledger, including nested hybrid requests. Arbitrary Python
@@ -476,6 +567,10 @@ def compile_hybrid_residual_system(residuals, args, *, jacobian, callbacks):
     columns = len(variables)
     if not 1 <= columns <= _MAX_SYSTEM_VARIABLES:
         raise ValueError("hybrid systems require 1 through 64 variables")
+    axis_bindings = tuple(_axis_binding(variable) for variable in variables)
+    variable_keys = tuple(_surface_binding_key(binding) for binding in axis_bindings)
+    if len(set(variable_keys)) != columns:
+        raise ValueError("hybrid systems have duplicate typed numerical variables")
     residuals, jacobian = _source_vectors(residuals, jacobian, columns)
     rows = len(residuals)
     count = [0]
@@ -508,7 +603,7 @@ def compile_hybrid_residual_system(residuals, args, *, jacobian, callbacks):
     ]
     residual_shape = shape[1][0]
     shape = (tuple, (residual_shape, (list, tuple(range(rows, len(roots))))))
-    actions, outputs, slots, operations = _compile_graph(roots, variables)
+    actions, outputs, slots, operations = _compile_graph(roots, variables, bindings=axis_bindings)
     program = _HybridCallable(layout, shape, variables, actions, outputs, slots, operations)
     # Emission is postorder with every residual root before every Jacobian
     # root. This view shares the same captured instructions and callbacks;
@@ -521,4 +616,6 @@ def compile_hybrid_residual_system(residuals, args, *, jacobian, callbacks):
         layout, residual_shape, variables, prefix, outputs[:rows],
         slots[:callback_count], residual_operations,
     )
-    return _HybridResidualSystem(program, residual_program, rows, columns, pattern)
+    return _HybridResidualSystem(
+        program, residual_program, rows, columns, pattern, variable_keys,
+    )

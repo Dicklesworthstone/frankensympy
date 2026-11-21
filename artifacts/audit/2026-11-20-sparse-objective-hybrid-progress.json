@@ -1,0 +1,107 @@
+{
+  "scope": "Sparse objective minimization and supervised hybrid numerical programs; component integration evidence, not a campaign/profile closure",
+  "implementation_commits": {
+    "native_sparse_objective": "967716d3a6d587149c4dda8d985e45927122cf52",
+    "python_sparse_objective": "30767bdc1b022e3d06cbbc743bd8b738962f3b77",
+    "supervised_piecewise": "3263cffd36f9355e4204f14f156d8fd923c6fc02",
+    "parameterized_hybrid": "Accompanying commit; hybrid_system blob 8cba3e7cc9170b5bb4b8398eb21a8f03487033ba; test blob d859760f3f3e3a114baf9b946fc40dfbce679bc7"
+  },
+  "native_source_revision": "96c9485cb1479be69a2058a672a1c2f954386d39 + audited sparse-objective patch",
+  "native_binary_sha256": "5f2629ca8f597579c71763492bbb5dc5a968326cc1737386eafdc7d0a74e2812",
+  "production_function_replacements": [],
+  "python_tests": {
+    "passed": 341,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 4.07,
+    "paths": [
+      "python/tests/test_hybrid_piecewise.py",
+      "python/tests/test_numeric_hybrid_callbacks.py",
+      "python/tests/test_piecewise_numeric_compilation.py",
+      "python/tests/test_relational_source_identity.py",
+      "python/tests/test_opaque_arithmetic.py",
+      "python/tests/test_hybrid_parameter_solve.py",
+      "python/tests/test_hybrid_residual_solver.py",
+      "python/tests/test_hybrid_sparse_products.py",
+      "python/tests/test_sparse_objective_minimization.py"
+    ],
+    "groups": {
+      "piecewise_callbacks_and_source_boundaries": 218,
+      "parameterized_hybrid_and_existing_solver_products": 113,
+      "sparse_objective": 10
+    },
+    "result": {
+      "exit_code": 0,
+      "native_source_revision": "96c9485cb1479be69a2058a672a1c2f954386d39 + audited sparse-objective patch",
+      "native_binary_sha256": "5f2629ca8f597579c71763492bbb5dc5a968326cc1737386eafdc7d0a74e2812",
+      "python_origin_git_head": "96c9485cb1479be69a2058a672a1c2f954386d39",
+      "python_snapshot": "/tmp/frankensympy-mixed-component-tests/final-feature-integration-v1/shell/python",
+      "native_binary_hash_unchanged": true,
+      "python_snapshot_hashes_unchanged": true,
+      "loader_hash_unchanged": true,
+      "pytest_version": "9.2.0"
+    },
+    "raw_log_sha256": "9a3ef46b835a5bb846e16f3d8cee367edf66f661a30d47bf669f0a9138c84919",
+    "provenance_sha256": "1ef0c3276587e2c241a148e36fa4938366b5b683b297d7800f0d96ff0f9687a9"
+  },
+  "native_tests": {
+    "passed": 32,
+    "failed": 0,
+    "groups": {
+      "sparse_objective_consumers": 8,
+      "objective_consumers": 19,
+      "stationary_box_proposals": 5
+    },
+    "log_sha256": "3c335aa89b0a7e3084dadfe92a99c1048c82f2c3ade9a23f67a3a896a6e161fc"
+  },
+  "quality": {
+    "native_consumer_clippy": "cargo clippy --locked --offline -p fsym-numeric-consumer --all-targets -j1 -- -D warnings: passed",
+    "native_consumer_clippy_log_sha256": "a4dd63b322604e8ece67a75a554ca14d90d6205ccf06be3cd7a6cae6e96cdb02",
+    "component_bridge_clippy": "cargo clippy --locked --offline --manifest-path numeric-objective-component-sparse-96c9485/Cargo.toml --features extension-module --lib -j1 -- -D warnings: passed",
+    "component_bridge_clippy_log_sha256": "552d2dc8b2c597713a9c207c4d21fc5dcd2cb32b36e7c3aa870851e24ce1467e",
+    "formatting": "Selected sparse implementation files passed pinned rustfmt. Frozen workspace cargo fmt --check found one pre-existing numeric.rs line-wrapping difference; this accompanying commit applies that exact formatting correction while preserving concurrent numeric API changes.",
+    "readme_parameter_example": "1 passed against the same rebuilt component; no source function replacements"
+  },
+  "sixty_four_active_axes": {
+    "fixture": "axes = tuple(Symbol(f\"sparse_minimize_{i}\") for i in range(64)); source = Add(*(axis**2 for axis in axes), evaluate=False)",
+    "compilation_debit": {
+      "steps": 1316178640,
+      "memory_bytes": 9729273750,
+      "allocations": 810401
+    },
+    "minimization_debit": {
+      "steps": 82797,
+      "memory_bytes": 216088,
+      "allocations": 407
+    },
+    "total_debit": {
+      "steps": 1316261437,
+      "memory_bytes": 9729489838,
+      "allocations": 810808
+    },
+    "explicit_test_limits": {
+      "max_steps": 2147483648,
+      "max_memory_bytes": 17179869184,
+      "max_allocations": 4194304
+    },
+    "peak_process_rss_kib": 54092,
+    "memory_note": "Cumulative conservative byte charges are not a physical RAM reservation.",
+    "gradient_norm": 1.4210854715202004e-14,
+    "result_evidence": "approximate",
+    "backend": "sparse_newton_cg"
+  },
+  "earlier_failed_execution": "An earlier 239-case component run had 234 passes, 4 real-CLI skips and one 64-axis compilation-budget exhaustion. The unchanged full 64-axis source now passes with the explicitly measured caller allowance in the final 341-case run. Default production allowances and dimension bounds were not changed.",
+  "limits": [
+    "Full production Cargo dependency graph",
+    "Asynchronous runtime and cancellation",
+    "Simplify/expand runtime helpers",
+    "Compatibility profile certification",
+    "Native corrections or features newer than the recorded native build",
+    "Actual native CLI interoperation",
+    "Concurrent remote native changes after the recorded source build are not validated by this component.",
+    "Full production extension and workspace build/check attempts hit rustc SIGKILL in unchanged asupersync; full workspace check, Clippy and tests remain unpassed.",
+    "Sparse minimization returns an approximate stationary candidate, not a minimum certificate.",
+    "Hybrid Jacobians remain explicit user assertions. Every evaluated Jacobian retains all original columns before parameter projection; the existing zero-residual exit may precede derivative evaluation.",
+    "Campaign bead remains in_progress. No status, priority, dependency, evidence tier or compatibility profile is promoted."
+  ]
+}

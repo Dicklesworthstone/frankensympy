@@ -1355,12 +1355,7 @@ impl PyCompiledFunction {
         map.try_reserve(vars.len())
             .map_err(|_| CompileError::AllocationFailure)?;
         for (index, var) in vars.iter().enumerate() {
-            charge_compilation_work(
-                meter,
-                var.name.len() as u64 + 1,
-                var.name.len() as u64,
-                1,
-            )?;
+            charge_compilation_work(meter, var.name.len() as u64 + 1, var.name.len() as u64, 1)?;
             if map.insert(var.clone(), index).is_some() {
                 return Err(CompileError::DuplicateVariable(var.clone()));
             }
