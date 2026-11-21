@@ -651,31 +651,108 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
     }
 }
 
-/// One binder limit: variable and optional `(lower, upper)` bounds.
-type BinderLimit = (Symbol, Option<(Expr, Expr)>);
-
-fn binder_limits(args: &[Expr]) -> Option<Vec<BinderLimit>> {
-    args.iter()
-        .map(|lim| match lim {
-            Expr::Sym(v) => Some((v.clone(), None)),
-            Expr::Function(t, items) if t == "Tuple" => match items.as_slice() {
-                [Expr::Sym(v)] => Some((v.clone(), None)),
-                [Expr::Sym(v), a, b] => Some((v.clone(), Some((a.clone(), b.clone())))),
-                _ => None,
-            },
-            _ => None,
-        })
-        .collect()
+/// The empty, one-point and two-endpoint integral limits have different
+/// binding semantics. Sums require both endpoints.
+struct BinderLimit<'a> {
+    coordinate: &'a Symbol,
+    endpoints: &'a [Expr],
 }
 
-fn limit_expr(lim: &BinderLimit) -> Expr {
-    match &lim.1 {
-        None => Expr::Function("Tuple".into(), vec![Expr::Sym(lim.0.clone())]),
-        Some((a, b)) => Expr::Function(
-            "Tuple".into(),
-            vec![Expr::Sym(lim.0.clone()), a.clone(), b.clone()],
-        ),
+fn binder_limit<'a>(name: &str, limit: &'a Expr) -> Option<BinderLimit<'a>> {
+    match limit {
+        Expr::Sym(coordinate) if name == "Integral" => Some(BinderLimit {
+            coordinate,
+            endpoints: &[],
+        }),
+        Expr::Function(tag, items) if tag == "Tuple" => {
+            let [Expr::Sym(coordinate), endpoints @ ..] = items.as_slice() else {
+                return None;
+            };
+            if endpoints.len() == 2 || (name == "Integral" && endpoints.len() <= 1) {
+                Some(BinderLimit {
+                    coordinate,
+                    endpoints,
+                })
+            } else {
+                None
+            }
+        }
+        _ => None,
     }
+}
+
+/// The inner expression preceding one flat limit. Limits are stored from
+/// innermost to outermost; a prefix therefore retains its complete scope.
+fn binder_prefix(name: &str, args: &[Expr]) -> Expr {
+    if let [body] = args {
+        body.clone()
+    } else {
+        Expr::Function(name.into(), args.to_vec())
+    }
+}
+
+fn bind_derivative(name: &str, derivative: Expr, limit: &Expr) -> Expr {
+    if derivative.is_zero() {
+        return derivative;
+    }
+    if let Expr::Function(inner_name, inner_args) = &derivative
+        && inner_name == name
+        && inner_args.len() >= 2
+        && inner_args[1..]
+            .iter()
+            .all(|limit| binder_limit(name, limit).is_some())
+    {
+        // Keep fixed-limit chains flat instead of introducing one recursive
+        // AST layer per limit. This is the same order as the public Integral
+        // constructor's flattening rule.
+        let mut args = inner_args.clone();
+        args.push(limit.clone());
+        return Expr::Function(name.into(), args);
+    }
+    Expr::Function(name.into(), vec![derivative, limit.clone()])
+}
+
+/// An indefinite coordinate is free, so ordinary capture-avoiding substitution
+/// does not alpha-rename it. Inserting a parameter containing that coordinate
+/// under its integral would change a parameter of the primitive into its
+/// integration variable. Such a boundary needs a separate evaluated-primitive
+/// representation; preserve the formal derivative until that lane exists.
+fn boundary_captures_primitive(inner: &Expr, coordinate: &Symbol, point: &Expr) -> bool {
+    if !inner.free_symbols().contains(coordinate) {
+        return false;
+    }
+    let point_symbols = point.free_symbols();
+    if point_symbols.is_empty() {
+        return false;
+    }
+    let mut pending = vec![inner];
+    while let Some(node) = pending.pop() {
+        match node {
+            Expr::Function(name, args) => {
+                if name == "Integral"
+                    && args.len() >= 2
+                    && node.free_symbols().contains(coordinate)
+                    && args[1..].iter().any(|limit| {
+                        binder_limit(name, limit).is_some_and(|limit| {
+                            limit.endpoints.is_empty()
+                                && limit.coordinate != coordinate
+                                && point_symbols.contains(limit.coordinate)
+                        })
+                    })
+                {
+                    return true;
+                }
+                pending.extend(args);
+            }
+            Expr::Add(args) | Expr::Mul(args) => pending.extend(args),
+            Expr::Pow(base, exponent) => {
+                pending.push(base);
+                pending.push(exponent);
+            }
+            Expr::Sym(_) | Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => {}
+        }
+    }
+    false
 }
 
 fn unevaluated_diff(expr: &Expr, var: &Symbol) -> Expr {
@@ -685,85 +762,95 @@ fn unevaluated_diff(expr: &Expr, var: &Symbol) -> Expr {
     )
 }
 
-/// Derivative of `Sum`/`Integral` with respect to `var`: the body is
-/// differentiated under the binder when `var` is free and the bounds do not
-/// depend on it; a definite integral with variable bounds uses the Leibniz
-/// rule (single limit). Any other shape stays unevaluated.
+/// Formal fundamental-theorem and Leibniz rules, composed in lexical limit
+/// order. Each coordinate binds only the inner expression, never its own
+/// endpoints. A later indefinite limit can make an earlier bound symbol free
+/// again. Boundary insertion uses capture-avoiding native substitution.
+///
+/// Moving discrete sum bounds, malformed limits and boundary substitutions
+/// capturing a free indefinite coordinate stay unevaluated. These formal rules
+/// do not establish convergence or interchange conditions, and do not add a
+/// differentiation proof-kernel rule for binders.
 fn diff_binder(expr: &Expr, name: &str, args: &[Expr], var: &Symbol) -> Expr {
-    if name == "Integral"
-        && let [body, Expr::Function(tuple, limit)] = args
-        && tuple == "Tuple"
-        && let [Expr::Sym(coordinate), point] = limit.as_slice()
-    {
-        // A primitive evaluated at a point binds its integration coordinate
-        // in the body but not in that point. Differentiate the evaluation
-        // through the point, and any other free parameter under the integral.
-        let point_derivative = diff(point, var);
-        let boundary = if point_derivative.is_zero() {
-            Expr::from_i64(0)
-        } else {
-            body.subs(&HashMap::from([(coordinate.clone(), point.clone())])) * point_derivative
-        };
-        let inner = if coordinate == var {
-            Expr::from_i64(0)
-        } else {
-            diff(body, var)
-        };
-        return if inner.is_zero() {
-            boundary
-        } else {
-            boundary + Expr::Function(name.into(), vec![inner, args[1].clone()])
-        };
-    }
-    let Some(limits) = binder_limits(&args[1..]) else {
+    let Some((body, raw_limits)) = args.split_first() else {
         return unevaluated_diff(expr, var);
     };
-    let body = &args[0];
-    let depends = |e: &Expr| e.free_symbols().iter().any(|s| s == var);
-    let bound_dep = limits
-        .iter()
-        .any(|(_, b)| b.as_ref().is_some_and(|(a, c)| depends(a) || depends(c)));
-    let is_bound = limits.iter().any(|(v, _)| v == var);
-    if is_bound {
-        // var is a dummy of a definite limit: the result does not depend on it.
-        let definite = limits.iter().any(|(v, b)| v == var && b.is_some());
-        if name == "Sum" || definite {
-            if !bound_dep {
-                return Expr::from_i64(0);
-            }
-        } else if limits.len() == 1 {
-            // d/dx Integral(f(x), x) = f(x)
-            return body.clone();
-        }
+    if raw_limits.is_empty() {
         return unevaluated_diff(expr, var);
     }
-    if !bound_dep {
-        let mut new_args = vec![diff(body, var)];
-        new_args.extend(limits.iter().map(limit_expr));
-        if new_args[0].is_zero() {
-            return Expr::from_i64(0);
+    let Some(limits) = raw_limits
+        .iter()
+        .map(|limit| binder_limit(name, limit))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return unevaluated_diff(expr, var);
+    };
+
+    // The last limit in this coordinate replaces the derivative of every
+    // inner scope by its own fundamental-theorem/boundary contribution.
+    // Avoid differentiating work which that binding would discard. Parsing
+    // every original limit above still precedes this shortcut.
+    let shadow = limits.iter().rposition(|limit| limit.coordinate == var);
+    let mut derivative = if shadow.is_some() {
+        Expr::from_i64(0)
+    } else {
+        diff(body, var)
+    };
+    for (index, limit) in limits.iter().enumerate().skip(shadow.unwrap_or(0)) {
+        if limit.endpoints.is_empty() {
+            derivative = if limit.coordinate == var {
+                binder_prefix(name, &args[..index + 1])
+            } else {
+                bind_derivative(name, derivative, &raw_limits[index])
+            };
+            continue;
         }
-        return Expr::Function(name.to_string(), new_args);
-    }
-    if name == "Integral" && limits.len() == 1 {
-        let (v, Some((a, b))) = &limits[0] else {
-            return unevaluated_diff(expr, var);
+
+        let mut boundary_terms = Vec::new();
+        let mut moving_sum = false;
+        for (endpoint_index, endpoint) in limit.endpoints.iter().enumerate() {
+            let endpoint_derivative = diff(endpoint, var);
+            if endpoint_derivative.is_zero() {
+                // A fixed singular endpoint must not introduce 0*f(endpoint).
+                continue;
+            }
+            if name == "Sum" {
+                moving_sum = true;
+                break;
+            }
+            let inner = binder_prefix(name, &args[..index + 1]);
+            if boundary_captures_primitive(&inner, limit.coordinate, endpoint) {
+                return unevaluated_diff(expr, var);
+            }
+            let boundary = inner.subs(&HashMap::from([(
+                limit.coordinate.clone(),
+                endpoint.clone(),
+            )])) * endpoint_derivative;
+            boundary_terms.push(if limit.endpoints.len() == 2 && endpoint_index == 0 {
+                Expr::from_i64(-1) * boundary
+            } else {
+                boundary
+            });
+        }
+        if moving_sum {
+            derivative = unevaluated_diff(&binder_prefix(name, &args[..index + 2]), var);
+            continue;
+        }
+        let partial = if limit.coordinate == var {
+            Expr::from_i64(0)
+        } else {
+            bind_derivative(name, derivative, &raw_limits[index])
         };
-        let at = |p: &Expr| body.subs(&HashMap::from([(v.clone(), p.clone())]));
-        let mut terms = vec![
-            at(b) * diff(b, var),
-            Expr::from_i64(-1) * at(a) * diff(a, var),
-        ];
-        let inner = diff(body, var);
-        if !inner.is_zero() {
-            terms.push(Expr::Function(
-                "Integral".into(),
-                vec![inner, limit_expr(&limits[0])],
-            ));
+        if !partial.is_zero() {
+            boundary_terms.push(partial);
         }
-        return Expr::Add(terms);
+        derivative = match boundary_terms.len() {
+            0 => Expr::from_i64(0),
+            1 => boundary_terms.pop().expect("one boundary or partial term"),
+            _ => Expr::Add(boundary_terms),
+        };
     }
-    unevaluated_diff(expr, var)
+    derivative
 }
 
 /// d/dy Subs(e, (v_i), (p_i)) = Subs(de/dy, v, p) + sum_i Subs(de/dv_i, v, p) * dp_i/dy
