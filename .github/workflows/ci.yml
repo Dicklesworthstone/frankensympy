@@ -172,8 +172,8 @@ jobs:
           cargo test --locked -p frankensympy --test native_parametric --test parametric_session --test parametric_cli --test parametric_transport --test parametric_transport_session --test optimization_integration_adversaries -j1
       - name: Native feature regressions
         run: |
-          cargo test --locked -p fsym-calculus --test program_artifact --test program_admission --test program_context_transport -j1
-          cargo test --locked -p frankensympy --test compiled_program_transport --test compiled_program_cli --test compiled_artifacts --test compiled_residual_session --test compiled_residual_products --test compiled_objective_session --test compiled_solver_session --test compiled_solver_cli --test compiled_root_certification -j1
+          cargo test --locked -p fsym-calculus --test program_artifact --test program_artifact_legacy --test program_admission --test program_context_transport -j1
+          cargo test --locked -p frankensympy --test compiled_program_transport --test compiled_program_cli --test compiled_artifacts --test compiled_residual_session --test compiled_residual_products --test compiled_objective_session --test compiled_objective_certification --test compiled_solver_session --test compiled_solver_cli --test compiled_root_certification -j1
           cargo test --locked -p frankensympy --test real_solver_session --test real_constraints_session --test real_polynomial_session -j1
           cargo test --locked -p frankensympy --lib certification_session::real_solver::tests -j1
           cargo test --locked -p frankensympy --lib certification_session::polynomial_solver::tests -j1
@@ -198,6 +198,7 @@ jobs:
           cargo test --locked -p fsym-python --lib expr::multiquadratic_source_tests -j1
           cargo test --locked -p fsym-python --lib expr::bounded_function_probe_tests -j1
           cargo test --locked -p fsym-python --lib numeric::tests::certified_gaussian_sources_require_unary_bound_arguments -j1
+          cargo test --locked -p fsym-python --lib numeric::tests::actual_python_ -j1
           cargo test --locked -p fsym-core --test raw_product_value -j1
           cargo test --locked -p fsym-core --test binding_substitution -j1
           cargo test --locked -p fsym-core --test objective_enclosure --test stationary_certificate --test box_extremum --test box_optimization --test root_box_general --test piecewise_certificates -j1
@@ -242,6 +243,7 @@ jobs:
           cargo test --locked -p frankensympy --lib --test durable_root_search --test repairable_root_search --test search_checkpoint_session -j1
           cargo test --locked -p frankensympy --test compiled_residual_session --test compiled_residual_products -j1
           cargo test --locked -p frankensympy --test compiled_objective_session -j1
+          cargo test --locked -p frankensympy --lib compiled_objective_tests -j1
           cargo test --locked -p fsym-numeric-consumer --tests -j1
           cargo test --locked -p fsym-proof-kernel --test elementary_rational_definite -j1
           cargo test --locked -p fsym-calculus --test elementary_rational_definite --test rational_definite --test definite_integration_domains -j1

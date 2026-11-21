@@ -726,17 +726,25 @@ class _ResidualCallable:
         """
         return tuple(self.native_system.jacobian_pattern)
 
-    def to_bytes(self):
+    def to_bytes(self, *, budget=None):
         """Return a bounded, versioned bundle for :func:`load_residual_system`.
 
         The immutable bytes retain exact native residuals, typed variables,
         symbolic derivative proofs and checked derivative bytecode. Loading
         replays proof admission and requires the caller's expected residuals
         and argument declarations. Python objects, argument layout, root
-        receipts and evaluation budgets are not stored. Encoding and replay
-        are bounded admission work outside `EvaluationBudget`.
+        receipts and evaluation budgets are not stored. The historical
+        version-one Python envelope and 16 MiB limit are preserved. Encoding
+        and the returned byte buffer consume one supplied ``EvaluationBudget``
+        or one private bounded ledger. Use ``to_portable_bytes`` for the
+        distinct context-bound format shared with native Sessions.
         """
-        return self.native_system.to_bytes()
+        from .source_certification import _source_budget
+
+        budget = _source_budget(budget)
+        data = self.native_system.to_bytes(budget=budget)
+        _check_evaluation_budget(budget)
+        return data
 
     def to_portable_bytes(self, *, budget=None):
         """Export a residual/Jacobian candidate for Python and native Sessions.
@@ -815,8 +823,9 @@ class _ResidualCallable:
         publication, preserving their domains even when an entry is zero.
         A supplied ``EvaluationBudget`` covers native input snapshots, both
         evaluation stages and output storage cumulatively. Consumed work is
-        retained on failure or cancellation. Python objects and compilation
-        remain outside that ledger; existing compilation limits still apply.
+        retained on failure or cancellation. Python objects remain outside
+        that ledger. Compilation can use the same ledger through
+        ``compile_residual_system(..., budget=...)``.
         """
         _check_evaluation_budget(budget)
         inputs = _call_arguments(self._layout, values, native=True)
@@ -922,7 +931,8 @@ class _ResidualCallable:
         One supplied EvaluationBudget spans native input buffers, all source
         evaluations and conservative donor work allowances. Cancellation is
         cooperative between synchronous donor kernels, without a wall-time
-        promise. Python containers and compilation remain outside that ledger.
+        promise. Python containers remain outside that ledger; compilation
+        accepts the same explicit budget through ``compile_residual_system``.
         """
         from ..solvers.numerical import _candidate_initial, _candidate_options, _candidate_shape
 
@@ -1243,12 +1253,16 @@ def _residual_source(residuals, args):
     return layout, variables, bindings, assumptions, sources, inexact[0]
 
 
-def load_residual_system(data, *, residuals, args):
+def load_residual_system(data, *, residuals, args, budget=None):
     """Replay a saved residual program and bind it to explicitly expected source.
 
-    ``data`` must be exact built-in ``bytes`` of at most 16 MiB, as returned
-    by a compiled residual program's ``to_bytes()``. The versioned native
-    decoder independently rechecks retained symbolic derivative proofs,
+    ``data`` must be exact built-in ``bytes``. Historical version-one Python
+    bundles retain their 16 MiB limit and exact export representation. Raw
+    canonical residual candidates are also accepted up to 1 MiB; re-export
+    through ``to_bytes`` uses the historical Python envelope. Context-bound
+    Session artifacts use the separate ``load_portable_residual_system`` API.
+    The decoder first bounds the payload and binds the expected typed source,
+    then independently rechecks retained symbolic derivative proofs,
     omitted zero derivatives, sparsity and bytecode before publication.
     Corrupt data, incompatible schemas and mismatched source raise ValueError.
 
@@ -1266,21 +1280,29 @@ def load_residual_system(data, *, residuals, args):
     boolean can grant proof acceptance or enable root certification.
 
     The result supports the same evaluation, batching, enclosure and certified
-    root search methods as ``compile_residual_system``. Encoding, decoding
-    and symbolic proof admission are outside ``EvaluationBudget``; later
-    numerical calls can share an ordinary caller budget. This restores a
-    checked program, with no stored root receipt or running execution state.
+    root search methods as ``compile_residual_system``. Native decoding,
+    source admission, proof checking and publication share one cumulative
+    ``EvaluationBudget``; an omitted budget uses one private bounded ledger.
+    The same ledger can fund later numerical calls. Bounded Python source
+    capture and CPython overhead remain outside it. This restores a checked
+    program, with no stored root receipt or running execution state.
     """
+    from .source_certification import _source_budget
+
+    budget = _source_budget(budget)
     if type(data) is not bytes:
         raise TypeError("verified program data must be exact built-in bytes")
     if len(data) > _MAX_VERIFIED_PROGRAM_BYTES:
         raise ValueError("verified program data exceeds the 16 MiB byte limit")
     prepared = _residual_source(residuals, args)
     layout, variables, bindings, assumptions, sources, inexact = prepared
+    _check_evaluation_budget(budget)
     native = _native.VerifiedResidualSystem.from_bytes(
-        data, residuals=sources, variables=bindings,
+        data, residuals=sources, variables=bindings, budget=budget,
     )
-    return _ResidualCallable(layout, native, variables, inexact, assumptions)
+    result = _ResidualCallable(layout, native, variables, inexact, assumptions)
+    _check_evaluation_budget(budget)
+    return result
 
 
 _MATH_COMPARISONS = {

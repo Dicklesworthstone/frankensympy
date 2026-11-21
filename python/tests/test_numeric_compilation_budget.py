@@ -2,6 +2,8 @@
 
 import importlib
 import math
+import threading
+import time
 
 import pytest
 import sympy as s
@@ -186,3 +188,43 @@ def test_invalid_budget_refuses_without_source_inspection(kind):
     x = s.Symbol("compile_budget_type")
     with pytest.raises(TypeError, match="EvaluationBudget"):
         compile_program(kind, object(), x, object())
+
+
+def test_native_derivative_compilation_releases_the_gil_for_external_cancellation():
+    # Use the real public native constructor and caller-owned cancellation;
+    # observing a locked ledger from Python proves the GIL has been released.
+    x = s.Symbol("compilation_external_cancel")
+    sources = [_native_expr(s.sin((i + 1)*x) + x**2) for i in range(512)]
+    variables = [_symbol_binding(x)]
+    shared = ledger()
+    outcomes = []
+    started = threading.Event()
+
+    def compile_program():
+        started.set()
+        try:
+            outcomes.append(_native.VerifiedResidualSystem(sources, variables, budget=shared))
+        except Exception as error:
+            outcomes.append(error)
+
+    worker = threading.Thread(target=compile_program)
+    worker.start()
+    assert started.wait(5)
+    observed_busy = False
+    deadline = time.monotonic() + 10
+    try:
+        while worker.is_alive() and time.monotonic() < deadline:
+            try:
+                shared.remaining_steps
+            except RuntimeError as error:
+                assert "already in use" in str(error)
+                observed_busy = True
+                break
+            time.sleep(0.001)
+    finally:
+        shared.cancel()
+        worker.join(10)
+    assert not worker.is_alive()
+    assert observed_busy
+    assert len(outcomes) == 1 and isinstance(outcomes[0], s.EvaluationCancelled)
+    assert shared.remaining_steps < LIMIT

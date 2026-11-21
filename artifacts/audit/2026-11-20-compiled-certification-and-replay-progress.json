@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-20",
+  "scope": "Compiled-objective stationary certification and metered residual program replay",
+  "implementation_commits": [
+    {
+      "sha": "a68fbc175376fdd570e501a26bf59a4cadf0cd73",
+      "capability": "Bounded canonical/legacy residual candidate decoding and source-bound admission regressions"
+    },
+    {
+      "sha": "7eb8cbe8642f6afdb9c4847df968b862b111c5aa",
+      "capability": "MinimizeAndCertifyCompiledObjective with independently checked local stationary certificates"
+    }
+  ],
+  "concurrent_work_preserved": [
+    {
+      "sha": "bacb125b1a6337b05a74de5f42c4ae790b58a67a",
+      "integration": "Preserve compilation constructors, source snapshots, bounded public fallback ledger and both existing test suites."
+    },
+    {
+      "sha": "a3c505e4acc62eb140516b442f35c1d87a8c1a9b",
+      "integration": "Preserve explicit context-bound portable APIs, exports, CLI interoperability tests and shared context codec. Ordinary legacy exports retain their exact historical format and 16 MiB cap."
+    }
+  ],
+  "trust_boundaries": [
+    "Approximate convergence and inverse-Hessian proposals carry no proof authority.",
+    "The protected independent original-source verifier determines existence, local uniqueness and stationary classification before publication.",
+    "Exact requested radii are never widened; domain, singularity, resource, cancellation and failed publication leave no accepted certificate.",
+    "Historical residual bundles and canonical candidates share bounded preflight, cumulative charges and fresh exact-source/typed-coordinate admission.",
+    "Stored acceptance flags, cached evaluations, derivative bytecode and Python callbacks cannot bypass independent verification."
+  ],
+  "added_regressions": {
+    "legacy_codec_functions": 10,
+    "stationary_proposal_functions": 5,
+    "session_cli_functions": 8,
+    "internal_session_functions": 2,
+    "public_transport_functions": 5,
+    "public_external_cancellation_functions": 1,
+    "native_python_function": 1
+  },
+  "validation": {
+    "status": "component_passed_full_integration_pending",
+    "exact_toolchain": "nightly-2026-08-20; rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "completed_setup": [
+      "cargo metadata --locked --format-version 1 --no-deps",
+      "cargo fetch --locked --target x86_64-unknown-linux-gnu",
+      "CI-pinned pytest 8.4.2 installed"
+    ],
+    "original_source_checks": [
+      "Scoped pinned rustfmt passed for the original edits before the environment outage.",
+      "Python AST parsing passed for the original edited public modules/tests.",
+      "Independent source review completed; a stale objective.rs import was removed.",
+      "Original CI patch passed PyYAML, bash -n for all 31 shell steps, embedded Python AST checks and prior-gate preservation."
+    ],
+    "integrated_source_checks": [
+      "Pinned nightly rustfmt applied successfully to all three changed Rust files.",
+      "Python AST parsing passed for the public wrapper and both edited test files.",
+      "PyYAML parsed the integrated four-job workflow; all prior explicit Python test paths were retained, including portable CLI integration.",
+      "git diff --check passed.",
+      "Independent reviewers found no source/API/trust-boundary blocker in the native stationary feature or revised public/native transport integration.",
+      "Upstream compilation/source snapshot and explicit portable method bodies remain byte-for-byte preserved; merged immutable blobs were fetched back and compared with intended source."
+    ],
+    "started_without_terminal_result": [
+      {
+        "command": "cargo test --locked -p fsym-calculus --test program_artifact_legacy --test program_artifact --test program_admission",
+        "observed": "Compiled pinned native dependencies through proof-kernel/evidence/polynomial and test support crates; execution environment disconnected before a terminal result."
+      },
+      {
+        "command": "cargo test --locked -p fsym-numeric-consumer --test stationary_box_proposal --test objective_consumers -j1",
+        "observed": "Queued behind the shared Cargo build directory lock; no terminal result observed."
+      }
+    ],
+    "not_completed": [
+      "Scoped strict Clippy (running at checkpoint)",
+      "Full fsym-python extension build",
+      "Public Python runtime tests",
+      "Native Session/CLI regression execution",
+      "cargo check --workspace --all-targets",
+      "cargo clippy --workspace --all-targets -- -D warnings",
+      "cargo test --workspace",
+      "Whole-workspace cargo fmt --check"
+    ],
+    "environment_failure": "exec-server transport disconnected; recovery timed out after 45s. Environment marked unavailable, briefly recovered with exact source files retained, then disconnected again. Former process IDs were subsequently unknown. Later recovery allowed the final 38-test calculus run to finish successfully.",
+    "completed_tests": [
+      {
+        "command": "cargo test --locked --offline -p fsym-calculus --test program_artifact_legacy --test program_artifact --test program_admission --test program_context_transport -j1",
+        "exit_code": 0,
+        "passed": 38,
+        "failed": 0,
+        "ignored": 0,
+        "suites": {
+          "program_admission": 11,
+          "program_artifact": 10,
+          "program_artifact_legacy": 10,
+          "program_context_transport": 7
+        },
+        "source_base": "a3c505e4acc62eb140516b442f35c1d87a8c1a9b plus source_git_blobs",
+        "log": "validation-calculus-final.log"
+      },
+      {
+        "command": "cargo test --locked --offline -p fsym-numeric-consumer --test stationary_box_proposal --test objective_consumers -j1",
+        "exit_code": 0,
+        "passed": 24,
+        "failed": 0,
+        "suites": {
+          "objective_consumers": 19,
+          "stationary_box_proposal": 5
+        },
+        "source_base": "a3c505e4acc62eb140516b442f35c1d87a8c1a9b plus source_git_blobs"
+      }
+    ],
+    "full_integration_pass_claimed": false
+  },
+  "donor_pins": {
+    "asupersync": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+    "franken_numpy": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+    "frankenscipy": "213a417c739025ed865a3875c89a7d86726ecb5a"
+  },
+  "gates": {
+    "campaign": "open",
+    "cli": "blocked",
+    "profiles": "no certification claimed",
+    "performance": "no claim",
+    "status_priority_dependency_changes": false
+  },
+  "source_git_blobs": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha": "7d65e2b95d6e5887720d20f9b5708a0f648be77a"
+    },
+    {
+      "path": "README.md",
+      "sha": "336c70bf19c1a261ae4f4d4623214126949830f8"
+    },
+    {
+      "path": "crates/fsym-calculus/src/program_artifact.rs",
+      "sha": "3a2b1f3213077b4993fd57359beeca3eac2f93a7"
+    },
+    {
+      "path": "crates/fsym-calculus/tests/program_artifact_legacy.rs",
+      "sha": "97c1693665c0be5ff8fa65ebf68057a23a03252a"
+    },
+    {
+      "path": "crates/fsym-python/src/numeric.rs",
+      "sha": "feb0ed6c0c64653497cc2e776dd3eeb413e95ec3"
+    },
+    {
+      "path": "python/sympy/utilities/lambdify.py",
+      "sha": "4c874a66fbadab361d4516f3ca3727e19efd2650"
+    },
+    {
+      "path": "python/tests/test_numeric_compilation_budget.py",
+      "sha": "680221e37fabcb162f8cf3c18349ed1c0e1150ad"
+    },
+    {
+      "path": "python/tests/test_verified_program_transport.py",
+      "sha": "6cd247c6c9862527f06fd76ee5c66bb85a9e210e"
+    }
+  ]
+}

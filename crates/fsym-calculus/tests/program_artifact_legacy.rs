@@ -1,13 +1,16 @@
 //! Saved Python bundles migrate through bounded candidate decoding and fresh
 //! source-bound admission; neither the old envelope nor a status flag is proof.
 
-use fsym_budget::{Budget, BudgetLimits, BudgetMeter, Dimension, MeterError, Unbounded};
+use fsym_budget::{
+    Budget, BudgetError, BudgetLimits, BudgetMeter, Dimension, MeterError, Unbounded,
+};
 use fsym_calculus::program_artifact::{
     MAX_PROGRAM_CANDIDATE_BYTES, ProgramAdmissionError, ProgramArtifactError,
-    admit_residual_candidate, decode_residual_candidate_with_legacy, encode_residual_candidate,
+    admit_residual_candidate, decode_residual_candidate_with_legacy,
+    encode_legacy_residual_candidate, encode_residual_candidate,
 };
 use fsym_calculus::verified::{MAX_VERIFIED_ARTIFACT_BYTES, VerifiedResidualSystem};
-use fsym_core::{Expr, Symbol};
+use fsym_core::{Expr, Symbol, SymbolIdentity};
 
 const AMPLE: u64 = 1 << 40;
 
@@ -241,6 +244,141 @@ fn cancellation_before_and_during_legacy_decoding_returns_no_candidate() {
         ));
         if remaining != 0 {
             assert!(meter.charged > 0);
+        }
+    }
+}
+
+#[test]
+fn metered_legacy_export_matches_historical_bytes_and_preserves_typed_axes() {
+    let first = Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([1; 32]));
+    let second = Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([2; 32]));
+    let typed = VerifiedResidualSystem::try_compile(
+        &[Expr::Sym(first.clone()) + Expr::from_i64(2) * Expr::Sym(second.clone())],
+        &[second, first],
+    )
+    .unwrap();
+    let constant =
+        VerifiedResidualSystem::try_compile(&[Expr::from_i64(7)], &[Symbol::new("unused")])
+            .unwrap();
+    for program in [fixture(), typed, constant] {
+        let mut meter = Budget::new(BudgetLimits::uniform(AMPLE, 73));
+        let bytes = encode_legacy_residual_candidate(&program, &mut meter).unwrap();
+        assert_eq!(bytes, program.to_json_bytes().unwrap());
+        let envelope: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(envelope.as_object().unwrap().len(), 2);
+        assert!(envelope.get("jacobian").is_some());
+        assert!(envelope.get("candidate").is_none());
+        assert!(envelope.get("kind").is_none());
+        let candidate = decode_residual_candidate_with_legacy(&bytes, &mut meter).unwrap();
+        let restored =
+            admit_residual_candidate(program.residuals(), program.vars(), candidate, &mut meter)
+                .unwrap();
+        assert_eq!(restored.vars(), program.vars());
+        assert_eq!(
+            encode_legacy_residual_candidate(&restored, &mut meter).unwrap(),
+            bytes
+        );
+        assert_eq!(meter.verifier_remaining(), 73);
+    }
+}
+
+#[test]
+fn legacy_export_decode_admission_and_evaluation_share_one_cumulative_ledger() {
+    let program = fixture();
+    let mut meter = Budget::new(BudgetLimits::uniform(AMPLE, 73));
+    let before = meter.snapshot();
+    let bytes = encode_legacy_residual_candidate(&program, &mut meter).unwrap();
+    let exported = meter.snapshot();
+    let candidate = decode_residual_candidate_with_legacy(&bytes, &mut meter).unwrap();
+    let restored =
+        admit_residual_candidate(program.residuals(), program.vars(), candidate, &mut meter)
+            .unwrap();
+    let evaluated = restored
+        .evaluate_sparse_with_meter(&[1.0, 2.0], &mut meter)
+        .unwrap();
+    assert_eq!(evaluated.residuals, [0.0, 0.0]);
+    assert_eq!(evaluated.jacobian, [1.0, 4.0, -1.0, 1.0]);
+    for dimension in [
+        Dimension::ComputeSteps,
+        Dimension::MemoryBytes,
+        Dimension::AllocationCount,
+    ] {
+        assert!(exported.dimensions[dimension.index()] < before.dimensions[dimension.index()]);
+        assert!(meter.remaining(dimension) < exported.dimensions[dimension.index()]);
+    }
+    assert_eq!(meter.verifier_remaining(), 73);
+}
+
+#[test]
+fn legacy_export_refuses_zero_or_last_missing_resource_and_never_resets_the_ledger() {
+    let program = fixture();
+    let mut measured = Budget::new(BudgetLimits::uniform(AMPLE, 73));
+    let expected = encode_legacy_residual_candidate(&program, &mut measured).unwrap();
+    for dimension in [
+        Dimension::ComputeSteps,
+        Dimension::MemoryBytes,
+        Dimension::AllocationCount,
+    ] {
+        let spent = AMPLE - measured.remaining(dimension);
+        assert!(spent > 1);
+        for allowance in [0, spent - 1] {
+            let mut limits = BudgetLimits::uniform(AMPLE, 73);
+            limits.dimensions[dimension.index()] = allowance;
+            let mut meter = Budget::new(limits);
+            assert!(matches!(
+                encode_legacy_residual_candidate(&program, &mut meter),
+                Err(ProgramArtifactError::Budget(MeterError::Budget(
+                    BudgetError::Exhausted { dimension: found, .. }
+                ))) if found == dimension
+            ));
+            if allowance != 0 {
+                assert!(meter.remaining(dimension) < allowance);
+            }
+            assert_eq!(meter.verifier_remaining(), 73);
+        }
+        let mut limits = BudgetLimits::uniform(AMPLE, 73);
+        limits.dimensions[dimension.index()] = spent;
+        let mut meter = Budget::new(limits);
+        assert_eq!(
+            encode_legacy_residual_candidate(&program, &mut meter).unwrap(),
+            expected
+        );
+        assert_eq!(meter.remaining(dimension), 0);
+        assert!(matches!(
+            encode_legacy_residual_candidate(&program, &mut meter),
+            Err(ProgramArtifactError::Budget(MeterError::Budget(
+                BudgetError::Exhausted { dimension: found, .. }
+            ))) if found == dimension
+        ));
+        assert_eq!(meter.remaining(dimension), 0);
+        assert_eq!(meter.verifier_remaining(), 73);
+    }
+}
+
+#[test]
+fn cancellation_during_legacy_export_and_at_final_publication_returns_no_bytes() {
+    let program = fixture();
+    let mut measured = CancelAfter {
+        remaining: usize::MAX,
+        charged: 0,
+    };
+    encode_legacy_residual_candidate(&program, &mut measured).unwrap();
+    let checkpoints = usize::MAX - measured.remaining;
+    assert!(checkpoints > 10);
+    for remaining in [0, 5, checkpoints / 2, checkpoints - 1] {
+        let mut meter = CancelAfter {
+            remaining,
+            charged: 0,
+        };
+        assert!(matches!(
+            encode_legacy_residual_candidate(&program, &mut meter),
+            Err(ProgramArtifactError::Budget(MeterError::Cancelled))
+        ));
+        if remaining != 0 {
+            assert!(meter.charged > 0);
+        }
+        if remaining == checkpoints - 1 {
+            assert_eq!(meter.charged, measured.charged);
         }
     }
 }

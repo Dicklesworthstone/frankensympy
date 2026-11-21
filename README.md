@@ -272,6 +272,14 @@ source-domain check. Their outputs remain approximate proposals. Least-squares
 stationarity can have nonzero residuals, and objective stationarity alone does
 not prove a minimum. Backend failures never silently choose another algorithm.
 
+`MinimizeAndCertifyCompiledObjective` connects descent to the independent
+original-source stationary checker. The caller supplies exact positive box
+radii and a verification precision. A numerical point and inverse Hessian only
+propose a witness; protected verification must establish the local claim before
+publication. The result reports a strict minimum, strict maximum, saddle, or
+unclassified stationary point as justified by the checker. Failed verification
+does not widen the requested box or publish a certificate.
+
 ### Objective derivatives and local stationary points
 
 The native session also accepts `RegisterObjective`, `EncloseObjective`, and
@@ -357,10 +365,11 @@ programs. Differentiation visits the declared variables occurring in each
 residual; independent verification checks every omitted source dependency and
 establishes the other zero entries from its own typed-symbol traversal.
 Numerical outputs are approximate binary64 values; checked symbolic derivatives
-do not certify rounding error or a root. Saved residual programs retain the
-same versioned proof format and independently replay proof and source binding
-on load. Imported bundles must also satisfy the current aggregate source,
-operation and proof-work bounds.
+do not certify rounding error or a root. Saved residual programs retain the historical version-one Python envelope and
+16 MiB limit. Export and replay now share the caller's cumulative budget;
+loading independently binds the source and checks all retained proofs. Raw
+canonical residual candidates are also admitted up to 1 MiB. Both forms must
+satisfy the current aggregate source, operation and proof-work bounds.
 
 Compiled residual and objective programs can also move between Python and native
 Sessions through the shared, context-bound format:
@@ -533,6 +542,48 @@ which can have nonzero residuals or be a maximum or saddle; no minimum, root,
 uniqueness or minimum-norm claim is made. Controls are bounded by 1,024 nonlinear
 iterations, six damping strengths per iteration, 512 LSQR steps per strength and
 32 line-search trials per direction.
+
+### One budget from compilation through saved-program replay
+
+The three Python compilers accept a keyword-only `budget=`. Residual export
+and replay also accept that same caller-owned `EvaluationBudget`:
+
+```python
+from sympy import (
+    EvaluationBudget, compile_residual_system, load_residual_system, symbols,
+)
+
+x, y = symbols("x y")
+source = [x**2 + y - 5, x - y - 1]
+budget = EvaluationBudget(
+    max_steps=10_000_000,
+    max_memory_bytes=10_000_000,
+    max_allocations=1_000_000,
+)
+program = compile_residual_system(source, (x, y), budget=budget)
+saved = program.to_bytes(budget=budget)
+restored = load_residual_system(
+    saved, residuals=source, args=(x, y), budget=budget,
+)
+values, jacobian = restored.evaluate(2, 1, budget=budget)
+# values == [0.0, 0.0]; jacobian == [[4.0, 1.0], [1.0, -1.0]]
+```
+
+Native source copies, generation, independent admission, encoding, bounded
+decoding and later evaluation consume one cumulative ledger. Failure retains
+spent resources; cancellation is cooperative and no incomplete program is
+published. Python source capture, bounded bridge structural preflight and
+CPython overhead retain their documented accounting exclusions. Pass the
+ledger explicitly to each operation; the immutable program never resets it.
+
+Ordinary residual exports and imports preserve the historical 16 MiB envelope;
+existing saved bytes remain stable. The loader also admits raw canonical
+residual candidates up to 1 MiB, while ordinary re-export uses the historical
+format. Context-bound Session exchange uses the explicit `to_portable_bytes`
+and `load_portable_residual_system` APIs above. Resource limits can refuse a
+file below its byte cap. Replay requires the receiver's expected exact source
+and typed coordinate order, then independently checks all retained proofs and
+bytecode. Saved acceptance flags and Python callbacks carry no proof authority.
 
 ---
 

@@ -83,6 +83,98 @@ def test_restored_program_uses_the_callers_existing_ledger(system):
         restored.evaluate_batch([[2, 1]], budget=budget)
 
 
+def test_compilation_export_replay_and_evaluation_share_one_cumulative_budget():
+    x, y = s.symbols("portable_budget_x portable_budget_y")
+    residuals = [x*x+y-5, x-y-1]
+    shared = _budget()
+    before = shared.remaining_steps
+    program = s.compile_residual_system(residuals, (x, y), budget=shared)
+    compiled = shared.remaining_steps
+    data = program.to_bytes(budget=shared)
+    encoded = shared.remaining_steps
+    restored = s.load_residual_system(data, residuals=residuals, args=(x, y), budget=shared)
+    decoded = shared.remaining_steps
+    assert restored.evaluate(2, 1, budget=shared) == ([0, 0], [[4, 1], [1, -1]])
+    assert shared.remaining_steps < decoded < encoded < compiled < before
+    shared.cancel()
+    with pytest.raises(s.EvaluationCancelled):
+        program.to_bytes(budget=shared)
+    with pytest.raises(s.EvaluationCancelled):
+        s.load_residual_system(data, residuals=residuals, args=(x, y), budget=shared)
+    assert program.evaluate(2, 1) == ([0, 0], [[4, 1], [1, -1]])
+
+
+@pytest.mark.parametrize("dimension", ["max_steps", "max_memory_bytes", "max_allocations"])
+def test_export_and_replay_refuse_each_exhausted_resource(system, dimension):
+    x, y, residuals, data = system
+    program = s.load_residual_system(data, residuals=residuals, args=(x, y))
+    for operation in (
+        lambda shared: program.to_bytes(budget=shared),
+        lambda shared: s.load_residual_system(data, residuals=residuals, args=(x, y), budget=shared),
+    ):
+        shared = s.EvaluationBudget(**{dimension: 0})
+        with pytest.raises(s.EvaluationBudgetExceeded):
+            operation(shared)
+    assert program.evaluate(2, 1) == ([0, 0], [[4, 1], [1, -1]])
+
+
+def test_legacy_bytes_remain_stable_and_raw_canonical_candidates_replay(system):
+    x, y, residuals, legacy = system
+    document = json.loads(legacy)
+    canonical_document = {
+        "schema_version": 1, "kind": "residual", "candidate": document["jacobian"],
+    }
+    canonical = _encode(canonical_document)
+    shared = _budget()
+    for data in (b" \n" + legacy + b"\n", canonical):
+        restored = s.load_residual_system(
+            data, residuals=residuals, args=(x, y), budget=shared,
+        )
+        assert restored.evaluate(2, 1) == ([0, 0], [[4, 1], [1, -1]])
+        assert restored.to_bytes(budget=shared) == legacy
+        portable = json.loads(restored.to_portable_bytes(budget=shared))
+        assert portable["candidate"] == canonical_document
+    assert shared.remaining_steps < 1 << 45
+    document["jacobian"]["entries"][0]["compiled_deriv"]["ops"] = [{"LoadConst": 999.0}]
+    with pytest.raises(ValueError):
+        s.load_residual_system(
+            _encode(document), residuals=residuals, args=(x, y), budget=shared,
+        )
+    assert restored.to_bytes() == legacy
+
+
+def test_raw_canonicality_and_kind_cannot_fall_back_to_legacy_acceptance(system):
+    x, y, residuals, legacy = system
+    data = _encode({
+        "schema_version": 1, "kind": "residual",
+        "candidate": json.loads(legacy)["jacobian"],
+    })
+    for changed in (b" " + data, data + b"\n"):
+        with pytest.raises(ValueError, match="canonical"):
+            s.load_residual_system(changed, residuals=residuals, args=(x, y))
+    for field, value in (("kind", "objective"), ("jacobian", None)):
+        changed = json.loads(data)
+        changed[field] = value
+        with pytest.raises(ValueError):
+            s.load_residual_system(_encode(changed), residuals=residuals, args=(x, y))
+
+
+def test_cancellation_after_native_load_does_not_publish_a_python_program(system, monkeypatch):
+    module = importlib.import_module("sympy.utilities.lambdify")
+    original_wrapper = module._ResidualCallable
+    shared = _budget()
+
+    def cancelled_wrapper(*args, **kwargs):
+        result = original_wrapper(*args, **kwargs)
+        shared.cancel()
+        return result
+
+    monkeypatch.setattr(module, "_ResidualCallable", cancelled_wrapper)
+    x, y, residuals, data = system
+    with pytest.raises(s.EvaluationCancelled):
+        module.load_residual_system(data, residuals=residuals, args=(x, y), budget=shared)
+
+
 def test_loader_requires_explicit_residuals_and_arguments(system):
     x, y, residuals, data = system
     with pytest.raises(TypeError):

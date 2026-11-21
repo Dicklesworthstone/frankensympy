@@ -258,6 +258,7 @@ impl JsonNesting {
 
 struct Writer<'a, M: BudgetMeter + ?Sized> {
     bytes: Vec<u8>,
+    max_bytes: usize,
     nesting: JsonNesting,
     meter: &'a mut M,
     failure: Option<ProgramArtifactError>,
@@ -270,10 +271,10 @@ impl<M: BudgetMeter + ?Sized> Write for Writer<'_, M> {
                 return Err(invalid("writer already refused"));
             }
             let required = self.bytes.len().saturating_add(bytes.len());
-            if required > MAX_PROGRAM_CANDIDATE_BYTES {
+            if required > self.max_bytes {
                 return Err(ProgramArtifactError::ByteLimit {
                     actual: required,
-                    max: MAX_PROGRAM_CANDIDATE_BYTES,
+                    max: self.max_bytes,
                 });
             }
             charge(self.meter, bytes.len() + 1, 0, 0)?;
@@ -281,7 +282,7 @@ impl<M: BudgetMeter + ?Sized> Write for Writer<'_, M> {
             if required > self.bytes.capacity() {
                 let capacity = required
                     .max(self.bytes.capacity().saturating_mul(2))
-                    .min(MAX_PROGRAM_CANDIDATE_BYTES);
+                    .min(self.max_bytes);
                 charge(self.meter, 1, capacity, 1)?;
                 self.bytes
                     .try_reserve_exact(capacity - self.bytes.len())
@@ -308,6 +309,13 @@ struct EnvelopeRef<'a, T: ?Sized> {
     schema_version: u32,
     kind: &'static str,
     candidate: &'a T,
+}
+
+/// Preserve the field order of verified::ArtifactWireRef exactly.
+#[derive(Serialize)]
+struct LegacyResidualEnvelopeRef<'a> {
+    schema_version: u32,
+    jacobian: &'a SparseJacobian,
 }
 
 #[derive(Deserialize)]
@@ -343,32 +351,42 @@ where
     <&RawValue>::deserialize(deserializer).map(Some)
 }
 
-fn encode<T: Serialize + ?Sized, M: BudgetMeter + ?Sized>(
-    candidate: &T,
-    kind: &'static str,
+fn encode_wire<T: Serialize + ?Sized, M: BudgetMeter + ?Sized>(
+    wire: &T,
+    max_bytes: usize,
     meter: &mut M,
 ) -> Result<Vec<u8>, ProgramArtifactError> {
     meter.checkpoint()?;
     let mut writer = Writer {
         bytes: Vec::new(),
+        max_bytes,
         nesting: JsonNesting::default(),
         meter,
         failure: None,
     };
-    let result = serde_json::to_writer(
-        &mut writer,
-        &EnvelopeRef {
-            schema_version: PROGRAM_CANDIDATE_SCHEMA_VERSION,
-            kind,
-            candidate,
-        },
-    );
+    let result = serde_json::to_writer(&mut writer, wire);
     if let Some(error) = writer.failure {
         return Err(error);
     }
     result.map_err(encoding)?;
     writer.meter.checkpoint()?;
     Ok(writer.bytes)
+}
+
+fn encode<T: Serialize + ?Sized, M: BudgetMeter + ?Sized>(
+    candidate: &T,
+    kind: &'static str,
+    meter: &mut M,
+) -> Result<Vec<u8>, ProgramArtifactError> {
+    encode_wire(
+        &EnvelopeRef {
+            schema_version: PROGRAM_CANDIDATE_SCHEMA_VERSION,
+            kind,
+            candidate,
+        },
+        MAX_PROGRAM_CANDIDATE_BYTES,
+        meter,
+    )
 }
 
 #[derive(Deserialize)]
@@ -1042,6 +1060,31 @@ pub fn encode_residual_candidate<M: BudgetMeter + ?Sized>(
     Ok(bytes)
 }
 
+/// Export the historical Python residual bundle through the caller's meter.
+///
+/// The field order, schema and encoded bytes match
+/// [`VerifiedResidualSystem::to_json_bytes`] for the supported retained proof
+/// profile. The original 16 MiB ceiling is independent of the portable format's
+/// 1 MiB limit. Source, proof and bytecode payloads are bounded and inspected
+/// without cloning or materializing an owned candidate. No receipt is emitted,
+/// and cancellation or exhaustion returns no partial artifact.
+pub fn encode_legacy_residual_candidate<M: BudgetMeter + ?Sized>(
+    program: &VerifiedResidualSystem,
+    meter: &mut M,
+) -> Result<Vec<u8>, ProgramArtifactError> {
+    retained_jacobian(program.sparse_jacobian(), meter)?;
+    let bytes = encode_wire(
+        &LegacyResidualEnvelopeRef {
+            schema_version: VERIFIED_ARTIFACT_SCHEMA_VERSION,
+            jacobian: program.sparse_jacobian(),
+        },
+        MAX_VERIFIED_ARTIFACT_BYTES,
+        meter,
+    )?;
+    preflight_residual_with_legacy(&bytes, meter)?;
+    Ok(bytes)
+}
+
 /// Decode a bounded proposal. This does not check mathematical derivatives,
 /// source binding or bytecode provenance and returns no acceptance receipt.
 pub fn decode_residual_candidate<M: BudgetMeter + ?Sized>(
@@ -1056,20 +1099,11 @@ pub fn decode_residual_candidate<M: BudgetMeter + ?Sized>(
     Ok(candidate)
 }
 
-/// Import a portable residual candidate or a previously saved Python bundle.
-///
-/// Portable input keeps the exact canonical encoding and 1 MiB limit of
-/// [`decode_residual_candidate`]. Legacy `{schema_version,jacobian}` input
-/// retains its original 16 MiB limit and accepts its historical JSON spelling.
-/// Both paths preflight bounded shapes, typed payloads and all retained proof
-/// and bytecode data before allocating the owned candidate. Neither path
-/// verifies derivatives, regenerates evidence or trusts an acceptance flag;
-/// the caller must subsequently use [`admit_residual_candidate`] with its own
-/// expected source and variable order. Every phase charges the same meter.
-pub fn decode_residual_candidate_with_legacy<M: BudgetMeter + ?Sized>(
-    bytes: &[u8],
+/// Borrow and inspect either residual envelope without owning its candidate.
+fn preflight_residual_with_legacy<'a, M: BudgetMeter + ?Sized>(
+    bytes: &'a [u8],
     meter: &mut M,
-) -> Result<SparseJacobian, ProgramArtifactError> {
+) -> Result<(&'a RawValue, Preflight, bool), ProgramArtifactError> {
     meter.checkpoint()?;
     if bytes.len() > MAX_VERIFIED_ARTIFACT_BYTES {
         return Err(ProgramArtifactError::ByteLimit {
@@ -1119,6 +1153,25 @@ pub fn decode_residual_candidate_with_legacy<M: BudgetMeter + ?Sized>(
     };
     let mut inspection = Preflight::default();
     inspection.jacobian(raw, meter)?;
+    meter.checkpoint()?;
+    Ok((raw, inspection, portable))
+}
+
+/// Import a portable residual candidate or a previously saved Python bundle.
+///
+/// Portable input keeps the exact canonical encoding and 1 MiB limit of
+/// [`decode_residual_candidate`]. Legacy `{schema_version,jacobian}` input
+/// retains its original 16 MiB limit and accepts its historical JSON spelling.
+/// Both paths preflight bounded shapes, typed payloads and all retained proof
+/// and bytecode data before allocating the owned candidate. Neither path
+/// verifies derivatives, regenerates evidence or trusts an acceptance flag;
+/// the caller must subsequently use [`admit_residual_candidate`] with its own
+/// expected source and variable order. Every phase charges the same meter.
+pub fn decode_residual_candidate_with_legacy<M: BudgetMeter + ?Sized>(
+    bytes: &[u8],
+    meter: &mut M,
+) -> Result<SparseJacobian, ProgramArtifactError> {
+    let (raw, inspection, portable) = preflight_residual_with_legacy(bytes, meter)?;
     materialization(raw, &inspection, meter)?;
     let candidate: SparseJacobian = serde_json::from_str(raw.get()).map_err(encoding)?;
     meter.checkpoint()?;

@@ -20,11 +20,14 @@ use fsym_calculus::compile::{
     CompileError, CompiledExpr, EvalError, MAX_COMPILE_DEPTH, MAX_COMPILE_NAME_BYTES,
 };
 use fsym_calculus::parametric_cover::{ParametricRootCoverOptions, propose_parametric_root_cover};
+use fsym_calculus::program_artifact::{
+    ProgramAdmissionError, ProgramArtifactError, admit_residual_candidate,
+    decode_residual_candidate_with_legacy, encode_legacy_residual_candidate,
+};
 use fsym_calculus::root_isolation::{RootIsolationOptions, propose_root_isolation};
-use fsym_calculus::sparse_jacobian::{plan_sparse_sources, plan_sparse_sources_with_meter};
+use fsym_calculus::sparse_jacobian::plan_sparse_sources_with_meter;
 use fsym_calculus::verified::{
-    MAX_VERIFIED_ARTIFACT_BYTES, ResidualEvaluationError, VerifiedArtifactError,
-    VerifiedCompilationError,
+    MAX_VERIFIED_ARTIFACT_BYTES, ResidualEvaluationError, VerifiedCompilationError,
 };
 use fsym_core::{
     BigRational, Expr, ParametricRootBoxReceipt, ParametricRootBoxWitness,
@@ -42,7 +45,7 @@ use fsym_numeric_consumer::{
     frankenscipy_fsolve_system_with_meter, least_squares_with_meter, newton_refine_with_meter,
     sparse_least_squares_with_meter, sparse_newton_refine_with_meter,
 };
-use pyo3::exceptions::{PyMemoryError, PyTypeError, PyValueError};
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyFloat, PyInt, PyList, PyTuple};
 use std::collections::HashMap;
@@ -1648,24 +1651,6 @@ impl PyVerifiedResidualSystem {
         Ok(())
     }
 
-    fn check_requested_source(residuals: &[Expr], variables: &[Symbol]) -> PyResult<()> {
-        variable_map(variables)?;
-        let mut source_nodes = 0;
-        for residual in residuals {
-            check_source(residual, &mut source_nodes)?;
-        }
-        let source_plan =
-            plan_sparse_sources(residuals, variables).map_err(crate::to_value_error)?;
-        if source_plan.source_nodes > MAX_SOURCE_NODES
-            || source_plan.differentiation_units > MAX_TOTAL_OPS
-        {
-            return Err(PyValueError::new_err(
-                "verified system exceeds the differentiation work limit",
-            ));
-        }
-        Ok(())
-    }
-
     fn admit(system: VerifiedResidualSystem) -> PyResult<Self> {
         if system.stored_operation_count() > MAX_TOTAL_OPS {
             return Err(PyValueError::new_err(
@@ -1675,10 +1660,15 @@ impl PyVerifiedResidualSystem {
         Ok(Self { system })
     }
 
-    fn transport_error(error: VerifiedArtifactError) -> PyErr {
+    fn bound_transport_error(error: ProgramAdmissionError) -> ProgramAdmissionError {
         match error {
-            VerifiedArtifactError::AllocationFailure => PyMemoryError::new_err(error.to_string()),
-            _ => crate::to_value_error(error),
+            ProgramAdmissionError::SourceMismatch("ordered typed variables") => {
+                ProgramAdmissionError::SourceMismatch("expected typed order")
+            }
+            ProgramAdmissionError::SourceMismatch("ordered residual sources") => {
+                ProgramAdmissionError::SourceMismatch("expected exact source")
+            }
+            other => other,
         }
     }
 
@@ -1862,13 +1852,26 @@ impl PyVerifiedResidualSystem {
         Ok(result)
     }
 
-    /// Encode the checked source, derivatives, proofs and bytecode as bounded JSON bytes.
+    /// Export the historical bounded residual bundle without changing its bytes.
     /// Receipts, Python objects and execution budgets are not serialized.
-    fn to_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
-        let encoded = py
-            .detach(|| self.system.to_json_bytes())
-            .map_err(Self::transport_error)?;
-        Ok(PyBytes::new(py, &encoded))
+    #[pyo3(signature = (*, budget=None))]
+    fn to_bytes<'py>(
+        &self,
+        py: Python<'py>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let encoded = with_certification_meter(py, budget.as_deref(), |meter| {
+            let encoded = encode_legacy_residual_candidate(&self.system, meter)?;
+            meter.charge_batch(&[
+                (Dimension::ComputeSteps, encoded.len() as u64 + 1),
+                (Dimension::MemoryBytes, encoded.len() as u64),
+                (Dimension::AllocationCount, 1),
+            ])?;
+            Ok::<_, ProgramArtifactError>(encoded)
+        })?;
+        let result = PyBytes::new(py, &encoded);
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
     }
 
     /// Export the canonical context-bound format shared with native Session.
@@ -1903,14 +1906,17 @@ impl PyVerifiedResidualSystem {
     }
 
     /// Replay proof admission and bind to the caller's exact expected typed source.
-    /// Only immutable built-in bytes are accepted; admission is outside EvaluationBudget.
+    /// Historical bundles and raw canonical candidates share one cumulative
+    /// meter and independent source-bound admission; no accepted flag is read.
     #[staticmethod]
-    #[pyo3(signature = (data, *, residuals, variables))]
+    #[pyo3(signature = (data, *, residuals, variables, budget=None))]
     fn from_bytes(
         data: &Bound<'_, PyAny>,
         residuals: &Bound<'_, PyAny>,
         variables: &Bound<'_, PyAny>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
     ) -> PyResult<Self> {
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
         let py = data.py();
         if !data.is_exact_instance(&py.get_type::<PyBytes>()) {
             return Err(PyTypeError::new_err(
@@ -1923,29 +1929,19 @@ impl PyVerifiedResidualSystem {
                 "verified program data exceeds the 16 MiB byte limit",
             ));
         }
-        let residuals = extract_expressions(residuals)?;
-        let variables = extract_variables(variables)?;
-        Self::check_requested_source(&residuals, &variables)?;
-        py.detach(|| {
-            // Replay the retained certificate; never replace it with fresh
-            // derivative generation or accept a serialized verification flag.
-            let system =
-                VerifiedResidualSystem::from_json_bytes(encoded).map_err(Self::transport_error)?;
-            if system.vars() != variables.as_slice() {
-                return Err(PyValueError::new_err(
-                    "verified program variables do not match the expected typed order",
-                ));
-            }
-            if system.residuals() != residuals.as_slice() {
-                return Err(PyValueError::new_err(
-                    "verified program residuals do not match the expected exact source",
-                ));
-            }
-            // Expected-source extraction already enforced Python bridge
-            // axis, literal, node and depth limits. Check the loaded bytecode
-            // limit as well, since native transport permits a wider envelope.
-            Self::admit(system)
-        })
+        let residuals = extract_expressions_metered(residuals, budget.as_deref())?;
+        let variables = extract_variables_metered(variables, budget.as_deref())?;
+        let system = with_certification_meter(py, budget.as_deref(), |meter| {
+            Self::check_source_plan_with_meter(&residuals, &variables, meter)?;
+            let candidate = decode_residual_candidate_with_legacy(encoded, meter)?;
+            // Bind before replaying any retained derivative proof. No fresh
+            // generation can replace forged or missing candidate evidence.
+            admit_residual_candidate(&residuals, &variables, candidate, meter)
+                .map_err(Self::bound_transport_error)
+        })?;
+        let result = Self::admit(system)?;
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
     }
 
     /// Root-proof replay does not execute the compiled evaluator or regenerate
@@ -2557,6 +2553,9 @@ mod tests {
         module.add_class::<PyCompiledFunction>().unwrap();
         module.add_class::<PyVerifiedResidualSystem>().unwrap();
         module
+            .add_class::<crate::objective::PyVerifiedObjective>()
+            .unwrap();
+        module
     }
 
     fn fixture(py: Python<'_>, source: Expr) -> Py<PyExpr> {
@@ -2629,6 +2628,105 @@ else:
     raise AssertionError('nonfinite intermediate hidden by reciprocal')
 assert result is sentinel
 assert program.evaluate([2]) == [3.0]
+"#,
+            );
+        });
+    }
+
+    #[test]
+    fn actual_python_compilation_and_transport_share_cumulative_budgets() {
+        Python::initialize();
+        Python::attach(|py| {
+            let module = bridge_module(py);
+            let source = parse("x^2 + 2").unwrap();
+            let variable = Symbol::new("x");
+            let system = VerifiedResidualSystem::try_compile(
+                std::slice::from_ref(&source),
+                std::slice::from_ref(&variable),
+            )
+            .unwrap();
+            let legacy = system.to_json_bytes().unwrap();
+            let canonical = fsym_calculus::program_artifact::encode_residual_candidate(
+                &system,
+                &mut fsym_budget::Unbounded,
+            )
+            .unwrap();
+            module.add("source", fixture(py, source)).unwrap();
+            module
+                .add(
+                    "x_binding",
+                    Py::new(py, PySymbolBinding::from_symbol(&variable)).unwrap(),
+                )
+                .unwrap();
+            module.add("legacy", PyBytes::new(py, &legacy)).unwrap();
+            module
+                .add("canonical", PyBytes::new(py, &canonical))
+                .unwrap();
+            run_bridge(
+                &module,
+                r#"
+import json
+
+def raises(kind, action):
+    try:
+        action()
+    except kind:
+        return
+    raise AssertionError('expected ' + kind.__name__)
+
+def ample():
+    return EvaluationBudget(max_steps=2**40, max_memory_bytes=2**40, max_allocations=2**40)
+
+factories = (
+    lambda budget: CompiledFunction([source], [x_binding], budget=budget),
+    lambda budget: VerifiedResidualSystem([source], [x_binding], budget=budget),
+    lambda budget: VerifiedObjective(source, [x_binding], budget=budget),
+)
+expected = ([11.0], ([11.0], [[6.0]]), (11.0, [6.0], [2.0]))
+for factory, value in zip(factories, expected):
+    budget = ample()
+    program = factory(budget)
+    assert budget.remaining_steps < 2**40
+    assert budget.remaining_memory_bytes < 2**40
+    assert budget.remaining_allocations < 2**40
+    before = budget.remaining_steps
+    assert program.evaluate([3], budget=budget) == value
+    assert budget.remaining_steps < before
+    for keyword in ('max_steps', 'max_memory_bytes', 'max_allocations'):
+        raises(EvaluationBudgetExceeded, lambda: factory(EvaluationBudget(**{keyword: 0})))
+    budget.cancel()
+    raises(EvaluationCancelled, lambda: factory(budget))
+    assert program.evaluate([3]) == value
+
+budget = ample()
+restored = VerifiedResidualSystem.from_bytes(
+    legacy, residuals=[source], variables=[x_binding], budget=budget,
+)
+before = budget.remaining_steps
+saved = restored.to_bytes(budget=budget)
+assert budget.remaining_steps < before
+assert saved == legacy
+assert set(json.loads(saved)) == {'schema_version', 'jacobian'}
+assert set(json.loads(canonical)) == {'schema_version', 'kind', 'candidate'}
+assert json.loads(canonical)['kind'] == 'residual'
+before = budget.remaining_steps
+again = VerifiedResidualSystem.from_bytes(
+    canonical, residuals=[source], variables=[x_binding], budget=budget,
+)
+assert budget.remaining_steps < before
+assert again.evaluate([3], budget=budget) == ([11.0], [[6.0]])
+assert again.to_bytes() == legacy
+raises(EvaluationBudgetExceeded, lambda: again.to_bytes(budget=EvaluationBudget(max_steps=0)))
+for artifact in (legacy, canonical):
+    raises(EvaluationBudgetExceeded, lambda: VerifiedResidualSystem.from_bytes(
+        artifact, residuals=[source], variables=[x_binding], budget=EvaluationBudget(max_steps=0),
+    ))
+budget.cancel()
+raises(EvaluationCancelled, lambda: again.to_bytes(budget=budget))
+raises(EvaluationCancelled, lambda: VerifiedResidualSystem.from_bytes(
+    canonical, residuals=[source], variables=[x_binding], budget=budget,
+))
+assert again.evaluate([3]) == ([11.0], [[6.0]])
 "#,
             );
         });
