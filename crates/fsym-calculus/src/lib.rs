@@ -86,8 +86,9 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
 }
 
 /// The numerical derivative lane keeps tanh' and coth' away from subtraction
-/// of two rounded ones and avoids artificial poles in literal zero/one powers.
-/// Public symbolic derivatives retain their existing form.
+/// of two rounded ones, keeps the entire sinc jets finite at their removable
+/// singularity, and avoids artificial poles in literal zero/one powers.
+/// Public symbolic derivatives retain their existing forms.
 pub(crate) fn numeric_diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
     diff_unsimplified_with_coth(expr, var, true)
 }
@@ -504,6 +505,12 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
             } else if name == "sinc" && args.len() == 1 {
                 let u = &args[0];
                 let du = diff(u, var);
+                if stable_coth {
+                    return Expr::Mul(vec![
+                        Expr::Function("_fsym_sinc_d1".to_string(), vec![u.clone()]),
+                        du,
+                    ]);
+                }
                 let cos_u = Expr::Function("cos".to_string(), vec![u.clone()]);
                 let sin_u = Expr::Function("sin".to_string(), vec![u.clone()]);
                 let inv_u = Expr::pow(u.clone(), Expr::from_i64(-1));
@@ -511,6 +518,15 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 let term1 = Expr::Mul(vec![cos_u, inv_u]);
                 let term2 = Expr::Mul(vec![Expr::from_i64(-1), sin_u, inv_u_sq]);
                 Expr::Mul(vec![Expr::Add(vec![term1, term2]), du])
+            } else if name == "_fsym_sinc_d1" && args.len() == 1 {
+                // This private node denotes the exact entire derivative of
+                // sinc, not the quotient formula with an artificial hole.
+                // Its separate numerical evaluator handles the second jet.
+                let u = &args[0];
+                Expr::Mul(vec![
+                    Expr::Function("_fsym_sinc_d2".to_string(), vec![u.clone()]),
+                    diff(u, var),
+                ])
             } else if matches!(name.as_str(), "Si" | "Ci" | "Ei" | "Shi" | "Chi") && args.len() == 1
             {
                 // d/du Si(u) = sin(u)/u, Ci -> cos, Ei -> exp, Shi -> sinh, Chi -> cosh.

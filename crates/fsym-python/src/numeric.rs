@@ -1140,6 +1140,7 @@ pub(crate) fn check_certified_sources(sources: &[Expr], variables: &[Symbol]) ->
                         | "atanh"
                         | "erf"
                         | "erfc"
+                        | "sinc"
                         | "abs"
                         | "Abs"
                 ) && arguments.len() == 1 =>

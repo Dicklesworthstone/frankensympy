@@ -59,7 +59,7 @@ _FUNCTION_ARGS = Function.__dict__["_args"]
 # an IR vocabulary, never names used to recover a Python class. In particular,
 # ln/abs/sqrt are not additional source aliases: opaque classes can use them.
 _CLOSED_NATIVE_FUNCTIONS = {
-    "sin": "sin", "cos": "cos", "tan": "tan",
+    "sin": "sin", "cos": "cos", "tan": "tan", "sinc": "sinc",
     "cot": "cot", "sec": "sec", "csc": "csc",
     "asin": "asin", "acos": "acos", "atan": "atan", "atan2": "atan2",
     "sinh": "sinh", "cosh": "cosh", "tanh": "tanh",
@@ -130,6 +130,10 @@ def _math_csc(value):
     return 1 / math.sin(value)
 
 
+def _math_sinc(value):
+    return 1 if value == 0 else math.sin(value) / value
+
+
 def _math_coth(value):
     # Preserve the pinned math printer's arithmetic and exceptions. The
     # explicit native backend separately uses stable finite-real intrinsics.
@@ -157,7 +161,7 @@ def _require_numeric_function_arity(name, size):
 def _functions():
     # Exact classes, never class names supplied by a user subclass.
     from ..functions.elementary.trigonometric import (
-        sin, cos, tan, cot, sec, csc, asin, acos, atan, atan2,
+        sin, cos, tan, cot, sec, csc, sinc, asin, acos, atan, atan2,
     )
     from ..functions.elementary.hyperbolic import (
         sinh, cosh, tanh, coth, sech, csch, asinh, acosh, atanh,
@@ -171,6 +175,7 @@ def _functions():
     return _FunctionTable((
         (sin, ("sin", math.sin)), (cos, ("cos", math.cos)), (tan, ("tan", math.tan)),
         (cot, ("cot", _math_cot)), (sec, ("sec", _math_sec)), (csc, ("csc", _math_csc)),
+        (sinc, ("sinc", _math_sinc)),
         (asin, ("asin", math.asin)), (acos, ("acos", math.acos)), (atan, ("atan", math.atan)),
         (atan2, ("atan2", math.atan2)),
         (sinh, ("sinh", math.sinh)), (cosh, ("cosh", math.cosh)), (tanh, ("tanh", math.tanh)),

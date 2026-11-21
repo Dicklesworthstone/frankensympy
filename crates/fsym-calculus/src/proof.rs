@@ -53,6 +53,8 @@ pub const RULE_DIFF_ATANH: &str = "diff_atanh";
 pub const RULE_DIFF_ERF: &str = "diff_erf";
 pub const RULE_DIFF_ERFC: &str = "diff_erfc";
 pub const RULE_DIFF_SINC: &str = "diff_sinc";
+/// Exact chain rule for the private entire sinc first-derivative node.
+pub const RULE_DIFF_SINC_D1: &str = "diff_sinc_d1";
 pub const RULE_DIFF_SQRT: &str = "diff_sqrt";
 pub const RULE_DIFF_GENERAL: &str = "diff_general";
 
@@ -106,6 +108,7 @@ pub fn classify_diff_rule(expr: &Expr, var: &Symbol) -> &'static str {
             ("erf", 1) => RULE_DIFF_ERF,
             ("erfc", 1) => RULE_DIFF_ERFC,
             ("sinc", 1) => RULE_DIFF_SINC,
+            ("_fsym_sinc_d1", 1) => RULE_DIFF_SINC_D1,
             ("sqrt", 1) => RULE_DIFF_SQRT,
             _ => RULE_DIFF_GENERAL,
         },
@@ -119,8 +122,8 @@ pub fn verified_diff(expr: &Expr, var: &Symbol) -> (Expr, DerivationTree) {
     derivative_tree(expr, var, deriv)
 }
 
-/// Internal numeric programs use stable tanh/coth and literal identity-power
-/// derivatives without changing public symbolic receipts.
+/// Internal numeric programs use stable tanh/coth, entire sinc jets and literal
+/// identity-power derivatives without changing public symbolic receipts.
 pub(crate) fn verified_numeric_diff(expr: &Expr, var: &Symbol) -> (Expr, DerivationTree) {
     let deriv = crate::numeric_diff_unsimplified(expr, var);
     derivative_tree(expr, var, deriv)
@@ -714,6 +717,12 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
                     Expr::Mul(vec![Expr::from_i64(-2), inv_sqrt_pi, exp_neg_u_sq, du])
                 }
                 "sinc" => {
+                    if form == DerivativeForm::Numeric {
+                        return Expr::Mul(vec![
+                            Expr::Function("_fsym_sinc_d1".to_string(), vec![u.clone()]),
+                            du,
+                        ]);
+                    }
                     let cos_u = Expr::Function("cos".to_string(), vec![u.clone()]);
                     let sin_u = Expr::Function("sin".to_string(), vec![u.clone()]);
                     let inv_u = Expr::pow(u.clone(), Expr::from_i64(-1));
@@ -722,6 +731,10 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
                     let term2 = Expr::Mul(vec![Expr::from_i64(-1), sin_u, inv_u_sq]);
                     Expr::Mul(vec![Expr::Add(vec![term1, term2]), du])
                 }
+                "_fsym_sinc_d1" => Expr::Mul(vec![
+                    Expr::Function("_fsym_sinc_d2".to_string(), vec![u.clone()]),
+                    du,
+                ]),
                 _ => make_diff_term(expr, var),
             }
         }
@@ -1323,13 +1336,26 @@ fn verify_rule_reduction_semantics(
             {
                 let u = &args[0];
                 let du = reference_sub_derivative(u, var);
-                let cos_u = Expr::Function("cos".to_string(), vec![u.clone()]);
-                let sin_u = Expr::Function("sin".to_string(), vec![u.clone()]);
-                let inv_u = Expr::pow(u.clone(), Expr::from_i64(-1));
-                let inv_u_sq = Expr::pow(u.clone(), Expr::from_i64(-2));
-                let term1 = Expr::Mul(vec![cos_u, inv_u]);
-                let term2 = Expr::Mul(vec![Expr::from_i64(-1), sin_u, inv_u_sq]);
-                let expected_rhs = Expr::Mul(vec![Expr::Add(vec![term1, term2]), du]);
+                let expected_rhs = if du.is_zero() {
+                    Expr::from_i64(0)
+                } else if form == DerivativeForm::Numeric {
+                    // The entire derivative has the convergent power series
+                    // sum_{n>=1} (-1)^n 2n*u^(2n-1)/(2n+1)!, whose value
+                    // at zero is zero. This is an exact semantic node; the
+                    // floating approximation is checked separately.
+                    Expr::Mul(vec![
+                        Expr::Function("_fsym_sinc_d1".to_string(), vec![u.clone()]),
+                        du,
+                    ])
+                } else {
+                    let cos_u = Expr::Function("cos".to_string(), vec![u.clone()]);
+                    let sin_u = Expr::Function("sin".to_string(), vec![u.clone()]);
+                    let inv_u = Expr::pow(u.clone(), Expr::from_i64(-1));
+                    let inv_u_sq = Expr::pow(u.clone(), Expr::from_i64(-2));
+                    let term1 = Expr::Mul(vec![cos_u, inv_u]);
+                    let term2 = Expr::Mul(vec![Expr::from_i64(-1), sin_u, inv_u_sq]);
+                    Expr::Mul(vec![Expr::Add(vec![term1, term2]), du])
+                };
                 if deriv != &expected_rhs {
                     return Err(KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
@@ -1342,6 +1368,39 @@ fn verify_rule_reduction_semantics(
                 return Err(KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected sinc(u) for diff_sinc".to_string(),
+                });
+            }
+        }
+        RULE_DIFF_SINC_D1 => {
+            let Expr::Function(name, arguments) = expr else {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Expected the entire sinc first derivative".to_string(),
+                });
+            };
+            if name != "_fsym_sinc_d1" || arguments.len() != 1 {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Expected unary _fsym_sinc_d1".to_string(),
+                });
+            }
+            // Differentiating the entire first-derivative series term by
+            // term gives the second jet, with its exact value -1/3 at zero.
+            let inner = reference_sub_derivative(&arguments[0], var);
+            let expected = if inner.is_zero() {
+                Expr::from_i64(0)
+            } else {
+                Expr::Mul(vec![
+                    Expr::Function("_fsym_sinc_d2".to_string(), vec![arguments[0].clone()]),
+                    inner,
+                ])
+            };
+            if deriv != &expected {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason:
+                        "Entire sinc second derivative disagrees with the independent chain rule"
+                            .to_string(),
                 });
             }
         }

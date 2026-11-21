@@ -908,6 +908,45 @@ does not publish partial output buffers or certificates.
 
 ---
 
+## Entire sinc evaluation (development API)
+
+The unnormalized `sinc(x) = sin(x)/x`, extended by `sinc(0) = 1`, now
+works with `compile_numeric`, math and native `lambdify`, checked
+residual/Jacobian programs, and checked objective/gradient/Hessian programs.
+Generated numerical derivatives use the analytic values at the origin:
+`sinc'(0) = 0` and `sinc''(0) = -1/3`. Bounded Taylor evaluation retains
+tiny nonzero first derivatives and avoids cancellation near zero.
+
+```python
+from sympy import Rational, Symbol, compile_objective, sinc
+
+x = Symbol("x")
+objective = compile_objective(sinc(x), x)
+value, gradient, hessian = objective.evaluate(0.0)
+# (1.0, [0.0], [[-1/3]]) up to binary64 rounding.
+
+receipt = objective.certify_stationary_point([(Rational(-1, 4), Rational(1, 4))])
+assert receipt.kind == "strict_maximum"
+```
+
+Original-source rational-ball evaluation independently encloses the value,
+gradient, and Hessian, including on intervals crossing zero. It uses
+outward-rounded series or certified trigonometric identities, with the
+global derivative bounds from `sinc(x) = integral_0^1 cos(t*x) dt` to cover
+the entire input interval. The direct `RealBall.sinc` precision ceiling is
+256 decimal digits; existing source, work, and trigonometric range limits
+still apply. Wide intervals may produce coarse bounds and fail to certify
+a stationary point.
+
+Binary64 evaluation remains approximate. Original argument poles, such as
+`sinc(1/x)` at zero, remain domain errors. Public symbolic differentiation
+retains its existing quotient expression; stable origin derivatives are
+provided by compiling the original `sinc` source into a residual or objective
+program. Artifact replay checks the new operations against their original
+sources, and evaluation charges the caller's cumulative work budget.
+
+---
+
 ## First-order linear PDE families (development API)
 
 `pdsolve` now connects the Python shell to a native characteristic solver for
