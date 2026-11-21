@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..core import Expr, Symbol, _native
+from ..core import (
+    Basic, Dummy, Expr, Symbol, _active_callback_session, _charge_nested_if_active, _native,
+)
 
 
 class Boolean(Expr):
@@ -549,67 +551,285 @@ NOR = Nor
 XNOR = Xnor
 
 
-def _native_bool(expr: Any) -> _native.BoolExpr:
-    """Converts a surface expression to a native BoolExpr."""
-    if isinstance(expr, bool):
-        return _native.BoolExpr.bool_const(expr)
-    if isinstance(expr, BooleanTrue) or expr is true:
-        return _native.BoolExpr.bool_const(True)
-    if isinstance(expr, BooleanFalse) or expr is false:
-        return _native.BoolExpr.bool_const(False)
-    if isinstance(expr, Not):
-        return _native.BoolExpr.bool_not(_native_bool(expr.args[0]))
-    if isinstance(expr, And):
-        return _native.BoolExpr.bool_and([_native_bool(a) for a in expr.args])
-    if isinstance(expr, Or):
-        return _native.BoolExpr.bool_or([_native_bool(a) for a in expr.args])
-    if isinstance(expr, Implies):
-        return _native.BoolExpr.bool_implies(_native_bool(expr.args[0]), _native_bool(expr.args[1]))
-    if isinstance(expr, Equivalent):
-        return _native.BoolExpr.bool_equivalent(_native_bool(expr.args[0]), _native_bool(expr.args[1]))
-    if isinstance(expr, Xor):
-        return _native.BoolExpr.bool_xor(_native_bool(expr.args[0]), _native_bool(expr.args[1]))
-    if isinstance(expr, Nand):
-        return _native.BoolExpr.bool_not(_native.BoolExpr.bool_and([_native_bool(a) for a in expr.args]))
-    if isinstance(expr, Nor):
-        return _native.BoolExpr.bool_not(_native.BoolExpr.bool_or([_native_bool(a) for a in expr.args]))
-    if isinstance(expr, Xnor):
-        return _native.BoolExpr.bool_not(_native.BoolExpr.bool_xor(_native_bool(expr.args[0]), _native_bool(expr.args[1])))
-    if isinstance(expr, ITE):
-        c, a, b = [_native_bool(x) for x in expr.args]
-        return _native.BoolExpr.bool_or([
-            _native.BoolExpr.bool_and([c, a]),
-            _native.BoolExpr.bool_and([_native.BoolExpr.bool_not(c), b]),
-        ])
-    if isinstance(expr, Symbol):
-        return _native.BoolExpr.bool_var(expr.name)
-    if isinstance(expr, str):
-        return _native.BoolExpr.bool_var(expr)
-    raise TypeError(f"cannot convert {type(expr).__name__} to BoolExpr")
+_MAX_BOOLEAN_NODES = 65_536
+_MAX_BOOLEAN_DEPTH = 128
+_MAX_BOOLEAN_ATOMS = 256
+_BOOLEAN_FUNCTIONS = (Not, And, Or, Implies, Equivalent, Xor, Nand, Nor, Xnor, ITE)
+_BOOLEAN_ARGS = BooleanFunction.__dict__["_args"]
+_SYMBOL_VALUE = Basic.__dict__["_value"]
+_SYMBOL_SOURCE_SLOTS = tuple(Basic.__dict__[name] for name in ("_struct_args", "_surface_args"))
+_SYMBOL_ASSUMPTIONS = Symbol.__dict__["_assumptions"]
+_DUMMY_NAME = Dummy.__dict__["_dummy_name"]
+_DUMMY_NUMBER = Dummy.__dict__["_dummy_number"]
 
 
-def _from_native_bool(nb: _native.BoolExpr) -> Any:
-    """Converts a native BoolExpr to a surface expression."""
+def _boolean_owner_records():
+    from ..core._function_capabilities import _owner_record
+
+    mro = type.__dict__["__mro__"]
+    owners = []
+    for cls in (Symbol, Dummy, BooleanTrue, BooleanFalse, *_BOOLEAN_FUNCTIONS):
+        for owner in mro.__get__(cls):
+            if not any(owner is previous[0] for previous in owners):
+                owners.append((owner, mro.__get__(owner), _owner_record(owner)))
+    return tuple(owners)
+
+
+# Capture before callers can replace an exact builtin's equality, hash or args
+# implementation and have its replacement become the admission baseline.
+_BOOLEAN_OWNERS = _boolean_owner_records()
+_BOOLEAN_NATIVE_METHODS = tuple(
+    (name, _native.BoolExpr.__dict__[name]) for name in (
+        "bool_const", "bool_var", "bool_not", "bool_and", "bool_or",
+        "bool_implies", "bool_equivalent", "bool_xor", "satisfiable",
+        "kind", "var_name", "const_value", "args",
+    )
+)
+
+
+def _require_boolean_owners():
+    from ..core._function_capabilities import _owner_matches
+
+    mro = type.__dict__["__mro__"]
+    for owner, original_mro, record in _BOOLEAN_OWNERS:
+        current = mro.__get__(owner)
+        if (len(current) != len(original_mro)
+                or any(left is not right for left, right in zip(current, original_mro))
+                or not _owner_matches(owner, record)):
+            raise NotImplementedError("Boolean solving requires original built-in owners")
+    namespace = type.__dict__["__dict__"].__get__(_native.BoolExpr)
+    if any(namespace.get(name) is not original for name, original in _BOOLEAN_NATIVE_METHODS):
+        raise NotImplementedError("Boolean solving requires original native interfaces")
+
+
+class _BooleanRequest:
+    """One bounded propositional universe with retained surface atom owners.
+
+    The native string interface receives generated ordinal tokens, never a
+    printed symbol name. Tokens have meaning only in this request's injective
+    table of full typed bindings and original surface objects. Neither a model
+    nor a normal form may mint a replacement Symbol from a token.
+    """
+
+    def __init__(self, source):
+        _require_boolean_owners()
+        self.session = _active_callback_session()
+        self.atoms = {}
+        self._keys = {}
+        self._symbols = []
+        self._nodes = []
+        self._work = 0
+        self.native, self.native_size, _ = self._lower(source, 0, set())
+        self.unchanged()
+
+    def _step(self, count=1):
+        self._work += count
+        if self._work > _MAX_BOOLEAN_NODES:
+            raise ValueError("Boolean source exceeds the node limit")
+        _charge_nested_if_active(count)
+
+    @staticmethod
+    def _admit_size(size, depth):
+        if size > _MAX_BOOLEAN_NODES or depth > _MAX_BOOLEAN_DEPTH:
+            raise ValueError("Boolean lowering exceeds the node or depth limit")
+
+    @staticmethod
+    def _facts(symbol):
+        for slot in _SYMBOL_SOURCE_SLOTS:
+            try:
+                value = slot.__get__(symbol)
+            except AttributeError:
+                continue
+            if value is not None:
+                raise ValueError("Boolean atom requires original scalar source storage")
+        facts = _SYMBOL_ASSUMPTIONS.__get__(symbol)
+        if (type(facts) is not dict or len(facts) > 64
+                or any(type(key) is not str or len(key) > 256 or type(value) is not bool
+                       for key, value in facts.items())):
+            raise ValueError("Boolean atom requires bounded original assumption facts")
+        return tuple(sorted(facts.items()))
+
+    def _atom(self, source):
+        if type(source) is str:
+            if len(source) > 4096:
+                raise ValueError("Boolean atom name exceeds the length limit")
+            source = Symbol(source)
+        native = _SYMBOL_VALUE.__get__(source)
+        if type(native) is not _native.Expr:
+            raise ValueError("Boolean atom requires an original native symbol")
+        binding = native.symbol_binding
+        if binding is None or len(binding.name) > 4096:
+            raise ValueError("Boolean atom requires a bounded native symbol binding")
+        facts = self._facts(source)
+        expected = _native.SymbolBinding(
+            binding.name, [(key, "True" if value else "False") for key, value in facts],
+        )
+        if (binding.plain != expected.plain
+                or facts and binding.identity_hex != expected.identity_hex):
+            raise ValueError("Boolean atom assumptions disagree with its native identity")
+        dummy = None
+        if type(source) is Dummy:
+            from ..core import _dummy_intern_name, _dummy_integer_index
+
+            name = _DUMMY_NAME.__get__(source)
+            number = _DUMMY_NUMBER.__get__(source)
+            if type(name) is not str or len(name) > 4096:
+                raise ValueError("Boolean Dummy requires its original name")
+            if _dummy_intern_name(name, _dummy_integer_index(number)) != binding.name:
+                raise ValueError("Boolean Dummy metadata disagrees with its native identity")
+            dummy = (name, number)
+        self._symbols.append((source, native, facts, dummy))
+        key = (type(source), binding.name, binding.identity_hex, facts)
+        token = self._keys.get(key)
+        if token is None:
+            if len(self.atoms) >= _MAX_BOOLEAN_ATOMS:
+                raise ValueError("Boolean source exceeds the atom limit")
+            token = f"fsym_boolean_atom_{len(self.atoms)}"
+            self._keys[key] = token
+            self.atoms[token] = source
+        return _native.BoolExpr.bool_var(token), 1, 0
+
+    def _lower(self, source, depth, active):
+        self._step()
+        self._admit_size(self._work, depth)
+        cls = type(source)
+        if source is true or source is True:
+            return _native.BoolExpr.bool_const(True), 1, 0
+        if source is false or source is False:
+            return _native.BoolExpr.bool_const(False), 1, 0
+        if cls is Symbol or cls is Dummy or cls is str:
+            return self._atom(source)
+        if not any(cls is owner for owner in _BOOLEAN_FUNCTIONS):
+            raise NotImplementedError("custom or opaque Boolean atoms require a supervised lane")
+        children = _BOOLEAN_ARGS.__get__(source)
+        if type(children) is not tuple:
+            raise ValueError("Boolean source requires original argument storage")
+        if (cls is Not and len(children) != 1
+                or cls is Implies and len(children) != 2
+                or cls is ITE and len(children) != 3):
+            raise ValueError("Boolean source has invalid operator arity")
+        self._admit_size(self._work + len(children), depth + 1)
+        if id(source) in active:
+            raise ValueError("cyclic Boolean source")
+        active.add(id(source))
+        self._nodes.append((source, children))
+        lowered = [self._lower(child, depth + 1, active) for child in children]
+        active.remove(id(source))
+        values = [item[0] for item in lowered]
+        size = 1 + sum(item[1] for item in lowered)
+        height = 1 + max((item[2] for item in lowered), default=-1)
+        if cls is ITE:
+            size += lowered[0][1] + 3
+            height += 2
+        elif cls is Equivalent and len(values) >= 2:
+            size = 1 + sum(1 + lowered[i-1][1] + lowered[i][1]
+                           for i in range(1, len(values)))
+            height += 1
+        elif cls is Xor or cls is Xnor:
+            size = (sum(item[1] for item in lowered) + 2 * (len(values)-1)
+                    if values else 1) + (cls is Xnor)
+            height += 2 * len(values).bit_length() + (cls is Xnor)
+        elif cls is Nand or cls is Nor:
+            size += 1
+            height += 1
+        self._admit_size(size, height)
+        self._step(size)
+        if cls is Not:
+            result = _native.BoolExpr.bool_not(values[0])
+        elif cls is And or cls is Nand:
+            result = _native.BoolExpr.bool_and(values)
+            if cls is Nand:
+                result = _native.BoolExpr.bool_not(result)
+        elif cls is Or or cls is Nor:
+            result = _native.BoolExpr.bool_or(values)
+            if cls is Nor:
+                result = _native.BoolExpr.bool_not(result)
+        elif cls is Implies:
+            result = _native.BoolExpr.bool_implies(*values)
+        elif cls is Equivalent:
+            result = _native.BoolExpr.bool_and([
+                _native.BoolExpr.bool_equivalent(values[i-1], values[i])
+                for i in range(1, len(values))
+            ])
+        elif cls is Xor or cls is Xnor:
+            # A balanced fold consumes every operand without linear nesting.
+            while len(values) > 1:
+                values = [_native.BoolExpr.bool_xor(values[i], values[i+1])
+                          if i+1 < len(values) else values[i]
+                          for i in range(0, len(values), 2)]
+            result = values[0] if values else _native.BoolExpr.bool_const(False)
+            if cls is Xnor:
+                result = _native.BoolExpr.bool_not(result)
+        else:
+            condition, left, right = values
+            result = _native.BoolExpr.bool_or([
+                _native.BoolExpr.bool_and([condition, left]),
+                _native.BoolExpr.bool_and([_native.BoolExpr.bool_not(condition), right]),
+            ])
+        return result, size, height
+
+    def unchanged(self):
+        _require_boolean_owners()
+        if _active_callback_session() is not self.session:
+            raise RuntimeError("Boolean request changed during evaluation")
+        _charge_nested_if_active(len(self._symbols) + len(self._nodes) + 1)
+        for source, children in self._nodes:
+            if _BOOLEAN_ARGS.__get__(source) is not children:
+                raise ValueError("Boolean source changed during evaluation")
+        for source, native, facts, dummy in self._symbols:
+            if _SYMBOL_VALUE.__get__(source) is not native or self._facts(source) != facts:
+                raise ValueError("Boolean atom changed during evaluation")
+            if dummy is not None and (
+                    _DUMMY_NAME.__get__(source) is not dummy[0]
+                    or _DUMMY_NUMBER.__get__(source) is not dummy[1]):
+                raise ValueError("Boolean Dummy changed during evaluation")
+
+    def lift_model(self, model):
+        self.unchanged()
+        if (type(model) is not dict or len(model) != len(self.atoms)
+                or any(type(token) is not str or token not in self.atoms
+                       or type(value) is not bool for token, value in model.items())):
+            raise RuntimeError("native Boolean model does not match the retained atom universe")
+        result = {atom: model[token] for token, atom in self.atoms.items()}
+        if len(result) != len(model):
+            raise RuntimeError("Boolean model lost an admitted atom during surface publication")
+        self.unchanged()
+        return result
+
+
+def _native_bool(expr: Any, request: _BooleanRequest) -> _native.BoolExpr:
+    """Lower with an explicit retained atom universe; no name-based fallback."""
+    result, _, _ = request._lower(expr, 0, set())
+    request.unchanged()
+    return result
+
+
+def _from_native_bool(nb: _native.BoolExpr, request: _BooleanRequest) -> Any:
+    """Lift only through the exact source owners of this Boolean request."""
+    request.unchanged()
     kind = nb.kind()
     if kind == "Const":
         return true if nb.const_value() else false
     if kind == "Var":
-        return Symbol(nb.var_name())
+        try:
+            return request.atoms[nb.var_name()]
+        except KeyError:
+            raise ValueError("native Boolean result contains an unknown atom") from None
     if kind == "Not":
         args = nb.args()
-        return Not(_from_native_bool(args[0]))
+        return Not(_from_native_bool(args[0], request))
     if kind == "And":
         args = nb.args()
-        return And(*[_from_native_bool(a) for a in args])
+        return And(*[_from_native_bool(a, request) for a in args])
     if kind == "Or":
         args = nb.args()
-        return Or(*[_from_native_bool(a) for a in args])
+        return Or(*[_from_native_bool(a, request) for a in args])
     if kind == "Implies":
         args = nb.args()
-        return Implies(_from_native_bool(args[0]), _from_native_bool(args[1]))
+        return Implies(_from_native_bool(args[0], request), _from_native_bool(args[1], request))
     if kind == "Equivalent":
         args = nb.args()
-        return Equivalent(*[_from_native_bool(a) for a in args])
+        return Equivalent(*[_from_native_bool(a, request) for a in args])
     raise ValueError(f"unknown BoolExpr kind: {kind}")
 
 

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..core import Symbol
-from .boolalg import _native_bool, false, true
+from ..core import Symbol, _charge_nested_if_active, _native
+from .boolalg import _BooleanRequest, _MAX_BOOLEAN_NODES, false, true
 
 
 def satisfiable(expr: Any, algorithm: Any = None, all_models: bool = False) -> Any:
@@ -22,47 +22,65 @@ def satisfiable(expr: Any, algorithm: Any = None, all_models: bool = False) -> A
         If all_models is True:
             A generator yielding dicts mapping Symbol to bool.
     """
-    from .boolalg import And, Not, Or
-
     if not all_models:
-        if expr is false or expr is False:
-            return False
-        if expr is true or expr is True:
-            return {}
-
-        nb = _native_bool(expr)
-        res = nb.satisfiable()
+        request = _BooleanRequest(expr)
+        res = request.native.satisfiable()
+        request.unchanged()
         if res is None:
             return False
-        return {Symbol(k): v for k, v in res.items()}
+        return request.lift_model(res)
 
     def _model_generator():
-        if expr is false or expr is False:
-            return
-        if expr is true or expr is True:
-            yield {}
-            return
-
-        cur_expr = expr
+        request = _BooleanRequest(expr)
+        blocked = []
+        blocked_size = 0
         while True:
-            nb = _native_bool(cur_expr)
+            # Preserve one source/atom universe for the whole enumeration.
+            # Re-lowering a growing surface formula both loses source owners
+            # and can observe changes to caller-owned nodes between yields.
+            request.unchanged()
+            size = 1 + request.native_size + blocked_size
+            if size > _MAX_BOOLEAN_NODES:
+                raise ValueError("Boolean model enumeration exceeds the formula limit")
+            _charge_nested_if_active(size)
+            nb = (_native.BoolExpr.bool_and([request.native, *blocked])
+                  if blocked else request.native)
             res = nb.satisfiable()
+            request.unchanged()
             if res is None:
                 break
-            model = {Symbol(k): v for k, v in res.items()}
+            model = request.lift_model(res)
+            # Save native assignments before yielding. Mutating a returned
+            # model must not change which assignment the next solve excludes.
+            assignment = tuple((token, res[token]) for token in request.atoms)
             yield model
-            blocking_literals = [Not(k) if v else k for k, v in model.items()]
-            if not blocking_literals:
+            request.unchanged()
+            if not assignment:
                 break
-            cur_expr = And(cur_expr, Or(*blocking_literals))
+            next_size = 1 + sum(2 if value else 1 for _, value in assignment)
+            if 1 + request.native_size + blocked_size + next_size > _MAX_BOOLEAN_NODES:
+                raise ValueError("Boolean model enumeration exceeds the formula limit")
+            _charge_nested_if_active(next_size)
+            literals = []
+            for token, value in assignment:
+                literal = _native.BoolExpr.bool_var(token)
+                literals.append(_native.BoolExpr.bool_not(literal) if value else literal)
+            blocked.append(_native.BoolExpr.bool_or(literals))
+            blocked_size += next_size
 
     return _model_generator()
 
 
 def valid(expr: Any) -> bool:
     """Check if a propositional formula is valid (a tautology)."""
-    from .boolalg import Not
-    return not satisfiable(Not(expr))
+    request = _BooleanRequest(expr)
+    # Negate the admitted native source, without consulting a custom surface
+    # Not subclass or reconstructing a changed argument owner.
+    result = _native.BoolExpr.bool_not(request.native).satisfiable()
+    request.unchanged()
+    # The satisfiable constant True has the valid empty assignment {}.
+    # Its falsey Python truth value is not an UNSAT result.
+    return result is None
 
 
 def pl_true(expr: Any, model: dict[Any, bool] | None = None) -> bool | None:
