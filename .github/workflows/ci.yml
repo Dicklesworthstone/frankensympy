@@ -129,6 +129,10 @@ jobs:
         with:
           cache-on-failure: true
       - run: python -m pip install --disable-pip-version-check pytest==8.4.2
+      - name: Independently checked integer column Hermite forms
+        run: |
+          cargo test --locked -p fsym-proof-kernel --test integer_hermite -j1
+          cargo test --locked -p fsym-matrices --test hermite_normal_form -j1
       - name: Original-source smooth absolute-value certificates
         run: cargo test --locked -p fsym-core --test abs_certification --test objective_enclosure --test root_box_general -j1
       - name: Exact rational polynomial partial evaluation

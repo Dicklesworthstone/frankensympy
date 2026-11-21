@@ -19,6 +19,7 @@ pub mod claim;
 pub mod elementary_rational_definite;
 pub mod groebner;
 pub mod hermitian_inertia;
+pub mod integer_hermite;
 pub mod integer_linear_system;
 pub mod integer_normal_form;
 pub mod kernel;

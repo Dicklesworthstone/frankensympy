@@ -247,7 +247,7 @@ fn dot(left: &Row, right: &Row, work: &mut Reference<'_, impl BudgetMeter>) -> R
     Ok(sum)
 }
 
-fn check_inverse_product(
+pub(super) fn check_inverse_product(
     left: &[Row],
     right: &[Row],
     work: &mut Reference<'_, impl BudgetMeter>,

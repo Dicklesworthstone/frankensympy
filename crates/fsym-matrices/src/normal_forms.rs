@@ -22,6 +22,11 @@ pub use integer_system::{
     IntegerLinearCandidate, IntegerMatrixRef, VerifiedIntegerLinearSystem,
     generate_integer_linear_candidate, metered_solve_integer, verify_integer_linear_candidate,
 };
+mod hermite;
+pub use hermite::{
+    HermiteNormalFormCandidate, VerifiedHermiteNormalForm, generate_hermite_normal_form_candidate,
+    verify_hermite_normal_form_candidate,
+};
 
 use crate::{Matrix, MatrixError, SparseMatrix};
 use fsym_budget::{BudgetError, BudgetMeter, Dimension, MeterError, Unbounded};
@@ -101,7 +106,7 @@ impl VerifiedSmithNormalForm {
 }
 
 fn limit(reason: &str) -> MatrixError {
-    MatrixError::ResourceLimit(format!("integer Smith normal form: {reason}"))
+    MatrixError::ResourceLimit(format!("integer normal form: {reason}"))
 }
 
 fn stopped(error: MeterError) -> MatrixError {
@@ -221,7 +226,9 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
         coefficient(left, MAX_INTEGER_SMITH_COEFFICIENT_BITS)?;
         coefficient(right, MAX_INTEGER_SMITH_COEFFICIENT_BITS)?;
         metered_div_rem(left, right, self).map_err(stopped)?.ok_or(
-            MatrixError::ArithmeticInvariantViolation("zero Smith pivot during Euclidean division"),
+            MatrixError::ArithmeticInvariantViolation(
+                "zero integer normal form pivot during Euclidean division",
+            ),
         )
     }
 }
