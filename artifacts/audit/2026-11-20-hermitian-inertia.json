@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "status": "native_feature_passed_public_integration_pending",
+  "base_commit": "041194d00d3687e6082afadbf25c54eb0f860ae8",
+  "feature": "Complete source-bound inertia of Gaussian-rational Hermitian forms",
+  "semantics": "Counts positive, negative and zero directions of Re(z* A z), equivalently (A+A*)/2; non-Hermitian A is not classified by its eigenvalues.",
+  "implementation": [
+    "Dense and sparse original exact expressions are admitted before zero or zeroth-power cancellation; independent verification rereads the original source.",
+    "Generator constructs the rational realification; independent kernel reconstructs it by canonical rows, checks existing block-LDL congruence and requires doubled sign counts.",
+    "Real and imaginary source commitments retain skew-Hermitian entries even though they do not affect the form.",
+    "Separate cumulative generator and verifier meters cover source interpretation, realification, rational inertia and publication."
+  ],
+  "bounds": {
+    "complex_dimension": 32,
+    "source_nodes": 16384,
+    "source_depth": 64,
+    "integer_power_magnitude": 64,
+    "input_coefficient_bits": 4096,
+    "intermediate_coefficient_bits": 8192,
+    "phase_steps": 20000000,
+    "phase_bytes": 268435456
+  },
+  "validation": {
+    "tests": {
+      "status": "passed",
+      "passed": 16,
+      "failed": 0,
+      "command": "cargo test -p fsym-proof-kernel -p fsym-matrices --test hermitian_inertia --locked",
+      "log": "artifacts/validation/2026-11-20-hermitian-inertia/native-tests.log"
+    },
+    "independent_corpora": {
+      "small_2x2_cases": 225,
+      "complex_congruences": 8
+    },
+    "negative_checks": [
+      "source substitution including skew part",
+      "sign/coordinate/congruence mutation",
+      "held undefined powers and foreign nodes",
+      "dimension and coefficient limits",
+      "phase separation and cumulative exhaustion",
+      "cancellation"
+    ],
+    "clippy": {
+      "status": "passed",
+      "command": "cargo clippy -p fsym-proof-kernel -p fsym-matrices --all-targets --locked -- -D warnings",
+      "log": "artifacts/validation/2026-11-20-hermitian-inertia/native-clippy.log"
+    },
+    "production_extension": "Fresh production build received SIGKILL while compiling pinned asupersync; no production extension or workspace pass is claimed.",
+    "public_api": "Python bridge and public tests are a separate in-progress integration; this commit exposes and verifies native APIs only.",
+    "broader_gates": "Workstreams and compatibility certification remain open; CI retains all existing gates and adds both native Hermitian suites.",
+    "formatting": "cargo fmt --package fsym-proof-kernel --package fsym-matrices -- --check passed; one semantics-preserving map-closure wrapping fix applied after native tests."
+  },
+  "source_sha256": {
+    "crates/fsym-proof-kernel/src/lib.rs": "363065b04ff7101c93da383df4f6470c9b3c82c79def8988e0f34d99fb0db933",
+    "crates/fsym-proof-kernel/src/hermitian_inertia.rs": "7fdfaaee7edc0c3044d2ced65c8fc69939258b0b60d5854dd203344eeec5bd1e",
+    "crates/fsym-proof-kernel/tests/hermitian_inertia.rs": "d127afdf3491c4d0e55a1f40f2ec4319f0b01ff5cd9bdfc4c3b894433a2cd16e",
+    "crates/fsym-matrices/src/lib.rs": "14e0cb224a64b8569cc007e37408e276f802c7d21a6a59a0072ecadf329eb32b",
+    "crates/fsym-matrices/src/hermitian_inertia.rs": "025f59ddf887ff0928095257d89c873f6f7cd2e610c256e8fb0adc39460330c7",
+    "crates/fsym-matrices/tests/hermitian_inertia.rs": "136e6534aa0b23fffd274f03038f53b9142388251f51a9b9480681c83f20e90f"
+  },
+  "log_sha256": {
+    "artifacts/validation/2026-11-20-hermitian-inertia/native-clippy.log": "52b0d6cb141d1ed0101f30cde16a1f7f87eec4d628687982e591abcd6931ed82",
+    "artifacts/validation/2026-11-20-hermitian-inertia/native-tests.log": "715fbc5d03dc099f088bb83d91ef0fa0a2afdff64591d2b93984ffdd15db0767"
+  },
+  "environment": {
+    "toolchain": "nightly-2026-08-20",
+    "CARGO_BUILD_JOBS": "1",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "MALLOC_ARENA_MAX": "1",
+    "RUSTFLAGS": "-D warnings -Zunstable-options --jobs-frontend=1 --jobs-backend=1",
+    "PYO3_PYTHON": "/workspace/scratch/13906caca569/fsym-test-py314/bin/python"
+  }
+}

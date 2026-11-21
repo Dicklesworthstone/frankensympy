@@ -42,6 +42,12 @@ pub use jordan::{
 };
 mod inertia;
 pub use inertia::{RationalInertiaCandidate, VerifiedRationalInertia};
+mod hermitian_inertia;
+pub use hermitian_inertia::{
+    HermitianInertiaCandidate, HermitianMatrixRef, VerifiedHermitianInertia,
+    generate_hermitian_inertia_candidate, metered_hermitian_inertia,
+    verify_hermitian_inertia_candidate,
+};
 mod normal_forms;
 pub use normal_forms::{
     IntegerLinearCandidate, IntegerMatrixRef, SmithNormalFormCandidate,

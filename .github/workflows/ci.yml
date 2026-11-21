@@ -148,6 +148,10 @@ jobs:
         run: |
           cargo test --locked -p fsym-proof-kernel --test rational_inertia -j1
           cargo test --locked -p fsym-matrices --test inertia -j1
+      - name: Source-bound Gaussian-rational Hermitian inertia
+        run: |
+          cargo test --locked -p fsym-proof-kernel --test hermitian_inertia -j1
+          cargo test --locked -p fsym-matrices --test hermitian_inertia -j1
       - name: Checked recursive polynomial pseudo-division
         run: cargo test --locked -p fsym-polys --test pseudo_division -j1
       - name: Normalized half-line transform identities
