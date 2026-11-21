@@ -1067,6 +1067,31 @@ a product is reduced, including with zero direction or weights. A shared
 completed callback effects remain observable if a later operation fails.
 Compilation and existing dense APIs retain their original admission limits.
 
+Exact built-in `Piecewise` expressions can retain custom callback branches and
+conditions. The hybrid compiler evaluates conditions in stored order, preserves
+short-circuit `And`/`Or`/`Not` behavior, and executes only the selected branch.
+An inactive callback or invalid numerical domain is never evaluated. Use held
+`Add`/`Mul`/`Pow` when composing an opaque Piecewise with other expressions;
+closed native algorithms continue to require a closed source.
+
+```python
+from sympy import Piecewise, compile_numeric_hybrid
+
+law = compile_numeric_hybrid(
+    x,
+    Piecewise((ConstitutiveLaw(x, evaluate=False), x > 0),
+              (0, True), evaluate=False),
+    callbacks={ConstitutiveLaw: lambda value: value*value},
+)
+assert law(3) == 9.0
+assert law(-3) == 0.0            # The callback is not invoked.
+```
+
+Every branch is checked during capture, including unreachable branches; this
+does not execute its callbacks. Missing matches raise an error. Solver trials
+may backtrack after a native domain failure only if the trial has not executed
+a callback; a failure after an effect remains terminal.
+
 Sum, product, power, and supported built-in chain rules compose
 around retained applications. An unknown custom derivative stays a formal
 `Derivative` of the original object; unresolved custom compositions do not yet

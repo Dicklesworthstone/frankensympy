@@ -17,6 +17,10 @@ from ..core import (
     _exact_surface_types, _known_functions, _native, _require_closed_function_class,
     _require_closed_native_function_tag, _symbol_binding, supervised_callback_session,
 )
+from ._piecewise_numeric import (
+    Piecewise as _Piecewise, branches as _piecewise_branches,
+    condition as _piecewise_condition,
+)
 from .lambdify import (
     _MAX_LITERAL_BITS, _MAX_NODES, _MAX_OUTPUTS, _MAX_VARIABLES,
     _argument_layout, _batch_arguments, _call_arguments, _charge,
@@ -97,10 +101,63 @@ def _native_operator(kind, payload, children):
     return _native.py_function(payload, *children)
 
 
+def _condition_value(condition):
+    """Return the native condition checker as a canonical zero/one value."""
+    return _native.py_function(
+        "Piecewise",
+        _native.py_function("Tuple", _native.py_rational(1, 1), condition),
+        _native.py_function("Tuple", _native.py_rational(0, 1), _native.Expr("True")),
+    )
+
+
+def _snapshot_condition(value, bindings, functions, count, depth, *, native_admission=None):
+    """Capture only closed Boolean syntax and retained arithmetic operands."""
+    _charge(count, depth)
+    tag, operands = _piecewise_condition(value, _MAX_NODES)
+    if tag == "True" or tag == "False":
+        return ("condition", tag, (), _native.Expr(tag))
+    if tag in ("And", "Or", "Not"):
+        children = tuple(
+            _snapshot_condition(child, bindings, functions, count, depth + 1,
+                                native_admission=native_admission)
+            for child in operands
+        )
+    else:
+        children = tuple(
+            _snapshot_source(child, bindings, functions, count, depth + 1,
+                             native_admission=native_admission)
+            for child in operands
+        )
+    closed = (_native.py_function(tag, *(child[3] for child in children))
+              if all(child[3] is not None for child in children) else None)
+    return ("condition", tag, children, closed)
+
+
 def _snapshot_source(value, bindings, functions, count, depth=0, *, native_admission=None):
     """Capture the actual surface tree before arranging any execution actions."""
     _charge(count, depth)
     cls = type(value)
+    if cls is _Piecewise:
+        captured = []
+        for branch, condition in _piecewise_branches(value, _MAX_NODES):
+            _charge(count, depth + 1)
+            guard = _snapshot_condition(
+                condition, bindings, functions, count, depth + 2,
+                native_admission=native_admission,
+            )
+            result = _snapshot_source(
+                branch, bindings, functions, count, depth + 2,
+                native_admission=native_admission,
+            )
+            captured.append((guard, result))
+        if all(guard[3] is not None and result[3] is not None for guard, result in captured):
+            return ("closed", None, (), _native.py_function(
+                "Piecewise", *(
+                    _native.py_function("Tuple", result[3], guard[3])
+                    for guard, result in captured
+                ),
+            ))
+        return ("piecewise", None, tuple(captured), None)
     intrinsic = next((spec[0] for builtin, spec in functions.items() if cls is builtin), None)
     if intrinsic is not None:
         _require_closed_function_class(cls)
@@ -172,6 +229,17 @@ def _snapshot_source(value, bindings, functions, count, depth=0, *, native_admis
     raise NotImplementedError("custom numerical nodes require an explicit exact-class callback binding")
 
 
+def _native_condition_source(source, bindings, functions, count, depth):
+    _charge(count, depth)
+    tag, operands = _piecewise_condition(source, _MAX_NODES)
+    if tag == "True" or tag == "False":
+        return _native.Expr(tag)
+    lower = _native_condition_source if tag in ("And", "Or", "Not") else _native_source
+    return _native.py_function(tag, *(
+        lower(child, bindings, functions, count, depth + 1) for child in operands
+    ))
+
+
 def _native_source(source, bindings, functions, count, depth):
     """Normalize closed native syntax without entering Python class lifting."""
     _charge(count, depth)
@@ -192,6 +260,16 @@ def _native_source(source, bindings, functions, count, depth):
             raise NotImplementedError(
                 "native-only custom function source has no retained exact Python class; use held surface forms"
             )
+        if name == "Piecewise":
+            pairs = []
+            for branch, condition in _piecewise_branches(source, _MAX_NODES):
+                _charge(count, depth + 1)
+                pairs.append(_native.py_function(
+                    "Tuple",
+                    _native_source(branch, bindings, functions, count, depth + 2),
+                    _native_condition_source(condition, bindings, functions, count, depth + 2),
+                ))
+            return _native.py_function("Piecewise", *pairs)
         if name == _FLOAT_INTERN:
             if len(children) != 1 or not children[0].is_integer:
                 raise ValueError("malformed floating literal in hybrid native source")
@@ -214,9 +292,10 @@ def _native_source(source, bindings, functions, count, depth):
     return _native_operator(kind, name, lowered)
 
 
-def _compile_graph(roots, variables):
+def _compile_graph(roots, variables, *, bindings=None):
     actions, callbacks = [], []
-    bindings = [_symbol_binding(variable) for variable in variables]
+    bindings = (tuple(_symbol_binding(variable) for variable in variables)
+                if bindings is None else tuple(bindings))
     operations = 0
 
     def native(source, coordinates):
@@ -227,8 +306,68 @@ def _compile_graph(roots, variables):
             raise ValueError("hybrid program exceeds the total native operation limit")
         return program
 
+    def append(action):
+        if len(actions) >= _MAX_GRAPH_ACTIONS:
+            raise ValueError("hybrid program exceeds the 4096-action limit")
+        result = len(actions)
+        actions.append(action)
+        return result
+
+    def join(transfers):
+        # The output is the final action of this entire expression. Residual
+        # consumers can therefore keep a complete prefix through that output.
+        result = append(("join", None, ()))
+        for position in transfers:
+            kind, payload, arguments = actions[position]
+            target = (payload, result) if kind == "short_circuit" else result
+            actions[position] = (kind, target, arguments)
+        return result
+
+    def emit_condition(tag, children, closed):
+        if closed is not None:
+            return append(("native_input", native(_condition_value(closed), bindings), ()))
+        if tag == "And" or tag == "Or":
+            transfers = []
+            for child in children[:-1]:
+                argument = emit(child)
+                transfers.append(append(("short_circuit", tag == "Or", (argument,))))
+            # An empty And/Or is closed and was handled by the native branch.
+            argument = emit(children[-1])
+            transfers.append(append(("branch_value", None, (argument,))))
+            return join(transfers)
+        arguments = tuple(emit(child) for child in children)
+        names = [f"__fsym_hybrid_condition_{index}" for index in range(len(arguments))]
+        coordinates = [_native.SymbolBinding(name) for name in names]
+        placeholders = [_native.py_symbol(name) for name in names]
+        condition = (
+            _native.py_function("Equality", placeholders[0], _native.py_rational(0, 1))
+            if tag == "Not" else _native.py_function(tag, *placeholders)
+        )
+        return append(("native_slots", native(_condition_value(condition), coordinates), arguments))
+
+    def emit_piecewise(branches):
+        transfers = []
+        pending = None
+        for condition, branch in branches:
+            start = len(actions)
+            if pending is not None:
+                kind, _, arguments = actions[pending]
+                actions[pending] = (kind, start, arguments)
+            guard = emit(condition)
+            pending = append(("branch_if_false", None, (guard,)))
+            value = emit(branch)
+            transfers.append(append(("branch_value", None, (value,))))
+        missing = append(("no_branch", None, ()))
+        kind, _, arguments = actions[pending]
+        actions[pending] = (kind, missing, arguments)
+        return join(transfers)
+
     def emit(node):
         kind, payload, children, closed = node
+        if kind == "condition":
+            return emit_condition(payload, children, closed)
+        if kind == "piecewise":
+            return emit_piecewise(children)
         if closed is not None:
             action = ("native_input", native(closed, bindings), ())
         elif kind == "callback":
@@ -251,11 +390,7 @@ def _compile_graph(roots, variables):
             if literal_power:
                 placeholders.append(children[1][3])
             action = ("native_slots", native(_native_operator(kind, payload, placeholders), coordinates), arguments)
-        if len(actions) >= _MAX_GRAPH_ACTIONS:
-            raise ValueError("hybrid program exceeds the 4096-action limit")
-        result = len(actions)
-        actions.append(action)
-        return result
+        return append(action)
 
     outputs = tuple(emit(root) for root in roots)
     return tuple(actions), outputs, tuple(callbacks), operations
@@ -371,7 +506,7 @@ class _HybridCallable:
 
     @property
     def native_fragment_count(self):
-        return sum(kind != "callback" for kind, _, _ in self._actions)
+        return sum(kind in ("native_input", "native_slots") for kind, _, _ in self._actions)
 
     def __reduce_ex__(self, protocol):
         raise TypeError("hybrid callback programs have no portable or pickle transport")
@@ -384,33 +519,70 @@ class _HybridCallable:
             raise ValueError("hybrid numerical inputs must be finite")
         _steps(budget, len(self._actions) + len(inputs) + 1)
         values = [None] * len(self._actions)
-        for index, (kind, payload, arguments) in enumerate(self._actions):
+
+        def reject_domain():
+            # Backtracking is legal only before this trial made any callback.
+            # A domain failure after an effect must never silently replay it.
+            if (not reject_native_domain or session.invocations != invocations_before
+                    or session.unknown_effect_tainted or session.cancelled):
+                return False
+            _session_ready(session)
+            _check_evaluation_budget(budget)
+            return True
+
+        index = 0
+        while index < len(self._actions):
+            kind, payload, arguments = self._actions[index]
             _session_ready(session)
             _check_evaluation_budget(budget)
             _steps(budget, len(arguments) + 1)
-            if kind == "callback":
+            if kind == "branch_if_false" or kind == "short_circuit":
+                value = values[arguments[0]]
+                if value not in (0.0, 1.0):
+                    raise ValueError("hybrid condition did not produce a Boolean value")
+                truth = value == 1.0
+                if kind == "branch_if_false":
+                    if not truth:
+                        index = payload
+                        continue
+                else:
+                    expected, target = payload
+                    if truth == expected:
+                        values[target] = value
+                        index = target + 1
+                        continue
+            elif kind == "branch_value":
+                values[payload] = values[arguments[0]]
+                index = payload + 1
+                continue
+            elif kind == "no_branch":
+                if reject_domain():
+                    return None
+                raise ValueError("no Piecewise condition is true at the supplied point")
+            elif kind == "join":
+                raise RuntimeError("hybrid branch reached an unassigned result")
+            elif kind == "callback":
                 slot, callback = payload
                 supplied = tuple(values[position] for position in arguments)
                 values[index] = session.invoke_fresh(
                     "numeric_callback", f"slot-{slot}", len(supplied) + 1,
                     lambda *args: _callback_value(callback, args, budget), supplied,
                 )
-            else:
+            elif kind == "native_input" or kind == "native_slots":
                 supplied = inputs if kind == "native_input" else [values[position] for position in arguments]
                 session.charge_nested_steps(payload.operation_count + len(supplied) + 1)
                 try:
                     evaluated = payload.evaluate(supplied, budget=budget)
                 except ValueError:
-                    # Only a closed native fragment can reject a solver trial
-                    # that has executed no callbacks. Admission and callback exceptions
-                    # stay outside this handler, including their ValueErrors.
-                    if (not reject_native_domain or session.invocations != invocations_before
-                            or session.unknown_effect_tainted or session.cancelled):
+                    # Admission and callback exceptions stay outside this
+                    # handler, including their ValueErrors.
+                    if not reject_domain():
                         raise
-                    _session_ready(session)
-                    _check_evaluation_budget(budget)
                     return None
                 values[index] = evaluated[0]
+            else:
+                raise RuntimeError("unknown hybrid graph action")
+            index += 1
         _session_ready(session)
         _check_evaluation_budget(budget)
         _steps(budget, len(self._outputs) + 1)
@@ -460,6 +632,15 @@ def compile_numeric_hybrid(args, expression, *, callbacks):
     Custom nodes must retain their original surface children: use explicit
     held Add/Mul/Pow forms when composing them. Native-only custom names cannot
     recover exact Python class identity and refuse. Matrices are snapshotted.
+
+    Exact built-in Piecewise expressions retain their stored branch order.
+    Conditions support finite-real comparisons and short-circuit And/Or/Not,
+    including arithmetic operands with explicit callbacks. Only visited guards
+    and the selected branch execute; unselected effects and domains are left
+    untouched. Repeated active occurrences retain separate callback slots.
+    No matching branch raises ValueError. Custom or symbolic Boolean guards
+    have no implicit coercion. Compilation admits every stored branch under
+    the same limits without executing any callback, including unused branches.
 
     An explicit or active ``SupervisedCallbackSession`` owns every callback,
     including nested calls; otherwise one session is created per invocation

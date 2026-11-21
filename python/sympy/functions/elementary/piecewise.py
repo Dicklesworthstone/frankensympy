@@ -195,13 +195,16 @@ class Piecewise(Function):
     @classmethod
     def _build(cls, branches: list) -> "Piecewise":
         from ...core import _native, _native_expr
+        from ...core._opaque_arithmetic import contains_opaque
 
         conditions = tuple(_cond_native(branch.cond) for branch in branches)
         obj = object.__new__(cls)
-        # Retain valid symbolic Boolean inputs that have no closed native
-        # condition identity. Existing surface arithmetic keeps these exact
-        # objects and refuses algorithms that require a closed native source.
-        if any(condition is None for condition in conditions):
+        # Retain opaque branch expressions as well as symbolic conditions.
+        # Neither a custom Function class nor its Python-owned children can
+        # be recovered from a native name. Closed numerical paths still
+        # refuse this surface; the supervised hybrid path captures it directly.
+        if (any(condition is None for condition in conditions)
+                or any(contains_opaque(branch.expr) for branch in branches)):
             obj._value = None
             Function.__dict__["_args"].__set__(obj, tuple(branches))
         else:

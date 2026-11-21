@@ -481,27 +481,70 @@ def _admit_application(value):
 
 def _admit_source(values, *, check_identity):
     values = tuple(values)
-    pending, seen = list(values), set()
+    pending = [(value, "value", 0, False) for value in values]
+    seen, active = set(), set()
+    work = 0
+    piecewise_syntax = None
     held_fourier = False
     while pending:
-        node = pending.pop()
-        if id(node) in seen:
+        node, role, depth, leaving = pending.pop()
+        identity = (id(node), role)
+        if leaving:
+            active.remove(identity)
+            seen.add(identity)
             continue
-        seen.add(id(node))
-        cls = type(node)
-        if not _subclass(cls, Basic):
-            raise NotImplementedError("opaque arithmetic requires symbolic surface arguments")
-        if _subclass(cls, Function):
-            if check_identity:
-                _admit_application(node)
-        elif _admit_held_fourier(node):
-            held_fourier = True
-        elif not any(cls is builtin for builtin in _exact_surface_types()):
-            raise NotImplementedError(
-                "custom symbolic subclasses require a supervised Python override lane; "
-                "the native fast path accepts exact built-in classes only"
-            )
-        pending.extend(stored_args(node) or ())
+        work += 1
+        if work > _MAX_NODES or depth > _MAX_DEPTH:
+            raise ValueError("retained symbolic graph exceeds the arithmetic limit")
+        if identity in active:
+            raise ValueError("cyclic retained symbolic graph")
+        if identity in seen:
+            continue
+        if role == "condition":
+            # Only a retained Piecewise grants this syntactic position.
+            # The checked reader preserves exact Boolean/relational owners
+            # and never invokes truth conversion, public operands or hooks.
+            tag, operands = piecewise_syntax.condition(node, _MAX_NODES)
+            child_role = "condition" if tag in ("And", "Or", "Not") else "value"
+            children = tuple((child, child_role) for child in operands)
+        else:
+            cls = type(node)
+            if not _subclass(cls, Basic):
+                raise NotImplementedError("opaque arithmetic requires symbolic surface arguments")
+            if _subclass(cls, Function):
+                if check_identity:
+                    _admit_application(node)
+            elif _admit_held_fourier(node):
+                held_fourier = True
+            elif not any(cls is builtin for builtin in _exact_surface_types()):
+                raise NotImplementedError(
+                    "custom symbolic subclasses require a supervised Python override lane; "
+                    "the native fast path accepts exact built-in classes only"
+                )
+            if not check_identity and cls is _known_functions.get("Piecewise"):
+                # Held arithmetic retains the entire original node. Traverse
+                # the same authoritative pair slot used by numerical capture,
+                # rather than globally admitting ExprCondPair/Boolean objects.
+                # Canonical normalization keeps its conservative refusal until
+                # its structural identity keys support this complete syntax.
+                if piecewise_syntax is None:
+                    from ..utilities import _piecewise_numeric as piecewise_syntax
+                children = tuple(
+                    child
+                    for expression, condition in piecewise_syntax.branches(node, _MAX_NODES)
+                    for child in ((expression, "value"), (condition, "condition"))
+                )
+            else:
+                children = tuple((child, "value") for child in (stored_args(node) or ()))
+        if len(children) > _MAX_NODES - work - len(pending):
+            raise ValueError("retained symbolic graph exceeds the argument limit")
+        if children:
+            active.add(identity)
+            pending.append((node, role, depth, True))
+            pending.extend((child, child_role, depth + 1, False)
+                           for child, child_role in reversed(children))
+        else:
+            seen.add(identity)
     if held_fourier and check_identity:
         # Slotting a scalar transform also normalizes its sibling operands.
         # Admit the entire operation before a noncommutative factor can lose

@@ -516,7 +516,7 @@ def compile_hybrid_residual_system(residuals, args, *, jacobian, callbacks):
     prefix = actions[:outputs[rows - 1] + 1]
     callback_count = sum(kind == "callback" for kind, _, _ in prefix)
     residual_operations = sum(payload.operation_count for kind, payload, _ in prefix
-                              if kind != "callback")
+                              if kind in ("native_input", "native_slots"))
     residual_program = _HybridCallable(
         layout, residual_shape, variables, prefix, outputs[:rows],
         slots[:callback_count], residual_operations,
