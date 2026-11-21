@@ -8,7 +8,7 @@ use fsym_budget::{BudgetError, BudgetMeter, DIMENSION_COUNT, MeterError};
 use fsym_core::{BigInt, BigRational, Constant, Expr};
 use fsym_matrices::{
     Matrix, MatrixError, MatrixExponentialError, RationalLinearSolution, SparseMatrix,
-    VerifiedRationalInertia, VerifiedSmithNormalForm,
+    VerifiedHermitianInertia, VerifiedRationalInertia, VerifiedSmithNormalForm,
 };
 use fsym_proof_kernel::integer_normal_form::IntegerSmithWitness;
 use fsym_proof_kernel::sparse_rref::RationalSparseMatrix;
@@ -114,6 +114,31 @@ fn checked_inertia_counts(
     let checked = result.map_err(matrix_err)?;
     let receipt = checked.receipt();
     Ok((receipt.positive(), receipt.negative(), receipt.zero()))
+}
+
+fn checked_hermitian_inertia_counts(
+    result: Result<VerifiedHermitianInertia, MatrixError>,
+    mut generator: InertiaRequestMeter<'_, '_>,
+    mut verifier: InertiaRequestMeter<'_, '_>,
+) -> PyResult<(usize, usize, usize)> {
+    let output = (|| {
+        let checked = result.map_err(matrix_err)?;
+        // Keep publication on the same caller-owned ledger as source
+        // interpretation, candidate generation and independent verification.
+        // Only these three bounded counts cross the Python boundary.
+        generator
+            .charge(Dimension::ComputeSteps, 1)
+            .map_err(to_value_error)?;
+        verifier.checkpoint().map_err(to_value_error)?;
+        let receipt = checked.receipt();
+        Ok((receipt.positive(), receipt.negative(), receipt.zero()))
+    })();
+    // The native meter reports cancellation to stop work after any session
+    // refusal. Preserve its original budget/cancellation/ownership exception.
+    match generator.failure.or(verifier.failure) {
+        Some(error) => Err(error),
+        None => output,
+    }
 }
 
 /// Keep two private envelopes through output lifting while both phases debit
@@ -375,6 +400,18 @@ fn matrix_err(err: MatrixError) -> PyErr {
         MatrixError::SingularMatrix => PyValueError::new_err("Matrix is singular"),
         MatrixError::DivisionByZero => PyValueError::new_err("Exact matrix division by zero"),
         other => PyValueError::new_err(other.to_string()),
+    }
+}
+
+fn hermitian_source_err(error: MatrixError) -> PyErr {
+    match error {
+        MatrixError::UnsupportedCertificateDomain => PyNotImplementedError::new_err(
+            "Hermitian inertia requires rational/I arithmetic with bounded integer powers",
+        ),
+        MatrixError::DivisionByZero => {
+            PyZeroDivisionError::new_err("Hermitian inertia source contains division by zero")
+        }
+        error => matrix_err(error),
     }
 }
 
@@ -718,6 +755,24 @@ impl PyMatrix {
             .map_err(matrix_err)
     }
 
+    /// Interpret bounded original Gaussian-rational cells before shell copies.
+    #[pyo3(signature = (*, session=None))]
+    pub fn validate_hermitian_inertia_source(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<()> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = self
+            .inner
+            .validate_hermitian_inertia_source_with_meter(&mut meter)
+            .map_err(hermitian_source_err);
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
+    }
+
     /// Borrowed integer admission before any public source copying.
     pub fn validate_integer_normal_form_source(&self) -> PyResult<()> {
         self.inner
@@ -785,6 +840,22 @@ impl PyMatrix {
             .inner
             .inertia_with_meters(&mut generator, &mut verifier);
         checked_inertia_counts(result, generator, verifier)
+    }
+
+    /// Complete checked signs of Re(z* A z) for exact Gaussian-rational A.
+    /// Non-Hermitian input is classified by its Hermitian part, not its spectrum.
+    #[pyo3(signature = (*, session=None))]
+    pub fn hermitian_form_inertia(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<(usize, usize, usize)> {
+        let mut generator = InertiaRequestMeter::new(py, session.as_deref());
+        let mut verifier = InertiaRequestMeter::new(py, session.as_deref());
+        let result = self
+            .inner
+            .hermitian_inertia_with_meters(&mut generator, &mut verifier);
+        checked_hermitian_inertia_counts(result, generator, verifier)
     }
 
     /// Ascending coefficients of the checked monic minimal polynomial over QQ.
@@ -1545,6 +1616,24 @@ impl PySparseMatrix {
             .map_err(matrix_err)
     }
 
+    /// Interpret bounded original sparse Gaussian-rational cells before copying.
+    #[pyo3(signature = (*, session=None))]
+    pub fn validate_hermitian_inertia_source(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<()> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = self
+            .inner
+            .validate_hermitian_inertia_source_with_meter(&mut meter)
+            .map_err(hermitian_source_err);
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
+    }
+
     /// Borrowed integer admission before any public sparse source copying.
     pub fn validate_integer_normal_form_source(&self) -> PyResult<()> {
         self.inner
@@ -1612,6 +1701,21 @@ impl PySparseMatrix {
             .inner
             .inertia_with_meters(&mut generator, &mut verifier);
         checked_inertia_counts(result, generator, verifier)
+    }
+
+    /// Complete checked Hermitian-part inertia, retaining original sparse cells.
+    #[pyo3(signature = (*, session=None))]
+    pub fn hermitian_form_inertia(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<(usize, usize, usize)> {
+        let mut generator = InertiaRequestMeter::new(py, session.as_deref());
+        let mut verifier = InertiaRequestMeter::new(py, session.as_deref());
+        let result = self
+            .inner
+            .hermitian_inertia_with_meters(&mut generator, &mut verifier);
+        checked_hermitian_inertia_counts(result, generator, verifier)
     }
 
     /// Unique exact rational solution, retaining sparse inputs and outputs.
