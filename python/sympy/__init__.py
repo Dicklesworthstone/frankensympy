@@ -743,6 +743,10 @@ def solveset(expression, variable=None, domain=None):
     elementary = solve_elementary_real(expression, variable, domain)
     if elementary is not None:
         return elementary
+    from .solvers._radical_real import solve_radical_real
+    radical = solve_radical_real(expression, variable, domain)
+    if radical is not None:
+        return radical
     # Restricted real domains use the same complete rational root engine as
     # Reals, retaining original equation holes before ordinary subtraction.
     # Domain filtering uses checked algebraic order, never floating roots.
