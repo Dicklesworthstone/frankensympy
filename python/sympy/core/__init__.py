@@ -18,6 +18,7 @@ import threading
 import weakref
 from collections import OrderedDict
 from fractions import Fraction
+from functools import lru_cache
 from typing import Any, Iterable
 
 # The Python str printer recurses ~3 frames per nesting level and admissible
@@ -1736,7 +1737,8 @@ def _num_facts(e: Any, depth: int = 0) -> dict:
         rational = get("rational")
         if integer:
             rational = True
-        out.update(integer=integer, rational=rational, even=even, odd=odd)
+        out.update(integer=integer, rational=rational, even=even, odd=odd,
+                   irrational=get("irrational"), imaginary=get("imaginary"))
         if integer is True and even is None and odd is True:
             out["even"] = False
         if integer is True and odd is None and even is True:
@@ -3282,6 +3284,27 @@ class AtomicExpr(Expr, Atom):
 _SYMBOL_CACHE: dict[tuple, "Symbol"] = {}
 
 
+@lru_cache(maxsize=256)
+def _closed_symbol_assumptions(declarations: tuple) -> tuple:
+    """Deduce scalar properties separately from a symbol's typed identity.
+
+    The constructor closure already used for undefined functions preserves
+    signed declarations and Python's finite/real/parity partitions. Native
+    positive-only queries lose negative premises and use a different meaning
+    of finite/nonzero. Retain the declaration as the cache key, never the
+    printed symbol name or an ambient assumptions context. Immutable results
+    cannot mutate the original declarations or another symbol's closure.
+    """
+    if not declarations:
+        return ()
+    try:
+        return tuple(_function_assumption_closure(dict(declarations)).items())
+    except ValueError as exc:
+        if str(exc) == "inconsistent undefined-function assumptions":
+            raise ValueError("inconsistent symbol assumptions") from exc
+        raise
+
+
 class Symbol(AtomicExpr):
     __slots__ = ("_assumptions",)
 
@@ -3318,11 +3341,15 @@ class Symbol(AtomicExpr):
         # equivalent spellings share one atom, one identity digest, and one
         # answer on the assumption properties (pinned oracle: Symbol('x',
         # positive=1).is_positive is True, not 1).
-        self._assumptions = {
+        declarations = {
             k: _canonical_assumption_value(v)
             for k, v in assumptions.items()
             if v is not None
         }
+        # Reject contradictions before creating a native handle or publishing
+        # a cached/liftable atom. Derived facts must not change its identity.
+        _closed_symbol_assumptions(tuple(sorted(declarations.items())))
+        self._assumptions = declarations
         # The native handle carries the typed identity, so arithmetic built
         # from this symbol keeps its declared assumptions instead of silently
         # lowering to a plain same-name atom.
@@ -3341,28 +3368,13 @@ class Symbol(AtomicExpr):
         return str(self)
 
     def _get_assumption(self, key: str) -> bool | None:
-        val = self._assumptions.get(key)
-        if val is not None:
-            return val
-        if key in ("real", "zero", "nonzero", "positive", "negative", "nonnegative", "nonpositive"):
-            # The signed scalar closure already handles the nonreal
-            # partition and rejects conflicting declarations. "Imaginary"
-            # is not a predicate in the native real-assumption roster.
-            if self._assumptions.get("real") is False or self._assumptions.get("imaginary") is True:
-                try:
-                    return _function_assumption_closure(self._assumptions).get(key)
-                except ValueError as exc:
-                    if str(exc) == "inconsistent undefined-function assumptions":
-                        raise ValueError("inconsistent symbol assumptions") from exc
-                    raise
-        if self._assumptions and _native is not None and hasattr(_native, "ask_expr"):
-            facts = [(self.name, k) for k, v in self._assumptions.items() if v is True]
-            if facts:
-                # The deductive lane stays name-keyed: the native assumption
-                # engine declares facts per printed name, so the query symbol
-                # must be the plain atom those facts describe, not the
-                # identity-bearing atom used for arithmetic.
-                return _native.ask_expr(_native.py_symbol(self.name), key, facts)
+        declarations = self._assumptions
+        _charge_nested_if_active(len(declarations) + 1)
+        # A declaration snapshot also prevents a previously cached answer
+        # from hiding a later inconsistent mutation of this private mapping.
+        for name, value in _closed_symbol_assumptions(tuple(sorted(declarations.items()))):
+            if name == key:
+                return value
         return None
 
     @property
@@ -3408,6 +3420,15 @@ class Symbol(AtomicExpr):
     @property
     def is_prime(self) -> bool | None:
         return self._get_assumption("prime")
+
+    @property
+    def is_composite(self) -> bool | None:
+        return self._get_assumption("composite")
+
+    @property
+    def is_commutative(self) -> bool:
+        value = self._get_assumption("commutative")
+        return True if value is None else value
 
     @property
     def is_nonnegative(self) -> bool | None:
@@ -3467,12 +3488,14 @@ class Dummy(Symbol):
                   else _dummy_integer_index(dummy_index))
         self._dummy_name = name
         self._dummy_number = number if dummy_index is None else dummy_index
-        self._assumptions = {
+        declarations = {
             key: _canonical_assumption_value(value)
             for key, value in assumptions.items()
             if value is not None
         }
-        _require_supported_dummy_assumptions(self._assumptions)
+        _require_supported_dummy_assumptions(declarations)
+        _closed_symbol_assumptions(tuple(sorted(declarations.items())))
+        self._assumptions = declarations
         self._value = _native.py_symbol(
             _dummy_intern_name(name, number), list(_assumption_facts(self))
         )
@@ -3501,12 +3524,14 @@ class Dummy(Symbol):
         dummy = object.__new__(cls)
         dummy._dummy_name = name
         dummy._dummy_number = number
-        dummy._assumptions = {
+        declarations = {
             key: _canonical_assumption_value(fact)
             for key, fact in assumptions
             if fact is not None
         }
-        _require_supported_dummy_assumptions(dummy._assumptions)
+        _require_supported_dummy_assumptions(declarations)
+        _closed_symbol_assumptions(tuple(sorted(declarations.items())))
+        dummy._assumptions = declarations
         native_number = _dummy_integer_index(number)
         dummy._value = (
             value if value is not None else _native.py_symbol(

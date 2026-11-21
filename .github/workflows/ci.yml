@@ -311,6 +311,7 @@ jobs:
               "python/tests/test_checksol_domains.py",
               "python/tests/test_set_membership.py",
               "python/tests/test_assumptions_soundness.py",
+              "python/tests/test_symbol_assumption_closure.py",
               "python/tests/test_solve_assumptions.py",
               "python/tests/test_checkodesol_rational_residuals.py",
               "python/tests/test_ode_auxiliary_identity.py",
