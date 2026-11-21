@@ -7,12 +7,13 @@
 //! caller only after the complete root count proves that every root is real.
 
 use crate::expr::PyExpr;
+use crate::ideal_operations::lift_basis;
 use crate::{extract_symbol_arg, rational_to_expr, to_value_error};
 use fsym_core::{BigRational, Expr, Symbol};
 use fsym_matrices::{Matrix, RationalLinearSolution};
 use fsym_polys::{
-    MultivariatePoly, RationalSystemAdmission, bounded_polynomial_from_expr,
-    metered_localize_rational_system,
+    MultivariatePoly, RationalSystemAdmission, VerifiedRationalSource,
+    bounded_polynomial_from_expr, metered_localize_rational_system, metered_rational_source,
 };
 use fsym_runtime::{Budget, BudgetLimits, Dimension};
 use fsym_solvers::SolverError;
@@ -212,6 +213,28 @@ pub fn polynomial_system_solutions_native(
     vars: Vec<Bound<'_, PyAny>>,
     allow_families: bool,
 ) -> PyResult<PyPolynomialSystemResult> {
+    system_request(eqs, vars, allow_families, false)
+}
+
+/// Candidate roots for the public solve compatibility lane. Every original
+/// rational source is independently admitted before clearing denominators.
+/// Completeness applies to the resulting numerator system, not its original
+/// domain: solve's source checker must filter the candidates unless the caller
+/// explicitly requested check=False. The polynomial-only API remains separate.
+#[pyfunction]
+pub fn solve_source_system_candidates_native(
+    eqs: Vec<PyExpr>,
+    vars: Vec<Bound<'_, PyAny>>,
+) -> PyResult<PyPolynomialSystemResult> {
+    system_request(eqs, vars, false, true)
+}
+
+fn system_request(
+    eqs: Vec<PyExpr>,
+    vars: Vec<Bound<'_, PyAny>>,
+    allow_families: bool,
+    source_candidates: bool,
+) -> PyResult<PyPolynomialSystemResult> {
     if vars.is_empty() || vars.len() > 8 || eqs.len() > 64 {
         return Err(PyValueError::new_err(
             "polynomial systems require 1..8 variables and at most 64 equations",
@@ -234,6 +257,68 @@ pub fn polynomial_system_solutions_native(
     // Bind and bound the ring even when the equation list is empty.
     bounded_polynomial_from_expr(&Expr::from_i64(0), &variables, &mut generator)
         .map_err(to_value_error)?;
+    if source_candidates {
+        // Admit the complete original collection before zero, inconsistency,
+        // or finite-system shortcuts. There is one pair of cumulative meters
+        // for source replay, lifting and the complete candidate-root search.
+        charge(
+            &mut generator,
+            expressions.len(),
+            expressions.len() * std::mem::size_of::<VerifiedRationalSource>(),
+        )?;
+        let originals = expressions
+            .iter()
+            .map(|expression| {
+                metered_rational_source(expression, &variables, &mut generator, &mut verifier)
+                    .map_err(to_value_error)
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        let ring_bytes = variables.iter().map(|symbol| symbol.name.len() + 128).sum();
+        charge(
+            &mut generator,
+            originals.len(),
+            originals.len() * std::mem::size_of::<Expr>(),
+        )?;
+        let mut numerators = Vec::with_capacity(originals.len());
+        for original in &originals {
+            let polynomial = &original.fraction().numerator;
+            let expression = lift_basis(
+                std::slice::from_ref(polynomial),
+                ring_bytes,
+                &mut generator,
+                &mut verifier,
+            )?
+            .pop()
+            .ok_or_else(|| PyValueError::new_err("missing checked source numerator"))?
+            .inner;
+            let replay = bounded_polynomial_from_expr(&expression, &variables, &mut verifier)
+                .map_err(to_value_error)?;
+            let comparison_work = polynomial
+                .terms()
+                .iter()
+                .map(|(powers, coefficient)| {
+                    powers.len()
+                        + coefficient.numer().limb_count() as usize
+                        + coefficient.denom().limb_count() as usize
+                        + 1
+                })
+                .sum();
+            charge(&mut verifier, comparison_work, 0)?;
+            if replay.terms() != polynomial.terms() {
+                return Err(PyValueError::new_err(
+                    "source-system numerator lifting changed an exact coefficient",
+                ));
+            }
+            numerators.push(expression);
+        }
+        return finite_solutions(
+            &numerators,
+            &variables,
+            variables.len(),
+            &mut generator,
+            &mut verifier,
+        );
+    }
     if allow_families {
         match metered_localize_rational_system(
             &expressions,

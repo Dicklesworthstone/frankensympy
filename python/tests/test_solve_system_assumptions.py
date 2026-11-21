@@ -158,7 +158,7 @@ def test_check_false_does_not_invoke_system_or_scalar_admission(path, monkeypatc
 ])
 def test_solved_coordinate_mutation_is_detected_even_after_empty_generation(path, empty, monkeypatch):
     module = importlib.import_module("sympy.solvers." + ("solvers" if path == "linear" else "polysys"))
-    name = "linsolve" if path == "linear" else "solve_poly_system"
+    name = "linsolve" if path == "linear" else "_solve_source_system"
     original = getattr(module, name)
     x = s.Symbol("system_mutated_declared", positive=True)
     y = s.Symbol("system_mutated_other")
@@ -194,7 +194,7 @@ def test_admission_failure_never_retries_as_a_polynomial_system(scalar, monkeypa
         raise AssertionError("an admitted linear result must not restart another solver")
 
     monkeypatch.setattr(query.QueryProblem, "answer", exhausted)
-    monkeypatch.setattr(polysys, "solve_poly_system", forbidden)
+    monkeypatch.setattr(polysys, "_solve_source_system", forbidden)
     source = x-y if scalar else [x-y]
     with pytest.raises(ValueError) as caught:
         s.solve(source, x, y)

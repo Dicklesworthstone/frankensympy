@@ -25,7 +25,7 @@ from ..core import (
 from ..sets import EmptySet, FiniteSet, Set
 
 
-def _polynomial_source(item):
+def _polynomial_source(item, *, source_denominators=None):
     """Preserve the original exact surface until native system admission.
 
     In particular a held zero product or Eq must not erase an unsupported
@@ -50,13 +50,19 @@ def _polynomial_source(item):
         children = node.args
         if len(children) > 4096 - visited - len(pending):
             raise ValueError("polynomial-system source exceeds its bounded envelope")
+        if (source_denominators is not None and kind is Pow and len(children) == 2
+                and type(children[1]) in (Integer, Zero, One, NegativeOne)
+                and children[1].p < 0):
+            # A routing hint only: native admission still checks every original
+            # source, including powers hidden behind an earlier nonlinear term.
+            source_denominators[0] = True
         pending.extend((child, depth + 1) for child in children)
     if type(item) is Eq:
         item = Add(item.lhs, Mul(-1, item.rhs, evaluate=False), evaluate=False)
     return item
 
 
-def _polynomial_system_inputs(seq, gens):
+def _polynomial_system_inputs(seq, gens, *, source_denominators=None):
     """Bound source collection and preserve the caller's typed generator order."""
     if len(gens) == 1 and isinstance(gens[0], (list, tuple)):
         var_list = list(gens[0])
@@ -69,7 +75,9 @@ def _polynomial_system_inputs(seq, gens):
     for item in seq:
         if len(wrapped_eqs) == 64:
             raise ValueError("polynomial systems support at most 64 equations")
-        wrapped_eqs.append(_polynomial_source(item))
+        wrapped_eqs.append(_polynomial_source(
+            item, source_denominators=source_denominators,
+        ))
 
     if not var_list:
         all_syms = set()
@@ -88,7 +96,8 @@ def _polynomial_system_inputs(seq, gens):
     return wrapped_eqs, syms
 
 
-def _checked_polynomial_solutions(wrapped_eqs, syms, *, allow_families):
+def _checked_polynomial_solutions(wrapped_eqs, syms, *, allow_families,
+                                  source_candidates=False):
     """Lift one native outcome without restarting a failed algorithm's budget."""
     if not syms:
         # Validate constant sources through the same bounded native path.
@@ -97,11 +106,14 @@ def _checked_polynomial_solutions(wrapped_eqs, syms, *, allow_families):
         syms = [Dummy("_fsym_constant_system")]
         allow_families = False
     try:
-        result = _native.polynomial_system_solutions_native(
-            [_native_expr(eq) for eq in wrapped_eqs],
-            [_symbol_binding(v) for v in syms],
-            allow_families,
-        )
+        expressions = [_native_expr(eq) for eq in wrapped_eqs]
+        bindings = [_symbol_binding(v) for v in syms]
+        if source_candidates:
+            result = _native.solve_source_system_candidates_native(expressions, bindings)
+        else:
+            result = _native.polynomial_system_solutions_native(
+                expressions, bindings, allow_families,
+            )
     except ValueError as e:
         msg = str(e)
         if "No solution" in msg:
@@ -203,6 +215,25 @@ def solve_poly_system(
     """
     wrapped_eqs, syms = _polynomial_system_inputs(seq, gens)
     return _checked_polynomial_solutions(wrapped_eqs, syms, allow_families=False) or None
+
+
+def _solve_source_system(seq, *gens):
+    """Generate finite solve candidates without erasing original source admission.
+
+    The public solve request owns the original-domain filter and check=False
+    policy. This private route admits every held exact source before clearing
+    its denominator; it never extends solve_poly_system's polynomial contract.
+    """
+    source_denominators = [False]
+    wrapped_eqs, syms = _polynomial_system_inputs(
+        seq, gens, source_denominators=source_denominators,
+    )
+    # Classify only after the complete original collection has been admitted.
+    # Polynomial inputs retain their existing native path and budget envelope.
+    return _checked_polynomial_solutions(
+        wrapped_eqs, syms, allow_families=False,
+        source_candidates=source_denominators[0],
+    ) or None
 
 
 def nonlinsolve(system: Iterable[Any], *symbols: Any) -> Set:

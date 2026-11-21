@@ -81,7 +81,7 @@ class SolveOriginalSourceDomainTests(unittest.TestCase):
                 with self.assertRaisesRegex(NotImplementedError, "original denominator"):
                     s.linsolve(equations, *variables)
 
-    def test_denominator_dispatch_preserves_sources_for_checked_polynomial_admission(self):
+    def test_denominator_dispatch_preserves_sources_for_candidate_admission(self):
         x, y = self.x, self.y
         source = self.equation_with_pole(x, x*(x-1))
         module = importlib.import_module("sympy.solvers.polysys")
@@ -98,9 +98,75 @@ class SolveOriginalSourceDomainTests(unittest.TestCase):
                         self.assertIs(equations, system)
                     return rows
 
-                with patch.object(module, "solve_poly_system", side_effect=candidates) as dispatched:
+                with patch.object(module, "_solve_source_system", side_effect=candidates) as dispatched:
                     self.assertEqual(s.solve(system, x, y), expected)
                 dispatched.assert_called_once()
+
+    def test_unchecked_rational_system_keeps_denominator_clearing_candidates(self):
+        x, y = self.x, self.y
+        equations = [self.equation_with_pole(x, x*(x-1)), y-2]
+        self.assertEqual(s.solve(equations, x, y, check=False, dict=True),
+                         [{x: 0, y: 2}, {x: 1, y: 2}])
+        self.assertEqual(s.solve(equations, x, y, check=False, set=True),
+                         ([x, y], {(0, 2), (1, 2)}))
+
+    def test_rational_candidate_routing_is_independent_of_source_order(self):
+        x, y = self.x, self.y
+        reciprocal = s.Pow(x, -1, evaluate=False)
+        nonlinear = s.Mul(x, x-1, evaluate=False)
+        sources = (
+            s.Eq(reciprocal, s.Add(reciprocal, nonlinear, evaluate=False),
+                 evaluate=False),
+            s.Eq(s.Add(nonlinear, reciprocal, evaluate=False), reciprocal,
+                 evaluate=False),
+        )
+        for source in sources:
+            for equations in ([source, y*y-4], [y*y-4, source]):
+                with self.subTest(source=source, equations=equations):
+                    self.assertEqual(s.solve(equations, x, y, set=True),
+                                     ([x, y], {(1, -2), (1, 2)}))
+                    self.assertEqual(s.solve(equations, x, y, check=False, set=True),
+                                     ([x, y], {(0, -2), (0, 2), (1, -2), (1, 2)}))
+
+    def test_polynomial_sources_keep_the_existing_native_solver(self):
+        x, y = self.x, self.y
+        from sympy.core import _native
+        with patch.object(_native, "solve_source_system_candidates_native",
+                          side_effect=AssertionError("polynomial source entered rational admission")):
+            self.assertEqual(s.solve([x*x-1, y-2], x, y), [(-1, 2), (1, 2)])
+
+    def test_source_system_clearing_keeps_same_name_coordinate_identities(self):
+        plain = s.Symbol("solve_source_coordinate")
+        positive = s.Symbol("solve_source_coordinate", positive=True)
+        equations = [self.equation_with_pole(plain, positive-2), plain-1]
+        result = s.solve(equations, plain, positive, dict=True)
+        self.assertEqual(result, [{plain: 1, positive: 2}])
+        self.assertEqual(tuple(result[0]), (plain, positive))
+        self.assertIs(tuple(result[0])[0], plain)
+        self.assertIs(tuple(result[0])[1], positive)
+
+    def test_source_system_admits_undefined_originals_before_empty_shortcuts(self):
+        x, y = self.x, self.y
+        hidden = s.Mul(0, s.Pow(0, -1, evaluate=False), evaluate=False)
+        source = self.equation_with_pole(x, x-1)
+        for checked in (True, False):
+            with self.subTest(checked=checked):
+                with self.assertRaises(ValueError):
+                    s.solve([source, s.Integer(1), hidden], x, y, check=checked)
+
+    def test_source_candidate_failure_does_not_restart_polynomial_solving(self):
+        x, y = self.x, self.y
+        equations = [self.equation_with_pole(x, x-1), y-2]
+        from sympy.core import _native
+        failure = ValueError("source-system candidate budget exhausted")
+        with patch.object(_native, "solve_source_system_candidates_native",
+                          side_effect=failure) as candidate_solver:
+            with patch.object(_native, "polynomial_system_solutions_native") as fallback:
+                with self.assertRaises(ValueError) as caught:
+                    s.solve(equations, x, y)
+        self.assertIs(caught.exception, failure)
+        candidate_solver.assert_called_once()
+        fallback.assert_not_called()
 
     def test_rational_affine_system_retains_explicit_mapping_and_set_formats(self):
         x, y = self.x, self.y
@@ -119,7 +185,7 @@ class SolveOriginalSourceDomainTests(unittest.TestCase):
             ):
                 with self.subTest(system=system, failure=failure):
                     with patch.object(linear, "linsolve", side_effect=failure):
-                        with patch.object(polynomial, "solve_poly_system") as fallback:
+                        with patch.object(polynomial, "_solve_source_system") as fallback:
                             with self.assertRaises(type(failure)) as caught:
                                 s.solve(system, x, y)
                     self.assertIs(caught.exception, failure)

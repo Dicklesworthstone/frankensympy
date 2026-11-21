@@ -429,7 +429,7 @@ def _solve(expression, symbols, flags, source_check):
                 return []
 
     if isinstance(expression, (list, tuple)):
-        from .solvers.polysys import solve_poly_system as _sps
+        from .solvers.polysys import _solve_source_system
         from .solvers.solvers import linsolve as _linsolve
         from .solvers._sparse_linear import _LinearSourceDomainUnsupported
 
@@ -455,10 +455,13 @@ def _solve(expression, symbols, flags, source_check):
         assumption_snapshots = (_solve_assumption_snapshots(var_list)
                                 if flags.get("check", True) else None)
 
-        # Try linear solver first
+        # Try the linear solver first. The fallback independently classifies
+        # every original source, including a pole after a nonlinear equation.
         try:
             lin_sol = _linsolve(expression, *var_list)
-        except (ValueError, TypeError, _LinearSourceDomainUnsupported):
+        except _LinearSourceDomainUnsupported:
+            pass
+        except (ValueError, TypeError):
             pass
         else:
             # Admission is outside the solver-dispatch exception handler:
@@ -486,10 +489,10 @@ def _solve(expression, symbols, flags, source_check):
                     _filter_solve_system_assumptions([], var_list, assumption_snapshots)
                 return (var_list, set()) if set_flag else []
 
-        # Fall back to polynomial system solver
+        # Generate polynomial or rational numerator candidates from the source.
         # Only an established no-solution result is empty. Unsupported
         # systems and faults must remain visible to the caller.
-        sols = _sps(expression, *var_list)
+        sols = _solve_source_system(expression, *var_list)
         if assumption_snapshots is not None:
             sols = _filter_solve_system_assumptions(
                 sols or [], var_list, assumption_snapshots,
@@ -521,7 +524,7 @@ def _solve(expression, symbols, flags, source_check):
     elif len(var_list) == 1:
         symbol = _require_symbol(var_list[0])
     else:
-        from .solvers.polysys import solve_poly_system as _sps
+        from .solvers.polysys import _solve_source_system
         from .solvers.solvers import linsolve as _linsolve
         from .solvers._sparse_linear import _LinearSourceDomainUnsupported
 
@@ -532,7 +535,9 @@ def _solve(expression, symbols, flags, source_check):
         system_source = original_expression if isinstance(original_expression, Basic) else expr
         try:
             lin_sol = _linsolve([system_source], *var_list)
-        except (ValueError, TypeError, _LinearSourceDomainUnsupported):
+        except _LinearSourceDomainUnsupported:
+            pass
+        except (ValueError, TypeError):
             pass
         else:
             if lin_sol:
@@ -557,7 +562,7 @@ def _solve(expression, symbols, flags, source_check):
             return (var_list, set()) if set_flag else []
 
         try:
-            sols = _sps([system_source], *var_list)
+            sols = _solve_source_system([system_source], *var_list)
         except NotImplementedError:
             # Upstream: one equation in several symbols is solved for the
             # first symbol it contains; the others stay free.

@@ -2349,6 +2349,10 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
         polynomial_systems::polynomial_system_solutions_native,
         m
     )?)?;
+    m.add_function(wrap_pyfunction!(
+        polynomial_systems::solve_source_system_candidates_native,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(poly_coeffs_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_degree_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_multivariate_degree_native, m)?)?;
