@@ -1426,10 +1426,68 @@ fn contains_nonfinite(e: &Expr) -> bool {
 }
 
 /// Check denominator/log constraints before substitution can cancel them.
-fn candidate_in_domain(e: &Expr, x: &Symbol, root: &Expr) -> Result<bool, SolverError> {
+/// An undecidable constraint must not hide a later, proved exclusion.
+fn candidate_domain_status(e: &Expr, x: &Symbol, root: &Expr) -> Option<bool> {
     let replacements = HashMap::from([(x.clone(), root.clone())]);
     let mut stack = vec![e];
+    let mut undecided = false;
     while let Some(term) = stack.pop() {
+        // A held zero product is undefined when one of its original factors
+        // is literally nonfinite. Do not scan all descendants for infinity:
+        // exp(-oo), atan(oo), and oo**-1 are defined finite compositions.
+        if let Expr::Mul(factors) = term
+            && factors.iter().any(|factor| {
+                matches!(
+                    factor,
+                    Expr::Const(
+                        Constant::Infinity
+                            | Constant::NegativeInfinity
+                            | Constant::ComplexInfinity
+                            | Constant::NaN
+                    )
+                )
+            })
+            && factors
+                .iter()
+                .any(|factor| zero_status(&factor.subs(&replacements)) == Some(true))
+        {
+            return Some(false);
+        }
+        if let Expr::Function(name, branches) = term
+            && name == "Piecewise"
+            && branches.iter().all(
+                |branch| matches!(branch, Expr::Function(name, pair) if name == "Tuple" && pair.len() == 2),
+            )
+        {
+            let mut selected_or_unknown = false;
+            for branch in branches {
+                let Expr::Function(_, pair) = branch else {
+                    unreachable!("validated Piecewise branch");
+                };
+                stack.push(&pair[1]);
+                let condition = pair[1].subs(&replacements);
+                let condition = match &condition {
+                    Expr::Function(name, args) => eval_function(name, args).unwrap_or(condition),
+                    _ => condition,
+                };
+                if condition == Expr::symbol("False") {
+                    continue;
+                }
+                selected_or_unknown = true;
+                if condition == Expr::symbol("True") {
+                    stack.push(&pair[0]);
+                } else {
+                    // A pole in a branch that might not be selected is not
+                    // a proved exclusion. Keep generic parameter conditions.
+                    undecided = true;
+                }
+                break;
+            }
+            if !selected_or_unknown {
+                return Some(false);
+            }
+            continue;
+        }
         let nonzero_requirement = match term {
             Expr::Pow(base, exponent) if number(exponent).is_some_and(|n| n.is_negative()) => {
                 Some(base.as_ref())
@@ -1449,14 +1507,9 @@ fn candidate_in_domain(e: &Expr, x: &Symbol, root: &Expr) -> Result<bool, Solver
             // or a floating approximation is not needed for (-1)^r != 0.
             let zero = zero_status(&at_root).or_else(|| cubic_nonzero(&at_root).then_some(false));
             match zero {
-                Some(true) => return Ok(false),
+                Some(true) => return Some(false),
                 Some(false) => {}
-                None => {
-                    return Err(SolverError::IncompleteSolutionSet(
-                        "a candidate's original denominator or logarithm argument is undecidable"
-                            .into(),
-                    ));
-                }
+                None => undecided = true,
             }
         }
         match term {
@@ -1468,7 +1521,38 @@ fn candidate_in_domain(e: &Expr, x: &Symbol, root: &Expr) -> Result<bool, Solver
             _ => {}
         }
     }
-    Ok(true)
+    (!undecided).then_some(true)
+}
+
+fn candidate_in_domain(e: &Expr, x: &Symbol, root: &Expr) -> Result<bool, SolverError> {
+    candidate_domain_status(e, x, root).ok_or_else(|| {
+        SolverError::IncompleteSolutionSet(
+            "a candidate's original denominator or logarithm argument is undecidable".into(),
+        )
+    })
+}
+
+/// The symbolic polynomial lane returns generic formulas, retaining unknown
+/// parameter conditions. Even there, an original source pole proved at a
+/// proposed root must exclude that root before coefficient reconstruction
+/// erases the pole. This does not upgrade a generic formula to an exact-domain
+/// certificate or relax the stricter transcendental root checker below.
+fn filter_symbolic_quadratic_domains(
+    e: &Expr,
+    x: &Symbol,
+    roots: Vec<Expr>,
+) -> Result<Vec<Expr>, SolverError> {
+    if !crate::verifier_inputs_within_bounds(std::iter::once(e).chain(roots.iter())) {
+        return Err(SolverError::IncompleteSolutionSet(
+            "original-equation verification exceeds its bounded input envelope".into(),
+        ));
+    }
+    Ok(roots
+        .into_iter()
+        .filter(|root| {
+            !contains_nonfinite(root) && candidate_domain_status(e, x, root) != Some(false)
+        })
+        .collect())
 }
 
 /// Return only independently checked original-equation roots. A residual
@@ -1639,7 +1723,7 @@ pub fn solve_univariate(e: &Expr, x: &Symbol) -> Result<Vec<Expr>, SolverError> 
         return r;
     }
     if let Some(rs) = solve_symbolic_quadratic(e, x) {
-        return Ok(dedup(rs));
+        return Ok(dedup(filter_symbolic_quadratic_domains(e, x, rs)?));
     }
     let candidates = match invert(e, Expr::from_i64(0), x, 0) {
         Ok(c) => c,
