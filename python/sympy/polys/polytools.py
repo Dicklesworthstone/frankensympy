@@ -706,6 +706,37 @@ class Poly(Basic):
 
         return _rr(self, multiple=multiple, radicals=radicals)
 
+    def intervals(self, all: bool = False, eps: Any = None, inf: Any = None,
+                  sup: Any = None, fast: bool = False, sqf: bool = False) -> list:
+        """Complete real isolators with original multiplicities over QQ/ZZ.
+
+        Rational bisection endpoints may differ from upstream's choices.
+        eps bounds the width; sqf=True requires square-free input.
+        Complex rectangles (all=True) are not implemented.
+        """
+        from ._root_analysis import analyze
+
+        return analyze(self, "intervals", inf, sup, eps,
+                       all=all, fast=fast, sqf=sqf)
+
+    def count_roots(self, inf: Any = None, sup: Any = None) -> Any:
+        """Count distinct real roots in an ordered closed rational interval."""
+        from ._root_analysis import analyze
+
+        return analyze(self, "count", inf, sup)
+
+    def refine_root(self, s: Any, t: Any, eps: Any = None, steps: Any = None,
+                    fast: bool = False, check_sqf: bool = False) -> tuple:
+        """Refine a rational isolator containing exactly one distinct root.
+
+        An explicit step count caps bisections even when eps is supplied.
+        The native checker verifies the root and its original multiplicity.
+        """
+        from ._root_analysis import analyze
+
+        return analyze(self, "refine", s, t, eps, steps,
+                       fast=fast, check_sqf=check_sqf)
+
     def nroots(self, n: int = 15, maxsteps: int = 50, cleanup: bool = True) -> list:
         if _finitefield.is_finite(self):
             return _finitefield.unsupported(self, "numerical roots")
@@ -4684,3 +4715,31 @@ __all__ = [
     "terms_gcd",
     "trailing_coeff",
 ]
+
+
+def intervals(F: Any, all: bool = False, eps: Any = None, inf: Any = None,
+              sup: Any = None, strict: bool = False, fast: bool = False,
+              sqf: bool = False) -> list:
+    """Isolate the real roots of one exact rational polynomial."""
+    from ._root_analysis import polynomial_input
+
+    if type(strict) is not bool:
+        raise TypeError("strict must be a bool")
+    return polynomial_input(F).intervals(all=all, eps=eps, inf=inf, sup=sup,
+                                         fast=fast, sqf=sqf)
+
+
+def count_roots(f: Any, inf: Any = None, sup: Any = None) -> Any:
+    """Count distinct real roots in a closed rational interval."""
+    from ._root_analysis import polynomial_input
+
+    return polynomial_input(f).count_roots(inf, sup)
+
+
+def refine_root(f: Any, s: Any, t: Any, eps: Any = None, steps: Any = None,
+                fast: bool = False, check_sqf: bool = False) -> tuple:
+    """Refine a rational interval containing exactly one real root."""
+    from ._root_analysis import polynomial_input
+
+    return polynomial_input(f).refine_root(s, t, eps=eps, steps=steps,
+                                         fast=fast, check_sqf=check_sqf)

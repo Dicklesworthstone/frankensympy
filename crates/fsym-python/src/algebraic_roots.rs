@@ -11,6 +11,9 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 
+mod query;
+pub use query::real_root_analysis_native;
+
 fn coefficients(values: &Bound<'_, PyList>) -> PyResult<Vec<BigRational>> {
     if values.is_empty() || values.len() > MAX_REAL_ROOT_DEGREE + 1 {
         return Err(PyValueError::new_err(

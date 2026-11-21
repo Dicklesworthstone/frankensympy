@@ -299,6 +299,9 @@ impl BudgetMeter for Cancelled {
     fn charge(&mut self, _: Dimension, _: u64) -> Result<(), MeterError> {
         Err(MeterError::Cancelled)
     }
+    fn charge_batch(&mut self, _: &[(Dimension, u64)]) -> Result<(), MeterError> {
+        Err(MeterError::Cancelled)
+    }
     fn checkpoint(&mut self) -> Result<(), MeterError> {
         Err(MeterError::Cancelled)
     }
