@@ -155,7 +155,7 @@ fn both_nonlinear_arguments_contribute_to_every_chain_rule_stage() {
         VerifiedResidualSystem::try_compile(std::slice::from_ref(&expression), &vars).unwrap();
     let first = residual.evaluate_sparse(&[2.0, 1.0]).unwrap();
     // At this point (Y,X)=(5,1), dY=(4,1), dX=(1,-2).
-    close(first.residuals[0], 1.373_400_766_945_015_9);
+    close(first.residuals[0], 1.373_400_766_945_016);
     for (actual, expected) in first.jacobian.iter().zip([-1.0 / 26.0, 11.0 / 26.0]) {
         close(*actual, expected);
     }

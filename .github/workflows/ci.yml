@@ -292,6 +292,7 @@ jobs:
               "python/tests/test_solve_source_domains.py",
               "python/tests/test_principal_power_solve.py",
               "python/tests/test_solveset_source_domains.py",
+              "python/tests/test_elementary_real_solving.py",
               "python/tests/test_elementary_continuous_domain.py",
               "python/tests/test_elementary_function_range.py",
               "python/tests/test_elementary_function_range_review.py",

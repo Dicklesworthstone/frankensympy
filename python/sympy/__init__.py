@@ -734,6 +734,10 @@ def solveset(expression, variable=None, domain=None):
     piecewise = solve_piecewise_real(expression, variable, domain)
     if piecewise is not None:
         return piecewise
+    from .solvers._elementary_real import solve_elementary_real
+    elementary = solve_elementary_real(expression, variable, domain)
+    if elementary is not None:
+        return elementary
     # Restricted real domains use the same complete rational root engine as
     # Reals, retaining original equation holes before ordinary subtraction.
     # Domain filtering uses checked algebraic order, never floating roots.
