@@ -42,8 +42,9 @@ use fsym_numeric_consumer::{
     MAX_CONSUMER_VARIABLES, MAX_LEAST_SQUARES_RESIDUALS, MAX_SPARSE_LEAST_SQUARES_RESIDUALS,
     MAX_SPARSE_LEAST_SQUARES_VARIABLES, MAX_SPARSE_NEWTON_VARIABLES, NewtonGuards, RootProposal,
     SystemConsumerError, frankenscipy_analytic_system_with_meter,
-    frankenscipy_fsolve_system_with_meter, least_squares_with_meter, newton_refine_parametric_with_meter,
-    newton_refine_with_meter, sparse_least_squares_with_meter, sparse_newton_refine_with_meter,
+    frankenscipy_fsolve_system_with_meter, least_squares_with_meter,
+    newton_refine_parametric_with_meter, newton_refine_with_meter, sparse_least_squares_with_meter,
+    sparse_newton_refine_with_meter,
 };
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -2434,6 +2435,16 @@ impl PyVerifiedResidualSystem {
     #[getter]
     fn variable_count(&self) -> usize {
         self.system.num_vars()
+    }
+
+    /// Frozen typed coordinate bindings in the admitted compilation order.
+    #[getter]
+    fn variables(&self) -> Vec<PySymbolBinding> {
+        self.system
+            .vars()
+            .iter()
+            .map(PySymbolBinding::from_symbol)
+            .collect()
     }
 
     #[getter]

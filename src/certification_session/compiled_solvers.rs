@@ -20,9 +20,9 @@ use fsym_numeric_consumer::{
     ObjectiveConsumerError, RootProposal, SystemConsumerError,
     frankenscipy_analytic_system_with_meter, frankenscipy_fsolve_system_with_meter,
     least_squares_with_meter, minimize_with_meter, newton_refine_parametric_with_meter,
-    newton_refine_with_meter, propose_parametric_root_box_with_meter,
-    propose_root_box_with_meter, propose_stationary_box_with_meter,
-    sparse_least_squares_with_meter, sparse_newton_refine_with_meter,
+    newton_refine_with_meter, propose_parametric_root_box_with_meter, propose_root_box_with_meter,
+    propose_stationary_box_with_meter, sparse_least_squares_with_meter,
+    sparse_newton_refine_with_meter,
 };
 use serde::{Deserialize, Serialize};
 

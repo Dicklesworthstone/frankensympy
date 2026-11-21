@@ -7,7 +7,7 @@ import math
 import pytest
 import sympy as s
 
-from sympy.core import _native
+from sympy.core import _native, _symbol_binding
 from sympy.utilities.lambdify import NumericParametricRootCandidate
 
 
@@ -73,6 +73,25 @@ def test_typed_unknown_and_parameter_orders_survive_nested_arguments_and_transpo
         program = s.load_portable_residual_system(
             program.to_portable_bytes(), residuals=residuals, args=layout,
         )
+    # The native snapshot must retain semantic identities, not merely names.
+    bindings = program.native_system.variables
+    assert len(bindings) == len(variables)
+    for actual, axis in zip(bindings, variables):
+        expected = _symbol_binding(axis)
+        assert actual.name == expected.name
+        assert actual.plain == expected.plain
+        if not actual.plain:
+            assert actual.identity_hex == expected.identity_hex
+    snapshot = tuple((axis.name, axis.plain, axis.identity_hex) for axis in bindings)
+    with pytest.raises(AttributeError):
+        bindings[0].identity_hex = "00" * 32
+    bindings.clear()
+    assert tuple((axis.name, axis.plain, axis.identity_hex)
+                 for axis in program.native_system.variables) == snapshot
+    with pytest.raises(AttributeError):
+        program.native_system.variables = []
+    with pytest.raises(AttributeError):
+        del program.native_system.variables
     candidate = program.solve_parametric_candidate([0, 0], [-1, 5], tol=0)
     assert candidate.root == (2.0, 3.0)
     assert all(actual is expected for actual, expected in zip(candidate.variables, variables))

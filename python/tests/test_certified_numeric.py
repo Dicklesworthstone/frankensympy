@@ -208,8 +208,8 @@ def test_mutation_during_native_constructor_cannot_relabel_captured_assumptions(
     binding = _symbol_binding(x)
     constructor = _native.VerifiedResidualSystem
 
-    def mutate_after_construction(sources, variables):
-        result = constructor(sources, variables)
+    def mutate_after_construction(sources, variables, *, budget=None):
+        result = constructor(sources, variables, budget=budget)
         x._assumptions.clear()
         x._assumptions["negative"] = True
         return result

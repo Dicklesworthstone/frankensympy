@@ -1,0 +1,114 @@
+   Compiling hashbrown v0.17.1
+   Compiling equivalent v1.0.2
+   Compiling serde_json v1.0.151
+   Compiling indexmap v2.14.0
+   Compiling crossbeam-utils v0.8.22
+   Compiling fsym-core v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-core)
+   Compiling crossbeam-epoch v0.9.21
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-assumptions)
+   Compiling crossbeam-deque v0.8.8
+   Compiling libc v0.2.189
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-proof-kernel)
+   Compiling rand_core v0.10.1
+   Compiling getrandom v0.4.3
+   Compiling rayon-core v1.13.0
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-evidence)
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-polys)
+   Compiling chacha20 v0.10.1
+   Compiling either v1.18.0
+   Compiling rayon v1.12.0
+   Compiling rand v0.10.3
+   Compiling fsym-simplify v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-simplify)
+   Compiling fsci-runtime v0.2.0 (/workspace/scratch/7cbcb07e542d/frankenscipy-pin/crates/fsci-runtime)
+   Compiling fnp-ndarray v0.3.0 (/workspace/scratch/7cbcb07e542d/franken_numpy-pin/crates/fnp-ndarray)
+   Compiling fnp-linalg v0.3.0 (/workspace/scratch/7cbcb07e542d/franken_numpy-pin/crates/fnp-linalg)
+   Compiling fsci-opt v0.2.0 (/workspace/scratch/7cbcb07e542d/frankenscipy-pin/crates/fsci-opt)
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-calculus)
+   Compiling fsym-numeric-consumer v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-numeric-consumer)
+    Finished `test` profile [unoptimized] target(s) in 46.88s
+     Running tests/generic_system_consumers.rs (/workspace/scratch/7cbcb07e542d/validation-target/debug/build/fsym-numeric-consumer/a71ba343c1e57e52/out/generic_system_consumers-a71ba343c1e57e52)
+
+running 10 tests
+test all_three_exhaustion_dimensions_survive_scipy_callback_translation_and_reuse ... ok
+test every_numerical_safe_point_cancels_without_publishing_a_proposal ... ok
+test verification_and_final_publication_observe_the_same_cancellation_token ... ok
+test combined_root_search_keeps_one_ledger_and_cannot_reset_it_for_verification ... ok
+test dimensions_guards_and_box_requests_are_bounded_before_donor_execution ... ok
+test both_real_consumers_solve_one_three_and_sixteen_dimensions_with_ordinary_limits ... ok
+test original_domain_checks_survive_zero_residuals_and_whole_box_verification ... ok
+test maximum_dimension_has_a_source_bound_root_receipt ... ok
+test a_small_residual_does_not_certify_a_nonexistent_or_singular_root ... ok
+test transported_mixed_source_drives_both_consumers_and_replayable_three_dimensional_proofs ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.32s
+
+     Running tests/parametric_root_consumer.rs (/workspace/scratch/7cbcb07e542d/validation-target/debug/build/fsym-numeric-consumer/5a42eb34cf3bbdf4/out/parametric_root_consumer-5a42eb34cf3bbdf4)
+
+running 10 tests
+test identical_printed_names_keep_distinct_unknown_and_parameter_identities ... ok
+test iteration_step_limits_and_final_residual_failure_return_no_proposal ... ok
+test invalid_shapes_inputs_and_controls_refuse_before_allocating_solver_buffers ... ok
+test one_checked_program_solves_nonlinear_roots_for_distinct_fixed_parameters ... ok
+test ordinary_resources_are_cumulative_and_never_borrow_protected_fuel ... ok
+test singular_unknown_block_cannot_be_repaired_by_changing_a_parameter ... ok
+test cancellation_at_every_solve_safe_point_never_returns_a_partial_root ... ok
+test nonsymmetric_unknown_block_preserves_coordinate_and_parameter_order_after_transport ... ok
+test original_parameter_poles_branch_cuts_and_derivative_domains_are_never_skipped ... ok
+test maximum_total_dimension_and_many_parameter_suffixes_do_not_become_unknowns ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/parametric_root_proposal.rs (/workspace/scratch/7cbcb07e542d/validation-target/debug/build/fsym-numeric-consumer/a3167c9f41ca87b8/out/parametric_root_proposal-a3167c9f41ca87b8)
+
+running 6 tests
+test malformed_box_controls_and_unbounded_exact_payloads_refuse_before_solver_storage ... ok
+test fixed_exact_parameter_points_are_not_replaced_by_rounded_binary64_samples ... ok
+test every_witness_safe_point_and_last_resource_unit_can_refuse_without_publication ... ok
+test nonsymmetric_unknown_inverse_orientation_and_mutations_remain_observable ... ok
+test nonlinear_witness_retains_exact_parameter_variation_for_separate_protected_checking ... ok
+test pointwise_success_cannot_hide_missing_family_roots_parameter_poles_or_singularities ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/smooth_system_consumers.rs (/workspace/scratch/7cbcb07e542d/validation-target/debug/build/fsym-numeric-consumer/b97fea09914a1e83/out/smooth_system_consumers-b97fea09914a1e83)
+
+running 5 tests
+test a_held_zero_cannot_hide_a_cut_reached_after_a_valid_newton_step ... ok
+test root_box_proposals_refuse_a_finite_inverse_at_a_nonsmooth_source_point ... ok
+test exact_initial_roots_on_the_angle_cut_refuse_in_all_derivative_consumers ... ok
+test both_open_sides_and_the_positive_axis_remain_usable ... ok
+test every_checked_evaluation_safe_point_preserves_typed_cancellation_and_the_verifier_pool ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/smooth_trial_domains.rs (/workspace/scratch/7cbcb07e542d/validation-target/debug/build/fsym-numeric-consumer/fec94fbe6faa886c/out/smooth_trial_domains-fec94fbe6faa886c)
+
+running 2 tests
+test dense_and_sparse_least_squares_retry_math_domains_and_recheck_original_sources ... FAILED
+test dense_and_sparse_objective_trials_backtrack_before_publishing_an_endpoint ... FAILED
+
+failures:
+
+---- dense_and_sparse_least_squares_retry_math_domains_and_recheck_original_sources stdout ----
+
+thread 'dense_and_sparse_least_squares_retry_math_domains_and_recheck_original_sources' (644) panicked at crates/fsym-numeric-consumer/tests/smooth_trial_domains.rs:66:13:
+assertion failed: matches!(solve(&system, &[0.0], &LeastSquaresOptions::default()),
+    Err(SystemConsumerError::SparseEvaluation(ResidualEvaluationError::Evaluation(actual)))
+    if actual == expected)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- dense_and_sparse_objective_trials_backtrack_before_publishing_an_endpoint stdout ----
+
+thread 'dense_and_sparse_objective_trials_backtrack_before_publishing_an_endpoint' (645) panicked at crates/fsym-numeric-consumer/tests/smooth_trial_domains.rs:40:13:
+assertion `left == right` failed
+  left: Err(Evaluation(Evaluation(NonsmoothSource("power"))))
+ right: Err(Evaluation(Evaluation(NonsmoothSource("sqrt"))))
+
+
+failures:
+    dense_and_sparse_least_squares_retry_math_domains_and_recheck_original_sources
+    dense_and_sparse_objective_trials_backtrack_before_publishing_an_endpoint
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p fsym-numeric-consumer --test smooth_trial_domains`

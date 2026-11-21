@@ -255,15 +255,16 @@ pub fn propose_parametric_root_box_with_meter<M: BudgetMeter>(
     for coordinate in 0..unknowns {
         center.push(exact_coordinate(approximation[coordinate], meter)?);
         let midpoint = exact_coordinate(approximation[coordinate], meter)?;
-        let limbs =
-            radii[coordinate].numer().limb_count() + radii[coordinate].denom().limb_count();
+        let limbs = radii[coordinate].numer().limb_count() + radii[coordinate].denom().limb_count();
         charge(meter, limbs + 1, limbs * 8 + 128, 2)?;
-        unknown_domain.push(
-            RealBall::new(midpoint, radii[coordinate].clone()).map_err(RootBoxError::from)?,
-        );
+        unknown_domain
+            .push(RealBall::new(midpoint, radii[coordinate].clone()).map_err(RootBoxError::from)?);
         let mut row = buffer(unknowns, meter)?;
         for column in 0..unknowns {
-            row.push(exact_coordinate(inverse[coordinate * unknowns + column], meter)?);
+            row.push(exact_coordinate(
+                inverse[coordinate * unknowns + column],
+                meter,
+            )?);
         }
         preconditioner.push(row);
     }

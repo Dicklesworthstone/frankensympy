@@ -1,0 +1,127 @@
+   Compiling syn v3.0.3
+   Compiling serde_derive v1.0.229
+   Compiling serde v1.0.229
+   Compiling num-bigint v0.4.8
+   Compiling fsym-budget v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-budget)
+   Compiling fsym-bigint v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-bigint)
+   Compiling thiserror-impl v2.0.20
+   Compiling thiserror v2.0.20
+   Compiling fsym-modular v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-modular)
+   Compiling num-rational v0.4.2
+   Compiling fsym-rational v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-rational)
+   Compiling fsym-id v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-id)
+   Compiling fsym-outcome v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-outcome)
+   Compiling fsym-core v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-core)
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-assumptions)
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-proof-kernel)
+   Compiling typenum v1.20.1
+   Compiling hybrid-array v0.4.14
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-evidence)
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-polys)
+   Compiling getrandom v0.4.3
+   Compiling zeroize v1.9.0
+   Compiling parking_lot_core v0.9.12
+   Compiling block-buffer v0.12.1
+   Compiling fsym-simplify v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-simplify)
+   Compiling crypto-common v0.2.2
+   Compiling scopeguard v1.2.0
+   Compiling smallvec v1.15.2
+   Compiling const-oid v0.10.2
+   Compiling digest v0.11.3
+   Compiling lock_api v0.4.14
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-calculus)
+   Compiling franken-evidence v0.6.0 (/workspace/scratch/7cbcb07e542d/asupersync/franken_evidence)
+   Compiling franken-kernel v0.6.0 (/workspace/scratch/7cbcb07e542d/asupersync/franken_kernel)
+   Compiling franken-decision v0.6.0 (/workspace/scratch/7cbcb07e542d/asupersync/franken_decision)
+   Compiling rand v0.10.3
+   Compiling parking_lot v0.12.5
+   Compiling sha2 v0.11.0
+   Compiling fsym-sets v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-sets)
+   Compiling fsci-runtime v0.2.0 (/workspace/scratch/7cbcb07e542d/frankenscipy-pin/crates/fsci-runtime)
+   Compiling asupersync-macros v0.6.0 (/workspace/scratch/7cbcb07e542d/asupersync/asupersync-macros)
+   Compiling asupersync-codec-source-component v0.6.0 (/tmp/frankensympy-session-family-component-7cbcb07e542d/codec)
+warning: static `EPHEMERAL_REGION_COUNTER` is never used
+  --> /workspace/scratch/7cbcb07e542d/asupersync/src/types/id.rs:21:8
+   |
+21 | static EPHEMERAL_REGION_COUNTER: AtomicU32 = AtomicU32::new(1);
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: static `EPHEMERAL_TASK_COUNTER` is never used
+  --> /workspace/scratch/7cbcb07e542d/asupersync/src/types/id.rs:22:8
+   |
+22 | static EPHEMERAL_TASK_COUNTER: AtomicU32 = AtomicU32::new(1);
+   |        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `next_bootstrap_region_id` is never used
+  --> /workspace/scratch/7cbcb07e542d/asupersync/src/types/id.rs:32:15
+   |
+32 | pub(crate) fn next_bootstrap_region_id() -> RegionId {
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `next_bootstrap_task_id` is never used
+  --> /workspace/scratch/7cbcb07e542d/asupersync/src/types/id.rs:41:15
+   |
+41 | pub(crate) fn next_bootstrap_task_id() -> TaskId {
+   |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated function `from_arena` is never used
+  --> /workspace/scratch/7cbcb07e542d/asupersync/src/types/id.rs:57:25
+   |
+52 | impl RegionId {
+   | ------------- associated function in this implementation
+...
+57 |     pub(crate) const fn from_arena(index: ArenaIndex) -> Self {
+   |                         ^^^^^^^^^^
+
+warning: feature `try_trait_v2` is declared but not used
+ --> codec/lib.rs:3:54
+  |
+3 | #![cfg_attr(feature = "nightly-outcome-try", feature(try_trait_v2))]
+  |                                                      ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_features)]` (part of `#[warn(unused)]`) on by default
+
+warning: feature `try_trait_v2_residual` is declared but not used
+ --> codec/lib.rs:4:54
+  |
+4 | #![cfg_attr(feature = "nightly-outcome-try", feature(try_trait_v2_residual))]
+  |                                                      ^^^^^^^^^^^^^^^^^^^^^
+
+warning: `asupersync-codec-source-component` (lib) generated 7 warnings
+   Compiling fsci-opt v0.2.0 (/workspace/scratch/7cbcb07e542d/frankenscipy-pin/crates/fsci-opt)
+   Compiling fsym-solvers v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-solvers)
+   Compiling fsym-runtime-session-source-component v0.1.0 (/tmp/frankensympy-session-family-component-7cbcb07e542d/runtime)
+   Compiling fsym-numeric-consumer v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-numeric-consumer)
+   Compiling fsym-durable v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-durable)
+   Compiling frankensympy-session-source-component-check v0.1.0 (/tmp/frankensympy-session-family-component-7cbcb07e542d)
+    Finished `test` profile [unoptimized] target(s) in 1m 31s
+     Running /workspace/scratch/7cbcb07e542d/frankensympy/tests/compiled_parametric_certification.rs (/workspace/scratch/7cbcb07e542d/validation-target/debug/build/frankensympy-session-source-component-check/dec0377faa7185e4/out/compiled_parametric_certification-dec0377faa7185e4)
+
+running 7 tests
+test fixed_fractional_parameters_keep_the_exact_domain_instead_of_the_rounded_solver_value ... ok
+test a_midpoint_solve_certifies_every_parameter_and_supplies_checked_sensitivity ... ok
+test registered_problem_and_compiled_source_must_match_before_any_proposal_can_be_certified ... ok
+test invalid_exact_controls_and_duplicate_publication_keep_existing_objects_unchanged ... ok
+test midpoint_success_loose_tolerances_and_singular_roots_do_not_authorize_a_family ... FAILED
+test the_accepted_family_exports_replays_and_checks_sensitivity_in_a_fresh_native_process ... ok
+test final_publication_is_atomic_and_protected_work_cannot_borrow_ordinary_fuel ... ok
+
+failures:
+
+---- midpoint_success_loose_tolerances_and_singular_roots_do_not_authorize_a_family stdout ----
+
+thread 'midpoint_success_loose_tolerances_and_singular_roots_do_not_authorize_a_family' (739) panicked at /workspace/scratch/7cbcb07e542d/frankensympy/tests/compiled_parametric_certification.rs:49:5:
+assertion `left == right` failed: {"status":"error","code":"refused","error":"parameter-family certification refused: original-source verification refused: root-box arithmetic refused: Division by ball containing zero: [1/2 ± 3/2]","id":"family-solve"}
+  left: String("refused")
+ right: "domain_not_certified"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    midpoint_success_loose_tolerances_and_singular_roots_do_not_authorize_a_family
+
+test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p frankensympy-session-source-component-check --test compiled_parametric_certification`

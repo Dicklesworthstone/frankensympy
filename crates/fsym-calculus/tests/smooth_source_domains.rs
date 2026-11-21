@@ -351,11 +351,9 @@ fn literal_identity_derivatives_do_not_erase_original_base_domains() {
             ] {
                 let source = Expr::Pow(Arc::new(base), Arc::new(literal.clone()));
                 let variables = [Symbol::new("x")];
-                let residual = VerifiedResidualSystem::try_compile(
-                    std::slice::from_ref(&source),
-                    &variables,
-                )
-                .unwrap();
+                let residual =
+                    VerifiedResidualSystem::try_compile(std::slice::from_ref(&source), &variables)
+                        .unwrap();
                 let objective = VerifiedObjective::try_compile(&source, &variables).unwrap();
                 assert!(residual.evaluate_sparse(&[2.0]).is_ok());
                 assert!(objective.evaluate(&[2.0]).is_ok());
@@ -386,10 +384,7 @@ fn literal_identity_derivatives_do_not_erase_original_base_domains() {
 #[test]
 fn legacy_literal_power_proofs_and_artifacts_replay_but_coordinated_mutants_fail() {
     let variables = [Symbol::new("x"), Symbol::new("unused")];
-    let variable_map = HashMap::from([
-        (variables[0].clone(), 0),
-        (variables[1].clone(), 1),
-    ]);
+    let variable_map = HashMap::from([(variables[0].clone(), 0), (variables[1].clone(), 1)]);
     for exponent in [0, 1] {
         for source in [
             Expr::Pow(
@@ -405,13 +400,9 @@ fn legacy_literal_power_proofs_and_artifacts_replay_but_coordinated_mutants_fail
                 panic!("public raw power-rule representation changed")
             };
             assert_eq!(factors.len(), 3);
-            assert!(verify_diff_derivation(
-                &tree,
-                &source,
-                &variables[0],
-                &legacy_derivative
-            )
-            .is_ok());
+            assert!(
+                verify_diff_derivation(&tree, &source, &variables[0], &legacy_derivative).is_ok()
+            );
             let rendered = legacy_derivative.to_string();
             verify_diff_receipt(
                 &source,
@@ -442,7 +433,8 @@ fn legacy_literal_power_proofs_and_artifacts_replay_but_coordinated_mutants_fail
             );
             let admitted = VerifiedResidualSystem::try_from_sparse_jacobian(&candidate).unwrap();
             let restored =
-                VerifiedResidualSystem::from_json_bytes(&admitted.to_json_bytes().unwrap()).unwrap();
+                VerifiedResidualSystem::from_json_bytes(&admitted.to_json_bytes().unwrap())
+                    .unwrap();
             assert_eq!(restored.sparse_jacobian(), &candidate);
             assert_eq!(
                 restored.try_eval_dense(&[2.0, 3.0]).unwrap().jacobian,

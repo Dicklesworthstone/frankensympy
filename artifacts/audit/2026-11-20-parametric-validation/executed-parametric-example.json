@@ -1,0 +1,30 @@
+{
+  "source": "2*x-p",
+  "parameter_domain": [
+    [
+      "3/2",
+      "5/2"
+    ]
+  ],
+  "unknown_domain": [
+    [
+      "1/2",
+      "3/2"
+    ]
+  ],
+  "root_enclosure": [
+    [
+      "3/4",
+      "5/4"
+    ]
+  ],
+  "solution_jacobian": [
+    [
+      [
+        "1/2",
+        "1/2"
+      ]
+    ]
+  ],
+  "scope": "Same exact-source math/PyO3 component as the passing public suites"
+}

@@ -1,0 +1,74 @@
+.........................F............................................   [100%]
+=================================== FAILURES ===================================
+_ test_mutation_during_native_constructor_cannot_relabel_captured_assumptions __
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fe9e50aa1b0>
+
+    def test_mutation_during_native_constructor_cannot_relabel_captured_assumptions(monkeypatch):
+        x = Symbol("constructor_race_x", positive=True)
+        original_facts = dict(x._assumptions)
+        binding = _symbol_binding(x)
+        constructor = _native.VerifiedResidualSystem
+    
+        def mutate_after_construction(sources, variables):
+            result = constructor(sources, variables)
+            x._assumptions.clear()
+            x._assumptions["negative"] = True
+            return result
+    
+        monkeypatch.setattr(_native, "VerifiedResidualSystem", mutate_after_construction)
+        try:
+>           program = compile_residual_system([x-1], [x])
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_certified_numeric.py:219: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+residuals = [constructor_race_x - 1], args = [constructor_race_x]
+
+    def compile_residual_system(residuals, args, *, budget=None):
+        """Compile a residual system with independently checked symbolic derivatives.
+    
+        Residual containers flatten in row-major order. Derivative proofs and
+        bytecode provenance are checked once; numerical values remain binary64
+        approximations. Unsupported derivatives and functions refuse at compile time.
+        Separate ``enclose`` and ``certify_root_box`` methods use the original exact
+        source and independent interval arithmetic. Floating source literals remain
+        usable for approximate evaluation but cannot enter those certified methods.
+        ``evaluate_sparse`` returns residuals and structural derivative values in
+        ``jacobian_pattern`` order. ``jacobian_vector_product`` and
+        ``jacobian_transpose_vector_product`` apply the checked Jacobian without
+        dense output. These paths retain every original-source and stored-derivative
+        domain check, including for zero directions or weights. Compilation stores
+        residual programs and structural derivatives without a dense Jacobian
+        mirror. Its public limits are 256 variables, 4096 residuals, 65536 source
+        nodes, 65536 stored operations and 65536 differentiation-work units.
+        A row contributes its source-node count times its number of distinct
+        declared dependencies, or once its node count when no variable occurs.
+        Dense ``evaluate``, ``jacobian`` and ``evaluate_batch`` separately refuse
+        Jacobians with more than 65536 values before converting numeric inputs.
+        The optional ``EvaluationBudget`` covers native source snapshots, sparse
+        dependency planning, symbolic differentiation, independent derivative proof
+        and bytecode admission, and executable-plan construction cumulatively.
+        Reuse it for evaluation, products, certified enclosure and root-box methods.
+        Cancellation and resource failures publish no partial program, retaining
+        consumed work. The native compiler releases the interpreter and checks
+        cancellation at cooperative safe points. Python source capture, bounded
+        bridge structural preflight and Python object/result-container allocation
+        remain outside native accounting. Omission uses one bounded private
+        compilation ledger; later calls do not inherit it. This shared ledger does
+        not provide a separate protected verifier allowance.
+        """
+        from .source_certification import _source_budget
+    
+        budget = _source_budget(budget)
+        prepared = _residual_source(residuals, args)
+        layout, variables, bindings, assumptions, sources, inexact = prepared
+>       native = _native.VerifiedResidualSystem(sources, bindings, budget=budget)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: test_mutation_during_native_constructor_cannot_relabel_captured_assumptions.<locals>.mutate_after_construction() got an unexpected keyword argument 'budget'
+
+python/sympy/utilities/lambdify.py:1475: TypeError
+=========================== short test summary info ============================
+FAILED python/tests/test_certified_numeric.py::test_mutation_during_native_constructor_cannot_relabel_captured_assumptions
+1 failed, 69 passed in 3.72s

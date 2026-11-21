@@ -1,0 +1,9 @@
+{
+  "scope": "Actual-source math/PyO3 component with the same six runtime helper omissions; not full production extension",
+  "package": "fsym-python-math-source-component",
+  "original_build_artifact": "/tmp/frankensympy-validation-target-7cbcb07e542d/debug/libfsym_python.so",
+  "explicit_import_artifact": "/tmp/frankensympy-python-family-import-7cbcb07e542d/typed/fsym_python.so",
+  "sha256": "052de380534e3feea33575e66379c8799b1fb7648a7067f3797eb1ef08a1d18f",
+  "bytes": 66190472,
+  "source_copy_byte_equal": true
+}

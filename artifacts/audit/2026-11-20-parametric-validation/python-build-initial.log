@@ -1,0 +1,102 @@
+   Compiling fsym-budget v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-budget)
+   Compiling fsym-bigint v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-bigint)
+   Compiling fsym-modular v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-modular)
+   Compiling fsym-rational v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-rational)
+   Compiling fsym-id v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-id)
+   Compiling fsym-core v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-core)
+   Compiling target-lexicon v0.13.5
+   Compiling pyo3-build-config v0.27.2
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-assumptions)
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-proof-kernel)
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-evidence)
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-polys)
+   Compiling fsym-simplify v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-simplify)
+   Compiling pyo3-macros-backend v0.27.2
+   Compiling pyo3-ffi v0.27.2
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-calculus)
+   Compiling memoffset v0.9.1
+   Compiling syn v2.0.119
+   Compiling heck v0.5.0
+   Compiling pyo3 v0.27.2
+   Compiling fsym-sets v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-sets)
+   Compiling fsci-opt v0.2.0 (/workspace/scratch/7cbcb07e542d/frankenscipy-pin/crates/fsci-opt)
+   Compiling fsym-solvers v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-solvers)
+   Compiling pyo3-macros v0.27.2
+   Compiling indoc v2.0.7
+   Compiling once_cell v1.21.4
+   Compiling unindent v0.2.4
+   Compiling fsym-matrices v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-matrices)
+   Compiling fsym-numeric-consumer v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-numeric-consumer)
+   Compiling fsym-geometry v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-geometry)
+   Compiling fsym-tensor v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-tensor)
+   Compiling fsym-functions v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-functions)
+   Compiling fsym-printing v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-printing)
+   Compiling fsym-logic v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-logic)
+   Compiling fsym-ntheory v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-ntheory)
+   Compiling fsym-budget-source-component v0.1.0 (/tmp/frankensympy-python-family-component-7cbcb07e542d/runtime)
+   Compiling fsym-python-math-source-component v0.1.0 (/tmp/frankensympy-python-family-component-7cbcb07e542d)
+error[E0432]: unresolved import `num_traits`
+  --> src/algebraic_roots/query.rs:13:5
+   |
+13 | use num_traits::{Signed, Zero};
+   |     ^^^^^^^^^^ use of unresolved module or unlinked crate `num_traits`
+   |
+   = help: if you wanted to use a crate named `num_traits`, use `cargo add num_traits` to add it to your `Cargo.toml`
+
+error[E0599]: no method named `is_positive` found for reference `&BigRational` in the current scope
+   --> src/algebraic_roots/query.rs:168:60
+    |
+168 |         if query.max_width.as_ref().is_some_and(|eps| !eps.is_positive()) {
+    |                                                            ^^^^^^^^^^^ method not found in `&BigRational`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `Signed` which provides `is_positive` is implemented but not in scope; perhaps you want to import it
+    |
+  3 + use num_traits::sign::Signed;
+    |
+
+error[E0599]: no associated function or constant named `zero` found for struct `BigRational` in the current scope
+   --> src/algebraic_roots/query.rs:187:50
+    |
+187 |         let mut coefficients = vec![BigRational::zero(); degree + 1];
+    |                                                  ^^^^ associated function or constant not found in `BigRational`
+    |
+note: if you're trying to build a new `BigRational` consider using one of the following associated functions:
+      BigRational::new
+      BigRational::metered_new
+      BigRational::from_integer
+      BigRational::reconstruct_modular
+      BigRational::from_continued_fraction
+   --> /workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-rational/src/lib.rs:219:5
+    |
+219 |       pub fn new(numer: BigInt, denom: BigInt) -> Self {
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+227 | /     pub fn metered_new<M: BudgetMeter>(
+228 | |         numer: &BigInt,
+229 | |         denom: &BigInt,
+230 | |         meter: &mut M,
+231 | |     ) -> Result<Self, RationalArithmeticError> {
+    | |______________________________________________^
+...
+261 |       pub fn from_integer(value: BigInt) -> Self {
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+514 |       pub fn reconstruct_modular(residue: &BigInt, modulus: &BigInt) -> Option<Self> {
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+770 |       pub fn from_continued_fraction(coefficients: &[BigInt]) -> Option<Self> {
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: items from traits can only be used if the trait is in scope
+help: trait `Zero` which provides `zero` is implemented but not in scope; perhaps you want to import it
+    |
+  3 + use num_traits::identities::Zero;
+    |
+help: there is a method `is_zero` with a similar name
+    |
+187 |         let mut coefficients = vec![BigRational::is_zero(); degree + 1];
+    |                                                  +++
+
+Some errors have detailed explanations: E0432, E0599.
+For more information about an error, try `rustc --explain E0432`.
+error: could not compile `fsym-python-math-source-component` (lib) due to 3 previous errors

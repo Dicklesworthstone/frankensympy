@@ -1,0 +1,80 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+   Compiling syn v3.0.3
+   Compiling serde_core v1.0.229
+   Compiling autocfg v1.5.1
+   Compiling num-traits v0.2.19
+   Compiling cfg-if v1.0.4
+   Compiling serde v1.0.229
+   Compiling serde_derive v1.0.229
+   Compiling num-integer v0.1.47
+   Compiling libc v0.2.189
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.11
+   Compiling cc v1.4.4
+   Compiling num-bigint v0.4.8
+   Compiling fsym-budget v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-budget)
+   Compiling zmij v1.0.23
+   Compiling fsym-bigint v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-bigint)
+   Compiling blake3 v1.8.7
+   Compiling serde_json v1.0.151
+   Compiling thiserror v2.0.20
+   Compiling fsym-modular v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-modular)
+   Compiling num-rational v0.4.2
+   Compiling thiserror-impl v2.0.20
+   Compiling memchr v2.8.3
+   Compiling arrayvec v0.7.8
+   Compiling cpufeatures v0.3.0
+   Compiling constant_time_eq v0.4.2
+   Compiling itoa v1.0.18
+   Compiling fsym-rational v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-rational)
+   Compiling fsym-id v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-id)
+   Compiling num-complex v0.4.6
+   Compiling fsym-outcome v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-outcome)
+   Compiling getrandom v0.3.4
+   Compiling fsym-core v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-core)
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-assumptions)
+   Compiling zerocopy v0.8.56
+   Compiling getrandom v0.4.3
+   Compiling rustix v1.1.4
+   Compiling rand_core v0.9.5
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-proof-kernel)
+   Compiling bitflags v2.13.1
+   Compiling linux-raw-sys v0.12.1
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-evidence)
+   Compiling fastrand v2.5.0
+   Compiling once_cell v1.21.4
+   Compiling tempfile v3.27.0
+   Compiling ppv-lite86 v0.2.21
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-polys)
+   Compiling wait-timeout v0.2.1
+   Compiling bit-vec v0.8.0
+   Compiling quick-error v1.2.3
+   Compiling fnv v1.0.7
+   Compiling rusty-fork v0.3.1
+   Compiling bit-set v0.8.0
+   Compiling fsym-simplify v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-simplify)
+   Compiling rand_chacha v0.9.0
+   Compiling rand_xorshift v0.4.0
+   Compiling rand v0.9.5
+   Compiling regex-syntax v0.8.11
+   Compiling unarray v0.1.4
+   Compiling proptest v1.11.0
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-calculus)
+    Finished `test` profile [unoptimized] target(s) in 1m 05s
+     Running tests/smooth_source_domains.rs (/workspace/scratch/7cbcb07e542d/validation-target/debug/build/fsym-calculus/8cf8db0a4d37d8e6/out/smooth_source_domains-8cf8db0a4d37d8e6)
+
+running 9 tests
+test rejected_boundary_work_keeps_one_ledger_and_cancellation_remains_terminal ... ok
+test literal_exponent_bounds_preserve_nonintegral_source_status ... ok
+test scalar_values_keep_closed_endpoints_while_derivative_bundles_require_open_domains ... ok
+test integer_powers_remain_smooth_at_zero_and_on_negative_bases ... ok
+test literal_identity_derivatives_do_not_erase_original_base_domains ... ok
+test shared_source_memo_never_promotes_scalar_endpoints_or_leaks_between_calls ... ok
+test legacy_literal_power_proofs_and_artifacts_replay_but_coordinated_mutants_fail ... ok
+test inactive_piecewise_boundaries_are_not_hoisted_into_derivative_evaluation ... ok
+test zero_products_powers_and_vectors_cannot_publish_erased_source_boundaries ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+

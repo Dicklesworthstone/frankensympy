@@ -1,0 +1,10 @@
+   Compiling fsym-numeric-consumer v0.1.0 (/workspace/scratch/7cbcb07e542d/frankensympy/crates/fsym-numeric-consumer)
+    Finished `test` profile [unoptimized] target(s) in 0.57s
+     Running tests/smooth_trial_domains.rs (/workspace/scratch/7cbcb07e542d/validation-target/debug/build/fsym-numeric-consumer/fec94fbe6faa886c/out/smooth_trial_domains-fec94fbe6faa886c)
+
+running 2 tests
+test dense_and_sparse_least_squares_retry_math_domains_and_recheck_original_sources ... ok
+test dense_and_sparse_objective_trials_backtrack_before_publishing_an_endpoint ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

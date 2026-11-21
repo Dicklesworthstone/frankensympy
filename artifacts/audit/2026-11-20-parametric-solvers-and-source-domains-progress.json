@@ -456,10 +456,358 @@
     ]
   },
   "required_next_execution": [
+    "Observe the already-running genuine production cargo check --locked --offline -p fsym-python -p frankensympy -j1.",
+    "Full production extension code generation/linking and broader runtime/workspace/profile gates remain distinct, unpassed checks; the passing source components do not imply them."
+  ],
+  "execution_evidence_snapshot": "Historical evidence captured before the final recovery. followup_validation records the later terminal results and supersedes pending execution status in the earlier fields.",
+  "previous_required_next_execution": [
     "cargo test --locked --offline -p fsym-calculus --test smooth_source_domains -j1",
     "cargo test --locked --offline -p fsym-numeric-consumer --test smooth_trial_domains --test parametric_root_proposal --test parametric_root_consumer --test generic_system_consumers --test smooth_system_consumers -j1",
     "Actual-source native Session compiled_parametric_session, compiled_parametric_certification and private compiled_parametric_tests; adjacent compiled solver/root/objective certification targets",
     "Actual-source Python bridge build and focused test_parametric_root_candidate.py plus test_parametric_solve_certified.py and adjacent certified-family/solver suites",
     "Full production cargo check -p fsym-python -p frankensympy when execution is stable; a full extension build remains a distinct unpassed gate"
-  ]
+  ],
+  "followup_validation": {
+    "schema_version": 1,
+    "recorded_date": "2026-11-21",
+    "repository": "Dicklesworthstone/frankensympy",
+    "source_anchor": "Local d27ad717fa00fb6dd9f28125f25637e9ac8f8ecf plus pinned formatting, two narrowly corrected Rust test fixtures, the authentic num-traits dependency edge, the readonly compiled typed-axis getter and its public assertions, and the adjacent constructor-hook budget forwarding repair.",
+    "interpretation": "Only observed terminal results are marked passed. Production crate tests, source-component execution, and the full-dependency production check are separate scopes. Repeated failed/retry cases are not counted twice.",
+    "environment": {
+      "toolchain": "nightly-2026-08-20",
+      "rustc": "1.100.0-nightly (f7d782a3b 2026-08-19)",
+      "setup": "/workspace/scratch/7cbcb07e542d/validation-env.sh",
+      "cargo_home_for_these_runs": "/tmp/frankensympy-cargo-cache-7cbcb07e542d",
+      "cargo_home_origin_preserved": "/workspace/scratch/7cbcb07e542d/validation-cargo",
+      "cargo_target": "/workspace/scratch/7cbcb07e542d/validation-target",
+      "resolved_target": "/tmp/frankensympy-validation-target-7cbcb07e542d",
+      "jobs": 1,
+      "incremental": false,
+      "dev_debug": 0,
+      "test_debug": 0
+    },
+    "production_crate_tests": {
+      "distinct_passing_cases_in_these_targets": 42,
+      "runs": [
+        {
+          "command": "cargo test --locked --offline -p fsym-calculus --test smooth_source_domains -j1",
+          "exit_code": 0,
+          "targets": {
+            "smooth_source_domains": {
+              "passed": 9,
+              "failed": 0
+            }
+          },
+          "log_blob": "806d2cb8e796db6d58cf1c7acb70ebc143e50b79"
+        },
+        {
+          "command": "cargo test --locked --offline -p fsym-numeric-consumer --test smooth_trial_domains --test parametric_root_proposal --test parametric_root_consumer --test generic_system_consumers --test smooth_system_consumers -j1",
+          "exit_code": 101,
+          "targets": {
+            "generic_system_consumers": {
+              "passed": 10,
+              "failed": 0
+            },
+            "parametric_root_consumer": {
+              "passed": 10,
+              "failed": 0
+            },
+            "parametric_root_proposal": {
+              "passed": 6,
+              "failed": 0
+            },
+            "smooth_system_consumers": {
+              "passed": 5,
+              "failed": 0
+            },
+            "smooth_trial_domains": {
+              "passed": 0,
+              "failed": 2
+            }
+          },
+          "resolution": "Only the failing test fixture was changed to construct explicit primitive expression nodes. The parser had lowered sqrt into power, invalidating the fixture's exact error-label assertion. Production code and the other 31 passing cases were unchanged.",
+          "log_blob": "35b5db34d3276c2db8e19024c43389208f91e3e1"
+        },
+        {
+          "command": "cargo test --locked --offline -p fsym-numeric-consumer --test smooth_trial_domains -j1",
+          "exit_code": 0,
+          "targets": {
+            "smooth_trial_domains": {
+              "passed": 2,
+              "failed": 0
+            }
+          },
+          "log_blob": "08ad5b18c3e416de351d8b46382f20b959651005",
+          "exact_passing_fixture_blob": "c12430d2845d488422d6542bc3a73023b269a848"
+        }
+      ]
+    },
+    "session_source_component": {
+      "scope": "Complete unchanged production root library and CLI sources with five whole original synchronous runtime modules and fourteen whole pinned donor codec modules. No source functions are replaced.",
+      "omitted_runtime_rust_files": 12,
+      "omitted_donor_rust_files": 1535,
+      "source_hash_count": 779,
+      "source_hashes_equal_before_after": true,
+      "harness_hashes_equal_before_after": true,
+      "bookend_note": "The before record is fresh pre-retry.json, taken after the pole-case expected protocol code was corrected to the existing refused category. It is not the pre-record from the failed initial attempt.",
+      "before_scope_blob": "d6c78f94649a8d12ef5fed42b74198d79ab08082",
+      "after_scope_blob": "0102168035fccb8a5f73a90bc622d320780e5508",
+      "registry_package_count_matching_production_lock": 58,
+      "original_path_package_count": 25,
+      "runs": [
+        {
+          "command": "cargo test --locked --offline -p frankensympy-session-source-component-check --test compiled_parametric_session --test compiled_parametric_certification -j1",
+          "exit_code": 0,
+          "targets": {
+            "compiled_parametric_certification": {
+              "passed": 7,
+              "failed": 0
+            },
+            "compiled_parametric_session": {
+              "passed": 6,
+              "failed": 0
+            }
+          },
+          "log_blob": "6a426d35e341ffaa8d0ab4d6da403ac83d7114ac"
+        },
+        {
+          "command": "cargo test --locked --offline -p frankensympy-session-source-component-check --lib compiled_parametric_tests -j1",
+          "exit_code": 0,
+          "passed": 2,
+          "failed": 0,
+          "log_blob": "d7dea7012777aab6de333b8db57f4a7ba93f52dd"
+        }
+      ],
+      "not_covered": [
+        "Full production async runtime execution",
+        "Omitted runtime/donor modules",
+        "Workspace and compatibility-profile gates"
+      ]
+    },
+    "python_source_component": {
+      "scope": "Authentic production mathematical dependencies and public shell, with 44 whole bridge files retained byte-identically and only lib.rs and expr.rs shortened by the six listed runtime helper omissions.",
+      "source_functions_replaced": [],
+      "omitted_helpers": [
+        "lib.rs::eval_error",
+        "lib.rs::eval_region",
+        "lib.rs::simplify_expr",
+        "lib.rs::expand_expr",
+        "expr.rs::PyExpr.simplify",
+        "expr.rs::PyExpr.expand"
+      ],
+      "registry_package_count_matching_production_lock": 56,
+      "original_path_package_count": 27,
+      "build": {
+        "command": "cargo build --locked --offline -p fsym-python-math-source-component --features extension-module -j1",
+        "exit_code": 0,
+        "log_blob": "b1b7425db1604cfcc8768c681b27465a2a4b8570"
+      },
+      "imported_artifact": {
+        "path": "/tmp/frankensympy-python-family-import-7cbcb07e542d/typed/fsym_python.so",
+        "sha256": "052de380534e3feea33575e66379c8799b1fb7648a7067f3797eb1ef08a1d18f",
+        "bytes": 66190472,
+        "copy_matches_build_artifact": true,
+        "native_module_path_verified": true,
+        "repository_shell_path_verified": true,
+        "manifest_blob": "5620ef26327a5e6fae2a95ec207985dae21c0840"
+      },
+      "invocation_environment": {
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONPATH": "/tmp/frankensympy-python-family-import-7cbcb07e542d/typed:/workspace/scratch/7cbcb07e542d/frankensympy/python:/workspace/scratch/7cbcb07e542d/validation-pytest"
+      },
+      "runs": [
+        {
+          "command": "python -m pytest -q -p no:cacheprovider python/tests/test_parametric_root_candidate.py python/tests/test_parametric_solve_certified.py",
+          "exit_code": 0,
+          "passed": 103,
+          "failed": 0,
+          "log_blob": "64da7d7a0df5f3aeced5f0179dd2e95baa05f55b",
+          "before_scope_blob": "71b9065d3a2f1d45a9e4835feaf9d26b631e1757",
+          "after_scope_blob": "d75c5d8f489952d4b6f4e1ead8917e2bd775fe70",
+          "source_hash_count": 1105,
+          "source_hashes_equal_before_after": true,
+          "component_hashes_equal_before_after": true
+        },
+        {
+          "command": "python -m pytest -q -p no:cacheprovider python/tests/test_certified_numeric.py python/tests/test_nsolve_certified.py",
+          "exit_code": 0,
+          "passed": 70,
+          "failed": 0,
+          "log_blob": "38896f82fb312028df371c83dc49e32f18fba63f",
+          "before_scope_blob": "8d927c42c8875f4366d4409b415d6c65578372a2",
+          "after_scope_blob": "c026d1195b30264db808b520e2b52386f5db9fc1",
+          "source_hash_count": 1105,
+          "source_hashes_equal_before_after": true,
+          "component_hashes_equal_before_after": true,
+          "note": "The fresh bookend starts after the existing test's monkeypatch was updated to forward the real constructor's budget keyword. All captured-assumption mutation assertions remain."
+        }
+      ],
+      "report_example": {
+        "executed": true,
+        "source": "2*x-p",
+        "parameter_domain": [
+          [
+            "3/2",
+            "5/2"
+          ]
+        ],
+        "unknown_domain": [
+          [
+            "1/2",
+            "3/2"
+          ]
+        ],
+        "root_enclosure": [
+          [
+            "3/4",
+            "5/4"
+          ]
+        ],
+        "solution_jacobian": [
+          [
+            [
+              "1/2",
+              "1/2"
+            ]
+          ]
+        ],
+        "result_blob": "958c33538cf09861a12ee9c3d372af1c9d1039bc"
+      },
+      "not_covered": [
+        "Full production extension code generation/linking",
+        "Omitted runtime helpers and async runtime",
+        "Workspace and compatibility-profile gates"
+      ]
+    },
+    "production_check": {
+      "command": "cargo check --locked --offline -p fsym-python -p frankensympy -j1",
+      "scope": "Genuine production manifests and complete dependency graph, directly from the checkout; no component aliases or source omissions.",
+      "status": "Started; terminal result not yet observed",
+      "session_id": 61272,
+      "log": "/tmp/frankensympy-validation-logs-7cbcb07e542d/production-native-python-check.log"
+    },
+    "formatting_record_blob": "3652140eb5b6039a588969d07b09b3f6c87bc021",
+    "no_full_workspace_pass_claim": true,
+    "no_full_runtime_execution_pass_claim": true,
+    "no_compatibility_profile_claim": true,
+    "client_date": "2026-11-20",
+    "tested_blob_overrides": {
+      "crates/fsym-calculus/tests/smooth_source_domains.rs": "c60b6190e7a1f2888b376874135cb232e1c04dd2",
+      "crates/fsym-numeric-consumer/src/systems/parametric.rs": "697edac4f14cefdf6e0004e68c9b76ddf0561cfe",
+      "crates/fsym-numeric-consumer/tests/parametric_root_proposal.rs": "c3ac0f8dfc735910f382dbc7c3e07f022a773325",
+      "crates/fsym-numeric-consumer/tests/smooth_trial_domains.rs": "c12430d2845d488422d6542bc3a73023b269a848",
+      "crates/fsym-python/src/numeric.rs": "b17138441094fa6ca468ff72c94d94b048a30005",
+      "src/certification_session/compiled_solvers.rs": "0e3e46f65fc3caf812c7af1df2e7360175b6d457",
+      "tests/compiled_parametric_certification.rs": "ec0d7ab7c1459fef434bc3650ec34404637c2b57",
+      "Cargo.lock": "19e3e2d704cf81958df11d66da3bc2d4adaf25bc",
+      "crates/fsym-python/Cargo.toml": "956621ecc77ffe0854eb19c43488dfda95f1a7b7",
+      "python/tests/test_parametric_root_candidate.py": "5e0fbb8a1efacd8a072d823d7dfab0a683b9519b",
+      ".github/workflows/ci.yml": "dc313bddce714892858ec9e0222a2812be865b90",
+      "python/tests/test_certified_numeric.py": "fb4f0538129c5070134cce0ce36f93aaf9646df4"
+    },
+    "committed_logs_and_scope_records": [
+      {
+        "path": "artifacts/audit/2026-11-20-parametric-validation/calculus-smooth-source-domains.log",
+        "git_blob": "806d2cb8e796db6d58cf1c7acb70ebc143e50b79"
+      },
+      {
+        "path": "artifacts/audit/2026-11-20-parametric-validation/consumers-initial.log",
+        "git_blob": "35b5db34d3276c2db8e19024c43389208f91e3e1"
+      },
+      {
+        "path": "artifacts/audit/2026-11-20-parametric-validation/consumers-domain-fixtures-retry.log",
+        "git_blob": "08ad5b18c3e416de351d8b46382f20b959651005"
+      },
+      {
+        "path": "artifacts/audit/2026-11-20-parametric-validation/session-family-initial.log",
+        "git_blob": "fe2708a0872e2ffd3b74d620cd2210e9d0ad8cf3"
+      },
+      {
+        "path": "artifacts/audit/2026-11-20-parametric-validation/session-family-and-candidate-retry.log",
+        "git_blob": "6a426d35e341ffaa8d0ab4d6da403ac83d7114ac"
+      },
+      {
+        "path": "artifacts/audit/2026-11-20-parametric-validation/session-family-authority.log",
+        "git_blob": "d7dea7012777aab6de333b8db57f4a7ba93f52dd"
+      },
+      {
+        "path": "artifacts/audit/2026-11-20-parametric-validation/python-build-initial.log",
+        "git_blob": "ebe2e6456fe3935a79f6a6dcf08e06cb38377474"
+      },
+      {
+        "path": "artifacts/audit/2026-11-20-parametric-validation/python-parametric-initial.log",
+        "git_blob": "42906847ca14370674a5051207e914e6da3b4efe"
+      },
+      {
+        "path": "artifacts/audit/2026-11-20-parametric-validation/session-component-scope.json",
+        "git_blob": "0102168035fccb8a5f73a90bc622d320780e5508"
+      },
+      {
+        "path": "artifacts/audit/2026-11-20-parametric-validation/python-parametric-passed.log",
+        "git_blob": "64da7d7a0df5f3aeced5f0179dd2e95baa05f55b"
+      },
+      {
+        "path": "artifacts/audit/2026-11-20-parametric-validation/python-shared-eligibility-initial.log",
+        "git_blob": "d55f6cac591fee1b63a7ddf21e435368740a68f6"
+      },
+      {
+        "path": "artifacts/audit/2026-11-20-parametric-validation/python-shared-eligibility-passed.log",
+        "git_blob": "38896f82fb312028df371c83dc49e32f18fba63f"
+      },
+      {
+        "path": "artifacts/audit/2026-11-20-parametric-validation/python-component-build-passed.log",
+        "git_blob": "b1b7425db1604cfcc8768c681b27465a2a4b8570"
+      },
+      {
+        "path": "artifacts/audit/2026-11-20-parametric-validation/python-component-import.json",
+        "git_blob": "5620ef26327a5e6fae2a95ec207985dae21c0840"
+      },
+      {
+        "path": "artifacts/audit/2026-11-20-parametric-validation/python-component-scope.json",
+        "git_blob": "c026d1195b30264db808b520e2b52386f5db9fc1"
+      },
+      {
+        "path": "artifacts/audit/2026-11-20-parametric-validation/executed-parametric-example.json",
+        "git_blob": "958c33538cf09861a12ee9c3d372af1c9d1039bc"
+      }
+    ],
+    "resolved_public_bridge_failures": [
+      {
+        "stage": "component compilation",
+        "cause": "algebraic_roots/query.rs imports num_traits without declaring it in fsym-python",
+        "fix": "Declare the existing workspace num-traits dependency and add its already-pinned Cargo.lock edge.",
+        "initial_log": "artifacts/audit/2026-11-20-parametric-validation/python-build-initial.log"
+      },
+      {
+        "stage": "public parametric tests",
+        "result": {
+          "passed": 45,
+          "failed": 58
+        },
+        "cause": "NumericParametricRootCandidate checks the compiled system's typed variables, but VerifiedResidualSystem omitted the read-only variables property.",
+        "fix": "Expose cloned frozen typed symbol bindings from the admitted system.vars() order; preserve source-owner and typed-order validation.",
+        "initial_log": "artifacts/audit/2026-11-20-parametric-validation/python-parametric-initial.log"
+      },
+      {
+        "stage": "adjacent shared source-eligibility regression",
+        "initial_result": {
+          "passed": 69,
+          "failed": 1
+        },
+        "cause": "The assumption-mutation test hook did not accept the native constructor's forwarded optional budget keyword.",
+        "fix": "Accept and forward budget unchanged; preserve every source and assumption mutation assertion.",
+        "test": "python/tests/test_certified_numeric.py::test_mutation_during_native_constructor_cannot_relabel_captured_assumptions"
+      }
+    ],
+    "final_source_review": {
+      "reviewer": "native_gap_audit",
+      "result": "No substantive blocker identified in the consumer, witness, Session source binding or independent verifier chain; source review is supplementary to execution.",
+      "remaining_product_limits": [
+        "Dense Newton with at most 16 total axes and a nonempty parameter suffix.",
+        "One caller-sized uniform witness; no automatic radius search or parameter subdivision.",
+        "Finite binary64 numerical stage may conservatively refuse extreme exact parameters or unsuitable initial guesses.",
+        "Uniqueness is confined to the declared unknown box for each parameter in the exact declared parameter box."
+      ]
+    }
+  }
 }

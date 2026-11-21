@@ -38,6 +38,7 @@ fsym-printing.workspace = true
 fsym-runtime.workspace = true
 asupersync.workspace = true
 blake3.workspace = true
+num-traits.workspace = true
 pyo3.workspace = true
 
 [dev-dependencies]

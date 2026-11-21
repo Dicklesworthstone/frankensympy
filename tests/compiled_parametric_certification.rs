@@ -166,7 +166,10 @@ fn fixed_fractional_parameters_keep_the_exact_domain_instead_of_the_rounded_solv
         &mut session,
         payload("0", "1/10", "1/10", "1/1000"),
     ));
-    assert_eq!(result["parameter_domain"], json!([interval("1/10", "1/10")]));
+    assert_eq!(
+        result["parameter_domain"],
+        json!([interval("1/10", "1/10")])
+    );
     assert_eq!(result["root_enclosure"], json!([interval("1/20", "1/20")]));
     let receipt = session
         .parametric_family(&ParametricFamilyId::new(FAMILY).unwrap())
@@ -180,11 +183,9 @@ fn fixed_fractional_parameters_keep_the_exact_domain_instead_of_the_rounded_solv
 fn midpoint_success_loose_tolerances_and_singular_roots_do_not_authorize_a_family() {
     for (source, request, code) in [
         ("x-p", payload("0", "-1", "1", "1/10"), "refused"),
-        (
-            "x-1/p",
-            payload("1", "-1", "2", "10"),
-            "domain_not_certified",
-        ),
+        // An interval division containing zero follows the existing
+        // arithmetic-refusal category, without granting a family.
+        ("x-1/p", payload("1", "-1", "2", "10"), "refused"),
         (
             "x^2-p",
             payload("0", "0", "0", "1"),
@@ -205,11 +206,9 @@ fn midpoint_success_loose_tolerances_and_singular_roots_do_not_authorize_a_famil
 
 #[test]
 fn registered_problem_and_compiled_source_must_match_before_any_proposal_can_be_certified() {
-    for (source, unknown, parameter) in [
-        ("x-p+1", "x", "p"),
-        ("x-p", "p", "x"),
-        ("x-p+0", "x", "p"),
-    ] {
+    for (source, unknown, parameter) in
+        [("x-p+1", "x", "p"), ("x-p", "p", "x"), ("x-p+0", "x", "p")]
+    {
         let mut session = Session::with_budget_limits(limits(), 256);
         success(call(
             &mut session,
@@ -283,8 +282,7 @@ fn final_publication_is_atomic_and_protected_work_cannot_borrow_ordinary_fuel() 
         Dimension::AllocationCount,
     ] {
         let mut bounded = limits();
-        bounded.dimensions[dimension.index()] =
-            AMPLE - after.dimensions[dimension.index()] - 1;
+        bounded.dimensions[dimension.index()] = AMPLE - after.dimensions[dimension.index()] - 1;
         let mut session = setup(bounded, "x-p");
         refused(certify(&mut session, request.clone()), "budget_exhausted");
         no_family(&session);
@@ -296,19 +294,14 @@ fn final_publication_is_atomic_and_protected_work_cannot_borrow_ordinary_fuel() 
         let mut session = setup(bounded, "x-p");
         refused(certify(&mut session, request.clone()), "budget_exhausted");
         no_family(&session);
-        assert!(
-            session.budget_snapshot().dimensions[Dimension::ComputeSteps.index()] > 0
-        );
+        assert!(session.budget_snapshot().dimensions[Dimension::ComputeSteps.index()] > 0);
     }
 }
 
 #[test]
 fn the_accepted_family_exports_replays_and_checks_sensitivity_in_a_fresh_native_process() {
     let mut session = setup(limits(), "2*x-p");
-    let certified = success(certify(
-        &mut session,
-        payload("0", "3/2", "5/2", "1/2"),
-    ));
+    let certified = success(certify(&mut session, payload("0", "3/2", "5/2", "1/2")));
     let artifact = success(call(
         &mut session,
         "ExportParametricFamily",

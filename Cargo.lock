@@ -939,6 +939,7 @@ dependencies = [
  "fsym-simplify",
  "fsym-solvers",
  "fsym-tensor",
+ "num-traits",
  "proptest",
  "pyo3",
 ]
