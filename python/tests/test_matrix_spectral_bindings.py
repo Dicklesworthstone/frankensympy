@@ -163,5 +163,100 @@ class SpectralConsumerTests(unittest.TestCase):
             self.assertEqual((matrix*vector - source*vector).applyfunc(s.expand), s.zeros(2, 1))
 
 
+class DirectCharacteristicExpressionTests(unittest.TestCase):
+    """Exact characteristic expressions independent of polynomial expansion."""
+
+    def test_scalar_capture_regressions_keep_both_independent_symbols(self):
+        for matrix_type in (s.Matrix, s.ImmutableMatrix):
+            for name, requested in (("lambda", None), ("x", "x")):
+                with self.subTest(matrix_type=matrix_type, name=name):
+                    source = s.Symbol(name)
+                    matrix = matrix_type([[source]])
+                    result = matrix.charpoly() if requested is None else matrix.charpoly(requested)
+                    axis = s.Symbol("_" + name)
+                    self.assertIs(result.gen, axis)
+                    self.assertEqual(result.as_expr(), axis - source)
+                    self.assertEqual(result.free_symbols, {axis, source})
+                    self.assertTrue(any(symbol is source for symbol in result.free_symbols))
+
+    def test_triangular_formula_reserves_disappearing_off_diagonal_name(self):
+        source, off_diagonal = s.symbols("x _x")
+        matrix = s.Matrix([[source, off_diagonal], [0, source]])
+        result = matrix.charpoly(source)
+        axis = s.Symbol("__x")
+        self.assertIs(result.gen, axis)
+        self.assertEqual(result.as_expr(), axis**2 - 2*source*axis + source**2)
+        self.assertEqual(matrix.free_symbols, {source, off_diagonal})
+        self.assertEqual(result.free_symbols, {axis, source})
+
+    def test_dense_two_by_two_integer_and_rational_formulas_are_exact(self):
+        axis = s.Symbol("spectral_axis")
+        for entries, expected in (
+            ([[1, 2], [3, 4]], axis**2 - 5*axis - 2),
+            (
+                [[s.Rational(1, 2), s.Rational(2, 3)],
+                 [s.Rational(3, 4), s.Rational(5, 6)]],
+                axis**2 - s.Rational(4, 3)*axis - s.Rational(1, 12),
+            ),
+        ):
+            with self.subTest(entries=entries):
+                result = s.Matrix(entries).charpoly(axis)
+                self.assertIs(result.gen, axis)
+                self.assertEqual(result.as_expr(), expected)
+                self.assertEqual(result.free_symbols, {axis})
+
+    def test_native_coefficients_retain_same_named_typed_symbol_identities(self):
+        for first, second in (
+            (s.Symbol("x", positive=True), s.Symbol("x", negative=True)),
+            (s.Dummy("x"), s.Dummy("x")),
+        ):
+            with self.subTest(first=first, second=second):
+                result = s.Matrix([[0, first], [second, 0]]).charpoly("x")
+                axis = s.Symbol("_x")
+                self.assertIs(result.gen, axis)
+                self.assertEqual(result.as_expr(), axis**2 - first*second)
+                self.assertEqual(result.free_symbols, {axis, first, second})
+                self.assertNotEqual(first, second)
+                for source in (first, second):
+                    self.assertTrue(any(symbol is source for symbol in result.free_symbols))
+
+    def test_published_expression_and_immutable_source_survive_matrix_mutation(self):
+        source, replacement = s.symbols("x _x")
+        matrix = s.Matrix([[source]])
+        frozen = s.ImmutableMatrix(matrix)
+        first = matrix.charpoly(source)
+        repeated = matrix.charpoly(source)
+        expression = first.as_expr()
+        self.assertIs(first.gen, replacement)
+        self.assertIs(repeated.gen, first.gen)
+        self.assertEqual(repeated.as_expr(), expression)
+        matrix[0, 0] = replacement
+        current = matrix.charpoly(source)
+        self.assertIs(current.gen, source)
+        self.assertEqual(current.as_expr(), source - replacement)
+        self.assertIs(first.as_expr(), expression)
+        self.assertEqual(expression, replacement - source)
+        self.assertEqual(frozen.charpoly(source).as_expr(), expression)
+        self.assertEqual(matrix.free_symbols, {replacement})
+        self.assertEqual(frozen.free_symbols, {source})
+
+    def test_empty_polynomial_and_output_name_hints_have_direct_expressions(self):
+        empty = s.Matrix(0, 0, []).charpoly()
+        self.assertEqual(empty.as_expr(), 1)
+        self.assertEqual(empty.free_symbols, set())
+        for requested, name in (
+            (s.Symbol("axis", positive=True), "axis"),
+            (s.Dummy("axis"), "_axis"),
+        ):
+            with self.subTest(requested=requested):
+                result = s.eye(2).charpoly(requested)
+                axis = s.Symbol(name)
+                self.assertIs(type(result.gen), s.Symbol)
+                self.assertIs(result.gen, axis)
+                self.assertIsNone(result.gen.is_positive)
+                self.assertEqual(result.as_expr(), axis**2 - 2*axis + 1)
+                self.assertEqual(result.free_symbols, {axis})
+
+
 if __name__ == "__main__":
     unittest.main()

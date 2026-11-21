@@ -1,0 +1,692 @@
+Validation scope: documented mathematical/PyO3 component
+Candidate Python: /workspace/scratch/c6fe9f85a578/frankensympy/python/sympy/__init__.py
+Native binary: /workspace/scratch/c6fe9f85a578/target/debug/libfsym_python.so
+FFFFFF..FF.FF.FF............................                             [100%]
+=================================== FAILURES ===================================
+_ CharacteristicGeneratorTests.test_assumptions_cannot_hide_a_name_collision_or_change_source_identity _
+
+self = <test_matrix_spectral_bindings.CharacteristicGeneratorTests testMethod=test_assumptions_cannot_hide_a_name_collision_or_change_source_identity>
+
+    def test_assumptions_cannot_hide_a_name_collision_or_change_source_identity(self):
+        source = s.Symbol("x", positive=True)
+        result = s.Matrix([[source]]).charpoly(s.Symbol("x", negative=True))
+        self.assertEqual(result.gen, s.Symbol("_x"))
+>       self.assertEqual(result.all_coeffs(), [1, -source])
+                         ^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_matrix_spectral_bindings.py:59: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/sympy/polys/polytools.py:175: in all_coeffs
+    return self._univariate_coeffs()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/polys/polytools.py:154: in _univariate_coeffs
+    terms = self.terms()
+            ^^^^^^^^^^^^
+python/sympy/polys/polytools.py:868: in terms
+    e = expand(self._expr)
+        ^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+expression = _x - x, deep = True, modulus = None, power_base = True
+power_exp = True, mul = True, log = True, multinomial = True, basic = True
+hints = {}, result = _x - x, force = False, _ = 0, previous = _x - x
+
+    def expand(expression: Any, deep: bool = True, modulus: Any = None, power_base: bool = True,
+               power_exp: bool = True, mul: bool = True, log: bool = True,
+               multinomial: bool = True, basic: bool = True, **hints: Any) -> Expr:
+        """Upstream ``expand`` with hints: ``mul``/``multinomial`` (native),
+        ``power_exp`` (exp(x + y) -> exp(x)*exp(y)), ``log`` (with ``force``
+        or positivity), ``trig=True``, ``func=True``; hints iterate to a fixed
+        point. Held Adds keep their oracle-pinned behavior."""
+        if _contains_opaque(expression):
+            from ._surface_transforms import expand as surface_expand
+    
+            return surface_expand(
+                expression, deep=deep, modulus=modulus, power_base=power_base,
+                power_exp=power_exp, mul=mul, log=log, multinomial=multinomial,
+                basic=basic, **hints,
+            )
+        if isinstance(expression, Add) and hasattr(expression, "_args"):
+            return _expand_held(expression)
+        result = sympify(expression)
+        force = bool(hints.get("force", False))
+        for _ in range(6):
+            previous = result
+            if mul or multinomial:
+>               result = _lift_builtin_result(_native_expr(result).expand())
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'fsym_python.Expr' object has no attribute 'expand'
+
+python/sympy/core/__init__.py:6066: AttributeError
+_ CharacteristicGeneratorTests.test_default_name_does_not_erase_a_scalar_matrix_parameter _
+
+self = <test_matrix_spectral_bindings.CharacteristicGeneratorTests testMethod=test_default_name_does_not_erase_a_scalar_matrix_parameter>
+
+    def test_default_name_does_not_erase_a_scalar_matrix_parameter(self):
+        source = s.Symbol("lambda")
+        for matrix_type in (s.Matrix, s.ImmutableMatrix):
+            with self.subTest(matrix_type=matrix_type):
+                result = matrix_type([[source]]).charpoly()
+                self.assertIs(type(result), s.PurePoly)
+                self.assertIs(type(result.gen), s.Symbol)
+                self.assertEqual(result.gen, s.Symbol("_lambda"))
+>               self.assertEqual(result.degree(), 1)
+                                 ^^^^^^^^^^^^^^^
+
+python/tests/test_matrix_spectral_bindings.py:23: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/sympy/polys/polytools.py:197: in degree
+    return max(m[i] for m, _ in self.terms())
+                                ^^^^^^^^^^^^
+python/sympy/polys/polytools.py:868: in terms
+    e = expand(self._expr)
+        ^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+expression = _lambda - lambda, deep = True, modulus = None, power_base = True
+power_exp = True, mul = True, log = True, multinomial = True, basic = True
+hints = {}, result = _lambda - lambda, force = False, _ = 0
+previous = _lambda - lambda
+
+    def expand(expression: Any, deep: bool = True, modulus: Any = None, power_base: bool = True,
+               power_exp: bool = True, mul: bool = True, log: bool = True,
+               multinomial: bool = True, basic: bool = True, **hints: Any) -> Expr:
+        """Upstream ``expand`` with hints: ``mul``/``multinomial`` (native),
+        ``power_exp`` (exp(x + y) -> exp(x)*exp(y)), ``log`` (with ``force``
+        or positivity), ``trig=True``, ``func=True``; hints iterate to a fixed
+        point. Held Adds keep their oracle-pinned behavior."""
+        if _contains_opaque(expression):
+            from ._surface_transforms import expand as surface_expand
+    
+            return surface_expand(
+                expression, deep=deep, modulus=modulus, power_base=power_base,
+                power_exp=power_exp, mul=mul, log=log, multinomial=multinomial,
+                basic=basic, **hints,
+            )
+        if isinstance(expression, Add) and hasattr(expression, "_args"):
+            return _expand_held(expression)
+        result = sympify(expression)
+        force = bool(hints.get("force", False))
+        for _ in range(6):
+            previous = result
+            if mul or multinomial:
+>               result = _lift_builtin_result(_native_expr(result).expand())
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'fsym_python.Expr' object has no attribute 'expand'
+
+python/sympy/core/__init__.py:6066: AttributeError
+_ CharacteristicGeneratorTests.test_different_same_named_dummies_remain_distinct_coefficients _
+
+self = <test_matrix_spectral_bindings.CharacteristicGeneratorTests testMethod=test_different_same_named_dummies_remain_distinct_coefficients>
+
+    def test_different_same_named_dummies_remain_distinct_coefficients(self):
+        first, second = s.Dummy("x"), s.Dummy("x")
+        result = s.diag(first, second).charpoly("x")
+        self.assertEqual(result.gen, s.Symbol("_x"))
+>       self.assertEqual(result.degree(), 2)
+                         ^^^^^^^^^^^^^^^
+
+python/tests/test_matrix_spectral_bindings.py:75: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/sympy/polys/polytools.py:197: in degree
+    return max(m[i] for m, _ in self.terms())
+                                ^^^^^^^^^^^^
+python/sympy/polys/polytools.py:868: in terms
+    e = expand(self._expr)
+        ^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+expression = _x*_x + _x**2 + _x*(-_x - _x), deep = True, modulus = None
+power_base = True, power_exp = True, mul = True, log = True, multinomial = True
+basic = True, hints = {}, result = _x*_x + _x**2 + _x*(-_x - _x), force = False
+_ = 0, previous = _x*_x + _x**2 + _x*(-_x - _x)
+
+    def expand(expression: Any, deep: bool = True, modulus: Any = None, power_base: bool = True,
+               power_exp: bool = True, mul: bool = True, log: bool = True,
+               multinomial: bool = True, basic: bool = True, **hints: Any) -> Expr:
+        """Upstream ``expand`` with hints: ``mul``/``multinomial`` (native),
+        ``power_exp`` (exp(x + y) -> exp(x)*exp(y)), ``log`` (with ``force``
+        or positivity), ``trig=True``, ``func=True``; hints iterate to a fixed
+        point. Held Adds keep their oracle-pinned behavior."""
+        if _contains_opaque(expression):
+            from ._surface_transforms import expand as surface_expand
+    
+            return surface_expand(
+                expression, deep=deep, modulus=modulus, power_base=power_base,
+                power_exp=power_exp, mul=mul, log=log, multinomial=multinomial,
+                basic=basic, **hints,
+            )
+        if isinstance(expression, Add) and hasattr(expression, "_args"):
+            return _expand_held(expression)
+        result = sympify(expression)
+        force = bool(hints.get("force", False))
+        for _ in range(6):
+            previous = result
+            if mul or multinomial:
+>               result = _lift_builtin_result(_native_expr(result).expand())
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'fsym_python.Expr' object has no attribute 'expand'
+
+python/sympy/core/__init__.py:6066: AttributeError
+_ CharacteristicGeneratorTests.test_dummy_name_hint_skips_a_colliding_plain_symbol _
+
+self = <test_matrix_spectral_bindings.CharacteristicGeneratorTests testMethod=test_dummy_name_hint_skips_a_colliding_plain_symbol>
+
+    def test_dummy_name_hint_skips_a_colliding_plain_symbol(self):
+        source = s.Symbol("_axis")
+        result = s.Matrix([[source]]).charpoly(s.Dummy("axis"))
+        self.assertEqual(result.gen, s.Symbol("__axis"))
+>       self.assertEqual(result.all_coeffs(), [1, -source])
+                         ^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_matrix_spectral_bindings.py:102: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/sympy/polys/polytools.py:175: in all_coeffs
+    return self._univariate_coeffs()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/polys/polytools.py:154: in _univariate_coeffs
+    terms = self.terms()
+            ^^^^^^^^^^^^
+python/sympy/polys/polytools.py:868: in terms
+    e = expand(self._expr)
+        ^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+expression = __axis - _axis, deep = True, modulus = None, power_base = True
+power_exp = True, mul = True, log = True, multinomial = True, basic = True
+hints = {}, result = __axis - _axis, force = False, _ = 0
+previous = __axis - _axis
+
+    def expand(expression: Any, deep: bool = True, modulus: Any = None, power_base: bool = True,
+               power_exp: bool = True, mul: bool = True, log: bool = True,
+               multinomial: bool = True, basic: bool = True, **hints: Any) -> Expr:
+        """Upstream ``expand`` with hints: ``mul``/``multinomial`` (native),
+        ``power_exp`` (exp(x + y) -> exp(x)*exp(y)), ``log`` (with ``force``
+        or positivity), ``trig=True``, ``func=True``; hints iterate to a fixed
+        point. Held Adds keep their oracle-pinned behavior."""
+        if _contains_opaque(expression):
+            from ._surface_transforms import expand as surface_expand
+    
+            return surface_expand(
+                expression, deep=deep, modulus=modulus, power_base=power_base,
+                power_exp=power_exp, mul=mul, log=log, multinomial=multinomial,
+                basic=basic, **hints,
+            )
+        if isinstance(expression, Add) and hasattr(expression, "_args"):
+            return _expand_held(expression)
+        result = sympify(expression)
+        force = bool(hints.get("force", False))
+        for _ in range(6):
+            previous = result
+            if mul or multinomial:
+>               result = _lift_builtin_result(_native_expr(result).expand())
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'fsym_python.Expr' object has no attribute 'expand'
+
+python/sympy/core/__init__.py:6066: AttributeError
+_ CharacteristicGeneratorTests.test_dummy_source_and_same_printed_output_are_distinct_typed_atoms _
+
+self = <test_matrix_spectral_bindings.CharacteristicGeneratorTests testMethod=test_dummy_source_and_same_printed_output_are_distinct_typed_atoms>
+
+    def test_dummy_source_and_same_printed_output_are_distinct_typed_atoms(self):
+        source = s.Dummy("x")
+        result = s.Matrix([[source]]).charpoly("x")
+        self.assertEqual(result.gen, s.Symbol("_x"))
+        self.assertNotEqual(result.gen, source)
+>       self.assertEqual(result.all_coeffs(), [1, -source])
+                         ^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_matrix_spectral_bindings.py:68: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/sympy/polys/polytools.py:175: in all_coeffs
+    return self._univariate_coeffs()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/polys/polytools.py:154: in _univariate_coeffs
+    terms = self.terms()
+            ^^^^^^^^^^^^
+python/sympy/polys/polytools.py:868: in terms
+    e = expand(self._expr)
+        ^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+expression = -_x + _x, deep = True, modulus = None, power_base = True
+power_exp = True, mul = True, log = True, multinomial = True, basic = True
+hints = {}, result = -_x + _x, force = False, _ = 0, previous = -_x + _x
+
+    def expand(expression: Any, deep: bool = True, modulus: Any = None, power_base: bool = True,
+               power_exp: bool = True, mul: bool = True, log: bool = True,
+               multinomial: bool = True, basic: bool = True, **hints: Any) -> Expr:
+        """Upstream ``expand`` with hints: ``mul``/``multinomial`` (native),
+        ``power_exp`` (exp(x + y) -> exp(x)*exp(y)), ``log`` (with ``force``
+        or positivity), ``trig=True``, ``func=True``; hints iterate to a fixed
+        point. Held Adds keep their oracle-pinned behavior."""
+        if _contains_opaque(expression):
+            from ._surface_transforms import expand as surface_expand
+    
+            return surface_expand(
+                expression, deep=deep, modulus=modulus, power_base=power_base,
+                power_exp=power_exp, mul=mul, log=log, multinomial=multinomial,
+                basic=basic, **hints,
+            )
+        if isinstance(expression, Add) and hasattr(expression, "_args"):
+            return _expand_held(expression)
+        result = sympify(expression)
+        force = bool(hints.get("force", False))
+        for _ in range(6):
+            previous = result
+            if mul or multinomial:
+>               result = _lift_builtin_result(_native_expr(result).expand())
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'fsym_python.Expr' object has no attribute 'expand'
+
+python/sympy/core/__init__.py:6066: AttributeError
+_ CharacteristicGeneratorTests.test_empty_and_noncolliding_named_matrices_keep_existing_coefficients _
+
+self = <test_matrix_spectral_bindings.CharacteristicGeneratorTests testMethod=test_empty_and_noncolliding_named_matrices_keep_existing_coefficients>
+
+    def test_empty_and_noncolliding_named_matrices_keep_existing_coefficients(self):
+        self.assertEqual(s.Matrix(0, 0, []).charpoly().all_coeffs(), [1])
+        source = s.Symbol("_x")
+        result = s.Matrix([[source]]).charpoly("x")
+        self.assertEqual(result.gen, s.Symbol("x"))
+>       self.assertEqual(result.all_coeffs(), [1, -source])
+                         ^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_matrix_spectral_bindings.py:109: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/sympy/polys/polytools.py:175: in all_coeffs
+    return self._univariate_coeffs()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/polys/polytools.py:154: in _univariate_coeffs
+    terms = self.terms()
+            ^^^^^^^^^^^^
+python/sympy/polys/polytools.py:868: in terms
+    e = expand(self._expr)
+        ^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+expression = -_x + x, deep = True, modulus = None, power_base = True
+power_exp = True, mul = True, log = True, multinomial = True, basic = True
+hints = {}, result = -_x + x, force = False, _ = 0, previous = -_x + x
+
+    def expand(expression: Any, deep: bool = True, modulus: Any = None, power_base: bool = True,
+               power_exp: bool = True, mul: bool = True, log: bool = True,
+               multinomial: bool = True, basic: bool = True, **hints: Any) -> Expr:
+        """Upstream ``expand`` with hints: ``mul``/``multinomial`` (native),
+        ``power_exp`` (exp(x + y) -> exp(x)*exp(y)), ``log`` (with ``force``
+        or positivity), ``trig=True``, ``func=True``; hints iterate to a fixed
+        point. Held Adds keep their oracle-pinned behavior."""
+        if _contains_opaque(expression):
+            from ._surface_transforms import expand as surface_expand
+    
+            return surface_expand(
+                expression, deep=deep, modulus=modulus, power_base=power_base,
+                power_exp=power_exp, mul=mul, log=log, multinomial=multinomial,
+                basic=basic, **hints,
+            )
+        if isinstance(expression, Add) and hasattr(expression, "_args"):
+            return _expand_held(expression)
+        result = sympify(expression)
+        force = bool(hints.get("force", False))
+        for _ in range(6):
+            previous = result
+            if mul or multinomial:
+>               result = _lift_builtin_result(_native_expr(result).expand())
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'fsym_python.Expr' object has no attribute 'expand'
+
+python/sympy/core/__init__.py:6066: AttributeError
+_ CharacteristicGeneratorTests.test_repeated_calls_and_matrix_mutation_choose_the_current_free_name _
+
+self = <test_matrix_spectral_bindings.CharacteristicGeneratorTests testMethod=test_repeated_calls_and_matrix_mutation_choose_the_current_free_name>
+
+    def test_repeated_calls_and_matrix_mutation_choose_the_current_free_name(self):
+        x = s.Symbol("x")
+        matrix = s.Matrix([[x]])
+        first = matrix.charpoly(x)
+        second = matrix.charpoly(x)
+        self.assertIs(first.gen, second.gen)
+        self.assertEqual(first, second)
+        matrix[0, 0] = s.Symbol("_x")
+        result = matrix.charpoly(x)
+        self.assertIs(result.gen, x)
+>       self.assertEqual(result.all_coeffs(), [1, -s.Symbol("_x")])
+                         ^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_matrix_spectral_bindings.py:121: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/sympy/polys/polytools.py:175: in all_coeffs
+    return self._univariate_coeffs()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/polys/polytools.py:154: in _univariate_coeffs
+    terms = self.terms()
+            ^^^^^^^^^^^^
+python/sympy/polys/polytools.py:868: in terms
+    e = expand(self._expr)
+        ^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+expression = -_x + x, deep = True, modulus = None, power_base = True
+power_exp = True, mul = True, log = True, multinomial = True, basic = True
+hints = {}, result = -_x + x, force = False, _ = 0, previous = -_x + x
+
+    def expand(expression: Any, deep: bool = True, modulus: Any = None, power_base: bool = True,
+               power_exp: bool = True, mul: bool = True, log: bool = True,
+               multinomial: bool = True, basic: bool = True, **hints: Any) -> Expr:
+        """Upstream ``expand`` with hints: ``mul``/``multinomial`` (native),
+        ``power_exp`` (exp(x + y) -> exp(x)*exp(y)), ``log`` (with ``force``
+        or positivity), ``trig=True``, ``func=True``; hints iterate to a fixed
+        point. Held Adds keep their oracle-pinned behavior."""
+        if _contains_opaque(expression):
+            from ._surface_transforms import expand as surface_expand
+    
+            return surface_expand(
+                expression, deep=deep, modulus=modulus, power_base=power_base,
+                power_exp=power_exp, mul=mul, log=log, multinomial=multinomial,
+                basic=basic, **hints,
+            )
+        if isinstance(expression, Add) and hasattr(expression, "_args"):
+            return _expand_held(expression)
+        result = sympify(expression)
+        force = bool(hints.get("force", False))
+        for _ in range(6):
+            previous = result
+            if mul or multinomial:
+>               result = _lift_builtin_result(_native_expr(result).expand())
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'fsym_python.Expr' object has no attribute 'expand'
+
+python/sympy/core/__init__.py:6066: AttributeError
+_ CharacteristicGeneratorTests.test_requested_axis_remains_independent_of_every_coefficient _
+
+self = <test_matrix_spectral_bindings.CharacteristicGeneratorTests testMethod=test_requested_axis_remains_independent_of_every_coefficient>
+
+    def test_requested_axis_remains_independent_of_every_coefficient(self):
+        x = s.Symbol("x")
+        matrix = s.Matrix([[x, 1], [0, x]])
+        for requested in (x, "x"):
+            with self.subTest(requested=requested):
+                result = matrix.charpoly(requested)
+                self.assertEqual(result.gen, s.Symbol("_x"))
+>               self.assertEqual(result.degree(), 2)
+                                 ^^^^^^^^^^^^^^^
+
+python/tests/test_matrix_spectral_bindings.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/sympy/polys/polytools.py:197: in degree
+    return max(m[i] for m, _ in self.terms())
+                                ^^^^^^^^^^^^
+python/sympy/polys/polytools.py:868: in terms
+    e = expand(self._expr)
+        ^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+expression = _x**2 - 2*_x*x + x**2, deep = True, modulus = None
+power_base = True, power_exp = True, mul = True, log = True, multinomial = True
+basic = True, hints = {}, result = _x**2 - 2*_x*x + x**2, force = False, _ = 0
+previous = _x**2 - 2*_x*x + x**2
+
+    def expand(expression: Any, deep: bool = True, modulus: Any = None, power_base: bool = True,
+               power_exp: bool = True, mul: bool = True, log: bool = True,
+               multinomial: bool = True, basic: bool = True, **hints: Any) -> Expr:
+        """Upstream ``expand`` with hints: ``mul``/``multinomial`` (native),
+        ``power_exp`` (exp(x + y) -> exp(x)*exp(y)), ``log`` (with ``force``
+        or positivity), ``trig=True``, ``func=True``; hints iterate to a fixed
+        point. Held Adds keep their oracle-pinned behavior."""
+        if _contains_opaque(expression):
+            from ._surface_transforms import expand as surface_expand
+    
+            return surface_expand(
+                expression, deep=deep, modulus=modulus, power_base=power_base,
+                power_exp=power_exp, mul=mul, log=log, multinomial=multinomial,
+                basic=basic, **hints,
+            )
+        if isinstance(expression, Add) and hasattr(expression, "_args"):
+            return _expand_held(expression)
+        result = sympify(expression)
+        force = bool(hints.get("force", False))
+        for _ in range(6):
+            previous = result
+            if mul or multinomial:
+>               result = _lift_builtin_result(_native_expr(result).expand())
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'fsym_python.Expr' object has no attribute 'expand'
+
+python/sympy/core/__init__.py:6066: AttributeError
+_ CharacteristicGeneratorTests.test_underscore_prefix_checks_the_entire_original_source _
+
+self = <test_matrix_spectral_bindings.CharacteristicGeneratorTests testMethod=test_underscore_prefix_checks_the_entire_original_source>
+
+    def test_underscore_prefix_checks_the_entire_original_source(self):
+        x, first, second = s.symbols("x _x __x")
+        matrix = s.Matrix([[x, first], [second, 2]])
+        result = matrix.charpoly(x)
+        self.assertEqual(result.gen, s.Symbol("___x"))
+        expected = [1, -x - 2, 2*x - first*second]
+>       self.assertEqual([s.expand(value) for value in result.all_coeffs()], expected)
+                                                       ^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_matrix_spectral_bindings.py:44: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/sympy/polys/polytools.py:175: in all_coeffs
+    return self._univariate_coeffs()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/polys/polytools.py:154: in _univariate_coeffs
+    terms = self.terms()
+            ^^^^^^^^^^^^
+python/sympy/polys/polytools.py:868: in terms
+    e = expand(self._expr)
+        ^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+expression = ___x**2 + ___x*(-x - 2) - __x*_x + 2*x, deep = True, modulus = None
+power_base = True, power_exp = True, mul = True, log = True, multinomial = True
+basic = True, hints = {}, result = ___x**2 + ___x*(-x - 2) - __x*_x + 2*x
+force = False, _ = 0, previous = ___x**2 + ___x*(-x - 2) - __x*_x + 2*x
+
+    def expand(expression: Any, deep: bool = True, modulus: Any = None, power_base: bool = True,
+               power_exp: bool = True, mul: bool = True, log: bool = True,
+               multinomial: bool = True, basic: bool = True, **hints: Any) -> Expr:
+        """Upstream ``expand`` with hints: ``mul``/``multinomial`` (native),
+        ``power_exp`` (exp(x + y) -> exp(x)*exp(y)), ``log`` (with ``force``
+        or positivity), ``trig=True``, ``func=True``; hints iterate to a fixed
+        point. Held Adds keep their oracle-pinned behavior."""
+        if _contains_opaque(expression):
+            from ._surface_transforms import expand as surface_expand
+    
+            return surface_expand(
+                expression, deep=deep, modulus=modulus, power_base=power_base,
+                power_exp=power_exp, mul=mul, log=log, multinomial=multinomial,
+                basic=basic, **hints,
+            )
+        if isinstance(expression, Add) and hasattr(expression, "_args"):
+            return _expand_held(expression)
+        result = sympify(expression)
+        force = bool(hints.get("force", False))
+        for _ in range(6):
+            previous = result
+            if mul or multinomial:
+>               result = _lift_builtin_result(_native_expr(result).expand())
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'fsym_python.Expr' object has no attribute 'expand'
+
+python/sympy/core/__init__.py:6066: AttributeError
+_ SpectralConsumerTests.test_capture_sensitive_eigenvectors_satisfy_the_original_matrix _
+
+self = <test_matrix_spectral_bindings.SpectralConsumerTests testMethod=test_capture_sensitive_eigenvectors_satisfy_the_original_matrix>
+
+    def test_capture_sensitive_eigenvectors_satisfy_the_original_matrix(self):
+        source = s.Symbol("_fsym_lambda")
+        matrix = s.Matrix([[source, 1], [0, source]])
+>       eigenvectors = matrix.eigenvects()
+                       ^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_matrix_spectral_bindings.py:156: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/sympy/matrices/dense.py:915: in eigenvects
+    eval_dict = self.eigenvals()
+                ^^^^^^^^^^^^^^^^
+python/sympy/matrices/dense.py:876: in eigenvals
+    symbolic = self._symbolic_eigenvals()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/matrices/dense.py:897: in _symbolic_eigenvals
+    cp = expand(polynomial.as_expr())
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+expression = _fsym_lambda**2 - 2*_fsym_lambda*_lambda + _lambda**2, deep = True
+modulus = None, power_base = True, power_exp = True, mul = True, log = True
+multinomial = True, basic = True, hints = {}
+result = _fsym_lambda**2 - 2*_fsym_lambda*_lambda + _lambda**2, force = False
+_ = 0, previous = _fsym_lambda**2 - 2*_fsym_lambda*_lambda + _lambda**2
+
+    def expand(expression: Any, deep: bool = True, modulus: Any = None, power_base: bool = True,
+               power_exp: bool = True, mul: bool = True, log: bool = True,
+               multinomial: bool = True, basic: bool = True, **hints: Any) -> Expr:
+        """Upstream ``expand`` with hints: ``mul``/``multinomial`` (native),
+        ``power_exp`` (exp(x + y) -> exp(x)*exp(y)), ``log`` (with ``force``
+        or positivity), ``trig=True``, ``func=True``; hints iterate to a fixed
+        point. Held Adds keep their oracle-pinned behavior."""
+        if _contains_opaque(expression):
+            from ._surface_transforms import expand as surface_expand
+    
+            return surface_expand(
+                expression, deep=deep, modulus=modulus, power_base=power_base,
+                power_exp=power_exp, mul=mul, log=log, multinomial=multinomial,
+                basic=basic, **hints,
+            )
+        if isinstance(expression, Add) and hasattr(expression, "_args"):
+            return _expand_held(expression)
+        result = sympify(expression)
+        force = bool(hints.get("force", False))
+        for _ in range(6):
+            previous = result
+            if mul or multinomial:
+>               result = _lift_builtin_result(_native_expr(result).expand())
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'fsym_python.Expr' object has no attribute 'expand'
+
+python/sympy/core/__init__.py:6066: AttributeError
+_ SpectralConsumerTests.test_scratch_coordinate_spellings_preserve_symbolic_eigenvalues _
+
+self = <test_matrix_spectral_bindings.SpectralConsumerTests testMethod=test_scratch_coordinate_spellings_preserve_symbolic_eigenvalues>
+
+    def test_scratch_coordinate_spellings_preserve_symbolic_eigenvalues(self):
+        for name in ("lambda", "_lambda", "_fsym_lambda", "__fsym_lambda"):
+            for constructor in (s.Symbol, s.Dummy):
+                source = constructor(name)
+                with self.subTest(name=name, constructor=constructor):
+                    matrix = s.Matrix([[source, 1], [0, source]])
+>                   self.assertEqual(matrix.eigenvals(), {source: 2})
+                                     ^^^^^^^^^^^^^^^^^^
+
+python/tests/test_matrix_spectral_bindings.py:144: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/sympy/matrices/dense.py:876: in eigenvals
+    symbolic = self._symbolic_eigenvals()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/sympy/matrices/dense.py:897: in _symbolic_eigenvals
+    cp = expand(polynomial.as_expr())
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+expression = _lambda**2 - 2*_lambda*lambda + lambda**2, deep = True
+modulus = None, power_base = True, power_exp = True, mul = True, log = True
+multinomial = True, basic = True, hints = {}
+result = _lambda**2 - 2*_lambda*lambda + lambda**2, force = False, _ = 0
+previous = _lambda**2 - 2*_lambda*lambda + lambda**2
+
+    def expand(expression: Any, deep: bool = True, modulus: Any = None, power_base: bool = True,
+               power_exp: bool = True, mul: bool = True, log: bool = True,
+               multinomial: bool = True, basic: bool = True, **hints: Any) -> Expr:
+        """Upstream ``expand`` with hints: ``mul``/``multinomial`` (native),
+        ``power_exp`` (exp(x + y) -> exp(x)*exp(y)), ``log`` (with ``force``
+        or positivity), ``trig=True``, ``func=True``; hints iterate to a fixed
+        point. Held Adds keep their oracle-pinned behavior."""
+        if _contains_opaque(expression):
+            from ._surface_transforms import expand as surface_expand
+    
+            return surface_expand(
+                expression, deep=deep, modulus=modulus, power_base=power_base,
+                power_exp=power_exp, mul=mul, log=log, multinomial=multinomial,
+                basic=basic, **hints,
+            )
+        if isinstance(expression, Add) and hasattr(expression, "_args"):
+            return _expand_held(expression)
+        result = sympify(expression)
+        force = bool(hints.get("force", False))
+        for _ in range(6):
+            previous = result
+            if mul or multinomial:
+>               result = _lift_builtin_result(_native_expr(result).expand())
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'fsym_python.Expr' object has no attribute 'expand'
+
+python/sympy/core/__init__.py:6066: AttributeError
+_ SpectralConsumerTests.test_symbolic_root_and_multiplicity_lane_follows_the_returned_axis _
+
+self = <test_matrix_spectral_bindings.SpectralConsumerTests testMethod=test_symbolic_root_and_multiplicity_lane_follows_the_returned_axis>
+
+    def test_symbolic_root_and_multiplicity_lane_follows_the_returned_axis(self):
+        for name in ("lambda", "_lambda", "__lambda"):
+            source = s.Symbol(name)
+            with self.subTest(name=name):
+                matrix = s.Matrix([[source, 1], [0, source]])
+>               self.assertEqual(matrix._symbolic_eigenvals(), {source: 2})
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_matrix_spectral_bindings.py:151: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/sympy/matrices/dense.py:897: in _symbolic_eigenvals
+    cp = expand(polynomial.as_expr())
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+expression = _lambda**2 - 2*_lambda*lambda + lambda**2, deep = True
+modulus = None, power_base = True, power_exp = True, mul = True, log = True
+multinomial = True, basic = True, hints = {}
+result = _lambda**2 - 2*_lambda*lambda + lambda**2, force = False, _ = 0
+previous = _lambda**2 - 2*_lambda*lambda + lambda**2
+
+    def expand(expression: Any, deep: bool = True, modulus: Any = None, power_base: bool = True,
+               power_exp: bool = True, mul: bool = True, log: bool = True,
+               multinomial: bool = True, basic: bool = True, **hints: Any) -> Expr:
+        """Upstream ``expand`` with hints: ``mul``/``multinomial`` (native),
+        ``power_exp`` (exp(x + y) -> exp(x)*exp(y)), ``log`` (with ``force``
+        or positivity), ``trig=True``, ``func=True``; hints iterate to a fixed
+        point. Held Adds keep their oracle-pinned behavior."""
+        if _contains_opaque(expression):
+            from ._surface_transforms import expand as surface_expand
+    
+            return surface_expand(
+                expression, deep=deep, modulus=modulus, power_base=power_base,
+                power_exp=power_exp, mul=mul, log=log, multinomial=multinomial,
+                basic=basic, **hints,
+            )
+        if isinstance(expression, Add) and hasattr(expression, "_args"):
+            return _expand_held(expression)
+        result = sympify(expression)
+        force = bool(hints.get("force", False))
+        for _ in range(6):
+            previous = result
+            if mul or multinomial:
+>               result = _lift_builtin_result(_native_expr(result).expand())
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'fsym_python.Expr' object has no attribute 'expand'
+
+python/sympy/core/__init__.py:6066: AttributeError
+=========================== short test summary info ============================
+FAILED python/tests/test_matrix_spectral_bindings.py::CharacteristicGeneratorTests::test_assumptions_cannot_hide_a_name_collision_or_change_source_identity
+FAILED python/tests/test_matrix_spectral_bindings.py::CharacteristicGeneratorTests::test_default_name_does_not_erase_a_scalar_matrix_parameter
+FAILED python/tests/test_matrix_spectral_bindings.py::CharacteristicGeneratorTests::test_different_same_named_dummies_remain_distinct_coefficients
+FAILED python/tests/test_matrix_spectral_bindings.py::CharacteristicGeneratorTests::test_dummy_name_hint_skips_a_colliding_plain_symbol
+FAILED python/tests/test_matrix_spectral_bindings.py::CharacteristicGeneratorTests::test_dummy_source_and_same_printed_output_are_distinct_typed_atoms
+FAILED python/tests/test_matrix_spectral_bindings.py::CharacteristicGeneratorTests::test_empty_and_noncolliding_named_matrices_keep_existing_coefficients
+FAILED python/tests/test_matrix_spectral_bindings.py::CharacteristicGeneratorTests::test_repeated_calls_and_matrix_mutation_choose_the_current_free_name
+FAILED python/tests/test_matrix_spectral_bindings.py::CharacteristicGeneratorTests::test_requested_axis_remains_independent_of_every_coefficient
+FAILED python/tests/test_matrix_spectral_bindings.py::CharacteristicGeneratorTests::test_underscore_prefix_checks_the_entire_original_source
+FAILED python/tests/test_matrix_spectral_bindings.py::SpectralConsumerTests::test_capture_sensitive_eigenvectors_satisfy_the_original_matrix
+FAILED python/tests/test_matrix_spectral_bindings.py::SpectralConsumerTests::test_scratch_coordinate_spellings_preserve_symbolic_eigenvalues
+FAILED python/tests/test_matrix_spectral_bindings.py::SpectralConsumerTests::test_symbolic_root_and_multiplicity_lane_follows_the_returned_axis
+12 failed, 32 passed in 3.59s
+Source changes during validation: []

@@ -1,0 +1,6 @@
+Validation scope: documented mathematical/PyO3 component
+Candidate Python: /workspace/scratch/c6fe9f85a578/frankensympy/python/sympy/__init__.py
+Native binary: /workspace/scratch/c6fe9f85a578/target/debug/libfsym_python.so
+..........................................................               [100%]
+58 passed in 1.69s
+Source changes during validation: []

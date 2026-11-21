@@ -1,0 +1,96 @@
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/c6fe9f85a578/frankensympy/crates/fsym-calculus)
+    Finished `test` profile [unoptimized] target(s) in 1.76s
+     Running tests/binder_differentiation.rs (/workspace/scratch/c6fe9f85a578/target/debug/build/fsym-calculus/2c48f18ae06eef68/out/binder_differentiation-2c48f18ae06eef68)
+
+running 11 tests
+test equal_printed_coordinates_keep_their_distinct_native_identities ... ok
+test a_boundary_substitution_cannot_capture_a_free_parameter ... ok
+test an_outer_primitive_keeps_a_coordinate_shadowed_in_an_inner_definite_integral ... ok
+test evaluation_point_limits_compose_with_definite_and_indefinite_limits ... ok
+test a_definite_coordinate_is_bound_only_in_the_body_not_its_endpoints ... ok
+test formal_leibniz_results_do_not_gain_unproved_interchange_certificates ... ok
+test malformed_binders_are_preserved_without_panics_or_false_zero_derivatives ... ok
+test fixed_sum_limits_differentiate_the_body_but_moving_discrete_bounds_stay_formal ... ok
+test nested_moving_limits_use_every_boundary_in_inner_to_outer_order ... ok
+test unchanged_endpoints_do_not_create_spurious_undefined_boundary_terms ... ok
+test an_unsupported_boundary_into_an_indefinite_coordinate_stays_formal ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/integral_evaluation_points.rs (/workspace/scratch/c6fe9f85a578/target/debug/build/fsym-calculus/7107ee30cdb8f7ef/out/integral_evaluation_points-7107ee30cdb8f7ef)
+
+running 3 tests
+test point_derivatives_keep_exact_symbol_identity ... ok
+test independent_parameter_avoids_unnecessary_boundary_substitution ... ok
+test evaluated_primitives_bind_body_coordinates_but_not_the_point ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/piecewise_programs.rs (/workspace/scratch/c6fe9f85a578/target/debug/build/fsym-calculus/45993b15faabd4d5/out/piecewise_programs-45993b15faabd4d5)
+
+running 18 tests
+test active_domain_errors_and_nonfinite_inputs_remain_errors ... ok
+test boolean_identities_not_and_nested_shortcuts_are_supported ... ok
+test all_comparisons_respect_boundaries_and_operand_direction ... ok
+test control_flow_decoder_rejects_loops_invalid_targets_and_stack_joins ... ok
+test branch_predicates_cannot_treat_arbitrary_numbers_as_booleans ... ok
+test conjunction_and_disjunction_short_circuit_invalid_later_conditions ... ok
+test independently_checked_source_rejects_condition_and_branch_value_mutants ... ok
+test branch_order_is_observable_even_when_conditions_overlap ... ok
+test same_printing_typed_variables_remain_distinct_in_conditions_and_values ... ok
+test missing_branch_is_an_explicit_domain_refusal ... ok
+test serialized_valid_branches_roundtrip_without_losing_lazy_execution ... ok
+test scalar_branch_support_does_not_claim_derivatives_across_seams ... ok
+test nested_branch_programs_preserve_enclosing_stack_operands ... ok
+test selected_branch_alone_executes_division_logarithm_and_square_root ... ok
+test malformed_conditions_and_unsupported_inactive_branches_fail_admission ... ok
+test evaluation_budgets_charge_only_executed_branch_work_without_resetting ... ok
+test cancellation_covers_branch_admission_and_both_execution_paths ... ok
+test branch_and_condition_growth_obey_existing_compiler_limits ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/reciprocal_function_programs.rs (/workspace/scratch/c6fe9f85a578/target/debug/build/fsym-calculus/4bdb878fef929bf1/out/reciprocal_function_programs-4bdb878fef929bf1)
+
+running 14 tests
+test domain_failure_publishes_no_partial_arrays_and_does_not_poison_later_evaluations ... ok
+test ordinary_coth_receipts_keep_their_form_and_numeric_receipts_require_their_exact_formula ... ok
+test direct_values_follow_defining_quotients_on_positive_and_negative_branches ... ok
+test omitted_coth_gradient_and_hessian_entries_cannot_be_accepted_as_zeros ... ok
+test independent_derivative_rules_reject_changed_sign_chain_source_and_operator ... ok
+test reciprocal_work_keeps_cumulative_limits_and_every_cancellation_checkpoint ... ok
+test identical_spelling_keeps_the_two_reciprocal_coordinates_independent ... ok
+test serialized_operations_are_unary_and_independently_bound_to_the_exact_source ... ok
+test shared_execution_preserves_every_opcode_and_inactive_reciprocal_domains ... ok
+test hyperbolic_reciprocals_do_not_overflow_or_invent_tiny_argument_poles ... ok
+test numerical_coth_gradients_do_not_cancel_to_zero_at_large_finite_arguments ... ok
+test original_poles_survive_zero_products_zeroth_powers_and_zero_directions ... ok
+test checked_residuals_jacobians_hessians_and_products_match_analytic_quotient_rules ... ok
+test nonlinear_inner_curvature_is_preserved_in_every_reciprocal_hessian ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/tanh_legacy_artifacts.rs (/workspace/scratch/c6fe9f85a578/target/debug/build/fsym-calculus/d40927e862e792fb/out/tanh_legacy_artifacts-d40927e862e792fb)
+
+running 6 tests
+test compound_legacy_recipe_retains_stable_coth_inside_the_old_tanh_rule ... ok
+test legacy_verification_uses_one_cumulative_budget_for_the_complete_replay ... ok
+test historical_zero_omission_survives_the_changed_tanh_recipe ... ok
+test historical_tanh_bundle_preserves_its_exact_derivative_program_and_bytes ... ok
+test self_consistent_but_false_legacy_rhs_is_rejected_after_both_rule_checks ... ok
+test old_objective_gradient_and_hessian_replay_as_one_unchanged_artifact ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/tanh_programs.rs (/workspace/scratch/c6fe9f85a578/target/debug/build/fsym-calculus/3aec20b268de7323/out/tanh_programs-3aec20b268de7323)
+
+running 6 tests
+test caller_budget_and_cancellation_still_govern_stable_evaluation ... ok
+test saturated_tanh_keeps_nonzero_gradient_curvature_and_directional_products ... ok
+test stable_programs_roundtrip_and_original_domain_failures_remain_terminal ... ok
+test symbolic_receipts_keep_their_form_and_numeric_mutants_are_rejected ... ok
+test stable_tanh_products_preserve_the_piecewise_certification_boundary ... ok
+test nonlinear_nested_arguments_retain_the_complete_mixed_hessian ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+

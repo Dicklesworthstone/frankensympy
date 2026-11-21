@@ -4,12 +4,13 @@
   "base_head": "3063a245cd31bb4ac27ac785333256f4ea8cb000",
   "committed_changes": {
     "matrix": "a39cf8266d22cf2d9b4c22159a5d2dbb2b6fa4ac",
-    "binders": "3063a245cd31bb4ac27ac785333256f4ea8cb000"
+    "binders": "3063a245cd31bb4ac27ac785333256f4ea8cb000",
+    "numerics": "d07b51f5bb15aed123c49dcf5a8597ff3ba2fcc5"
   },
   "concurrent_main_preserved": "4d7206ece0fd05e939c04d684bea02accecd73b8",
   "source_sha256": {
     "python/sympy/matrices/dense.py": "c245b51cdc84724d6ace73a0d52edb001a34d08b93e3664efd4df32614e1ba69",
-    "python/tests/test_matrix_spectral_bindings.py": "a5ff0821208e9983079de146b4caa3bd2fc8b91d6b4823ce6e7f6852f7a6289c",
+    "python/tests/test_matrix_spectral_bindings.py": "3e80f7c568dea2c12b3dccec1a86a21984cf8d887757905da71a2291cece48e2",
     "python/tests/test_integral_bindings.py": "c2815c0a8108c7ec9647a585b5830f158eff0c52156b537f3319476dc769bd28",
     "python/tests/test_compiled_objective.py": "10d21929f19d795454488009cfbfea490ec01a5c7e4a4d7877b8897d1b854a87",
     "crates/fsym-calculus/src/lib.rs": "4d971b4195957ada3649fc4161c1c26657c9f3983dbf094e41fb1a22efa9a47c",
@@ -73,26 +74,130 @@
       "scope": "initial scoped Clippy",
       "exit_code": 101,
       "reason": "A one-element cloned Symbol slice in a new test was changed to std::slice::from_ref; final strict gate passes."
+    },
+    {
+      "scope": "first component link",
+      "exit_code": 101,
+      "reason": "Relocatable Python reported /install/lib, so linking libpython3.12 failed. Rebuilt with the existing extension-module feature used by pyproject/maturin; no mathematical source changed."
+    },
+    {
+      "scope": "initial selected public component run",
+      "passed": 32,
+      "failed": 12,
+      "reason": "All twelve spectral failures reached omitted PyExpr.expand; these failures remain preserved and are not reclassified as a spectral pass."
     }
   ],
   "python": {
-    "new_matrix_methods": 16,
+    "new_matrix_methods": 22,
     "new_binder_methods": 6,
     "new_tanh_cases": 5,
     "oracle_only": "14 public matrix expectations passed against isolated SymPy 1.14.0; this is not candidate execution",
-    "candidate_runtime": "pending production extension build"
+    "candidate_runtime": "Actual mathematical/PyO3 component; full production extension was not built.",
+    "direct_characteristic_methods": 6,
+    "final_selected_gate": {
+      "pytest_exit_code": 0,
+      "passed": 58,
+      "failed": 0,
+      "breakdown": {
+        "integral_bindings": 9,
+        "integral_substitution": 24,
+        "compiled_objective": 19,
+        "direct_characteristic_expressions": 6
+      },
+      "selectors": [
+        "python/tests/test_integral_bindings.py",
+        "python/tests/test_integral_substitution.py",
+        "python/tests/test_compiled_objective.py",
+        "python/tests/test_matrix_spectral_bindings.py::DirectCharacteristicExpressionTests"
+      ],
+      "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+      "source_files_checked": 1051,
+      "changes_during_execution": [],
+      "delta_since_binary_build": "Only the added DirectCharacteristicExpressionTests class; every production file still matched the build snapshot."
+    },
+    "original_spectral_suite": {
+      "methods": 16,
+      "passed": 4,
+      "failed": 12,
+      "failure": "AttributeError at the intentionally omitted PyExpr.expand helper, reached through degree/coefficient extraction or symbolic eigenvalue expansion.",
+      "original_tests_preserved": true,
+      "full_spectral_or_eigenvalue_pass_claimed": false
+    }
   },
   "pending": [
-    "workspace all-target check",
-    "workspace Clippy",
-    "full production extension build",
-    "actual public Python regressions",
-    "whole-workspace test gate"
+    "Full production extension and asynchronous runtime validation",
+    "Whole-workspace check, test and Clippy gates",
+    "Full spectral coefficient/eigenvalue regression execution with production expansion",
+    "Pre-existing formatting drift in thirteen untouched files",
+    "Broad workstream and compatibility-profile certification"
   ],
   "limits": [
     "Historical programs retain their numerical bytecode behavior; recompile to obtain stable new tanh derivatives.",
     "Formal binder rules do not certify convergence or interchange; unsupported indefinite-coordinate capture and moving discrete sums stay formal.",
     "Raw dense adapters retain their existing formal/nonfinite contract; verified Piecewise derivatives remain refused.",
     "No Beads status, dependency, broad workstream gate or claim tier is promoted."
-  ]
+  ],
+  "implementation_head": "d07b51f5bb15aed123c49dcf5a8597ff3ba2fcc5",
+  "component": {
+    "scope": "documented_math_component",
+    "complete_bridge_files": 44,
+    "shortened_bridge_files": 2,
+    "omitted_helpers": [
+      "lib.rs::eval_error",
+      "lib.rs::eval_region",
+      "lib.rs::simplify_expr",
+      "lib.rs::expand_expr",
+      "expr.rs::PyExpr.simplify",
+      "expr.rs::PyExpr.expand"
+    ],
+    "not_covered": [
+      "Full production Cargo dependency graph",
+      "Asynchronous runtime and cancellation",
+      "Simplify/expand runtime helpers",
+      "Compatibility profile certification"
+    ],
+    "binary_sha256": "f2368e36a34a87dd3d4ddd465160279c8ade12cabb6a1ead6db95e4ac6fb082e",
+    "manifest_sha256": "e2b5f3ed12bfb590903d88190feb8a372e45796956ce3ceb3206101e22db7198",
+    "lock_sha256": "76def8a8caba3efff8e17ed3a9d72cf894e3e06ec1621e7a5175977c78e95a60",
+    "bridge_composition_sha256": "1218a21c7d1647c9e84e05d3e8b0ad530c17238d2b3023a0ab691894a528a916",
+    "source_function_replacements": false,
+    "registry_packages_outside_production_lock": [],
+    "build": "cargo build --offline --locked --manifest-path /workspace/scratch/c6fe9f85a578/python-components/8282576ce25b7a07/Cargo.toml --lib --features extension-module",
+    "build_exit_code": 0,
+    "artifact_preservation": {
+      "execution_path": "/workspace/scratch/c6fe9f85a578/target/debug/libfsym_python.so",
+      "preserved_path": "/workspace/scratch/c6fe9f85a578/python-components/8282576ce25b7a07/native/libfsym_python.so",
+      "sha256_unchanged": true,
+      "ordinary_shared_loader_path_now_absent": true
+    }
+  },
+  "workspace_check": {
+    "command": "cargo check --workspace --all-targets --locked",
+    "exit_code": 101,
+    "outcome": "asupersync rustc process killed with signal 9 (SIGKILL)",
+    "log": "workspace-check.log"
+  },
+  "workspace_clippy": {
+    "outcome": "not run because workspace check did not complete; changed calculus strict Clippy separately passed"
+  },
+  "production_extension": {
+    "command": "cargo build --locked -p fsym-python --lib",
+    "exit_code": 101,
+    "outcome": "asupersync rustc process killed with signal 9 (SIGKILL)",
+    "log": "production-python-build.log"
+  },
+  "workspace_tests": {
+    "outcome": "Not completed; full-workspace compilation is blocked by the pinned asupersync SIGKILL."
+  },
+  "evidence_sha256": {
+    "artifacts/audit/2026-11-21-spectral-numeric-validation/native-tests.log": "0472e175d1bdabd036df0bc19dd0e71202cfd9f4a66447c4c81b7f85b2f2b838",
+    "artifacts/audit/2026-11-21-spectral-numeric-validation/native-clippy.log": "1da5ca14d2a451a60ffcd7ec64967d5e1dca124190c4f8730fb6efff747f757e",
+    "artifacts/audit/2026-11-21-spectral-numeric-validation/public-final.log": "b4114bd6ec64d22e3c4852aadd00150f0dcc44115f18f173d91c91d4e2d75bfe",
+    "artifacts/audit/2026-11-21-spectral-numeric-validation/public-initial.log": "fe33f8002ae18ac83d99c165ffa98be43640c0a8dfc74960bb3886531c49f600",
+    "artifacts/audit/2026-11-21-spectral-numeric-validation/workspace-check.log": "7985904e96e05ae10f10f9da1fd6cc0e2193a148fc803f5b510b75c7cdb28271",
+    "artifacts/audit/2026-11-21-spectral-numeric-validation/production-python-build.log": "0e54a7e7dc7d050ddf2767d2a2b80c5492f19f59be5ffdf8949f74375b640691",
+    "artifacts/audit/2026-11-21-spectral-numeric-validation/component-build.log": "2169aafd5303c3eaada318f0b3b1d3d99e881cd333f00049f511d506462b63bd",
+    "artifacts/audit/2026-11-21-spectral-numeric-validation/component-scope.json": "1218a21c7d1647c9e84e05d3e8b0ad530c17238d2b3023a0ab691894a528a916",
+    "artifacts/audit/2026-11-21-spectral-numeric-validation/environment-summary.json": "7acc757146258daf88ea369f33b1197ddb8ffe6445bd5863bd60b3e3013e77bf"
+  }
 }

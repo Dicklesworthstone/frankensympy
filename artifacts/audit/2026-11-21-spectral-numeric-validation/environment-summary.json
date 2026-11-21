@@ -1,0 +1,101 @@
+{
+  "head": "d07b51f5bb15aed123c49dcf5a8597ff3ba2fcc5",
+  "toolchain": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)\nbinary: rustc\ncommit-hash: f7d782a3be46d6bb4b9792fe69a61db389ba1769\ncommit-date: 2026-08-19\nhost: x86_64-unknown-linux-gnu\nrelease: 1.100.0-nightly\nLLVM version: 23.1.0\n",
+  "workspace_check": {
+    "command": "cargo check --workspace --all-targets --locked",
+    "exit_code": 101,
+    "outcome": "asupersync rustc process killed with signal 9 (SIGKILL)",
+    "log": "workspace-check.log"
+  },
+  "workspace_clippy": {
+    "outcome": "not run because workspace check did not complete; changed calculus strict Clippy separately passed"
+  },
+  "production_extension": {
+    "command": "cargo build --locked -p fsym-python --lib",
+    "exit_code": 101,
+    "outcome": "asupersync rustc process killed with signal 9 (SIGKILL)",
+    "log": "production-python-build.log"
+  },
+  "component_build": {
+    "command": "cargo build --offline --locked --manifest-path /workspace/scratch/c6fe9f85a578/python-components/8282576ce25b7a07/Cargo.toml --lib --features extension-module",
+    "exit_code": 0,
+    "scope": "documented_math_component",
+    "binary": "/workspace/scratch/c6fe9f85a578/target/debug/libfsym_python.so",
+    "binary_sha256": "f2368e36a34a87dd3d4ddd465160279c8ade12cabb6a1ead6db95e4ac6fb082e",
+    "manifest_sha256": "e2b5f3ed12bfb590903d88190feb8a372e45796956ce3ceb3206101e22db7198",
+    "lock_sha256": "76def8a8caba3efff8e17ed3a9d72cf894e3e06ec1621e7a5175977c78e95a60",
+    "registry_packages_outside_production_lock": [],
+    "scope_record": "/workspace/scratch/c6fe9f85a578/python-components/8282576ce25b7a07/bridge-composition.json",
+    "prebuild_sources": "/workspace/scratch/c6fe9f85a578/python-components/8282576ce25b7a07/pre-build-sources.json",
+    "binary_execution_path": "/workspace/scratch/c6fe9f85a578/target/debug/libfsym_python.so",
+    "binary_preserved_path": "/workspace/scratch/c6fe9f85a578/python-components/8282576ce25b7a07/native/libfsym_python.so",
+    "binary_preserved_sha256": "f2368e36a34a87dd3d4ddd465160279c8ade12cabb6a1ead6db95e4ac6fb082e"
+  },
+  "public_primary": {
+    "exit_code": 1,
+    "passed": 32,
+    "failed": 12,
+    "failure_scope": "All 12 are spectral cases reaching intentionally omitted Expr.expand; no stand-in provided",
+    "source_changes": [],
+    "report": "public-primary.json",
+    "log": "public-primary.log"
+  },
+  "public_binder_objective": {
+    "exit_code": 0,
+    "passed": 52,
+    "breakdown": {
+      "integral_bindings": 9,
+      "integral_substitution": 24,
+      "compiled_objective": 19
+    },
+    "source_changes": [],
+    "report": "public-binder-objective.json",
+    "log": "public-binder-objective.log"
+  },
+  "not_claimed": [
+    "Full production extension validation",
+    "Full workspace check/test/Clippy pass",
+    "Async runtime/cancellation integration",
+    "Compatibility certification",
+    "A pass for the omitted-expand spectral cases"
+  ],
+  "public_direct_spectral": {
+    "exit_code": 0,
+    "passed": 6,
+    "source_changes": [],
+    "report": "public-direct-spectral.json",
+    "log": "public-direct-spectral.log",
+    "scope": "Public charpoly/.gen/.as_expr/.free_symbols; no expand or spectral solver claim"
+  },
+  "public_final": {
+    "exit_code": 0,
+    "passed": 58,
+    "breakdown": {
+      "integral_bindings": 9,
+      "integral_substitution": 24,
+      "compiled_objective": 19,
+      "direct_characteristic_expressions": 6
+    },
+    "source_changes": [],
+    "test_only_changes_since_build": [
+      "python/tests/test_matrix_spectral_bindings.py"
+    ],
+    "report": "public-final.json",
+    "log": "public-final.log",
+    "binary_sha256": "f2368e36a34a87dd3d4ddd465160279c8ade12cabb6a1ead6db95e4ac6fb082e"
+  },
+  "runner": {
+    "path": "/workspace/scratch/c6fe9f85a578/validation-logs/run_public_component_tests.py",
+    "sha256": "fb8abf71d056edbbc2da8f6f3af517c1054807e1e7b9744064ab9be12a1589f3"
+  },
+  "component_artifact_relocation": {
+    "operation": "reversible rename of the freshly generated component artifact",
+    "previous_loader_visible_path": "/workspace/scratch/c6fe9f85a578/target/debug/libfsym_python.so",
+    "preserved_component_path": "/workspace/scratch/c6fe9f85a578/python-components/8282576ce25b7a07/native/libfsym_python.so",
+    "sha256_before": "f2368e36a34a87dd3d4ddd465160279c8ade12cabb6a1ead6db95e4ac6fb082e",
+    "sha256_after": "f2368e36a34a87dd3d4ddd465160279c8ade12cabb6a1ead6db95e4ac6fb082e",
+    "previous_path_absent": true,
+    "other_loader_visible_names": [],
+    "historical_test_reports": "Unchanged: their execution path records where this identical binary was loaded at test time."
+  }
+}
