@@ -16,12 +16,15 @@ use crate::numeric_budget::{
 };
 use fsym_budget::{BudgetMeter, Dimension};
 use fsym_calculus::VerifiedResidualSystem;
-use fsym_calculus::compile::{CompiledExpr, EvalError, MAX_COMPILE_DEPTH, MAX_COMPILE_NAME_BYTES};
+use fsym_calculus::compile::{
+    CompileError, CompiledExpr, EvalError, MAX_COMPILE_DEPTH, MAX_COMPILE_NAME_BYTES,
+};
 use fsym_calculus::parametric_cover::{ParametricRootCoverOptions, propose_parametric_root_cover};
 use fsym_calculus::root_isolation::{RootIsolationOptions, propose_root_isolation};
-use fsym_calculus::sparse_jacobian::{compiled_expression_matches, plan_sparse_sources};
+use fsym_calculus::sparse_jacobian::{plan_sparse_sources, plan_sparse_sources_with_meter};
 use fsym_calculus::verified::{
     MAX_VERIFIED_ARTIFACT_BYTES, ResidualEvaluationError, VerifiedArtifactError,
+    VerifiedCompilationError,
 };
 use fsym_core::{
     BigRational, Expr, ParametricRootBoxReceipt, ParametricRootBoxWitness,
@@ -805,6 +808,127 @@ pub(crate) fn extract_variables(values: &Bound<'_, PyAny>) -> PyResult<Vec<Symbo
         .collect()
 }
 
+/// Snapshot exact native declarations without releasing the interpreter between
+/// checking a mutable input's length and capturing its admitted entries.
+pub(crate) fn extract_variables_metered(
+    values: &Bound<'_, PyAny>,
+    budget: Option<&PyEvaluationBudget>,
+) -> PyResult<Vec<Symbol>> {
+    with_evaluation_meter_attached(budget, |meter| meter.checkpoint())?;
+    let py = values.py();
+    let length = container_length(values, MAX_VARIABLES, "variables")?;
+    let mut variables =
+        with_evaluation_meter_attached(budget, |meter| evaluation_buffer::<Symbol>(length, meter))?;
+    for index in 0..length {
+        let value = values.get_item(index)?;
+        let name_length = if value.is_exact_instance(&py.get_type::<PySymbolBinding>()) {
+            value.extract::<PyRef<'_, PySymbolBinding>>()?.name.len()
+        } else if value.is_exact_instance(&py.get_type::<PySymbol>()) {
+            let symbol = value.extract::<PyRef<'_, PySymbol>>()?;
+            match &symbol.inner.inner {
+                Expr::Sym(symbol) => symbol.name.len(),
+                _ => return Err(PyValueError::new_err("expected a native symbol")),
+            }
+        } else if value.is_exact_instance(&py.get_type::<PyExpr>()) {
+            let expression = value.extract::<PyRef<'_, PyExpr>>()?;
+            match &expression.inner {
+                Expr::Sym(symbol) => symbol.name.len(),
+                _ => return Err(PyValueError::new_err("expected a native symbol")),
+            }
+        } else {
+            return Err(PyTypeError::new_err(
+                "variables must be typed SymbolBinding or native symbol objects",
+            ));
+        };
+        if name_length > MAX_COMPILE_NAME_BYTES {
+            return Err(PyValueError::new_err(
+                "numeric symbol name exceeds the 4096-byte limit",
+            ));
+        }
+        with_evaluation_meter_attached(budget, |meter| {
+            meter.charge_batch(&[
+                (Dimension::ComputeSteps, name_length as u64 + 1),
+                (Dimension::MemoryBytes, name_length as u64),
+                (Dimension::AllocationCount, u64::from(name_length != 0)),
+            ])
+        })?;
+        variables.push(crate::extract_symbol_arg(&value)?);
+    }
+    with_evaluation_meter_attached(budget, |meter| meter.checkpoint())?;
+    Ok(variables)
+}
+
+/// Charge a conservative owned source snapshot after the bounded structural
+/// preflight, before cloning any expression payload. Powers share Arc children;
+/// charging their reachable payload too intentionally overestimates that copy.
+fn charge_source_snapshot(source: &Expr, meter: &mut impl BudgetMeter) -> Result<(), EvalError> {
+    let (payload, allocations) = match source {
+        Expr::Sym(symbol) => (symbol.name.len(), usize::from(!symbol.name.is_empty())),
+        Expr::Integer(value) => ((value.bits().div_ceil(64) * 8) as usize, 1),
+        Expr::Rational(value) => (
+            ((value.numer().bits().div_ceil(64) + value.denom().bits().div_ceil(64)) * 8) as usize,
+            2,
+        ),
+        Expr::Function(name, children) => (
+            name.len(),
+            usize::from(!name.is_empty()) + usize::from(!children.is_empty()),
+        ),
+        Expr::Add(children) | Expr::Mul(children) => (0, usize::from(!children.is_empty())),
+        Expr::Pow(_, _) => (0, 2),
+        Expr::Const(_) => (0, 0),
+    };
+    meter.charge_batch(&[
+        (Dimension::ComputeSteps, payload as u64 + 1),
+        (
+            Dimension::MemoryBytes,
+            (std::mem::size_of::<Expr>() + payload) as u64,
+        ),
+        (Dimension::AllocationCount, allocations as u64),
+    ])?;
+    match source {
+        Expr::Add(children) | Expr::Mul(children) | Expr::Function(_, children) => {
+            for child in children {
+                charge_source_snapshot(child, meter)?;
+            }
+        }
+        Expr::Pow(base, exponent) => {
+            charge_source_snapshot(base, meter)?;
+            charge_source_snapshot(exponent, meter)?;
+        }
+        _ => {}
+    }
+    meter.checkpoint()?;
+    Ok(())
+}
+
+fn extract_expressions_metered(
+    values: &Bound<'_, PyAny>,
+    budget: Option<&PyEvaluationBudget>,
+) -> PyResult<Vec<Expr>> {
+    with_evaluation_meter_attached(budget, |meter| meter.checkpoint())?;
+    let py = values.py();
+    let length = container_length(values, MAX_OUTPUTS, "expressions")?;
+    let mut expressions =
+        with_evaluation_meter_attached(budget, |meter| evaluation_buffer::<Expr>(length, meter))?;
+    let mut nodes = 0;
+    for index in 0..length {
+        let value = values.get_item(index)?;
+        if !value.is_exact_instance(&py.get_type::<PyExpr>()) {
+            return Err(PyTypeError::new_err(
+                "expressions must be exact native Expr objects",
+            ));
+        }
+        let source = value.extract::<PyRef<'_, PyExpr>>()?;
+        check_source(&source.inner, &mut nodes)?;
+        with_evaluation_meter_attached(budget, |meter| {
+            charge_source_snapshot(&source.inner, meter)
+        })?;
+        expressions.push(source.inner.clone());
+    }
+    with_evaluation_meter_attached(budget, |meter| meter.checkpoint())?;
+    Ok(expressions)
+}
+
 /// Check the original tree before cloning or formatting large literals.
 pub(crate) fn check_source(expr: &Expr, nodes: &mut usize) -> PyResult<()> {
     let mut pending = vec![(expr, 0usize)];
@@ -1163,27 +1287,68 @@ pub struct PyCompiledFunction {
 }
 
 impl PyCompiledFunction {
+    #[cfg(test)]
     fn compile(exprs: &[Expr], vars: &[Symbol]) -> PyResult<Self> {
-        let map = variable_map(vars)?;
-        let mut programs = Vec::with_capacity(exprs.len());
+        Self::compile_with_meter(exprs, vars, &mut fsym_budget::Unbounded)
+            .map_err(crate::numeric_budget::evaluation_error)
+    }
+
+    fn compile_with_meter(
+        exprs: &[Expr],
+        vars: &[Symbol],
+        meter: &mut impl BudgetMeter,
+    ) -> Result<Self, CompileError> {
+        meter.checkpoint()?;
+        // Reserve for rounded hash buckets and their control/alignment bytes,
+        // not merely the occupied entries (a one-entry table has four buckets).
+        let buckets = if vars.is_empty() {
+            0
+        } else {
+            (2 * vars.len()).max(4).next_power_of_two()
+        };
+        meter.charge_batch(&[
+            (
+                Dimension::ComputeSteps,
+                (exprs.len() + vars.len() + 1) as u64,
+            ),
+            (
+                Dimension::MemoryBytes,
+                (exprs.len() * std::mem::size_of::<CompiledExpr>()
+                    + buckets * (std::mem::size_of::<(Symbol, usize)>() + 1)
+                    + 16) as u64,
+            ),
+            (Dimension::AllocationCount, 2),
+        ])?;
+        let mut map = HashMap::new();
+        map.try_reserve(vars.len())
+            .map_err(|_| CompileError::AllocationFailure)?;
+        for (index, var) in vars.iter().enumerate() {
+            meter.charge_batch(&[
+                (Dimension::ComputeSteps, var.name.len() as u64 + 1),
+                (Dimension::MemoryBytes, var.name.len() as u64),
+                (Dimension::AllocationCount, 1),
+            ])?;
+            if map.insert(var.clone(), index).is_some() {
+                return Err(CompileError::DuplicateVariable(var.clone()));
+            }
+        }
+        let mut programs = Vec::new();
+        programs
+            .try_reserve_exact(exprs.len())
+            .map_err(|_| CompileError::AllocationFailure)?;
         let mut operation_count = 0;
         for source in exprs {
-            let program = CompiledExpr::try_compile(source, &map).map_err(crate::to_value_error)?;
+            let program = CompiledExpr::try_compile_checked_with_meter(source, &map, meter)?;
             operation_count += program.ops().len();
             if operation_count > MAX_TOTAL_OPS {
-                return Err(PyValueError::new_err(
-                    "numeric program exceeds the total operation limit",
-                ));
-            }
-            if !compiled_expression_matches(source, &map, &program)
-                .map_err(crate::to_value_error)?
-            {
-                return Err(PyValueError::new_err(
-                    "numeric bytecode provenance verification failed",
-                ));
+                return Err(CompileError::OpLimitExceeded {
+                    ops: operation_count,
+                    max: MAX_TOTAL_OPS,
+                });
             }
             programs.push(program);
         }
+        meter.checkpoint()?;
         Ok(Self {
             programs,
             variable_count: vars.len(),
@@ -1260,10 +1425,19 @@ impl PyCompiledFunction {
     }
 
     #[new]
-    fn new(expressions: &Bound<'_, PyAny>, variables: &Bound<'_, PyAny>) -> PyResult<Self> {
-        let exprs = extract_expressions(expressions)?;
-        let vars = extract_variables(variables)?;
-        Self::compile(&exprs, &vars)
+    #[pyo3(signature = (expressions, variables, *, budget=None))]
+    fn new(
+        expressions: &Bound<'_, PyAny>,
+        variables: &Bound<'_, PyAny>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Self> {
+        let exprs = extract_expressions_metered(expressions, budget.as_deref())?;
+        let vars = extract_variables_metered(variables, budget.as_deref())?;
+        let result = with_certification_meter(expressions.py(), budget.as_deref(), |meter| {
+            Self::compile_with_meter(&exprs, &vars, meter)
+        })?;
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
     }
 
     /// Evaluate all outputs atomically. Results are approximate binary64 values.
@@ -1506,13 +1680,33 @@ impl PyVerifiedResidualSystem {
 #[pymethods]
 impl PyVerifiedResidualSystem {
     #[new]
-    fn new(residuals: &Bound<'_, PyAny>, variables: &Bound<'_, PyAny>) -> PyResult<Self> {
-        let residuals = extract_expressions(residuals)?;
-        let variables = extract_variables(variables)?;
-        Self::check_requested_source(&residuals, &variables)?;
-        let system = VerifiedResidualSystem::try_compile(&residuals, &variables)
-            .map_err(crate::to_value_error)?;
-        Self::admit(system)
+    #[pyo3(signature = (residuals, variables, *, budget=None))]
+    fn new(
+        residuals: &Bound<'_, PyAny>,
+        variables: &Bound<'_, PyAny>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Self> {
+        let py = residuals.py();
+        let residuals = extract_expressions_metered(residuals, budget.as_deref())?;
+        let variables = extract_variables_metered(variables, budget.as_deref())?;
+        let system = with_certification_meter(py, budget.as_deref(), |meter| {
+            let source_plan = plan_sparse_sources_with_meter(&residuals, &variables, meter)?;
+            if source_plan.source_nodes > MAX_SOURCE_NODES
+                || source_plan.differentiation_units > MAX_TOTAL_OPS
+            {
+                return Err(VerifiedCompilationError::AdmissionLimit {
+                    resource: "Python differentiation work",
+                    actual: source_plan
+                        .source_nodes
+                        .max(source_plan.differentiation_units) as u64,
+                    max: MAX_TOTAL_OPS as u64,
+                });
+            }
+            VerifiedResidualSystem::try_compile_with_meter(&residuals, &variables, meter)
+        })?;
+        let result = Self::admit(system)?;
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
     }
 
     /// Generate an approximate root through an explicitly selected native consumer.

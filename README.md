@@ -341,10 +341,17 @@ order. These methods avoid dense Jacobian output and retain every original
 residual and stored-derivative domain check, including for zero directions or
 weights. Rectangular and empty-axis systems preserve their declared shapes.
 
-An optional reusable `EvaluationBudget` accounts for native input snapshots,
-expression evaluation, sparse multiply/add work, and output storage. Failures
-and cooperative cancellation publish no partial result and do not refund work.
-Python objects and compilation remain outside that ledger. Compiled storage
+An optional reusable `EvaluationBudget` accounts for native source snapshots,
+compilation, independent derivative-proof and bytecode admission, expression
+evaluation, sparse products, and output storage. Pass the same `budget=` to
+`compile_numeric`, `compile_residual_system`, or `compile_objective` and later
+evaluation calls to keep their costs on one cumulative ledger. Compilation
+releases the interpreter during native work and observes cooperative cancellation;
+failure publishes no partial program and does not refund consumed work. An
+omitted compilation budget uses one bounded private ledger. Python source
+capture, bounded bridge structural preflight, and CPython allocation overhead
+remain outside native accounting; Python compilation does not reserve a separate
+verifier pool. Compiled storage
 contains the original residual programs and only the nonzero derivative
 programs. Differentiation visits the declared variables occurring in each
 residual; independent verification checks every omitted source dependency and

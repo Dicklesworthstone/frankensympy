@@ -6,8 +6,8 @@ use crate::binding::PySymbolBinding;
 use crate::expr::PyExpr;
 use crate::numeric::{
     ball_bounds, check_certified_sources, check_source, donor_float_option, donor_newton_guards,
-    exact_box, exact_rational, exact_vector, extract_variables, input_values_metered,
-    rational_expr,
+    exact_box, exact_rational, exact_vector, extract_variables, extract_variables_metered,
+    input_values_metered, rational_expr,
 };
 use crate::numeric_budget::{
     PyEvaluationBudget, evaluation_buffer, with_certification_meter, with_evaluation_meter,
@@ -277,19 +277,33 @@ pub struct PyVerifiedObjective {
 #[pymethods]
 impl PyVerifiedObjective {
     #[new]
-    fn new(source: &Bound<'_, PyAny>, variables: &Bound<'_, PyAny>) -> PyResult<Self> {
-        if !source.is_exact_instance(&source.py().get_type::<PyExpr>()) {
+    #[pyo3(signature = (source, variables, *, budget=None))]
+    fn new(
+        source: &Bound<'_, PyAny>,
+        variables: &Bound<'_, PyAny>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Self> {
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        let py = source.py();
+        if !source.is_exact_instance(&py.get_type::<PyExpr>()) {
             return Err(PyTypeError::new_err(
                 "objective must be an exact native Expr object",
             ));
         }
         let source = source.extract::<PyRef<'_, PyExpr>>()?;
-        let variables = extract_variables(variables)?;
+        let source = &source.inner;
+        let variables = extract_variables_metered(variables, budget.as_deref())?;
         let mut nodes = 0;
-        check_source(&source.inner, &mut nodes)?;
-        let objective = VerifiedObjective::try_compile(&source.inner, &variables)
-            .map_err(crate::to_value_error)?;
-        Ok(Self { objective })
+        check_source(source, &mut nodes)?;
+        // Keep the immutable borrowed source alive while the GIL is released.
+        // Candidate generation and the independent gradient/Hessian replay use
+        // this one ledger; an unsuccessful phase never obtains fresh limits.
+        let objective = with_certification_meter(py, budget.as_deref(), |meter| {
+            VerifiedObjective::try_compile_with_meter(source, &variables, meter)
+        })?;
+        let result = Self { objective };
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
     }
 
     /// Export the retained objective, derivative proofs and bytecode without
@@ -346,7 +360,7 @@ impl PyVerifiedObjective {
         }
         let source = source.extract::<PyRef<'_, PyExpr>>()?;
         let source = &source.inner;
-        let variables = extract_variables(variables)?;
+        let variables = extract_variables_metered(variables, budget.as_deref())?;
         check_source(source, &mut 0)?;
         let objective = with_certification_meter(py, budget.as_deref(), |meter| {
             let candidate = decode_objective_candidate(encoded, meter)?;

@@ -492,7 +492,7 @@ def _numeric_source(value, functions, count, depth=0, *, inexact=None):
     return _native_numeric_source(native, count, depth, inexact=inexact)
 
 
-def compile_numeric(args, expression):
+def compile_numeric(args, expression, *, budget=None):
     """Compile reusable finite-real binary64 scalar, list, tuple or matrix output.
 
     Arguments are typed Symbols/Dummies, optionally nested in lists/tuples.
@@ -501,22 +501,31 @@ def compile_numeric(args, expression):
     lists. Unknown symbols, opaque hooks, unsupported native functions,
     nonfinite intermediates and excessive resources refuse explicitly.
 
-    Pass ``budget=EvaluationBudget(...)`` when calling the result to share
-    cumulative native evaluation fuel and buffer limits across calls and
-    programs. Failures retain consumed work; cancellation is irreversible.
+    Pass ``budget=EvaluationBudget(...)`` here and when calling the result to
+    share cumulative native source-copy, compilation, independent bytecode
+    admission and evaluation costs across programs. Compilation releases the
+    interpreter during native work and cooperatively observes cancellation.
+    Failures retain consumed work; cancellation is irreversible. Omission uses
+    one bounded private compilation ledger; it does not attach that ledger to
+    later evaluations.
     ``evaluate_batch(rows, budget=...)`` accepts a list/tuple of positional
     argument lists/tuples and returns all rows together, or raises without
     publishing partial rows. Batches have at most 4096 rows and 262144 flat
-    input/output values. Compilation, symbolic proof admission and CPython
-    allocation overhead are outside the numerical evaluation ledger. The same
-    budget can also meter compiled residual enclosure and root certification.
+    input/output values. Python source capture, bounded bridge structural
+    preflight and CPython allocation overhead remain outside native accounting.
+    The same budget can also meter compiled residual enclosure and root certification.
     """
+    from .source_certification import _source_budget
+
+    budget = _source_budget(budget)
     layout, variables = _argument_layout(args)
     functions, count = _functions(), [0]
     shape, sources = _outputs(
         expression, lambda value: _numeric_source(value, functions, count), native=True,
     )
-    program = _native.CompiledFunction(sources, [_symbol_binding(v) for v in variables])
+    program = _native.CompiledFunction(
+        sources, [_symbol_binding(v) for v in variables], budget=budget,
+    )
 
     def compiled(*values, budget=None):
         _check_evaluation_budget(budget)
@@ -536,6 +545,7 @@ def compile_numeric(args, expression):
     compiled.__doc__ = "Typed finite-real binary64 callable; outputs are approximate."
     compiled.native_program = program
     compiled.evaluate_batch = evaluate_batch
+    _check_evaluation_budget(budget)
     return compiled
 
 
@@ -1152,7 +1162,7 @@ class _ResidualCallable:
         )
 
 
-def compile_residual_system(residuals, args):
+def compile_residual_system(residuals, args, *, budget=None):
     """Compile a residual system with independently checked symbolic derivatives.
 
     Residual containers flatten in row-major order. Derivative proofs and
@@ -1173,16 +1183,27 @@ def compile_residual_system(residuals, args):
     declared dependencies, or once its node count when no variable occurs.
     Dense ``evaluate``, ``jacobian`` and ``evaluate_batch`` separately refuse
     Jacobians with more than 65536 values before converting numeric inputs.
-    Approximate evaluation methods and products accept the same reusable
-    ``EvaluationBudget`` as ``compile_numeric``.
-    Compilation and symbolic proof admission are outside that ledger; the
-    certified enclosure and root-box methods accept the same budget. Python
-    object/result-container allocation remains outside native-buffer accounting.
+    The optional ``EvaluationBudget`` covers native source snapshots, sparse
+    dependency planning, symbolic differentiation, independent derivative proof
+    and bytecode admission, and executable-plan construction cumulatively.
+    Reuse it for evaluation, products, certified enclosure and root-box methods.
+    Cancellation and resource failures publish no partial program, retaining
+    consumed work. The native compiler releases the interpreter and checks
+    cancellation at cooperative safe points. Python source capture, bounded
+    bridge structural preflight and Python object/result-container allocation
+    remain outside native accounting. Omission uses one bounded private
+    compilation ledger; later calls do not inherit it. This shared ledger does
+    not provide a separate protected verifier allowance.
     """
+    from .source_certification import _source_budget
+
+    budget = _source_budget(budget)
     prepared = _residual_source(residuals, args)
     layout, variables, bindings, assumptions, sources, inexact = prepared
-    native = _native.VerifiedResidualSystem(sources, bindings)
-    return _ResidualCallable(layout, native, variables, inexact, assumptions)
+    native = _native.VerifiedResidualSystem(sources, bindings, budget=budget)
+    result = _ResidualCallable(layout, native, variables, inexact, assumptions)
+    _check_evaluation_budget(budget)
+    return result
 
 
 def _residual_source(residuals, args):

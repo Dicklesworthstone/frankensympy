@@ -44,8 +44,11 @@ fn limit(value: Option<&Bound<'_, PyAny>>, default: u64, name: &str) -> PyResult
 /// stages and solver iterations. Defaults are 10,000,000 logical steps,
 /// 256 MiB cumulative buffer bytes, and 100,000 allocations. Zero is a valid
 /// limit; None selects the default. Consumption survives failures, including
-/// rejected root boxes and precision retries. Compilation, symbolic proof
-/// admission and CPython's own allocation overhead are outside this ledger.
+/// rejected root boxes and precision retries. Numeric, residual and objective
+/// compilation can share this ledger through their explicit budget argument,
+/// including native source snapshots and independent proof/bytecode admission.
+/// Python source capture, bounded bridge structural preflight and CPython's own
+/// allocation overhead are outside this ledger.
 /// Memory is cumulative charged buffer bytes and conservative interval-work
 /// reservations, not RSS
 /// or a peak-live-memory measurement. Omitting a budget preserves the existing

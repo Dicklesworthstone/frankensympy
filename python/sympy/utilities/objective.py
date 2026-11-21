@@ -337,7 +337,9 @@ class _ObjectiveCallable:
         supplied EvaluationBudget accounts cumulatively for native buffers,
         failed trials, donor work and final reevaluation. Cancellation is
         cooperative around synchronous donor work. Python object allocation
-        and compilation are outside the ledger; no fallback resets its work.
+        remains outside the ledger; earlier compilation is included when the
+        same budget was passed to ``compile_objective``. No fallback resets
+        its work.
         """
         from ..solvers.numerical import _candidate_options
 
@@ -447,7 +449,7 @@ def _objective_source(objective, args):
     return layout, variables, bindings, assumptions, source, inexact[0]
 
 
-def compile_objective(objective, args):
+def compile_objective(objective, args, *, budget=None):
     """Compile a scalar objective, checked gradient and checked sparse Hessian.
 
     ``args`` contains typed Symbols/Dummies, optionally nested in lists/tuples.
@@ -464,15 +466,27 @@ def compile_objective(objective, args):
     ``solve_stationary_certified`` connects a bounded numerical search to that
     original-source checker, without granting proof authority to convergence.
     Float source literals remain usable only for approximation. Passing a reusable
-    ``EvaluationBudget`` to evaluation methods adds cumulative fuel and native
-    buffer accounting with cooperative native safe points. Compilation and
-    CPython allocation overhead are outside that ledger; no worker is spawned.
+    ``EvaluationBudget`` to compilation and evaluation adds cumulative fuel and
+    native buffer accounting with cooperative native safe points. Compilation
+    uses one ledger for candidate generation and independent gradient/Hessian
+    proof and bytecode admission. An omitted compilation budget uses one
+    private bounded ledger. A supplied budget can also cover later evaluation,
+    transport and certification without resetting consumed work on failure.
+    Bounded Python source capture, the bridge's bounded structural preflight
+    and CPython allocation overhead remain outside that ledger; no worker is
+    spawned. Python compilation does not reserve a separate verifier pool.
     Unsupported functions, opaque hooks, unmatched symbols and oversized work
     refuse explicitly. No upstream SymPy or Python callback executes the math.
     """
+    from .source_certification import _source_budget
+
+    budget = _source_budget(budget)
     layout, variables, bindings, assumptions, source, inexact = _objective_source(objective, args)
-    native = _native.VerifiedObjective(source, bindings)
-    return _ObjectiveCallable(layout, native, variables, inexact, assumptions)
+    _check_evaluation_budget(budget)
+    native = _native.VerifiedObjective(source, bindings, budget=budget)
+    result = _ObjectiveCallable(layout, native, variables, inexact, assumptions)
+    _check_evaluation_budget(budget)
+    return result
 
 
 def load_objective(data, *, objective, args, budget=None):
