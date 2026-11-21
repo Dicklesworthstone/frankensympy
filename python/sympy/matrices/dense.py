@@ -861,11 +861,14 @@ class Matrix(MatrixBase):
         roots() engine (canonical forms, upstream order); falls back to the
         native eigenvalue lane when some roots are not expressible."""
         try:
-            from ..core import Symbol as _Symbol
+            from ..core import Dummy
             from ..polys.polytools import Poly, roots
 
-            lam = _Symbol("_fsym_lambda")
-            rts = roots(Poly(self.charpoly(lam).as_expr(), lam))
+            polynomial = self.charpoly(Dummy("_fsym_lambda"))
+            # charpoly chooses a collision-free public generator. Its name
+            # can differ from the requested scratch variable, so the returned
+            # generator must govern coefficient extraction and root solving.
+            rts = roots(Poly(polynomial.as_expr(), polynomial.gen))
             if sum(rts.values()) == self.rows:
                 return dict(rts)
         except Exception:
@@ -889,8 +892,9 @@ class Matrix(MatrixBase):
 
         if not self.free_symbols:
             return None
-        lam = Dummy("lambda")
-        cp = expand(self.charpoly(lam).as_expr())
+        polynomial = self.charpoly(Dummy("lambda"))
+        lam = polynomial.gen
+        cp = expand(polynomial.as_expr())
         try:
             rts = _solve(cp, lam)
         except Exception:
@@ -1375,14 +1379,31 @@ class Matrix(MatrixBase):
         return self._new(L)
 
     def charpoly(self, x=None):
-        """Return the characteristic polynomial of this square matrix."""
+        """Return ``det(x*I - self)`` with a coefficient-independent generator.
+
+        The requested name is prefixed with underscores when it occurs in a
+        source symbol. Consult the returned PurePoly.gen: the output variable
+        may differ from the supplied Symbol or Dummy, as in SymPy 1.14.
+        """
+        from ..core import Dummy, Symbol
+
         if x is None:
-            from ..core import Symbol
-            x = Symbol("lambda")
-        elif isinstance(x, str):
-            from ..core import Symbol
-            x = Symbol(x)
+            name = "lambda"
+        elif type(x) is str:
+            name = x
+        elif type(x) in (Symbol, Dummy):
+            # The public charpoly argument is a name hint, not a semantic
+            # axis: upstream also returns an ordinary unassumed Symbol for
+            # assumed Symbols and Dummies. Source coefficient identities are
+            # retained independently by the native coefficient list.
+            name = str(x)
+        else:
+            raise TypeError("characteristic polynomial generator must be a string, Symbol or Dummy")
         coeffs = self._native.char_poly()
+        source_names = {symbol.name for symbol in self.free_symbols}
+        while name in source_names:
+            name = "_" + name
+        x = Symbol(name)
         n = len(coeffs) - 1
         terms = []
         for i, c in enumerate(coeffs):
