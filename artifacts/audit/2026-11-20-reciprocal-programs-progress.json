@@ -1,0 +1,521 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-20",
+  "date_timezone": "America/New_York",
+  "repository": "Dicklesworthstone/frankensympy",
+  "scope": "Reciprocal elementary functions through original-source C1/C2 enclosures, verified numerical derivative/bytecode pipelines, and public numerical callables; production integer Hermite verifier validation.",
+  "implementation_commits": [
+    {
+      "sha": "9b080497d3715ba311a3d6f7b7339dfef1bd2617",
+      "change": "Independent bounded original-source enclosures for cot/sec/csc/coth/sech/csch; scalar hyperbolic reciprocal ball dispatch; core regression tests."
+    },
+    {
+      "sha": "576f1933bc23f56f991c20850392220826687bb4",
+      "change": "Dedicated bytecode operations, value evaluation, independent lowering/proof replay, stable private numeric coth differentiation, sparse Jacobian/Hessian integration and 14 native test cases."
+    },
+    {
+      "sha": "044f9d5df0b320391e718c2f8b09a7176df3bcc8",
+      "change": "Exact built-in class admission and typed math/native/hybrid/verified public integration, explicit unary arity admission and Python regression cases."
+    }
+  ],
+  "important_behavior": [
+    "Whole denominator intervals must exclude zero. Held zero factors and zeroth powers do not erase source-domain obligations.",
+    "Native coth evaluates via 1/tanh(x); sech and large-argument csch use exp(-abs(x)) formulas; tiny csch uses 1/sinh(x). All emitted operation results must be finite before memoization/publication.",
+    "Private numerical coth differentiation uses -csch(x)^2 to retain representable nonzero derivative tails that 1-coth(x)^2 rounds to zero. The independent reference verifier implements its own stable rule, including omitted sparse-zero admission. Ordinary symbolic diff and ordinary derivative receipts are unchanged.",
+    "Both derivative stages, source identity, ordered typed variables, bytecode provenance, cumulative budgets, cancellation and atomic publication remain enforced.",
+    "The ordinary math backend follows pinned SymPy 1.14 formulas and exception behavior, including large-argument OverflowError; explicit native evaluation has the stable formulas.",
+    "Existing concurrent numerical-consumer commits were retained; no PR, forced ref update, broad profile closure or bead status/priority/dependency promotion."
+  ],
+  "native_runtime_results": [
+    {
+      "suite": "fsym-core::reciprocal_enclosures",
+      "passed": 7,
+      "failed": 0,
+      "log": "artifacts/audit/2026-11-20-reciprocal-programs/reciprocal-enclosures.log",
+      "receipt": {
+        "command": [
+          "/home/agent/fsym-validation-96c9485/toolchain/bin/cargo",
+          "test",
+          "--locked",
+          "-p",
+          "fsym-core",
+          "--test",
+          "reciprocal_enclosures",
+          "-j1"
+        ],
+        "head": "96c9485cb1479be69a2058a672a1c2f954386d39",
+        "started_at": "2026-11-21T04:38:25.641621+00:00",
+        "environment": {
+          "CARGO_BUILD_JOBS": "1",
+          "CARGO_INCREMENTAL": "0",
+          "CARGO_PROFILE_DEV_DEBUG": "0",
+          "CARGO_PROFILE_TEST_DEBUG": "0",
+          "MALLOC_ARENA_MAX": "2",
+          "RUSTFLAGS": "-Zunstable-options --jobs-frontend=1 --jobs-backend=1 -Zfewer-names=yes -Zmir-opt-level=0"
+        },
+        "completed_at": "2026-11-21T04:39:12.137844+00:00",
+        "exit_code": 0,
+        "elapsed_seconds": 46.49477317600031,
+        "memory_guard_reason": null,
+        "minimum_system_available_bytes": 1422864384,
+        "maximum_child_rss_kib": 402372,
+        "log_sha256": "5809e6a67c1406d2e6d8826f0b2ea3230df79b8eab05f9ca2ab20d81766c9887",
+        "source_changes": [
+          "crates/fsym-calculus/tests/reciprocal_function_programs.rs"
+        ],
+        "source_hash_scope": "Selected changed implementation/test files, integer Hermite verifier/test, and Cargo/toolchain inputs; these are excerpts of the original full-workspace source bookends, not a complete dependency manifest.",
+        "source_before": {
+          "Cargo.lock": "da84995568279c4ebf6123a38b3c38c29807f967f0992a435f53b7a9091361d7",
+          "Cargo.toml": "177e3d2d06919abf4f0203b4b90ece865c64d946aaf3bae378f14d90fe4633db",
+          "crates/fsym-calculus/src/compile.rs": "50604854bd01c30ad6a5c7244caeb108a907f8b07090bffcd761112b2951f154",
+          "crates/fsym-calculus/src/lib.rs": "45d45f5a569969af5ae0a5332c88d0a5ea84bad03934731eb24336739c0a7fc5",
+          "crates/fsym-calculus/src/proof.rs": "47ad05bf04fa118524bf759e730c331110b820336c6ae2b6d34bb27a59dc0cd2",
+          "crates/fsym-calculus/src/sparse_hessian.rs": "b038bafe7a82cae6dd22e29fa2f731fe80a33634211ededf8d573f210b39a0e1",
+          "crates/fsym-calculus/src/sparse_jacobian.rs": "b92e39406078527ca28c3ae47a21c214c95417fabfa27010b5703821794e468b",
+          "crates/fsym-calculus/tests/reciprocal_function_programs.rs": "c09ebe7a4383a5f52986d0795a418bcbe5f04e27004e13a8bcab1232c23275b2",
+          "crates/fsym-core/src/lib.rs": "e1bfd99f8cea706f12cd8b75637bdeac74e198698600397ca1ae4e32780938af",
+          "crates/fsym-core/src/root_certificate.rs": "6b465e8ad942701cc4aa0dc474ae27ec1ebca13ecb7aa19ee15fed14f8d763ca",
+          "crates/fsym-core/src/root_certificate/objective.rs": "5ceaf690b1dacda287a40cca23233e6dc833474ec232bf010c11b5bb0abc1e01",
+          "crates/fsym-core/tests/reciprocal_enclosures.rs": "ae4ff5f26617d34b04aa3ae4166a028397457f159614f635fe36d78bd8a20856",
+          "crates/fsym-proof-kernel/src/integer_hermite.rs": "6da5be6eb2270d8ed0fae4a97b5eb8277111f1d1f379f4a85de518d30f01c12b",
+          "crates/fsym-proof-kernel/tests/integer_hermite.rs": "c72734ebf687cf8dcc4bfffe7d7c0e899ac0740cba2f1821caca7aed71eb0a04",
+          "python/sympy/utilities/lambdify.py": "bd2f2eab584337e4f272f0e72356171ac2a9945153625f4c440571e28fe305f6",
+          "python/tests/test_reciprocal_numeric.py": "10603be76ac1874e6700642141e3b2159b9e3a316f07ee5e70d8f11c732dfc00",
+          "rust-toolchain.toml": "cdaedf5d65db22fa32d18beadab465c1b7653285dfb2e14d23f7dfd9677f9848"
+        },
+        "source_after": {
+          "Cargo.lock": "da84995568279c4ebf6123a38b3c38c29807f967f0992a435f53b7a9091361d7",
+          "Cargo.toml": "177e3d2d06919abf4f0203b4b90ece865c64d946aaf3bae378f14d90fe4633db",
+          "crates/fsym-calculus/src/compile.rs": "50604854bd01c30ad6a5c7244caeb108a907f8b07090bffcd761112b2951f154",
+          "crates/fsym-calculus/src/lib.rs": "45d45f5a569969af5ae0a5332c88d0a5ea84bad03934731eb24336739c0a7fc5",
+          "crates/fsym-calculus/src/proof.rs": "47ad05bf04fa118524bf759e730c331110b820336c6ae2b6d34bb27a59dc0cd2",
+          "crates/fsym-calculus/src/sparse_hessian.rs": "b038bafe7a82cae6dd22e29fa2f731fe80a33634211ededf8d573f210b39a0e1",
+          "crates/fsym-calculus/src/sparse_jacobian.rs": "b92e39406078527ca28c3ae47a21c214c95417fabfa27010b5703821794e468b",
+          "crates/fsym-calculus/tests/reciprocal_function_programs.rs": "5d00c3d092cf6426b06561e4c494388d249fbce6f522496312e4bd47285a9044",
+          "crates/fsym-core/src/lib.rs": "e1bfd99f8cea706f12cd8b75637bdeac74e198698600397ca1ae4e32780938af",
+          "crates/fsym-core/src/root_certificate.rs": "6b465e8ad942701cc4aa0dc474ae27ec1ebca13ecb7aa19ee15fed14f8d763ca",
+          "crates/fsym-core/src/root_certificate/objective.rs": "5ceaf690b1dacda287a40cca23233e6dc833474ec232bf010c11b5bb0abc1e01",
+          "crates/fsym-core/tests/reciprocal_enclosures.rs": "ae4ff5f26617d34b04aa3ae4166a028397457f159614f635fe36d78bd8a20856",
+          "crates/fsym-proof-kernel/src/integer_hermite.rs": "6da5be6eb2270d8ed0fae4a97b5eb8277111f1d1f379f4a85de518d30f01c12b",
+          "crates/fsym-proof-kernel/tests/integer_hermite.rs": "c72734ebf687cf8dcc4bfffe7d7c0e899ac0740cba2f1821caca7aed71eb0a04",
+          "python/sympy/utilities/lambdify.py": "bd2f2eab584337e4f272f0e72356171ac2a9945153625f4c440571e28fe305f6",
+          "python/tests/test_reciprocal_numeric.py": "10603be76ac1874e6700642141e3b2159b9e3a316f07ee5e70d8f11c732dfc00",
+          "rust-toolchain.toml": "cdaedf5d65db22fa32d18beadab465c1b7653285dfb2e14d23f7dfd9677f9848"
+        }
+      },
+      "scope_note": "The source-change list contains only the unrelated calculus integration test under development; core source and core tests were unchanged during execution."
+    },
+    {
+      "suite": "fsym-core::objective_enclosure",
+      "passed": 13,
+      "failed": 0,
+      "log": "artifacts/audit/2026-11-20-reciprocal-programs/adjacent-core-tests.transcript.txt"
+    },
+    {
+      "suite": "fsym-core::root_box_general",
+      "passed": 15,
+      "failed": 0,
+      "log": "artifacts/audit/2026-11-20-reciprocal-programs/adjacent-core-tests.transcript.txt"
+    },
+    {
+      "suite": "fsym-proof-kernel::integer_hermite",
+      "passed": 11,
+      "failed": 0,
+      "log": "artifacts/audit/2026-11-20-reciprocal-programs/integer-hermite.log",
+      "receipt": {
+        "command": [
+          "/home/agent/fsym-validation-96c9485/toolchain/bin/cargo",
+          "test",
+          "--locked",
+          "-p",
+          "fsym-proof-kernel",
+          "--test",
+          "integer_hermite",
+          "-j1"
+        ],
+        "head": "96c9485cb1479be69a2058a672a1c2f954386d39",
+        "started_at": "2026-11-21T04:46:06.556274+00:00",
+        "environment": {
+          "CARGO_BUILD_JOBS": "1",
+          "CARGO_INCREMENTAL": "0",
+          "CARGO_PROFILE_DEV_DEBUG": "0",
+          "CARGO_PROFILE_TEST_DEBUG": "0",
+          "MALLOC_ARENA_MAX": "2",
+          "RUSTFLAGS": "-Zunstable-options --jobs-frontend=1 --jobs-backend=1 -Zfewer-names=yes -Zmir-opt-level=0"
+        },
+        "completed_at": "2026-11-21T04:46:51.131079+00:00",
+        "exit_code": 0,
+        "elapsed_seconds": 44.57375708999825,
+        "memory_guard_reason": null,
+        "minimum_system_available_bytes": 1562746880,
+        "maximum_child_rss_kib": 402420,
+        "log_sha256": "9c05c9a1b28cb77ec8f0c0e224fb8266d57bdecfb1ad38836b059aa52b825506",
+        "source_changes": [],
+        "source_hash_scope": "Selected changed implementation/test files, integer Hermite verifier/test, and Cargo/toolchain inputs; these are excerpts of the original full-workspace source bookends, not a complete dependency manifest.",
+        "source_before": {
+          "Cargo.lock": "da84995568279c4ebf6123a38b3c38c29807f967f0992a435f53b7a9091361d7",
+          "Cargo.toml": "177e3d2d06919abf4f0203b4b90ece865c64d946aaf3bae378f14d90fe4633db",
+          "crates/fsym-calculus/src/compile.rs": "50604854bd01c30ad6a5c7244caeb108a907f8b07090bffcd761112b2951f154",
+          "crates/fsym-calculus/src/lib.rs": "92c2359f8e189a3e183b1e44606a446511148c3aab28e6522ec3f1e645878da4",
+          "crates/fsym-calculus/src/proof.rs": "f51c23b02fb67c5d6f52604aa460d592b98cc89157a20cf2bd630c002150c973",
+          "crates/fsym-calculus/src/sparse_hessian.rs": "2f6daa5bd2d661320513a5e789095fbc999c931472305054cd2c0a8fb95fed15",
+          "crates/fsym-calculus/src/sparse_jacobian.rs": "45ff743a99dda9e2804717a77c03568c7c6a778155707f0db286d7faac16074b",
+          "crates/fsym-calculus/tests/reciprocal_function_programs.rs": "3a7bc4257a1cf1942e9e0fbaefa3a4d7467acd7ba9da38239631466fac65eefb",
+          "crates/fsym-core/src/lib.rs": "e1bfd99f8cea706f12cd8b75637bdeac74e198698600397ca1ae4e32780938af",
+          "crates/fsym-core/src/root_certificate.rs": "6b465e8ad942701cc4aa0dc474ae27ec1ebca13ecb7aa19ee15fed14f8d763ca",
+          "crates/fsym-core/src/root_certificate/objective.rs": "5ceaf690b1dacda287a40cca23233e6dc833474ec232bf010c11b5bb0abc1e01",
+          "crates/fsym-core/tests/reciprocal_enclosures.rs": "ae4ff5f26617d34b04aa3ae4166a028397457f159614f635fe36d78bd8a20856",
+          "crates/fsym-proof-kernel/src/integer_hermite.rs": "6da5be6eb2270d8ed0fae4a97b5eb8277111f1d1f379f4a85de518d30f01c12b",
+          "crates/fsym-proof-kernel/tests/integer_hermite.rs": "c72734ebf687cf8dcc4bfffe7d7c0e899ac0740cba2f1821caca7aed71eb0a04",
+          "python/sympy/utilities/lambdify.py": "7a676f5231a36a65cd5fd0e607348b637d77621401cb481ffe8f8ee37c392681",
+          "python/tests/test_reciprocal_numeric.py": "715fe4ba8ec548a1ffadbf2590c9831b5c31530a5fd787be2b03898c718b683f",
+          "rust-toolchain.toml": "cdaedf5d65db22fa32d18beadab465c1b7653285dfb2e14d23f7dfd9677f9848"
+        },
+        "source_after": {
+          "Cargo.lock": "da84995568279c4ebf6123a38b3c38c29807f967f0992a435f53b7a9091361d7",
+          "Cargo.toml": "177e3d2d06919abf4f0203b4b90ece865c64d946aaf3bae378f14d90fe4633db",
+          "crates/fsym-calculus/src/compile.rs": "50604854bd01c30ad6a5c7244caeb108a907f8b07090bffcd761112b2951f154",
+          "crates/fsym-calculus/src/lib.rs": "92c2359f8e189a3e183b1e44606a446511148c3aab28e6522ec3f1e645878da4",
+          "crates/fsym-calculus/src/proof.rs": "f51c23b02fb67c5d6f52604aa460d592b98cc89157a20cf2bd630c002150c973",
+          "crates/fsym-calculus/src/sparse_hessian.rs": "2f6daa5bd2d661320513a5e789095fbc999c931472305054cd2c0a8fb95fed15",
+          "crates/fsym-calculus/src/sparse_jacobian.rs": "45ff743a99dda9e2804717a77c03568c7c6a778155707f0db286d7faac16074b",
+          "crates/fsym-calculus/tests/reciprocal_function_programs.rs": "3a7bc4257a1cf1942e9e0fbaefa3a4d7467acd7ba9da38239631466fac65eefb",
+          "crates/fsym-core/src/lib.rs": "e1bfd99f8cea706f12cd8b75637bdeac74e198698600397ca1ae4e32780938af",
+          "crates/fsym-core/src/root_certificate.rs": "6b465e8ad942701cc4aa0dc474ae27ec1ebca13ecb7aa19ee15fed14f8d763ca",
+          "crates/fsym-core/src/root_certificate/objective.rs": "5ceaf690b1dacda287a40cca23233e6dc833474ec232bf010c11b5bb0abc1e01",
+          "crates/fsym-core/tests/reciprocal_enclosures.rs": "ae4ff5f26617d34b04aa3ae4166a028397457f159614f635fe36d78bd8a20856",
+          "crates/fsym-proof-kernel/src/integer_hermite.rs": "6da5be6eb2270d8ed0fae4a97b5eb8277111f1d1f379f4a85de518d30f01c12b",
+          "crates/fsym-proof-kernel/tests/integer_hermite.rs": "c72734ebf687cf8dcc4bfffe7d7c0e899ac0740cba2f1821caca7aed71eb0a04",
+          "python/sympy/utilities/lambdify.py": "7a676f5231a36a65cd5fd0e607348b637d77621401cb481ffe8f8ee37c392681",
+          "python/tests/test_reciprocal_numeric.py": "715fe4ba8ec548a1ffadbf2590c9831b5c31530a5fd787be2b03898c718b683f",
+          "rust-toolchain.toml": "cdaedf5d65db22fa32d18beadab465c1b7653285dfb2e14d23f7dfd9677f9848"
+        }
+      },
+      "scope_note": "Actual complete production crate. These are the same 11 cases previously executed only in a four-module exact-source composition, not 11 additional distinct tests."
+    }
+  ],
+  "native_runtime_passed_total_this_continuation": 46,
+  "type_check": {
+    "result": "pass",
+    "scope": "Complete production fsym-calculus crate and all test targets, including the 14 new reciprocal_function_programs tests; this does not execute those tests.",
+    "warnings": 0,
+    "log": "artifacts/audit/2026-11-20-reciprocal-programs/calculus-check.log",
+    "receipt": {
+      "command": [
+        "/home/agent/fsym-validation-96c9485/toolchain/bin/cargo",
+        "check",
+        "--locked",
+        "-p",
+        "fsym-calculus",
+        "--tests",
+        "-j1"
+      ],
+      "head": "96c9485cb1479be69a2058a672a1c2f954386d39",
+      "started_at": "2026-11-21T04:50:34.943958+00:00",
+      "environment": {
+        "CARGO_BUILD_JOBS": "1",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "MALLOC_ARENA_MAX": "2",
+        "RUSTFLAGS": "-Zunstable-options --jobs-frontend=1 --jobs-backend=1 -Zfewer-names=yes -Zmir-opt-level=0"
+      },
+      "completed_at": "2026-11-21T04:51:11.598306+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 36.65350933599984,
+      "memory_guard_reason": null,
+      "minimum_system_available_bytes": 1387950080,
+      "maximum_child_rss_kib": 412324,
+      "log_sha256": "a63e1ae9a3bb8b0fa3fd7e668876be26f81018e32a9750808436ce3685a70928",
+      "source_changes": [],
+      "source_hash_scope": "Selected changed implementation/test files, integer Hermite verifier/test, and Cargo/toolchain inputs; these are excerpts of the original full-workspace source bookends, not a complete dependency manifest.",
+      "source_before": {
+        "Cargo.lock": "da84995568279c4ebf6123a38b3c38c29807f967f0992a435f53b7a9091361d7",
+        "Cargo.toml": "177e3d2d06919abf4f0203b4b90ece865c64d946aaf3bae378f14d90fe4633db",
+        "crates/fsym-calculus/src/compile.rs": "50604854bd01c30ad6a5c7244caeb108a907f8b07090bffcd761112b2951f154",
+        "crates/fsym-calculus/src/lib.rs": "92c2359f8e189a3e183b1e44606a446511148c3aab28e6522ec3f1e645878da4",
+        "crates/fsym-calculus/src/proof.rs": "f51c23b02fb67c5d6f52604aa460d592b98cc89157a20cf2bd630c002150c973",
+        "crates/fsym-calculus/src/sparse_hessian.rs": "2f6daa5bd2d661320513a5e789095fbc999c931472305054cd2c0a8fb95fed15",
+        "crates/fsym-calculus/src/sparse_jacobian.rs": "45ff743a99dda9e2804717a77c03568c7c6a778155707f0db286d7faac16074b",
+        "crates/fsym-calculus/tests/reciprocal_function_programs.rs": "ab8f68d417275b93d2d7a013369326a0e3486c8732386f6d13311aceb3e0b6f5",
+        "crates/fsym-core/src/lib.rs": "e1bfd99f8cea706f12cd8b75637bdeac74e198698600397ca1ae4e32780938af",
+        "crates/fsym-core/src/root_certificate.rs": "6b465e8ad942701cc4aa0dc474ae27ec1ebca13ecb7aa19ee15fed14f8d763ca",
+        "crates/fsym-core/src/root_certificate/objective.rs": "5ceaf690b1dacda287a40cca23233e6dc833474ec232bf010c11b5bb0abc1e01",
+        "crates/fsym-core/tests/reciprocal_enclosures.rs": "ae4ff5f26617d34b04aa3ae4166a028397457f159614f635fe36d78bd8a20856",
+        "crates/fsym-proof-kernel/src/integer_hermite.rs": "6da5be6eb2270d8ed0fae4a97b5eb8277111f1d1f379f4a85de518d30f01c12b",
+        "crates/fsym-proof-kernel/tests/integer_hermite.rs": "c72734ebf687cf8dcc4bfffe7d7c0e899ac0740cba2f1821caca7aed71eb0a04",
+        "python/sympy/utilities/lambdify.py": "7a676f5231a36a65cd5fd0e607348b637d77621401cb481ffe8f8ee37c392681",
+        "python/tests/test_reciprocal_numeric.py": "715fe4ba8ec548a1ffadbf2590c9831b5c31530a5fd787be2b03898c718b683f",
+        "rust-toolchain.toml": "cdaedf5d65db22fa32d18beadab465c1b7653285dfb2e14d23f7dfd9677f9848"
+      },
+      "source_after": {
+        "Cargo.lock": "da84995568279c4ebf6123a38b3c38c29807f967f0992a435f53b7a9091361d7",
+        "Cargo.toml": "177e3d2d06919abf4f0203b4b90ece865c64d946aaf3bae378f14d90fe4633db",
+        "crates/fsym-calculus/src/compile.rs": "50604854bd01c30ad6a5c7244caeb108a907f8b07090bffcd761112b2951f154",
+        "crates/fsym-calculus/src/lib.rs": "92c2359f8e189a3e183b1e44606a446511148c3aab28e6522ec3f1e645878da4",
+        "crates/fsym-calculus/src/proof.rs": "f51c23b02fb67c5d6f52604aa460d592b98cc89157a20cf2bd630c002150c973",
+        "crates/fsym-calculus/src/sparse_hessian.rs": "2f6daa5bd2d661320513a5e789095fbc999c931472305054cd2c0a8fb95fed15",
+        "crates/fsym-calculus/src/sparse_jacobian.rs": "45ff743a99dda9e2804717a77c03568c7c6a778155707f0db286d7faac16074b",
+        "crates/fsym-calculus/tests/reciprocal_function_programs.rs": "ab8f68d417275b93d2d7a013369326a0e3486c8732386f6d13311aceb3e0b6f5",
+        "crates/fsym-core/src/lib.rs": "e1bfd99f8cea706f12cd8b75637bdeac74e198698600397ca1ae4e32780938af",
+        "crates/fsym-core/src/root_certificate.rs": "6b465e8ad942701cc4aa0dc474ae27ec1ebca13ecb7aa19ee15fed14f8d763ca",
+        "crates/fsym-core/src/root_certificate/objective.rs": "5ceaf690b1dacda287a40cca23233e6dc833474ec232bf010c11b5bb0abc1e01",
+        "crates/fsym-core/tests/reciprocal_enclosures.rs": "ae4ff5f26617d34b04aa3ae4166a028397457f159614f635fe36d78bd8a20856",
+        "crates/fsym-proof-kernel/src/integer_hermite.rs": "6da5be6eb2270d8ed0fae4a97b5eb8277111f1d1f379f4a85de518d30f01c12b",
+        "crates/fsym-proof-kernel/tests/integer_hermite.rs": "c72734ebf687cf8dcc4bfffe7d7c0e899ac0740cba2f1821caca7aed71eb0a04",
+        "python/sympy/utilities/lambdify.py": "7a676f5231a36a65cd5fd0e607348b637d77621401cb481ffe8f8ee37c392681",
+        "python/tests/test_reciprocal_numeric.py": "715fe4ba8ec548a1ffadbf2590c9831b5c31530a5fd787be2b03898c718b683f",
+        "rust-toolchain.toml": "cdaedf5d65db22fa32d18beadab465c1b7653285dfb2e14d23f7dfd9677f9848"
+      }
+    }
+  },
+  "independent_oracle_and_static_checks": [
+    {
+      "check": "math helper parity",
+      "result": "96 exact value/exception comparisons passed against isolated SymPy 1.14.0.",
+      "scope": "Unchanged helper bodies extracted from candidate AST. No full public-shell/native-extension pass.",
+      "observed_output": "PASS 96 exact math-helper value/exception comparisons against isolated SymPy 1.14.0\nScope: unchanged helper bodies extracted from candidate source; no public-shell or native-extension pass claimed.\n"
+    },
+    {
+      "check": "exact enclosure fixtures",
+      "result": "18 rational value/slope/curvature anchors checked independently against isolated upstream SymPy 1.14.",
+      "scope": "Fixture oracle validation, separate from the 7 executed candidate core tests."
+    },
+    {
+      "check": "source review",
+      "result": "Independent review of the core enclosure formulas and separate numerical generator/reference-verifier rules completed."
+    },
+    {
+      "check": "format and syntax",
+      "result": "Pinned rustfmt, Python syntax and git diff --check passed before publication.",
+      "scope": "Static checks only; no additional runtime pass inferred."
+    }
+  ],
+  "uncompleted_runtime_attempts": [
+    {
+      "scope": "Actual production calculus executable test build, default codegen-unit settings.",
+      "status": "rustc compiling fsym-calculus terminated with SIGKILL; cargo exit 101; no source diagnostic or test execution.",
+      "receipt": {
+        "command": [
+          "/home/agent/fsym-validation-96c9485/toolchain/bin/cargo",
+          "test",
+          "--locked",
+          "-p",
+          "fsym-calculus",
+          "--test",
+          "reciprocal_function_programs",
+          "-j1"
+        ],
+        "head": "96c9485cb1479be69a2058a672a1c2f954386d39",
+        "started_at": "2026-11-21T04:47:28.856015+00:00",
+        "environment": {
+          "CARGO_BUILD_JOBS": "1",
+          "CARGO_INCREMENTAL": "0",
+          "CARGO_PROFILE_DEV_DEBUG": "0",
+          "CARGO_PROFILE_TEST_DEBUG": "0",
+          "MALLOC_ARENA_MAX": "2",
+          "RUSTFLAGS": "-Zunstable-options --jobs-frontend=1 --jobs-backend=1 -Zfewer-names=yes -Zmir-opt-level=0"
+        },
+        "completed_at": "2026-11-21T04:47:57.348659+00:00",
+        "exit_code": 101,
+        "elapsed_seconds": 28.491049723001197,
+        "memory_guard_reason": null,
+        "minimum_system_available_bytes": 1437147136,
+        "maximum_child_rss_kib": 518804,
+        "log_sha256": "c2381c33cf394abdc08d9922488c3ca125b21bce6b4f528cad831caa2c18ce04",
+        "source_changes": [],
+        "source_hash_scope": "Selected changed implementation/test files, integer Hermite verifier/test, and Cargo/toolchain inputs; these are excerpts of the original full-workspace source bookends, not a complete dependency manifest.",
+        "source_before": {
+          "Cargo.lock": "da84995568279c4ebf6123a38b3c38c29807f967f0992a435f53b7a9091361d7",
+          "Cargo.toml": "177e3d2d06919abf4f0203b4b90ece865c64d946aaf3bae378f14d90fe4633db",
+          "crates/fsym-calculus/src/compile.rs": "50604854bd01c30ad6a5c7244caeb108a907f8b07090bffcd761112b2951f154",
+          "crates/fsym-calculus/src/lib.rs": "92c2359f8e189a3e183b1e44606a446511148c3aab28e6522ec3f1e645878da4",
+          "crates/fsym-calculus/src/proof.rs": "f51c23b02fb67c5d6f52604aa460d592b98cc89157a20cf2bd630c002150c973",
+          "crates/fsym-calculus/src/sparse_hessian.rs": "2f6daa5bd2d661320513a5e789095fbc999c931472305054cd2c0a8fb95fed15",
+          "crates/fsym-calculus/src/sparse_jacobian.rs": "45ff743a99dda9e2804717a77c03568c7c6a778155707f0db286d7faac16074b",
+          "crates/fsym-calculus/tests/reciprocal_function_programs.rs": "ab8f68d417275b93d2d7a013369326a0e3486c8732386f6d13311aceb3e0b6f5",
+          "crates/fsym-core/src/lib.rs": "e1bfd99f8cea706f12cd8b75637bdeac74e198698600397ca1ae4e32780938af",
+          "crates/fsym-core/src/root_certificate.rs": "6b465e8ad942701cc4aa0dc474ae27ec1ebca13ecb7aa19ee15fed14f8d763ca",
+          "crates/fsym-core/src/root_certificate/objective.rs": "5ceaf690b1dacda287a40cca23233e6dc833474ec232bf010c11b5bb0abc1e01",
+          "crates/fsym-core/tests/reciprocal_enclosures.rs": "ae4ff5f26617d34b04aa3ae4166a028397457f159614f635fe36d78bd8a20856",
+          "crates/fsym-proof-kernel/src/integer_hermite.rs": "6da5be6eb2270d8ed0fae4a97b5eb8277111f1d1f379f4a85de518d30f01c12b",
+          "crates/fsym-proof-kernel/tests/integer_hermite.rs": "c72734ebf687cf8dcc4bfffe7d7c0e899ac0740cba2f1821caca7aed71eb0a04",
+          "python/sympy/utilities/lambdify.py": "7a676f5231a36a65cd5fd0e607348b637d77621401cb481ffe8f8ee37c392681",
+          "python/tests/test_reciprocal_numeric.py": "715fe4ba8ec548a1ffadbf2590c9831b5c31530a5fd787be2b03898c718b683f",
+          "rust-toolchain.toml": "cdaedf5d65db22fa32d18beadab465c1b7653285dfb2e14d23f7dfd9677f9848"
+        },
+        "source_after": {
+          "Cargo.lock": "da84995568279c4ebf6123a38b3c38c29807f967f0992a435f53b7a9091361d7",
+          "Cargo.toml": "177e3d2d06919abf4f0203b4b90ece865c64d946aaf3bae378f14d90fe4633db",
+          "crates/fsym-calculus/src/compile.rs": "50604854bd01c30ad6a5c7244caeb108a907f8b07090bffcd761112b2951f154",
+          "crates/fsym-calculus/src/lib.rs": "92c2359f8e189a3e183b1e44606a446511148c3aab28e6522ec3f1e645878da4",
+          "crates/fsym-calculus/src/proof.rs": "f51c23b02fb67c5d6f52604aa460d592b98cc89157a20cf2bd630c002150c973",
+          "crates/fsym-calculus/src/sparse_hessian.rs": "2f6daa5bd2d661320513a5e789095fbc999c931472305054cd2c0a8fb95fed15",
+          "crates/fsym-calculus/src/sparse_jacobian.rs": "45ff743a99dda9e2804717a77c03568c7c6a778155707f0db286d7faac16074b",
+          "crates/fsym-calculus/tests/reciprocal_function_programs.rs": "ab8f68d417275b93d2d7a013369326a0e3486c8732386f6d13311aceb3e0b6f5",
+          "crates/fsym-core/src/lib.rs": "e1bfd99f8cea706f12cd8b75637bdeac74e198698600397ca1ae4e32780938af",
+          "crates/fsym-core/src/root_certificate.rs": "6b465e8ad942701cc4aa0dc474ae27ec1ebca13ecb7aa19ee15fed14f8d763ca",
+          "crates/fsym-core/src/root_certificate/objective.rs": "5ceaf690b1dacda287a40cca23233e6dc833474ec232bf010c11b5bb0abc1e01",
+          "crates/fsym-core/tests/reciprocal_enclosures.rs": "ae4ff5f26617d34b04aa3ae4166a028397457f159614f635fe36d78bd8a20856",
+          "crates/fsym-proof-kernel/src/integer_hermite.rs": "6da5be6eb2270d8ed0fae4a97b5eb8277111f1d1f379f4a85de518d30f01c12b",
+          "crates/fsym-proof-kernel/tests/integer_hermite.rs": "c72734ebf687cf8dcc4bfffe7d7c0e899ac0740cba2f1821caca7aed71eb0a04",
+          "python/sympy/utilities/lambdify.py": "7a676f5231a36a65cd5fd0e607348b637d77621401cb481ffe8f8ee37c392681",
+          "python/tests/test_reciprocal_numeric.py": "715fe4ba8ec548a1ffadbf2590c9831b5c31530a5fd787be2b03898c718b683f",
+          "rust-toolchain.toml": "cdaedf5d65db22fa32d18beadab465c1b7653285dfb2e14d23f7dfd9677f9848"
+        }
+      },
+      "log": "artifacts/audit/2026-11-20-reciprocal-programs/calculus-runtime-sigkill.log"
+    },
+    {
+      "scope": "Actual production calculus executable test build, explicit fsym-calculus package codegen-units=32.",
+      "status": "rustc compiling fsym-calculus terminated with SIGKILL; cargo exit 101; no source diagnostic or test execution.",
+      "metadata": {
+        "command": [
+          "/home/agent/fsym-validation-96c9485/toolchain/bin/cargo",
+          "test",
+          "--locked",
+          "-p",
+          "fsym-calculus",
+          "--test",
+          "reciprocal_function_programs",
+          "-j1",
+          "--config",
+          "profile.dev.package.fsym-calculus.codegen-units=32",
+          "--config",
+          "profile.test.package.fsym-calculus.codegen-units=32"
+        ],
+        "head": "044f9d5df0b320391e718c2f8b09a7176df3bcc8",
+        "started_at": "2026-11-21T04:53:18.999435+00:00",
+        "completed_at": "2026-11-21T04:53:21.545449+00:00",
+        "exit_code": 101,
+        "elapsed_seconds": 2.544323809997877,
+        "memory_guard_reason": null,
+        "minimum_system_available_bytes": 1269411840,
+        "maximum_child_rss_kib": 270500,
+        "log_sha256": "f42893b512d5bf07bb483bb389866adb373eec8a6bcf50667077aad21b26571f",
+        "source_changes": []
+      },
+      "log": "artifacts/audit/2026-11-20-reciprocal-programs/calculus-cgu32-sigkill.transcript.txt"
+    }
+  ],
+  "remaining_validation": [
+    "The 14 new calculus runtime cases and adjacent executable calculus suites did not execute in this continuation.",
+    "The actual extension-backed public reciprocal Python suite remains unexecuted; no fresh extension was built.",
+    "Hermite generator, public Hermite and earlier Boolean runtime suites remain unexecuted in this session.",
+    "A mathematical bridge preparation was completed, retaining 42 bridge files unchanged and exactly six known runtime helper omissions. Preparation is not build or execution evidence.",
+    "No full workspace/runtime/profile, strict Clippy or hosted CI pass is asserted. Hosted native/public workflow runs were queued with null conclusions at final observation.",
+    "The executor became unavailable after the failed build attempts. The logs establish SIGKILL; they do not establish a more precise root cause.",
+    "LLL lattice reduction was identified as a remaining substantial feature but no implementation or test file was created."
+  ],
+  "hosted_ci_observations": [
+    {
+      "run": 44868143489,
+      "head_sha": "044f9d5df0b320391e718c2f8b09a7176df3bcc8",
+      "status": "queued",
+      "conclusion": null,
+      "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/44868143489"
+    },
+    {
+      "run": 44868080793,
+      "head_sha": "576f1933bc23f56f991c20850392220826687bb4",
+      "status": "queued",
+      "conclusion": null,
+      "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/44868080793"
+    }
+  ],
+  "evidence_files": [
+    {
+      "name": "core_runtime",
+      "path": "artifacts/audit/2026-11-20-reciprocal-programs/reciprocal-enclosures.log",
+      "sha": "4779350cac86fb427413f9343ddd2f33931a5643",
+      "kind": "raw command output"
+    },
+    {
+      "name": "core_adjacent",
+      "path": "artifacts/audit/2026-11-20-reciprocal-programs/adjacent-core-tests.transcript.txt",
+      "sha": "a0321be44e58e0503ac10e5cc1c48cdd212581c4",
+      "kind": "preserved result metadata followed by original command output"
+    },
+    {
+      "name": "hnf_runtime",
+      "path": "artifacts/audit/2026-11-20-reciprocal-programs/integer-hermite.log",
+      "sha": "d1a371c3c314b637264301a76affddf1a478b321",
+      "kind": "raw command output"
+    },
+    {
+      "name": "calculus_check",
+      "path": "artifacts/audit/2026-11-20-reciprocal-programs/calculus-check.log",
+      "sha": "241c2eed83fa9bd5d641d3ff0c68c99c6a25b2d0",
+      "kind": "raw command output"
+    },
+    {
+      "name": "calculus_runtime",
+      "path": "artifacts/audit/2026-11-20-reciprocal-programs/calculus-runtime-sigkill.log",
+      "sha": "eac4b6d6389ecc90d9291e3716edd3dfadffea59",
+      "kind": "raw command output"
+    },
+    {
+      "name": "calculus_cgu32",
+      "path": "artifacts/audit/2026-11-20-reciprocal-programs/calculus-cgu32-sigkill.transcript.txt",
+      "sha": "4999c140b616164e5c4d477a8ec65664795f2f94",
+      "kind": "preserved result metadata followed by original command output"
+    },
+    {
+      "name": "toolchain",
+      "path": "artifacts/audit/2026-11-20-reciprocal-programs/toolchain.json",
+      "sha": "1b3c374563ce0f19139a74e0b3c520475989da3e",
+      "kind": "installed pinned toolchain receipt"
+    }
+  ],
+  "source_binding_note": "The native commands ran against candidate worktree content based on the recorded HEAD. Selected SHA-256 source bookends above bind that content; the feature commits and verified Git blob entries below identify the published source.",
+  "published_source_blobs": [
+    {
+      "path": "crates/fsym-core/src/lib.rs",
+      "git_blob_sha": "b6b6086dd46e423b67ee22a0cc3fb6df44488df4"
+    },
+    {
+      "path": "crates/fsym-core/src/root_certificate.rs",
+      "git_blob_sha": "e1ab17c7d497a8f40daae86962195434365b4a92"
+    },
+    {
+      "path": "crates/fsym-core/src/root_certificate/objective.rs",
+      "git_blob_sha": "0c8c830218d6bf1391b89be4a6b15027449ecdaa"
+    },
+    {
+      "path": "crates/fsym-core/tests/reciprocal_enclosures.rs",
+      "git_blob_sha": "70160fb7f5ff0f9a9b7c4c831a8d715f48247012"
+    },
+    {
+      "path": "crates/fsym-calculus/src/compile.rs",
+      "git_blob_sha": "8a1fa518e1a2fae854d6062d46b5f845d5091247"
+    },
+    {
+      "path": "crates/fsym-calculus/src/proof.rs",
+      "git_blob_sha": "91b1b1fbf9b0955a30a21b5e2e5025903869e2e7"
+    },
+    {
+      "path": "crates/fsym-calculus/src/sparse_jacobian.rs",
+      "git_blob_sha": "3a6d93bbdbf576ebdfe5b9593001c222852e55d5"
+    },
+    {
+      "path": "crates/fsym-calculus/src/lib.rs",
+      "git_blob_sha": "580e494ebbc1aebd9bdeeed051d2baa9b470bfd3"
+    },
+    {
+      "path": "crates/fsym-calculus/src/sparse_hessian.rs",
+      "git_blob_sha": "29403bb06ac6ae9bf9df1a126887106539db9335"
+    },
+    {
+      "path": "python/sympy/utilities/lambdify.py",
+      "git_blob_sha": "1245dbc96fc9c07c3ca8c4ad0f6db67b326d0af3"
+    },
+    {
+      "path": "python/tests/test_reciprocal_numeric.py",
+      "git_blob_sha": "7dac06b0c8507ef9cdb88231eade24a724230ad5"
+    },
+    {
+      "path": "crates/fsym-calculus/tests/reciprocal_function_programs.rs",
+      "git_blob_sha": "1b8e491b9f48552218eb8bc3c4fc32f25357f9dc"
+    }
+  ]
+}

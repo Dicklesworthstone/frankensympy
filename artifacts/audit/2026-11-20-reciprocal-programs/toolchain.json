@@ -1,0 +1,38 @@
+{
+  "toolchain": "nightly-2026-08-20",
+  "prefix": "/home/agent/fsym-validation-96c9485/toolchain",
+  "manifest_sha256": "8ccaced09f209becc9c732ff86e5ec3373cc4b45e3ccd80c1cfb06bbabd88807",
+  "packages": [
+    {
+      "component": "rustc",
+      "url": "https://static.rust-lang.org/dist/2026-08-20/rustc-nightly-x86_64-unknown-linux-gnu.tar.xz",
+      "sha256": "14b7ef71e56ff722774e7b1dd89354a628f9e856f6b4e829a0d1b086450891b3",
+      "download_bytes": 83542420,
+      "installed_bytes": 416077420
+    },
+    {
+      "component": "cargo",
+      "url": "https://static.rust-lang.org/dist/2026-08-20/cargo-nightly-x86_64-unknown-linux-gnu.tar.xz",
+      "sha256": "d6e1d312ea3e0c82de09cb20c265a5eabaad10a36d7472ee8012eb7031229976",
+      "download_bytes": 10935300,
+      "installed_bytes": 36577246
+    },
+    {
+      "component": "rust-std",
+      "url": "https://static.rust-lang.org/dist/2026-08-20/rust-std-nightly-x86_64-unknown-linux-gnu.tar.xz",
+      "sha256": "b702c297f09a7cd3dd39974ce7418996e94264770401339a051c35a25c1ce2d4",
+      "download_bytes": 31603896,
+      "installed_bytes": 167337755
+    },
+    {
+      "component": "rustfmt-preview",
+      "url": "https://static.rust-lang.org/dist/2026-08-20/rustfmt-nightly-x86_64-unknown-linux-gnu.tar.xz",
+      "sha256": "f87315bbf4c701afb2759abcb04a94c0567977d75ec2f0056797897358bbcfb8",
+      "download_bytes": 2487840,
+      "installed_bytes": 7366115
+    }
+  ],
+  "rustc": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+  "cargo": "cargo 1.100.0-nightly (514c56dd7 2026-08-19)",
+  "rustfmt": "rustfmt 1.10.0-nightly (f7d782a3be 2026-08-19)"
+}

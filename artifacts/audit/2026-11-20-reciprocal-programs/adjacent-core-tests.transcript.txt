@@ -1,0 +1,44 @@
+{"command": ["/home/agent/fsym-validation-96c9485/toolchain/bin/cargo", "test", "--locked", "-p", "fsym-core", "--test", "objective_enclosure", "--test", "root_box_general", "-j1"], "head": "96c9485cb1479be69a2058a672a1c2f954386d39", "started_at": "2026-11-21T04:40:56.132949+00:00", "completed_at": "2026-11-21T04:40:59.315857+00:00", "exit_code": 0, "elapsed_seconds": 3.1817612829981954, "memory_guard_reason": null, "minimum_system_available_bytes": 1611862016, "maximum_child_rss_kib": 196304, "log_sha256": "14eefb167f3cb240e31a811a9309724d9c54cc7aa0a07b5f1069f9ecda55323b", "source_changes": []}
+   Compiling fsym-core v0.1.0 (/workspace/scratch/3afcdc56eabc/frankensympy/crates/fsym-core)
+    Finished `test` profile [unoptimized] target(s) in 1.44s
+     Running tests/objective_enclosure.rs (/home/agent/fsym-validation-96c9485/target/debug/build/fsym-core/b76dc1da4c7d6419/out/objective_enclosure-b76dc1da4c7d6419)
+
+running 13 tests
+test constant_and_identity_powers_do_not_invent_zero_denominators ... ok
+test nested_quartic_keeps_inner_hessian_and_outer_gradient_terms ... ok
+test cancellation_at_every_checkpoint_publishes_no_partial_objective_receipt ... ok
+test one_real_budget_is_cumulative_and_failed_reservations_are_atomic ... ok
+test exact_dense_quadratic_retains_both_mixed_product_terms ... ok
+test reciprocal_curvature_and_affine_cross_terms_are_exact ... ok
+test typed_binding_identity_is_used_even_when_names_match ... ok
+test whole_box_polynomial_bounds_cover_fixed_analytic_values ... ok
+test unsupported_shapes_precision_and_intrinsic_source_limits_fail_closed ... ok
+test tiny_exact_curvature_and_huge_coordinates_are_not_rounded_to_binary64 ... ok
+test all_admitted_elementary_rules_contain_known_derivatives ... ok
+test original_domain_checks_survive_zero_products_and_held_zero_powers ... ok
+test positive_dynamic_power_keeps_exponent_and_mixed_derivatives ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running tests/root_box_general.rs (/home/agent/fsym-validation-96c9485/target/debug/build/fsym-core/ff3aedbf042bea75/out/root_box_general-ff3aedbf042bea75)
+
+running 15 tests
+test real_budget_accepts_a_nonlinear_root_certificate ... ok
+test contraction_and_strict_interior_refuse_false_or_singular_root_claims ... ok
+test real_budget_accepts_rectangular_enclosures_and_preserves_atomic_refusal ... ok
+test scalar_irrational_root_gets_exact_strict_bounds ... ok
+test bounded_transport_rejects_excess_rows_limbs_and_noncanonical_scalars ... ok
+test cancellation_at_every_checkpoint_publishes_no_generic_receipt ... ok
+test whole_box_domains_survive_held_zeros_powers_and_singularities ... ok
+test typed_variable_identity_and_witness_mutations_are_never_trusted ... ok
+test coupled_three_dimensional_nonlinear_system_is_certified ... ok
+test nonsymmetric_preconditioner_orientation_is_checked ... ok
+test shape_precision_and_source_bounds_refuse_before_numeric_work ... ok
+test point_and_large_exact_coordinates_do_not_go_through_binary64 ... ok
+test maximum_dimension_coupled_triangular_system_fits_the_fixed_budget ... ok
+test rectangular_enclosures_bind_exact_source_and_all_partial_derivatives ... ok
+test intrinsic_arithmetic_budget_applies_even_without_a_caller_meter ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.30s
+
+

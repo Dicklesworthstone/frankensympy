@@ -1,0 +1,72 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling syn v3.0.3
+   Compiling autocfg v1.5.1
+   Compiling serde_core v1.0.229
+   Compiling num-traits v0.2.19
+   Compiling cfg-if v1.0.4
+   Compiling libc v0.2.189
+   Compiling serde v1.0.229
+   Compiling serde_derive v1.0.229
+   Compiling num-integer v0.1.47
+   Compiling getrandom v0.3.4
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.11
+   Compiling cc v1.4.4
+   Compiling num-bigint v0.4.8
+   Compiling fsym-budget v0.1.0 (/workspace/scratch/3afcdc56eabc/frankensympy/crates/fsym-budget)
+   Compiling rustix v1.1.4
+   Compiling zerocopy v0.8.56
+   Compiling zmij v1.0.23
+   Compiling getrandom v0.4.3
+   Compiling fsym-bigint v0.1.0 (/workspace/scratch/3afcdc56eabc/frankensympy/crates/fsym-bigint)
+   Compiling rand_core v0.9.5
+   Compiling blake3 v1.8.7
+   Compiling linux-raw-sys v0.12.1
+   Compiling bitflags v2.13.1
+   Compiling thiserror v2.0.20
+   Compiling serde_json v1.0.151
+   Compiling fsym-modular v0.1.0 (/workspace/scratch/3afcdc56eabc/frankensympy/crates/fsym-modular)
+   Compiling num-rational v0.4.2
+   Compiling thiserror-impl v2.0.20
+   Compiling itoa v1.0.18
+   Compiling constant_time_eq v0.4.2
+   Compiling cpufeatures v0.3.0
+   Compiling arrayvec v0.7.8
+   Compiling memchr v2.8.3
+   Compiling once_cell v1.21.4
+   Compiling fastrand v2.5.0
+   Compiling tempfile v3.27.0
+   Compiling fsym-rational v0.1.0 (/workspace/scratch/3afcdc56eabc/frankensympy/crates/fsym-rational)
+   Compiling ppv-lite86 v0.2.21
+   Compiling fsym-id v0.1.0 (/workspace/scratch/3afcdc56eabc/frankensympy/crates/fsym-id)
+   Compiling wait-timeout v0.2.1
+   Compiling num-complex v0.4.6
+   Compiling quick-error v1.2.3
+   Compiling fsym-outcome v0.1.0 (/workspace/scratch/3afcdc56eabc/frankensympy/crates/fsym-outcome)
+   Compiling fnv v1.0.7
+   Compiling bit-vec v0.8.0
+   Compiling bit-set v0.8.0
+   Compiling rusty-fork v0.3.1
+   Compiling fsym-core v0.1.0 (/workspace/scratch/3afcdc56eabc/frankensympy/crates/fsym-core)
+   Compiling rand_chacha v0.9.0
+   Compiling rand v0.9.5
+   Compiling rand_xorshift v0.4.0
+   Compiling unarray v0.1.4
+   Compiling regex-syntax v0.8.11
+   Compiling proptest v1.11.0
+    Finished `test` profile [unoptimized] target(s) in 41.92s
+     Running tests/reciprocal_enclosures.rs (/home/agent/fsym-validation-96c9485/target/debug/build/fsym-core/dd1f31df164e2184/out/reciprocal_enclosures-dd1f31df164e2184)
+
+running 7 tests
+test secant_and_hyperbolic_secant_are_smooth_across_zero ... ok
+test reciprocal_interval_work_retains_cancellation_and_cumulative_budgets ... ok
+test scalar_ball_dispatch_preserves_exact_values_and_rejects_hyperbolic_poles ... ok
+test finite_width_boxes_enclose_the_known_interior_values_and_derivatives ... ok
+test mixed_nonlinear_arguments_keep_inner_hessian_and_outer_curvature ... ok
+test poles_and_original_undefined_children_survive_zero_factors_and_powers ... ok
+test original_source_values_and_both_derivatives_match_exact_identities ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.24s
+

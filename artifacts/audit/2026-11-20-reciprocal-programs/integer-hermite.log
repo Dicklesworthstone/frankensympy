@@ -1,0 +1,78 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+   Compiling syn v3.0.3
+   Compiling autocfg v1.5.1
+   Compiling serde_core v1.0.229
+   Compiling num-traits v0.2.19
+   Compiling cfg-if v1.0.4
+   Compiling libc v0.2.189
+   Compiling serde v1.0.229
+   Compiling serde_derive v1.0.229
+   Compiling num-integer v0.1.47
+   Compiling getrandom v0.3.4
+   Compiling find-msvc-tools v0.1.11
+   Compiling shlex v2.0.1
+   Compiling cc v1.4.4
+   Compiling num-bigint v0.4.8
+   Compiling fsym-budget v0.1.0 (/workspace/scratch/3afcdc56eabc/frankensympy/crates/fsym-budget)
+   Compiling zmij v1.0.23
+   Compiling fsym-bigint v0.1.0 (/workspace/scratch/3afcdc56eabc/frankensympy/crates/fsym-bigint)
+   Compiling blake3 v1.8.7
+   Compiling rustix v1.1.4
+   Compiling thiserror v2.0.20
+   Compiling zerocopy v0.8.56
+   Compiling getrandom v0.4.3
+   Compiling serde_json v1.0.151
+   Compiling rand_core v0.9.5
+   Compiling fsym-modular v0.1.0 (/workspace/scratch/3afcdc56eabc/frankensympy/crates/fsym-modular)
+   Compiling num-rational v0.4.2
+   Compiling thiserror-impl v2.0.20
+   Compiling arrayvec v0.7.8
+   Compiling itoa v1.0.18
+   Compiling memchr v2.8.3
+   Compiling bitflags v2.13.1
+   Compiling linux-raw-sys v0.12.1
+   Compiling cpufeatures v0.3.0
+   Compiling constant_time_eq v0.4.2
+   Compiling fsym-rational v0.1.0 (/workspace/scratch/3afcdc56eabc/frankensympy/crates/fsym-rational)
+   Compiling fsym-id v0.1.0 (/workspace/scratch/3afcdc56eabc/frankensympy/crates/fsym-id)
+   Compiling num-complex v0.4.6
+   Compiling fsym-outcome v0.1.0 (/workspace/scratch/3afcdc56eabc/frankensympy/crates/fsym-outcome)
+   Compiling once_cell v1.21.4
+   Compiling fastrand v2.5.0
+   Compiling tempfile v3.27.0
+   Compiling fsym-core v0.1.0 (/workspace/scratch/3afcdc56eabc/frankensympy/crates/fsym-core)
+   Compiling ppv-lite86 v0.2.21
+   Compiling wait-timeout v0.2.1
+   Compiling quick-error v1.2.3
+   Compiling fnv v1.0.7
+   Compiling bit-vec v0.8.0
+   Compiling bit-set v0.8.0
+   Compiling rusty-fork v0.3.1
+   Compiling rand_chacha v0.9.0
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/3afcdc56eabc/frankensympy/crates/fsym-assumptions)
+   Compiling rand_xorshift v0.4.0
+   Compiling rand v0.9.5
+   Compiling regex-syntax v0.8.11
+   Compiling unarray v0.1.4
+   Compiling proptest v1.11.0
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/3afcdc56eabc/frankensympy/crates/fsym-proof-kernel)
+    Finished `test` profile [unoptimized] target(s) in 44.08s
+     Running tests/integer_hermite.rs (/home/agent/fsym-validation-96c9485/target/debug/build/fsym-proof-kernel/2a677f53530ef73e/out/integer_hermite-2a677f53530ef73e)
+
+running 11 tests
+test correct_rational_span_or_one_way_product_is_not_lattice_equality ... ok
+test malformed_fractional_and_oversized_storage_is_rejected_before_products ... ok
+test noncontiguous_pivots_and_arbitrary_nonpivot_rows_are_valid ... ok
+test equivalence_alone_does_not_establish_canonical_hermite_form ... ok
+test complete_lattice_receipt_binds_source_form_transforms_and_portable_replay ... ok
+test dependent_generators_are_removed_without_losing_the_integer_lattice ... ok
+test zero_and_zero_area_forms_still_require_unimodularity ... ok
+test original_source_schema_and_each_witness_component_are_checked ... ok
+test budgets_are_terminal_and_cumulative_across_replay ... ok
+test decoder_bounds_nested_matrices_and_cannot_deserialize_a_verified_flag ... ok
+test every_safe_point_including_publication_can_cancel_without_receipt ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
