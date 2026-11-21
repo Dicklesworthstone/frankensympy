@@ -1701,11 +1701,174 @@ fn unsafe_direct_substitution(expr: &Expr) -> bool {
     false
 }
 
+/// Evaluate a point-substituted Taylor source from its leaves upwards. Each
+/// visited child must remain defined before its parent may cancel it, multiply
+/// it by zero, or raise it to the zeroth power. This is a point-domain check,
+/// not a convergence certificate or a restriction on formal Laurent series.
+fn finite_taylor_point_value(expr: &Expr) -> Result<Expr, CalculusError> {
+    fn refused() -> CalculusError {
+        CalculusError::NonDifferentiable(
+            "Taylor coefficients require defined finite source values at the center".into(),
+        )
+    }
+
+    fn visit(expr: &Expr, depth: usize, remaining: &mut usize) -> Result<Expr, CalculusError> {
+        if depth > MAX_DIRECT_SUBSTITUTION_DEPTH || *remaining == 0 {
+            return Err(refused());
+        }
+        *remaining -= 1;
+        let child_depth = depth + 1;
+        let children = |args: &[Expr], remaining: &mut usize| {
+            args.iter()
+                .map(|arg| visit(arg, child_depth, remaining))
+                .collect::<Result<Vec<_>, _>>()
+        };
+        let rebuilt = match expr {
+            Expr::Add(args) => Expr::Add(children(args, remaining)?),
+            Expr::Mul(args) => Expr::Mul(children(args, remaining)?),
+            Expr::Pow(base, exponent) => {
+                let base = visit(base, child_depth, remaining)?;
+                let exponent = visit(exponent, child_depth, remaining)?;
+                // The rational Taylor lane already rejects held 0**0. Keep
+                // that pointwise policy when a transcendental composition
+                // selects this general coefficient lane instead.
+                if base.is_zero()
+                    && numeric_value(&exponent).is_some_and(|power| power <= BigRational::zero())
+                {
+                    return Err(refused());
+                }
+                Expr::Pow(Arc::new(base), Arc::new(exponent))
+            }
+            Expr::Function(name, args) if name == "Piecewise" => {
+                let mut kept = Vec::new();
+                for branch in args {
+                    if child_depth > MAX_DIRECT_SUBSTITUTION_DEPTH || *remaining == 0 {
+                        return Err(refused());
+                    }
+                    *remaining -= 1;
+                    let Expr::Function(tuple, pair) = branch else {
+                        return Err(refused());
+                    };
+                    if tuple != "Tuple" || pair.len() != 2 {
+                        return Err(refused());
+                    }
+                    let condition = visit(&pair[1], child_depth + 1, remaining)?;
+                    let truth = match &condition {
+                        Expr::Sym(symbol) if symbol.is_plain() && symbol.name == "True" => {
+                            Some(true)
+                        }
+                        Expr::Sym(symbol) if symbol.is_plain() && symbol.name == "False" => {
+                            Some(false)
+                        }
+                        _ => None,
+                    };
+                    if truth == Some(false) {
+                        continue;
+                    }
+                    let value = visit(&pair[0], child_depth + 1, remaining)?;
+                    if truth == Some(true) && kept.is_empty() {
+                        return Ok(value);
+                    }
+                    kept.push(Expr::Function("Tuple".into(), vec![value, condition]));
+                    if truth == Some(true) {
+                        break;
+                    }
+                }
+                if kept.is_empty() {
+                    return Err(refused());
+                }
+                Expr::Function(name.clone(), kept)
+            }
+            Expr::Function(name, args) => Expr::Function(name.clone(), children(args, remaining)?),
+            _ => expr.clone(),
+        };
+        if has_infinity(&rebuilt) {
+            return Err(refused());
+        }
+        // Match exact substitution's elementary folds, but only after the
+        // source children have passed their own point-domain checks.
+        let evaluated = match rebuilt {
+            Expr::Function(name, args) => fsym_core::elementary::eval_function(&name, &args)
+                .unwrap_or_else(|| Expr::Function(name, args)),
+            Expr::Pow(base, exponent) => fsym_core::elementary::eval_pow(
+                Arc::unwrap_or_clone(base),
+                Arc::unwrap_or_clone(exponent),
+            ),
+            value => value,
+        };
+        let value = fsym_simplify::try_simplify(&evaluated)
+            .map_err(|error| CalculusError::NonDifferentiable(error.to_string()))?;
+        if unsafe_direct_substitution(&value) || has_infinity(&value) {
+            return Err(refused());
+        }
+        Ok(value)
+    }
+
+    let mut remaining = MAX_DIRECT_SUBSTITUTION_NODES;
+    visit(expr, 1, &mut remaining)
+}
+
+/// Bound the expanded point tree before cloning the center into each source
+/// occurrence. Counting bound occurrences too is conservative; the actual
+/// substitution below retains the existing capture-aware binder semantics.
+fn taylor_point_substitution(expr: &Expr, var: &Symbol, at: &Expr) -> Result<Expr, CalculusError> {
+    fn bounds(
+        expr: &Expr,
+        replacement: Option<(&Symbol, usize, usize)>,
+    ) -> Result<(usize, usize), CalculusError> {
+        let refused = || {
+            CalculusError::NonDifferentiable(
+                "Taylor point substitution exceeds its expression bounds".into(),
+            )
+        };
+        let mut pending = vec![(expr, 1usize)];
+        let mut nodes = 0usize;
+        let mut maximum_depth = 0usize;
+        while let Some((node, depth)) = pending.pop() {
+            let (width, height) = match (node, replacement) {
+                (Expr::Sym(symbol), Some((var, width, height))) if symbol == var => (width, height),
+                _ => (1, 1),
+            };
+            nodes = nodes.checked_add(width).ok_or_else(refused)?;
+            let expanded_depth = depth.checked_add(height - 1).ok_or_else(refused)?;
+            maximum_depth = maximum_depth.max(expanded_depth);
+            if nodes > MAX_DIRECT_SUBSTITUTION_NODES
+                || maximum_depth > MAX_DIRECT_SUBSTITUTION_DEPTH
+            {
+                return Err(refused());
+            }
+            let children: &[Expr] = match node {
+                Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => args,
+                Expr::Pow(base, exponent) => {
+                    pending.try_reserve(2).map_err(|_| refused())?;
+                    pending.push((base, depth + 1));
+                    pending.push((exponent, depth + 1));
+                    continue;
+                }
+                _ => continue,
+            };
+            if children.len() > MAX_DIRECT_SUBSTITUTION_NODES {
+                return Err(refused());
+            }
+            pending.try_reserve(children.len()).map_err(|_| refused())?;
+            pending.extend(children.iter().map(|child| (child, depth + 1)));
+        }
+        Ok((nodes, maximum_depth))
+    }
+
+    let (width, height) = bounds(at, None)?;
+    bounds(expr, Some((var, width, height)))?;
+    Ok(gruntz::substitute_limit_source(expr, var, at))
+}
+
 /// Taylor polynomial of `expr` around `var = at` through degree `order`.
 ///
 /// Coefficients are exact where the derivatives evaluate exactly; a
 /// derivative that hits [`diff`]'s non-differentiable sentinel aborts with
 /// [`CalculusError::NonDifferentiable`].
+/// Original source children must be defined at a finite center independent
+/// of `var`; cancellation does not extend their pointwise domain. Symbolic
+/// parameter coefficients retain their unevaluated domain conditions.
 /// Rational functions at regular rational centers use a checked coefficient
 /// recurrence for up to 256 coefficients; other expressions retain the
 /// bounded derivative route.
@@ -1724,6 +1887,17 @@ pub fn taylor(expr: &Expr, var: &Symbol, at: &Expr, order: usize) -> Result<Expr
             UNSAFE_DIRECT_SUBSTITUTION.to_string(),
         ));
     }
+    if !is_free_of(at, var) {
+        return Err(CalculusError::NonDifferentiable(
+            "the Taylor center must be independent of the expansion coordinate".into(),
+        ));
+    }
+    let at = finite_taylor_point_value(at)?;
+    // Ordinary substitution and simplification fold x*x**-1, exp(log(x)),
+    // and zero-weighted terms. Retain the original scalar tree until its
+    // point-domain obligations have been checked, including at order zero.
+    let source_at_center = taylor_point_substitution(expr, var, &at)?;
+    finite_taylor_point_value(&source_at_center)?;
     let x = Expr::Sym(var.clone());
     // No Sub impl on Expr: shift = x + (-1)*at, folded by simplify.
     let neg_at = simplify(&Expr::Mul(vec![Expr::from_i64(-1), at.clone()]));
@@ -1740,27 +1914,11 @@ pub fn taylor(expr: &Expr, var: &Symbol, at: &Expr, order: usize) -> Result<Expr
                 UNSAFE_DIRECT_SUBSTITUTION.to_string(),
             ));
         }
-        let simplified = simplify(&deriv);
-        if unsafe_direct_substitution(&simplified) {
-            return Err(CalculusError::NonDifferentiable(
-                UNSAFE_DIRECT_SUBSTITUTION.to_string(),
-            ));
-        }
-        if k > 0 && carries_diff_sentinel(&simplified) {
+        if k > 0 && carries_diff_sentinel(&deriv) {
             return Err(CalculusError::NonDifferentiable(expr.to_string()));
         }
-        let substituted = simplified.subs(&HashMap::from([(var.clone(), at.clone())]));
-        if unsafe_direct_substitution(&substituted) {
-            return Err(CalculusError::NonDifferentiable(
-                UNSAFE_DIRECT_SUBSTITUTION.to_string(),
-            ));
-        }
-        let value = simplify(&substituted);
-        if unsafe_direct_substitution(&value) {
-            return Err(CalculusError::NonDifferentiable(
-                UNSAFE_DIRECT_SUBSTITUTION.to_string(),
-            ));
-        }
+        let substituted = taylor_point_substitution(&deriv, var, &at)?;
+        let value = finite_taylor_point_value(&substituted)?;
         if carries_diff_sentinel(&value) {
             return Err(CalculusError::NonDifferentiable(value.to_string()));
         }
