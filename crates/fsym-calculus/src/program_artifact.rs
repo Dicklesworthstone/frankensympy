@@ -14,8 +14,9 @@ use crate::compile::{CompiledExpr, CompiledOp, MAX_COMPILE_OPS};
 use crate::sparse_hessian::{ObjectiveCandidate, ObjectiveCompilationError, VerifiedObjective};
 use crate::sparse_jacobian::{MAX_SPARSE_AXES, SparseJacobian};
 use crate::verified::{
-    MAX_VERIFIED_EXPRESSION_NODES, MAX_VERIFIED_NONZERO_ENTRIES, MAX_VERIFIED_SOURCE_DEPTH,
-    MAX_VERIFIED_STORED_OPS, VerifiedCompilationError, VerifiedResidualSystem,
+    MAX_VERIFIED_ARTIFACT_BYTES, MAX_VERIFIED_EXPRESSION_NODES, MAX_VERIFIED_NONZERO_ENTRIES,
+    MAX_VERIFIED_SOURCE_DEPTH, MAX_VERIFIED_STORED_OPS, VERIFIED_ARTIFACT_SCHEMA_VERSION,
+    VerifiedCompilationError, VerifiedResidualSystem,
 };
 use fsym_budget::{BudgetMeter, Dimension, MeterError};
 use fsym_core::{BigRational, Constant, Expr, Symbol};
@@ -315,6 +316,29 @@ struct Envelope<'a> {
     kind: &'a RawValue,
     #[serde(borrow)]
     candidate: &'a RawValue,
+}
+
+/// The old Python residual format predates the kind-tagged portable envelope.
+/// Keep its import boundary separate: it is not a canonical native artifact.
+/// Explicit nulls count as present fields, so they cannot disguise a mixed
+/// legacy/portable envelope or an unknown acceptance flag.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompatibleResidualEnvelope<'a> {
+    schema_version: u32,
+    #[serde(default, borrow, deserialize_with = "present_raw")]
+    kind: Option<&'a RawValue>,
+    #[serde(default, borrow, deserialize_with = "present_raw")]
+    candidate: Option<&'a RawValue>,
+    #[serde(default, borrow, deserialize_with = "present_raw")]
+    jacobian: Option<&'a RawValue>,
+}
+
+fn present_raw<'de, D>(deserializer: D) -> Result<Option<&'de RawValue>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    <&RawValue>::deserialize(deserializer).map(Some)
 }
 
 fn encode<T: Serialize + ?Sized, M: BudgetMeter + ?Sized>(
@@ -1027,6 +1051,79 @@ pub fn decode_residual_candidate<M: BudgetMeter + ?Sized>(
     let candidate: SparseJacobian = serde_json::from_str(raw.get()).map_err(encoding)?;
     meter.checkpoint()?;
     canonical(&candidate, "residual", bytes, meter)?;
+    Ok(candidate)
+}
+
+/// Import a portable residual candidate or a previously saved Python bundle.
+///
+/// Portable input keeps the exact canonical encoding and 1 MiB limit of
+/// [`decode_residual_candidate`]. Legacy `{schema_version,jacobian}` input
+/// retains its original 16 MiB limit and accepts its historical JSON spelling.
+/// Both paths preflight bounded shapes, typed payloads and all retained proof
+/// and bytecode data before allocating the owned candidate. Neither path
+/// verifies derivatives, regenerates evidence or trusts an acceptance flag;
+/// the caller must subsequently use [`admit_residual_candidate`] with its own
+/// expected source and variable order. Every phase charges the same meter.
+pub fn decode_residual_candidate_with_legacy<M: BudgetMeter + ?Sized>(
+    bytes: &[u8],
+    meter: &mut M,
+) -> Result<SparseJacobian, ProgramArtifactError> {
+    meter.checkpoint()?;
+    if bytes.len() > MAX_VERIFIED_ARTIFACT_BYTES {
+        return Err(ProgramArtifactError::ByteLimit {
+            actual: bytes.len(),
+            max: MAX_VERIFIED_ARTIFACT_BYTES,
+        });
+    }
+    let mut nesting = JsonNesting::default();
+    for chunk in bytes.chunks(512) {
+        charge(meter, chunk.len(), 0, 0)?;
+        nesting.scan(chunk)?;
+    }
+    parse_charge(bytes.len(), meter)?;
+    let envelope: CompatibleResidualEnvelope<'_> =
+        serde_json::from_slice(bytes).map_err(encoding)?;
+    let (raw, portable) = match (envelope.kind, envelope.candidate, envelope.jacobian) {
+        (Some(kind), Some(candidate), None) => {
+            if bytes.len() > MAX_PROGRAM_CANDIDATE_BYTES {
+                return Err(ProgramArtifactError::ByteLimit {
+                    actual: bytes.len(),
+                    max: MAX_PROGRAM_CANDIDATE_BYTES,
+                });
+            }
+            if envelope.schema_version != PROGRAM_CANDIDATE_SCHEMA_VERSION {
+                return Err(ProgramArtifactError::UnsupportedVersion {
+                    found: envelope.schema_version,
+                    supported: PROGRAM_CANDIDATE_SCHEMA_VERSION,
+                });
+            }
+            if read::<&str, _>(kind, meter)? != "residual" {
+                return Err(ProgramArtifactError::WrongKind {
+                    expected: "residual",
+                });
+            }
+            (candidate, true)
+        }
+        (None, None, Some(jacobian)) => {
+            if envelope.schema_version != VERIFIED_ARTIFACT_SCHEMA_VERSION {
+                return Err(ProgramArtifactError::UnsupportedVersion {
+                    found: envelope.schema_version,
+                    supported: VERIFIED_ARTIFACT_SCHEMA_VERSION,
+                });
+            }
+            (jacobian, false)
+        }
+        _ => return Err(invalid("expected one complete residual artifact envelope")),
+    };
+    let mut inspection = Preflight::default();
+    inspection.jacobian(raw, meter)?;
+    materialization(raw, &inspection, meter)?;
+    let candidate: SparseJacobian = serde_json::from_str(raw.get()).map_err(encoding)?;
+    meter.checkpoint()?;
+    if portable {
+        canonical(&candidate, "residual", bytes, meter)?;
+    }
+    meter.checkpoint()?;
     Ok(candidate)
 }
 
