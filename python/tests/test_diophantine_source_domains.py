@@ -124,13 +124,28 @@ class DiophantineSourceDomainTests(unittest.TestCase):
     def test_cancelled_axes_do_not_couple_independent_free_coordinates(self):
         x, y = self.x, self.y
         z = s.Symbol("integer_source_z", integer=True)
-        for residual in (x-1, y-1, z-1):
+        for fixed, residual in enumerate((x-1, y-1, z-1)):
             total = s.Add(residual, s.Mul(0, x+y+z, evaluate=False), evaluate=False)
             guarded = self.guarded_equation((x*x+1)*(z*z+1), residual)
             for source in (total, guarded):
                 with self.subTest(residual=residual, guarded=source is guarded):
-                    with self.assertRaisesRegex(NotImplementedError, "independent free coordinates"):
-                        s.diophantine(source, syms=(x, y, z))
+                    result = s.diophantine(source, syms=(x, y, z))
+                    self.assertEqual(len(result), 1)
+                    family, = result
+                    self.assertEqual(family[fixed], 1)
+                    inactive = [index for index in range(3) if index != fixed]
+                    first, second = (family[index] for index in inactive)
+                    self.assertEqual((first, second), (
+                        s.Symbol("n1", integer=True), s.Symbol("n2", integer=True),
+                    ))
+                    self.assertNotEqual(first, second)
+                    self.assertTrue(first.is_integer)
+                    self.assertTrue(second.is_integer)
+                    for a, b in ((-2, 3), (0, 0), (7, -11)):
+                        point = tuple(value.subs({first: a, second: b}) for value in family)
+                        self.assertEqual(point[fixed], 1)
+                        self.assertEqual(point[inactive[0]], a)
+                        self.assertEqual(point[inactive[1]], b)
 
     def test_equality_normalization_uses_retained_sides_without_public_getters(self):
         x, y = self.x, self.y

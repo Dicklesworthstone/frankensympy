@@ -4,6 +4,8 @@ Supported, exactly, with upstream's parametrizations:
 
 * linear equations in a bounded number of variables (``base_solution_linear``
   and upstream's coefficient-gcd chain; parameters ``t_0, t_1, ...``);
+  retained inactive coordinates have independent integer parameters, with
+  complete integer-lattice coverage checked by the native Smith solver;
 * shifted bilinear equations: every congruence-admitted divisor pair
   within the work bounds, or complete affine integer families;
 * homogeneous binary quadratics that factor over QQ into lines;
@@ -21,6 +23,39 @@ from __future__ import annotations
 from math import gcd, isqrt
 from typing import Any
 
+from .. import core as _core
+from ..core._function_capabilities import _implementation
+from ..matrices import Matrix as _IntegerMatrix
+from ..matrices import normalforms as _integer_forms
+from ..matrices._integer_solve import solve_integer as _checked_integer_solve
+
+
+_INTEGER_SOLVER_IMPLEMENTATION = _implementation(_checked_integer_solve)
+_NATIVE_EXPR = _core._native.Expr
+_NATIVE_MATRIX = _integer_forms._NATIVE[_IntegerMatrix]
+_NATIVE_FLAT = _integer_forms._DICT.__get__(_NATIVE_MATRIX)["flat"]
+_NATIVE_NUMERATOR = _integer_forms._DICT.__get__(_NATIVE_EXPR)["exact_numerator"]
+_NATIVE_IS_INTEGER = _integer_forms._DICT.__get__(_NATIVE_EXPR)["is_integer"]
+_INTEGER_CONVERSIONS = tuple(
+    (owner, _integer_forms._reduction_binding(owner, "__int__"),
+     _implementation(_integer_forms._reduction_binding(owner, "__int__")))
+    for owner in (_core.Integer, _core.Zero, _core.One, _core.NegativeOne)
+)
+_SOURCE_SLOTS = tuple(
+    (owner, name, _integer_forms._DICT.__get__(owner)[name])
+    for owner, names in (
+        (_core.Basic, ("_value", "_struct_args", "_surface_args")),
+        (_core.Add, ("_args",)), (_core.Mul, ("_args",)),
+        (_core.Pow, ("_args",)), (_core.Function, ("_args",)),
+        (_core.Relational, ("_relational_sides",)),
+        (_core.Symbol, ("_assumptions",)),
+        (_core.Dummy, ("_dummy_name", "_dummy_number")),
+    )
+    for name in names
+)
+_SOURCE_ASSUMPTIONS = _integer_forms._DICT.__get__(_core.Symbol)["_assumptions"]
+_SOURCE_VALUE = _integer_forms._DICT.__get__(_core.Basic)["_value"]
+_MISSING_SOURCE_SLOT = object()
 
 _MAX_DIOPHANTINE_COEFFICIENT_BITS = 4096
 _MAX_DIOPHANTINE_SCAN_POINTS = 100_000
@@ -171,7 +206,7 @@ def _params(n: int) -> list:
     return [Symbol("t_%d" % i, integer=True) for i in range(n)]
 
 
-def _diop_linear(coeff: dict, var: list, const: int) -> set:
+def _diop_linear(coeff: dict, var: list, const: int, parameters=None) -> set:
     from ..core import Add, Integer, Mul
 
     A = [int(coeff[v]) for v in var]
@@ -182,7 +217,7 @@ def _diop_linear(coeff: dict, var: list, const: int) -> set:
         return set()
     A = [a // g for a in A]
     c = Integer(-const // g)
-    params = _params(len(var))
+    params = _params(len(var)) if parameters is None else parameters
     if len(var) == 1:
         if c % A[0]:
             return set()
@@ -222,6 +257,305 @@ def _diop_linear(coeff: dict, var: list, const: int) -> set:
         c = Add(*tot_y)
     solutions.append(c)
     return {tuple(solutions)}
+
+
+def _integer_solver_interfaces():
+    current = _implementation(_checked_integer_solve)
+    if (len(current) != len(_INTEGER_SOLVER_IMPLEMENTATION)
+            or any(a is not b for a, b in zip(current, _INTEGER_SOLVER_IMPLEMENTATION))):
+        raise NotImplementedError("diophantine: integer solver implementation changed")
+    _integer_forms._interfaces()
+    if (_integer_forms._DICT.__get__(_NATIVE_MATRIX).get("flat") is not _NATIVE_FLAT
+            or _integer_forms._DICT.__get__(_NATIVE_EXPR).get("exact_numerator")
+            is not _NATIVE_NUMERATOR):
+        raise NotImplementedError("diophantine: integer result readers changed")
+    _integer_conversion_interfaces()
+
+
+def _integer_conversion_interfaces():
+    for owner, original, recorded in _INTEGER_CONVERSIONS:
+        current = _integer_forms._reduction_binding(owner, "__int__")
+        tokens = _implementation(current)
+        if (current is not original or len(tokens) != len(recorded)
+                or any(a is not b for a, b in zip(tokens, recorded))):
+            raise NotImplementedError("diophantine: integer presentation conversion changed")
+
+
+def _source_slot(slot, node):
+    try:
+        return slot.__get__(node, type(node))
+    except AttributeError:
+        return _MISSING_SOURCE_SLOT
+
+
+def _source_storage_interfaces():
+    if any(_integer_forms._DICT.__get__(owner).get(name) is not slot
+           for owner, name, slot in _SOURCE_SLOTS):
+        raise NotImplementedError("diophantine: original source storage descriptors changed")
+    namespace = _integer_forms._DICT.__get__(_NATIVE_EXPR)
+    if (namespace.get("is_integer") is not _NATIVE_IS_INTEGER
+            or namespace.get("exact_numerator") is not _NATIVE_NUMERATOR):
+        raise NotImplementedError("diophantine: literal integer readers changed")
+
+
+def _linear_source_snapshot(records, work):
+    """Retain original storage before normalization can erase source axes."""
+    from ..assumptions._query import typed_symbol
+
+    _source_storage_interfaces()
+    _integer_conversion_interfaces()
+    snapshot = []
+    for node, children in records:
+        if type(node) in (_core.Integer, _core.Zero, _core.One, _core.NegativeOne):
+            _linear_integer_atom(node, children, work)
+        owners = _integer_forms._MRO.__get__(type(node))
+        slots = tuple((slot, _source_slot(slot, node))
+                      for owner, _name, slot in _SOURCE_SLOTS
+                      if any(owner is parent for parent in owners))
+        work.charge(len(slots) + 1)
+        assumptions = None
+        if type(node) in (_core.Symbol, _core.Dummy):
+            declared = _SOURCE_ASSUMPTIONS.__get__(node, _core.Symbol)
+            if (type(declared) is not dict or len(declared) > 64
+                    or any(type(name) is not str or len(name) > 256
+                           or type(truth) is not bool for name, truth in dict.items(declared))):
+                raise NotImplementedError("diophantine: bounded typed symbol declarations required")
+            work.charge(sum(len(name) + 1 for name in dict.keys(declared)) + 1)
+            _binding, facts = typed_symbol(node)
+            assumptions = (declared, facts)
+        snapshot.append((node, type(node), slots, assumptions))
+    return tuple(snapshot)
+
+
+def _linear_source_unchanged(snapshot, work):
+    from ._checksol import _require_original
+
+    _require_original()
+    _source_storage_interfaces()
+    if _core._active_callback_session() is not work.diophantine_session:
+        raise RuntimeError("diophantine: integer solve request changed during evaluation")
+    for node, kind, slots, assumptions in snapshot:
+        work.charge(len(slots) + 1)
+        if type(node) is not kind or any(_source_slot(slot, node) is not previous for slot, previous in slots):
+            raise RuntimeError("diophantine: original source mutated during integer solving")
+        if assumptions is not None:
+            declared, facts = assumptions
+            work.charge(len(facts) + 1)
+            if (len(declared) != len(facts)
+                    or any(type(name) is not str or type(truth) is not bool
+                           for name, truth in dict.items(declared))
+                    or declared != facts):
+                raise RuntimeError("diophantine: original symbol assumptions mutated during integer solving")
+
+
+def _linear_coefficient(value, work):
+    if type(value) is not int or abs(value).bit_length() > 4096:
+        raise NotImplementedError("diophantine: integer family coefficient height exceeds its bound")
+    work.charge(abs(value).bit_length() + 1)
+    return value
+
+
+def _linear_integer_atom(node, children, work):
+    """Admit the native literal, not a mutable Python class label alone."""
+    native = _source_slot(_SOURCE_VALUE, node)
+    if (children or type(native) is not _NATIVE_EXPR
+            or _NATIVE_IS_INTEGER.__get__(native, _NATIVE_EXPR) is not True):
+        raise ValueError("diophantine: literal integer has invalid native storage")
+    value = _linear_coefficient(_NATIVE_NUMERATOR(native), work)
+    fixed = {_core.Zero: 0, _core.One: 1, _core.NegativeOne: -1}
+    if type(node) in fixed and value != fixed[type(node)]:
+        raise ValueError("diophantine: literal integer singleton has inconsistent storage")
+    return value
+
+
+def _integer_family_result(matrix, expected_shape, work):
+    """Read a checked lattice without replaceable public matrix accessors."""
+    source = _integer_forms._IntegerSource(matrix)
+    if source.base is not _IntegerMatrix or source.shape != expected_shape:
+        raise ArithmeticError("diophantine: checked integer family has an unexpected shape")
+    count = expected_shape[0] * expected_shape[1]
+    work.charge(count + 1)
+    cells = _NATIVE_FLAT(source.native)
+    if type(cells) is not list or len(cells) != count:
+        raise ArithmeticError("diophantine: checked integer family has invalid native storage")
+    values = tuple(_linear_coefficient(_NATIVE_NUMERATOR(cell), work) for cell in cells)
+    source.unchanged()
+    _integer_solver_interfaces()
+    return values
+
+
+def _linear_family_coefficients(expression, parameters, work):
+    """Read an affine presentation without trusting symbolic simplification.
+
+    This small exact recurrence is independent of the coefficient-gcd
+    generator. Only integer atoms, declared parameter atoms, sums and
+    products having at most one nonconstant factor are accepted.
+    """
+    from ..core import Add, Dummy, Integer, Mul, NegativeOne, One, Symbol, Zero
+    from ._checksol import _source_nodes
+
+    positions = {parameter: index + 1 for index, parameter in enumerate(parameters)}
+    width = len(parameters) + 1
+    values = {}
+    for node, children in _source_nodes((expression,), work):
+        work.charge(width)
+        kind = type(node)
+        row = [0] * width
+        if kind in (Integer, Zero, One, NegativeOne):
+            row[0] = _linear_integer_atom(node, children, work)
+        elif kind in (Symbol, Dummy) and node in positions:
+            row[positions[node]] = 1
+        elif kind is Add:
+            for child in children:
+                for index, coefficient in enumerate(values[id(child)]):
+                    row[index] = _linear_coefficient(row[index] + coefficient, work)
+        elif kind is Mul:
+            row[0] = 1
+            for child in children:
+                right = values[id(child)]
+                if any(row[1:]) and any(right[1:]):
+                    raise ArithmeticError("diophantine: linear generator returned nonlinear parameters")
+                if any(right[1:]):
+                    row, right = right, row
+                scale = right[0]
+                if any(abs(value).bit_length() + abs(scale).bit_length() > 4097
+                       for value in row if value and scale):
+                    raise NotImplementedError("diophantine: integer family coefficient product exceeds its bound")
+                row = [_linear_coefficient(value * scale, work) for value in row]
+        else:
+            raise ArithmeticError("diophantine: linear generator returned an undeclared parameter or scalar")
+        values[id(node)] = row
+    return values[id(expression)]
+
+
+def _complete_linear_family(coeff, variables, const, original_axes, work, param, source_snapshot):
+    """Present the complete checked integer lattice with inactive coordinates.
+
+    The established coefficient-gcd formula is a presentation candidate only.
+    First the native solver checks the complete original integer solution
+    lattice. A second checked solve proves that the proposed presentation
+    contains its particular solution and every primitive kernel direction.
+    Exact original-row products prove the reverse containment. Thus a
+    residual-zero but index-two sublattice cannot be published as complete.
+    """
+    from ..core import Dummy, Symbol
+    from ._checksol import _require_original, _source_nodes
+
+    _require_original()
+    _linear_source_unchanged(source_snapshot, work)
+    _integer_solver_interfaces()
+    count = len(variables)
+    if not 1 <= count <= 64:
+        raise NotImplementedError("diophantine: integer families support at most 64 coordinates")
+    coefficients = [_linear_coefficient(coeff[variable], work) for variable in variables]
+    constant = _linear_coefficient(const, work)
+    canonical = sorted(variables, key=lambda variable: variable.name)
+    active = [variable for variable in canonical if coeff[variable]]
+    if not active:
+        raise NotImplementedError("diophantine: zero polynomial requires unconstrained integer families")
+    work.charge(count * count + 1)
+    checked = _checked_integer_solve(
+        _IntegerMatrix([coefficients]), _IntegerMatrix([[-constant]]),
+    )
+    _integer_solver_interfaces()
+    _require_original()
+    if checked is None:
+        return set(), ()
+    particular, kernel = checked
+    particular = _integer_family_result(particular, (count, 1), work)
+    kernel = _integer_family_result(kernel, (count, count - 1), work)
+
+    if param is None:
+        prefix = "t"
+    else:
+        if type(param) not in (Symbol, Dummy):
+            raise NotImplementedError("diophantine: linear family parameter must be a built-in Symbol")
+        _source_nodes((param,), work)
+        prefix = param.name
+    if type(prefix) is not str or len(prefix.encode("utf-8")) > 512:
+        raise NotImplementedError("diophantine: linear family parameter name exceeds its bound")
+    used = set(original_axes)
+    parameter_snapshot = []
+
+    def fresh(name):
+        work.charge(len(name) + 1)
+        parameter = Symbol(name, integer=True)
+        # A typed fresh Dummy preserves independence when an original axis
+        # already owns a conventional parameter name. Never sequentially
+        # substitute a generated parameter as if it were an original axis.
+        if parameter in used:
+            parameter = Dummy(name, integer=True)
+        parameter_snapshot.extend(_linear_source_snapshot(_source_nodes((parameter,), work), work))
+        used.add(parameter)
+        return parameter
+
+    active_parameters = [fresh("%s_%d" % (prefix, index)) for index in range(len(active))]
+    proposed = _diop_linear(coeff, active, constant, active_parameters)
+    _linear_source_unchanged(source_snapshot, work)
+    _linear_source_unchanged(parameter_snapshot, work)
+    _integer_solver_interfaces()
+    if len(proposed) != 1:
+        raise ArithmeticError("diophantine: linear presentation contradicts the checked integer lattice")
+    active_values = next(iter(proposed))
+    if len(active_values) != len(active):
+        raise ArithmeticError("diophantine: linear presentation has the wrong coordinate count")
+    active_values = dict(zip(active, active_values))
+    parameters = active_parameters[:len(active) - 1]
+    inactive = [variable for variable in canonical if not coeff[variable]]
+    inactive_values = {variable: fresh("n%d" % (index + 1))
+                       for index, variable in enumerate(inactive)}
+    parameters.extend(inactive_values.values())
+    solution = [active_values[variable] if coeff[variable] else inactive_values[variable]
+                for variable in variables]
+    candidate_snapshot = _linear_source_snapshot(_source_nodes(tuple(solution), work), work)
+    rows = [_linear_family_coefficients(value, parameters, work) for value in solution]
+    # Pinned DiophantineSolutionSet.add makes an isolated coordinate -t
+    # positive unless another coordinate is already t. A whole-column sign
+    # flip is unimodular, so this convention preserves the complete lattice.
+    positive, negative = set(), set()
+    for row in rows:
+        work.charge(count)
+        support = [index for index, value in enumerate(row) if value]
+        if len(support) == 1 and support[0] and abs(row[support[0]]) == 1:
+            (positive if row[support[0]] > 0 else negative).add(support[0])
+    flip = negative - positive
+    for row in rows:
+        work.charge(len(flip) + 1)
+        for column in flip:
+            row[column] = -row[column]
+    # Reverse containment uses only exact integer arithmetic and the original
+    # coefficient row, not the polynomial generator or its proposed lattice.
+    for column in range(count):
+        work.charge(count + 1)
+        total = sum(coefficient * row[column] for coefficient, row in zip(coefficients, rows))
+        if total != (-constant if column == 0 else 0):
+            raise ArithmeticError("diophantine: linear family fails the original integer equation")
+    work.charge(count * count + 1)
+    basis = _IntegerMatrix(count, count - 1, [value for row in rows for value in row[1:]])
+    coverage = _IntegerMatrix(count, count, [
+        _linear_coefficient(particular[index] - rows[index][0], work)
+        if column == 0 else _linear_coefficient(kernel[index * (count - 1) + column - 1], work)
+        for index in range(count) for column in range(count)
+    ])
+    if _checked_integer_solve(basis, coverage) is None:
+        raise ArithmeticError("diophantine: linear presentation omits integer solutions")
+    _integer_solver_interfaces()
+    _require_original()
+    _linear_source_unchanged(parameter_snapshot, work)
+    _linear_source_unchanged(candidate_snapshot, work)
+    # Publish fresh canonical expressions made from the certified integer
+    # rows. A generator's retained operands and native payload need not agree;
+    # neither is allowed to substitute for this checked presentation.
+    work.charge(count * count + 1)
+    published = tuple(_core.Add(
+        _core.Integer(row[0]),
+        *(_core.Mul(_core.Integer(coefficient), parameter)
+          for coefficient, parameter in zip(row[1:], parameters) if coefficient),
+    ) for row in rows)
+    output_snapshot = _linear_source_snapshot(_source_nodes(published, work), work)
+    _linear_source_unchanged(parameter_snapshot, work)
+    work.charge()
+    return {published}, output_snapshot
 
 
 def _scale_param(s: Any, p: Any) -> Any:
@@ -368,12 +702,14 @@ def _diophantine_source(eq: Any):
     from ._checksol import _Unsupported, _Work, _require_original, _scalar, _source_nodes
 
     work = _Work()
+    work.diophantine_session = _core._active_callback_session()
     try:
         _require_original()
         # This bounded admission accepts structured expressions and simple
         # literal/name tokens, without calling external sympification hooks.
         source = _scalar(eq, work)
         records = _source_nodes((source,), work)
+        source_snapshot = _linear_source_snapshot(records, work)
     except (_Unsupported, NotImplementedError, ValueError, TypeError, OverflowError, RecursionError) as error:
         if work.failure is not None:
             raise work.failure
@@ -391,7 +727,7 @@ def _diophantine_source(eq: Any):
     # No binding constructs are admitted in this lane, so every retained
     # symbol node is an original coordinate even if normalization drops it.
     axes = {node for node, _ in records if type(node) in (Symbol, Dummy)}
-    return source, records[-1][1], axes, work, total
+    return source, records[-1][1], axes, work, total, source_snapshot
 
 
 def _check_diophantine_domains(source: Any, variables: list, solutions: set, work: Any, total: bool) -> set:
@@ -448,17 +784,26 @@ def _check_diophantine_domains(source: Any, variables: list, solutions: set, wor
 def diophantine(eq: Any, param: Any = None, syms: Any = None, permute: bool = False) -> set:
     """Set of integer solution tuples of ``eq = 0`` in the order of
     ``syms`` (default: the free symbols sorted by name)."""
-    from ..core import Dummy, Eq, Integer, Symbol, expand
+    from ..core import Dummy, Eq, Integer, NegativeOne, One, Symbol, Zero, expand
     from ._checksol import _MAX_RULES, _Unsupported, _source_nodes
 
-    source, source_children, original_axes, work, total = _diophantine_source(eq)
+    source, source_children, original_axes, work, total, source_snapshot = _diophantine_source(eq)
     if syms is not None and type(syms) not in (list, tuple):
         raise NotImplementedError("diophantine: syms must be a built-in list or tuple")
     if syms is not None and len(syms) > _MAX_RULES:
         raise NotImplementedError("diophantine: bounded exact symbol coordinates required")
     # Original variables include axes which disappear when held operands
     # cancel. A normalized polynomial cannot redefine the source domain.
-    var = list(syms) if syms else sorted(original_axes, key=lambda s: s.name)
+    requested = list(syms) if syms else None
+    if requested is not None and any(type(v) not in (Symbol, Dummy) for v in requested):
+        raise NotImplementedError("diophantine: bounded exact symbol coordinates required")
+    if requested is not None and len(set(requested)) != len(requested):
+        raise ValueError("diophantine: duplicate solution coordinates")
+    # Upstream's syms argument orders the original coordinates; it does not
+    # add new unknowns that never occurred in the source. Retained cancelled
+    # axes still belong to original_axes and remain independent unknowns.
+    var = ([variable for variable in requested if variable in original_axes]
+           if requested is not None else sorted(original_axes, key=lambda s: s.name))
     if len(var) > _MAX_RULES or any(type(v) not in (Symbol, Dummy) for v in var):
         raise NotImplementedError("diophantine: bounded exact symbol coordinates required")
     if len(set(var)) != len(var):
@@ -471,6 +816,12 @@ def diophantine(eq: Any, param: Any = None, syms: Any = None, permute: bool = Fa
     # lhs/rhs descriptors which could rewrite the equation during access.
     eq = source_children[0] - source_children[1] if type(source) is Eq else source
     eq = expand(eq)
+    required = original_axes if total else eq.free_symbols
+    missing = required.difference(var)
+    if missing:
+        # Pinned upstream rejects omitted original polynomial coordinates;
+        # extra syms cannot cause Poly to infer an unrequested unknown.
+        raise KeyError(min(missing, key=lambda symbol: symbol.name))
     from ..polys.polytools import Poly
 
     def admitted(solutions):
@@ -481,7 +832,7 @@ def diophantine(eq: Any, param: Any = None, syms: Any = None, permute: bool = Fa
     except Exception:
         raise NotImplementedError("diophantine: not a polynomial equation")
     terms = p.terms()
-    if any(not isinstance(c, Integer) for _, c in terms):
+    if any(type(c) not in (Integer, Zero, One, NegativeOne) for _, c in terms):
         raise NotImplementedError("diophantine: integer coefficients required")
     deg = max((sum(m) for m, _ in terms), default=0)
     if deg == 0:
@@ -499,14 +850,22 @@ def diophantine(eq: Any, param: Any = None, syms: Any = None, permute: bool = Fa
         const = 0
         for m, c in terms:
             if sum(m) == 0:
-                const = int(c)
+                const = c.p
             else:
-                coeff[var[m.index(1)]] = int(c)
-        # The coefficient-gcd chain does not represent independent inactive
-        # axes correctly in three or more dimensions. Retaining cancelled
-        # source axes must not turn those coordinates into a coupled family.
-        if len(var) >= 3 and any(coeff[v] == 0 for v in var):
-            raise NotImplementedError("diophantine: linear equations with independent free coordinates are not supported")
+                coeff[var[m.index(1)]] = c.p
+        if any(coeff[v] == 0 for v in var):
+            try:
+                family, candidate_snapshot = _complete_linear_family(
+                    coeff, var, const, original_axes, work, param, source_snapshot,
+                )
+                result = admitted(family)
+                _linear_source_unchanged(source_snapshot, work)
+                _linear_source_unchanged(candidate_snapshot, work)
+            except _Unsupported:
+                if work.failure is not None:
+                    raise work.failure
+                raise NotImplementedError("diophantine: integer family exceeds its bounded work limit") from None
+            return result
         return admitted(_diop_linear(coeff, var, const))
     if deg == 2 and len(var) == 2:
         x, y = var

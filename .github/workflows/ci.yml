@@ -358,6 +358,7 @@ jobs:
               "python/tests/test_solve_source_domains.py",
               "python/tests/test_diophantine_exact.py",
               "python/tests/test_diophantine_source_domains.py",
+              "python/tests/test_diophantine_linear_families.py",
               "python/tests/test_surface.py::SurfaceTests::test_diophantine",
               "python/tests/test_solve_system_assumptions.py",
               "python/tests/test_nroots_convergence.py",
