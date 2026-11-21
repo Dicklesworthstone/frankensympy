@@ -31,7 +31,7 @@ use fsym_core::elementary::{eval_function, eval_pow, rational_expr};
 use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
 use fsym_polys::UnivariatePoly;
 use num_traits::{One, Signed, ToPrimitive, Zero};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 const MAX_DEPTH: usize = 12;
 const MAX_DOMAIN_DEPTH: usize = 64;
@@ -61,6 +61,40 @@ fn rq(r: BigRational) -> Expr {
 
 fn is_free_of(e: &Expr, x: &Symbol) -> bool {
     !e.free_symbols().iter().any(|s| s == x)
+}
+
+/// Reserve a deterministic substitution atom outside the entire source tree.
+///
+/// A spelling such as `_fsym_sub1` is also a legal user parameter. Reusing it
+/// would integrate that parameter as the new coordinate and replace it during
+/// back-substitution. Include bound declarations as well as free occurrences,
+/// and compare full typed identities rather than printed names. The original
+/// integration coordinate stays reserved even when it is absent from a subtree.
+fn fresh_substitution_symbol(source: &Expr, variable: &Symbol, stem: &str) -> Symbol {
+    let mut occupied = HashSet::from([variable]);
+    let mut pending = vec![source];
+    while let Some(term) = pending.pop() {
+        match term {
+            Expr::Sym(symbol) => {
+                occupied.insert(symbol);
+            }
+            Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => {
+                pending.extend(args);
+            }
+            Expr::Pow(base, exponent) => {
+                pending.push(base);
+                pending.push(exponent);
+            }
+            Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => {}
+        }
+    }
+    let mut candidate = Symbol::new(stem);
+    let mut suffix = 0usize;
+    while occupied.contains(&candidate) {
+        candidate = Symbol::new(format!("{stem}_{suffix}"));
+        suffix += 1;
+    }
+    candidate
 }
 
 fn number(e: &Expr) -> Option<BigRational> {
@@ -973,7 +1007,7 @@ impl Integrator {
         let x = self.x.clone();
         let mut candidates = Vec::new();
         collect_candidates(f, &x, &mut candidates);
-        let u = Symbol::new(format!("_fsym_sub{}", self.depth));
+        let u = fresh_substitution_symbol(f, &x, &format!("_fsym_sub{}", self.depth));
         let ue = Expr::Sym(u.clone());
         for g in candidates {
             let dg = crate::diff(&g, &x);
