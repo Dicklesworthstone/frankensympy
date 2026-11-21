@@ -9,7 +9,7 @@ they do not acquire the native coefficient-map receipt.
 
 from ..core import (
     Basic, Dummy, Half, Integer, NegativeOne, One, Rational, Symbol, Zero,
-    _lift_native_result, _native, _native_expr,
+    _fold_floats, _lift_native_result, _native, _native_expr,
 )
 from . import _finitefield as retained
 from ._evaluation_owners import require_original_owners
@@ -78,6 +78,12 @@ def _legacy_scalar(state, args, auto, *, inspect_parameters=False):
             raise GeneratorsError("generator is not in this polynomial")
     state.unchanged()
     result = state.expression.subs(variable, value)
+    require_original_owners()
+    state.unchanged()
+    # Native substitution represents Float atoms exactly but leaves numeric
+    # powers unevaluated. Apply the ordinary shell's Float arithmetic without
+    # approximating symbolic coefficients or exact-only parts of the result.
+    result = _fold_floats(result)
     require_original_owners()
     state.unchanged()
     return result

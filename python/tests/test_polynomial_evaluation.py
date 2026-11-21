@@ -182,6 +182,53 @@ def test_profile_existing_parameter_coefficient_scalar_substitutions_are_preserv
 
 
 @pytest.mark.parametrize("cls", [sp.Poly, sp.PurePoly])
+@pytest.mark.parametrize("value, expected", [
+    (1.5, sp.Float("14.5")),
+    (sp.Float("1.5"), sp.Float("14.5")),
+    (sp.Float("-1.5"), sp.Float("1.0")),
+])
+def test_float_scalar_evaluation_folds_numeric_powers_products_and_sums(cls, value, expected):
+    x = sp.Symbol("float_coordinate")
+    polynomial = cls(2*x**3 + 3*x**2 + 1, x, domain="ZZ")
+    assert polynomial.eval(value) == expected
+    assert polynomial.eval(x, value) == expected
+    # Exact assignments retain the exact coefficient route.
+    assert polynomial.eval(sp.Rational(3, 2)) == sp.Rational(29, 2)
+
+
+def test_float_scalar_folding_preserves_operational_failures(monkeypatch):
+    from sympy.polys import _evaluation
+
+    x = sp.Symbol("float_failure_coordinate")
+    polynomial = sp.Poly(x**2, x)
+    failure = RuntimeError("Float arithmetic cancelled")
+
+    def cancelled(result):
+        raise failure
+
+    monkeypatch.setattr(_evaluation, "_fold_floats", cancelled)
+    with pytest.raises(RuntimeError) as caught:
+        polynomial.eval(1.5)
+    assert caught.value is failure
+
+
+def test_float_scalar_folding_rechecks_original_polynomial(monkeypatch):
+    from sympy.polys import _evaluation
+
+    x = sp.Symbol("float_mutation_coordinate")
+    polynomial = sp.Poly(x**2, x)
+    original = _evaluation._fold_floats
+
+    def mutate(result):
+        polynomial._expr = x + 1
+        return original(result)
+
+    monkeypatch.setattr(_evaluation, "_fold_floats", mutate)
+    with pytest.raises(RuntimeError, match="mutat"):
+        polynomial.eval(1.5)
+
+
+@pytest.mark.parametrize("cls", [sp.Poly, sp.PurePoly])
 def test_profile_existing_string_scalar_selectors_are_preserved(cls):
     x = sp.Symbol("x")
     polynomial = cls(x**2 + 1, x)
