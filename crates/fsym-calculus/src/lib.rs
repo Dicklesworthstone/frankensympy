@@ -85,8 +85,8 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
     diff_unsimplified_with_coth(expr, var, false)
 }
 
-/// The numerical derivative lane keeps coth' away from subtraction of two
-/// rounded ones and avoids artificial poles in literal zero/one powers.
+/// The numerical derivative lane keeps tanh' and coth' away from subtraction
+/// of two rounded ones and avoids artificial poles in literal zero/one powers.
 /// Public symbolic derivatives retain their existing form.
 pub(crate) fn numeric_diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
     diff_unsimplified_with_coth(expr, var, true)
@@ -232,6 +232,18 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
             } else if name == "tanh" && args.len() == 1 {
                 let u = &args[0];
                 let du = diff(u, var);
+                if stable_coth {
+                    // 1 - tanh(u)^2 rounds to zero already near |u| = 20.
+                    // The stable sech opcode retains representable tails and
+                    // its derivative also preserves second-order curvature.
+                    return Expr::Mul(vec![
+                        Expr::pow(
+                            Expr::Function("sech".to_string(), vec![u.clone()]),
+                            Expr::from_i64(2),
+                        ),
+                        du,
+                    ]);
+                }
                 let tanh_u_sq = Expr::pow(
                     Expr::Function("tanh".to_string(), vec![u.clone()]),
                     Expr::from_i64(2),

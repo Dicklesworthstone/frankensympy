@@ -119,7 +119,7 @@ pub fn verified_diff(expr: &Expr, var: &Symbol) -> (Expr, DerivationTree) {
     derivative_tree(expr, var, deriv)
 }
 
-/// Internal numeric programs use stable coth and literal identity-power
+/// Internal numeric programs use stable tanh/coth and literal identity-power
 /// derivatives without changing public symbolic receipts.
 pub(crate) fn verified_numeric_diff(expr: &Expr, var: &Symbol) -> (Expr, DerivationTree) {
     let deriv = crate::numeric_diff_unsimplified(expr, var);
@@ -187,6 +187,15 @@ pub fn verify_diff_receipt(
     Ok(())
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DerivativeForm {
+    Symbolic,
+    Numeric,
+    // Persisted schema-1 programs used stable coth but 1 - tanh(u)^2.
+    // Replay checks that exact older recipe without rewriting stored programs.
+    LegacyNumeric,
+}
+
 /// Independent verifier checking that the differentiation derivation tree correctly proves
 /// the claim $\vdash \text{diff}(\text{expr}, \text{var}) = \text{deriv}$.
 pub fn verify_diff_derivation(
@@ -195,7 +204,7 @@ pub fn verify_diff_derivation(
     var: &Symbol,
     deriv: &Expr,
 ) -> Result<(), KernelError> {
-    verify_diff_derivation_with_coth(tree, expr, var, deriv, false)
+    verify_diff_derivation_with_form(tree, expr, var, deriv, DerivativeForm::Symbolic)
 }
 
 pub(crate) fn verify_numeric_diff_derivation(
@@ -204,15 +213,32 @@ pub(crate) fn verify_numeric_diff_derivation(
     var: &Symbol,
     deriv: &Expr,
 ) -> Result<(), KernelError> {
-    verify_diff_derivation_with_coth(tree, expr, var, deriv, true)
+    verify_diff_derivation_with_form(tree, expr, var, deriv, DerivativeForm::Numeric)
 }
 
-fn verify_diff_derivation_with_coth(
+/// Replay the older numeric rule only after the common proof envelope has
+/// passed and the current rule returned InvalidDefinitionalReduction.
+/// The caller charges the second semantic pass without rescanning that envelope.
+pub(crate) fn verify_legacy_numeric_diff_reduction(
+    expr: &Expr,
+    var: &Symbol,
+    deriv: &Expr,
+) -> Result<(), KernelError> {
+    verify_rule_reduction_semantics(
+        expr,
+        var,
+        deriv,
+        classify_diff_rule(expr, var),
+        DerivativeForm::LegacyNumeric,
+    )
+}
+
+fn verify_diff_derivation_with_form(
     tree: &DerivationTree,
     expr: &Expr,
     var: &Symbol,
     deriv: &Expr,
-    stable_coth: bool,
+    form: DerivativeForm,
 ) -> Result<(), KernelError> {
     if tree.steps.is_empty() {
         return Err(KernelError::UnknownStep(tree.root));
@@ -259,7 +285,7 @@ fn verify_diff_derivation_with_coth(
             }
 
             // Independent structural verification of the reduction rule
-            verify_rule_reduction_semantics(expr, var, deriv, expected_rule_name, stable_coth)?;
+            verify_rule_reduction_semantics(expr, var, deriv, expected_rule_name, form)?;
         }
         other => {
             return Err(KernelError::RuleMismatch(format!(
@@ -315,30 +341,33 @@ fn reference_eliminate_zero_products(expr: &Expr) -> Expr {
 
 /// Verifier-local reference sub-derivative (never invokes `crate::diff` or `crate::diff_unsimplified`).
 pub(crate) fn reference_numeric_sub_derivative(expr: &Expr, var: &Symbol) -> Expr {
-    reference_sub_derivative_with_coth(expr, var, true)
+    reference_sub_derivative_with_form(expr, var, DerivativeForm::Numeric)
 }
 
-fn reference_sub_derivative_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> Expr {
+pub(crate) fn reference_legacy_numeric_sub_derivative(expr: &Expr, var: &Symbol) -> Expr {
+    reference_sub_derivative_with_form(expr, var, DerivativeForm::LegacyNumeric)
+}
+
+fn reference_sub_derivative_with_form(expr: &Expr, var: &Symbol, form: DerivativeForm) -> Expr {
     // Native Expr has no binders: absence from its structural free-symbol
     // set proves constancy with respect to this variable, including powers
     // and functions outside the reference rule table.
     if !expr.free_symbols().contains(var) {
         return Expr::from_i64(0);
     }
-    let raw = reference_unsimplified_diff_with_coth(expr, var, stable_coth);
+    let raw = reference_unsimplified_diff_with_form(expr, var, form);
     let cleaned = reference_eliminate_zero_products(&raw);
     fsym_simplify::simplify(&cleaned)
 }
 
 /// Verifier-local formal differentiation rule table (independent of `crate::diff_unsimplified`).
 fn reference_unsimplified_diff(expr: &Expr, var: &Symbol) -> Expr {
-    reference_unsimplified_diff_with_coth(expr, var, false)
+    reference_unsimplified_diff_with_form(expr, var, DerivativeForm::Symbolic)
 }
 
-fn reference_unsimplified_diff_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> Expr {
-    let reference_sub_derivative = |child: &Expr, variable: &Symbol| {
-        reference_sub_derivative_with_coth(child, variable, stable_coth)
-    };
+fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: DerivativeForm) -> Expr {
+    let reference_sub_derivative =
+        |child: &Expr, variable: &Symbol| reference_sub_derivative_with_form(child, variable, form);
     match expr {
         Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => Expr::from_i64(0),
         Expr::Sym(s) if s == var => Expr::from_i64(1),
@@ -367,7 +396,7 @@ fn reference_unsimplified_diff_with_coth(expr: &Expr, var: &Symbol, stable_coth:
         Expr::Pow(base, exp) => {
             // Reconstruct the numeric-only identity cases from exact source
             // literals, independently of the optimizing differentiator.
-            if stable_coth {
+            if form != DerivativeForm::Symbolic {
                 match exp.as_ref() {
                     Expr::Integer(n) if n.is_zero() => return Expr::from_i64(0),
                     Expr::Rational(r) if r.numer().is_zero() => return Expr::from_i64(0),
@@ -528,6 +557,15 @@ fn reference_unsimplified_diff_with_coth(expr: &Expr, var: &Symbol, stable_coth:
                     du,
                 ]),
                 "tanh" => {
+                    if form == DerivativeForm::Numeric {
+                        return Expr::Mul(vec![
+                            Expr::pow(
+                                Expr::Function("sech".to_string(), vec![u.clone()]),
+                                Expr::from_i64(2),
+                            ),
+                            du,
+                        ]);
+                    }
                     let tanh_u_sq = Expr::pow(
                         Expr::Function("tanh".to_string(), vec![u.clone()]),
                         Expr::from_i64(2),
@@ -541,7 +579,7 @@ fn reference_unsimplified_diff_with_coth(expr: &Expr, var: &Symbol, stable_coth:
                     ])
                 }
                 "coth" => {
-                    if stable_coth {
+                    if form != DerivativeForm::Symbolic {
                         return Expr::Mul(vec![
                             Expr::from_i64(-1),
                             Expr::pow(
@@ -697,13 +735,12 @@ fn verify_rule_reduction_semantics(
     var: &Symbol,
     deriv: &Expr,
     rule_name: &str,
-    stable_coth: bool,
+    form: DerivativeForm,
 ) -> Result<(), KernelError> {
-    let reference_sub_derivative = |child: &Expr, variable: &Symbol| {
-        reference_sub_derivative_with_coth(child, variable, stable_coth)
-    };
+    let reference_sub_derivative =
+        |child: &Expr, variable: &Symbol| reference_sub_derivative_with_form(child, variable, form);
     let reference_unsimplified_diff = |source: &Expr, variable: &Symbol| {
-        reference_unsimplified_diff_with_coth(source, variable, stable_coth)
+        reference_unsimplified_diff_with_form(source, variable, form)
     };
     match rule_name {
         RULE_DIFF_CONST => {
@@ -795,9 +832,9 @@ fn verify_rule_reduction_semantics(
                 ]);
                 // Preserve old persisted raw power proofs while admitting
                 // only the independently derived numeric identity form.
-                let identity = if stable_coth && n.is_zero() {
+                let identity = if form != DerivativeForm::Symbolic && n.is_zero() {
                     Some(Expr::from_i64(0))
-                } else if stable_coth && n.is_one() {
+                } else if form != DerivativeForm::Symbolic && n.is_one() {
                     Some(du)
                 } else {
                     None
@@ -826,7 +863,7 @@ fn verify_rule_reduction_semantics(
                 // Older numeric artifacts retain the literal 0*u^-1*u' or
                 // 1*u^0*u' form. Accept exactly that independently rebuilt
                 // form as well; arbitrary equivalent expressions still fail.
-                let legacy_identity = if stable_coth
+                let legacy_identity = if form != DerivativeForm::Symbolic
                     && (rational.numer().is_zero() || rational.numer() == rational.denom())
                 {
                     let shifted = BigRational::new(
@@ -1035,19 +1072,7 @@ fn verify_rule_reduction_semantics(
                 && name == "tanh"
                 && args.len() == 1
             {
-                let u = &args[0];
-                let du = reference_sub_derivative(u, var);
-                let tanh_u_sq = Expr::pow(
-                    Expr::Function("tanh".to_string(), vec![u.clone()]),
-                    Expr::from_i64(2),
-                );
-                let expected_rhs = Expr::Mul(vec![
-                    Expr::Add(vec![
-                        Expr::from_i64(1),
-                        Expr::Mul(vec![Expr::from_i64(-1), tanh_u_sq]),
-                    ]),
-                    du,
-                ]);
+                let expected_rhs = reference_unsimplified_diff(expr, var);
                 if deriv != &expected_rhs {
                     return Err(KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),

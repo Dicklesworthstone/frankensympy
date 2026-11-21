@@ -1,0 +1,98 @@
+{
+  "date": "2026-11-21",
+  "scope": "Spectral coordinates, lexical binder derivatives, stable numerical tanh derivatives",
+  "base_head": "3063a245cd31bb4ac27ac785333256f4ea8cb000",
+  "committed_changes": {
+    "matrix": "a39cf8266d22cf2d9b4c22159a5d2dbb2b6fa4ac",
+    "binders": "3063a245cd31bb4ac27ac785333256f4ea8cb000"
+  },
+  "concurrent_main_preserved": "4d7206ece0fd05e939c04d684bea02accecd73b8",
+  "source_sha256": {
+    "python/sympy/matrices/dense.py": "c245b51cdc84724d6ace73a0d52edb001a34d08b93e3664efd4df32614e1ba69",
+    "python/tests/test_matrix_spectral_bindings.py": "a5ff0821208e9983079de146b4caa3bd2fc8b91d6b4823ce6e7f6852f7a6289c",
+    "python/tests/test_integral_bindings.py": "c2815c0a8108c7ec9647a585b5830f158eff0c52156b537f3319476dc769bd28",
+    "python/tests/test_compiled_objective.py": "10d21929f19d795454488009cfbfea490ec01a5c7e4a4d7877b8897d1b854a87",
+    "crates/fsym-calculus/src/lib.rs": "4d971b4195957ada3649fc4161c1c26657c9f3983dbf094e41fb1a22efa9a47c",
+    "crates/fsym-calculus/src/compile.rs": "dad04b49dc2bb2a6f8f8e8f10919df11c8dfde864bce243b8037b9adb74a9c4a",
+    "crates/fsym-calculus/src/proof.rs": "60ee98e984c88170f2cebfba344b3c2c563902ba583403457539a7e458073a53",
+    "crates/fsym-calculus/src/sparse_jacobian.rs": "3c1270975dd4ea49beb3136fea088e255b9927c1919404758f846ceda56983f6",
+    "crates/fsym-calculus/tests/binder_differentiation.rs": "fa3d7beee6117c3637bc17bac25d62b07778383fdf11b2886d16db1620242c36",
+    "crates/fsym-calculus/tests/tanh_programs.rs": "fbc368d1fe71720ce7c8fce700766a4d043e18b49444a2de9b943bfc7de8dd62",
+    "crates/fsym-calculus/tests/tanh_legacy_artifacts.rs": "50ae2cfb184441db3ae47859121047b2cc6ff42f9c7f2b2318613cc165b0af48"
+  },
+  "toolchain": "nightly-2026-08-20; rustc 1.100.0-nightly f7d782a3b (2026-08-19)",
+  "build_environment": {
+    "jobs": 1,
+    "dev_debug": 0,
+    "test_debug": 0,
+    "incremental": false,
+    "dependency_manifests": "unchanged production manifests and registry-pinned donors"
+  },
+  "native_tests": {
+    "command": "cargo test --locked -p fsym-calculus --test binder_differentiation --test integral_evaluation_points --test tanh_programs --test tanh_legacy_artifacts --test reciprocal_function_programs --test piecewise_programs -j1",
+    "exit_code": 0,
+    "passed": 58,
+    "failed": 0,
+    "suites": {
+      "binder_differentiation": 11,
+      "integral_evaluation_points": 3,
+      "piecewise_programs": 18,
+      "reciprocal_function_programs": 14,
+      "tanh_legacy_artifacts": 6,
+      "tanh_programs": 6
+    }
+  },
+  "clippy": {
+    "command": "cargo clippy -p fsym-calculus --lib --test binder_differentiation --test tanh_programs --test tanh_legacy_artifacts --locked -- -D warnings",
+    "exit_code": 0
+  },
+  "static_checks": {
+    "changed_rust_format": "passed",
+    "changed_python_ast": "passed",
+    "git_diff_check": "passed",
+    "workspace_format": {
+      "command": "cargo fmt --check",
+      "exit_code": 1,
+      "scope": "pre-existing formatting drift in 13 unchanged core, matrix, proof and Python bridge files"
+    }
+  },
+  "validation_history": [
+    {
+      "scope": "initial four-suite run",
+      "passed": 24,
+      "failed": 1,
+      "reason": "New fixture incorrectly requested verified Piecewise differentiation, which existing seam policy refuses. Fixture now preserves that refusal and checks the raw branch adapter."
+    },
+    {
+      "scope": "first six-suite run",
+      "passed": 57,
+      "failed": 1,
+      "reason": "New fixture incorrectly required raw formal Jacobian evaluation to reject a nonfinite primal. Fixture now checks finite evaluation of the original selected source while preserving the raw API contract."
+    },
+    {
+      "scope": "initial scoped Clippy",
+      "exit_code": 101,
+      "reason": "A one-element cloned Symbol slice in a new test was changed to std::slice::from_ref; final strict gate passes."
+    }
+  ],
+  "python": {
+    "new_matrix_methods": 16,
+    "new_binder_methods": 6,
+    "new_tanh_cases": 5,
+    "oracle_only": "14 public matrix expectations passed against isolated SymPy 1.14.0; this is not candidate execution",
+    "candidate_runtime": "pending production extension build"
+  },
+  "pending": [
+    "workspace all-target check",
+    "workspace Clippy",
+    "full production extension build",
+    "actual public Python regressions",
+    "whole-workspace test gate"
+  ],
+  "limits": [
+    "Historical programs retain their numerical bytecode behavior; recompile to obtain stable new tanh derivatives.",
+    "Formal binder rules do not certify convergence or interchange; unsupported indefinite-coordinate capture and moving discrete sums stay formal.",
+    "Raw dense adapters retain their existing formal/nonfinite contract; verified Piecewise derivatives remain refused.",
+    "No Beads status, dependency, broad workstream gate or claim tier is promoted."
+  ]
+}

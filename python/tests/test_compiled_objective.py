@@ -6,7 +6,7 @@ import pytest
 
 from sympy import (
     Add, Dummy, Expr, Function, Integer, Matrix, Mul, Rational, Symbol,
-    compile_objective, exp, log, sin,
+    compile_objective, compile_residual_system, diff, exp, log, sin, tanh,
 )
 from sympy.core import _native
 
@@ -35,6 +35,67 @@ def test_transcendental_hessian_matches_independent_closed_form():
     assert gradient == pytest.approx([2*e + math.cos(0.5), 0.5*e + 0.5])
     assert hessian[0] == pytest.approx([4*e - math.sin(0.5), 2*e])
     assert hessian[1] == pytest.approx([2*e, 0.25*e - 0.25])
+
+
+@pytest.mark.parametrize("point", [-20.0, 20.0])
+def test_saturated_tanh_keeps_gradient_curvature_and_directional_products(point):
+    x = Symbol("tanh_tail")
+    source = tanh(x)
+    objective = compile_objective(source, x)
+    residual = compile_residual_system([source], x)
+    slope = 1.0 / math.cosh(point)**2
+    curvature = -2.0 * math.tanh(point) * slope
+    value, gradient, hessian = objective.evaluate(point)
+    assert value == math.tanh(point)
+    assert gradient[0] > 0
+    # A default absolute tolerance would accept the former false zero.
+    assert gradient == pytest.approx([slope], rel=3e-13, abs=0)
+    assert hessian[0] == pytest.approx([curvature], rel=3e-13, abs=0)
+    assert objective.hessian_vector_product([3], point) == pytest.approx(
+        [3*curvature], rel=3e-13, abs=0,
+    )
+    values, jacobian = residual.evaluate(point)
+    assert values == [value]
+    assert jacobian[0] == pytest.approx([slope], rel=3e-13, abs=0)
+    assert residual.jacobian_vector_product([3], point) == pytest.approx(
+        [3*slope], rel=3e-13, abs=0,
+    )
+
+
+@pytest.mark.parametrize("inner", [-20.0, 20.0])
+def test_saturated_tanh_nested_chain_keeps_both_hessian_terms(inner):
+    x, y = Symbol("tanh_chain_x"), Symbol("tanh_chain_y")
+    source = exp(tanh(x*x + y))
+    objective = compile_objective(source, (x, y))
+    residual = compile_residual_system([source], (x, y))
+    point = (3.0, inner - 9.0)
+    expected = math.exp(math.tanh(inner))
+    slope = 1.0 / math.cosh(inner)**2
+    first = expected * slope
+    second = expected * (slope*slope - 2*math.tanh(inner)*slope)
+    value, gradient, hessian = objective.evaluate(*point)
+    assert value == pytest.approx(expected)
+    assert gradient == pytest.approx([6*first, first], rel=3e-13, abs=0)
+    assert hessian[0] == pytest.approx(
+        [36*second + 2*first, 6*second], rel=3e-13, abs=0,
+    )
+    assert hessian[1] == pytest.approx([6*second, second], rel=3e-13, abs=0)
+    assert objective.hessian_vector_product([2, 3], *point) == pytest.approx(
+        [90*second + 4*first, 15*second], rel=3e-13, abs=0,
+    )
+    assert residual.jacobian_vector_product([2, 3], *point) == pytest.approx(
+        [15*first], rel=3e-13, abs=0,
+    )
+
+
+def test_tanh_public_symbolic_derivative_keeps_its_existing_form():
+    x = Symbol("tanh_symbolic")
+    source = tanh(x)
+    expected = 1 - tanh(x)**2
+    assert diff(source, x) == expected
+    compile_objective(source, x)
+    compile_residual_system([source], x)
+    assert diff(source, x) == expected
 
 
 def test_dynamic_power_rule_composes_through_the_second_derivative():

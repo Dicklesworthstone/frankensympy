@@ -8,11 +8,12 @@ use crate::compile::{
     charge_evaluation_steps, compilation_diagnostic, compilation_finish,
 };
 use crate::proof::{
-    reference_numeric_sub_derivative, verified_numeric_diff, verify_numeric_diff_derivation,
+    reference_legacy_numeric_sub_derivative, reference_numeric_sub_derivative,
+    verified_numeric_diff, verify_legacy_numeric_diff_reduction, verify_numeric_diff_derivation,
 };
 use fsym_budget::{BudgetMeter, Dimension, Unbounded};
 use fsym_core::{BigInt, Constant, Expr, Symbol};
-use fsym_proof_kernel::{DerivationTree, derivation_verification_units};
+use fsym_proof_kernel::{DerivationTree, KernelError, derivation_verification_units};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
@@ -1158,17 +1159,38 @@ pub fn verify_sparse_jacobian_certificate_with_meter<M: BudgetMeter + ?Sized>(
     for entry in &system.entries {
         charge_derivative_kernel(&system.residuals[entry.row], meter)?;
         charge_expression_copy(&entry.symbolic_deriv, meter)?;
-        verify_numeric_diff_derivation(
+        if let Err(error) = verify_numeric_diff_derivation(
             &entry.derivation,
             &system.residuals[entry.row],
             &system.vars[entry.col],
             &entry.symbolic_deriv,
-        )
-        .map_err(|error| JacobianVerificationError::ProofFailed {
-            row: entry.row,
-            col: entry.col,
-            reason: error.to_string(),
-        })?;
+        ) {
+            if !matches!(error, KernelError::InvalidDefinitionalReduction { .. }) {
+                return Err(JacobianVerificationError::ProofFailed {
+                    row: entry.row,
+                    col: entry.col,
+                    reason: error.to_string(),
+                });
+            }
+            // Older schema-1 artifacts retain their original, mathematically
+            // exact tanh identity and bytecode. Check that complete recipe
+            // independently; never accept an arbitrary equivalent-looking RHS
+            // or silently replace a stored program. Both passes spend from the
+            // caller's ledger, and a refusal here terminates replay. The common
+            // proof envelope already passed; only the semantic rule is retried.
+            charge_derivative_kernel(&system.residuals[entry.row], meter)?;
+            charge_expression_copy(&entry.symbolic_deriv, meter)?;
+            verify_legacy_numeric_diff_reduction(
+                &system.residuals[entry.row],
+                &system.vars[entry.col],
+                &entry.symbolic_deriv,
+            )
+            .map_err(|_| JacobianVerificationError::ProofFailed {
+                row: entry.row,
+                col: entry.col,
+                reason: error.to_string(),
+            })?;
+        }
         charge_compilation_work(meter, 1, 0, 0)?;
         if !compiled_expression_matches_with_meter(
             &entry.symbolic_deriv,
@@ -1207,11 +1229,24 @@ pub fn verify_sparse_jacobian_certificate_with_meter<M: BudgetMeter + ?Sized>(
                     reference_numeric_sub_derivative(&system.residuals[row], &system.vars[col]);
                 charge_compilation_work(meter, 1, 0, 0)?;
                 if !derivative.is_zero() {
-                    return Err(JacobianVerificationError::OmittedNonzero {
-                        row,
-                        col,
-                        deriv: derivative.to_string(),
-                    });
+                    // The old tanh identity can cancel an exact reciprocal
+                    // which the stable sech representation leaves symbolic.
+                    // Historical omitted entries need the same independent
+                    // legacy check as stored entries, with fresh cumulative
+                    // charges. Only a proved literal zero may be omitted.
+                    charge_derivative_kernel(&system.residuals[row], meter)?;
+                    let legacy = reference_legacy_numeric_sub_derivative(
+                        &system.residuals[row],
+                        &system.vars[col],
+                    );
+                    charge_compilation_work(meter, 1, 0, 0)?;
+                    if !legacy.is_zero() {
+                        return Err(JacobianVerificationError::OmittedNonzero {
+                            row,
+                            col,
+                            deriv: derivative.to_string(),
+                        });
+                    }
                 }
             }
         }

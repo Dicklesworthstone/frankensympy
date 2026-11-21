@@ -145,8 +145,8 @@ jobs:
         run: cargo test --locked -p fsym-core --test atan2_enclosures --test atan2_certification -j1
       - name: Compiled principal-angle programs and derivative admission
         run: cargo test --locked -p fsym-calculus --test atan2_compilation -j1
-      - name: Compiled reciprocal elementary programs and derivative admission
-        run: cargo test --locked -p fsym-calculus --test reciprocal_function_programs -j1
+      - name: Compiled elementary derivatives and integral scopes
+        run: cargo test --locked -p fsym-calculus --test reciprocal_function_programs --test tanh_programs --test tanh_legacy_artifacts --test binder_differentiation -j1
       - name: Complete finite real rational systems
         run: |
           cargo test --locked -p fsym-solvers --test real_rational --test rational_systems --test real_rur -j1
@@ -525,6 +525,7 @@ jobs:
               "python/tests/test_matrix_norms.py",
               "python/tests/test_matrix_exponential.py",
               "python/tests/test_matrix_minimal_polynomial.py",
+              "python/tests/test_matrix_spectral_bindings.py",
               "python/tests/test_matrix_jordan.py",
               "python/tests/test_multiquadratic_minpoly.py",
               "python/tests/test_rectangular_matrix_solve.py",

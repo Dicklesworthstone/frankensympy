@@ -10,7 +10,7 @@ pub use shared::CompiledBatch;
 pub(crate) use shared::{EvaluationMemo, SharedEvaluationPlan};
 
 use self::error_functions::evaluate_error_function;
-use crate::diff;
+use crate::numeric_diff;
 use fsym_budget::{BudgetMeter, Dimension, MeterError, Unbounded};
 use fsym_core::{BigInt, Constant, Expr, Symbol};
 use serde::de::{Error as _, IgnoredAny, SeqAccess, Visitor};
@@ -1568,7 +1568,7 @@ impl CompiledResidualSystem {
             .map_err(|_| CompileError::AllocationFailure)?;
         for e in exprs {
             for v in vars {
-                let d = diff(e, v);
+                let d = numeric_diff(e, v);
                 compiled_jacobian.push(CompiledExpr::try_compile(&d, &var_map)?);
             }
         }
