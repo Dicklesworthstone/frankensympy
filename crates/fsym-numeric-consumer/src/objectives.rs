@@ -20,6 +20,7 @@ use fsym_budget::{BudgetMeter, Dimension, MeterError, Unbounded};
 use fsym_calculus::VerifiedObjective;
 use fsym_calculus::compile::EvalError;
 use fsym_calculus::sparse_hessian::{ObjectiveEvaluation, ObjectiveEvaluationError};
+use fsym_core::{BigRational, RealBall, RootBoxWitness};
 use std::mem::size_of;
 
 pub const MAX_MINIMIZE_VARIABLES: usize = 16;
@@ -250,6 +251,117 @@ pub fn minimize_with_meter<M: BudgetMeter + ?Sized>(
     Err(stopped(options.max_iterations, &state))
 }
 
+/// Propose an exact box and rational preconditioner around a finite numerical
+/// point. Every objective, gradient and Hessian domain guard remains active.
+///
+/// The point and inverse Hessian are converted from their exact binary64
+/// values, while the radii remain the caller's exact rationals. No convergence,
+/// smoothness, existence, uniqueness or minimum claim follows from this
+/// candidate. An independent original-source stationary checker must accept
+/// the witness before it becomes a certificate. A singular numerical Hessian
+/// refuses without diagonal shifts or widening the requested box.
+///
+/// One meter covers all admission, evaluations, donor solves and allocations;
+/// cancellation is cooperative around each synchronous donor solve.
+pub fn propose_stationary_box_with_meter<M: BudgetMeter + ?Sized>(
+    objective: &VerifiedObjective,
+    approximation: &[f64],
+    radii: &[BigRational],
+    precision_digits: u32,
+    meter: &mut M,
+) -> Result<RootBoxWitness, ObjectiveConsumerError> {
+    meter.checkpoint()?;
+    let n = objective.variables().len();
+    if !(1..=MAX_MINIMIZE_VARIABLES).contains(&n) {
+        return Err(ObjectiveConsumerError::InvalidRequest(
+            "stationary boxes require 1..=16 variables",
+        ));
+    }
+    for (input, actual) in [("point", approximation.len()), ("radii", radii.len())] {
+        if actual != n {
+            return Err(ObjectiveConsumerError::Dimension {
+                input,
+                expected: n,
+                actual,
+            });
+        }
+    }
+    if !(8..=fsym_core::MAX_ROOT_BOX_PRECISION).contains(&precision_digits) {
+        return Err(ObjectiveConsumerError::InvalidRequest(
+            "precision must be 8..=128",
+        ));
+    }
+    for radius in radii {
+        charge(meter, 1, 0, 0)?;
+        if radius.numer().is_negative() || radius.numer().is_zero() {
+            return Err(ObjectiveConsumerError::InvalidRequest(
+                "radii must be positive",
+            ));
+        }
+        if radius.numer().limb_count() > fsym_core::MAX_ROOT_BOX_LIMBS
+            || radius.denom().limb_count() > fsym_core::MAX_ROOT_BOX_LIMBS
+        {
+            return Err(ObjectiveConsumerError::InvalidRequest(
+                "radii exceed the stationary checker's rational height limit",
+            ));
+        }
+    }
+    finite(approximation, "stationary point", meter)?;
+    let state = evaluate(objective, approximation, meter)?;
+    let hessian = dense_hessian(objective, &state.values, meter)?;
+    let mut inverse = zeros(n * n, meter)?;
+    let mut unit = zeros(n, meter)?;
+    for column in 0..n {
+        charge(meter, (2 * n + 1) as u64, 0, 0)?;
+        unit.fill(0.0);
+        unit[column] = 1.0;
+        let solution = linear_solve(&hessian, &unit, n, meter)?.ok_or_else(|| {
+            ObjectiveConsumerError::LinearSolve("stationary Hessian is singular".into())
+        })?;
+        for row in 0..n {
+            inverse[row * n + column] = solution[row];
+        }
+    }
+    let mut center = buffer(n, meter)?;
+    let mut domain = buffer(n, meter)?;
+    let mut preconditioner = buffer(n, meter)?;
+    for coordinate in 0..n {
+        center.push(exact_coordinate(approximation[coordinate], meter)?);
+        // The witness separately owns its center and each ball midpoint.
+        let midpoint = exact_coordinate(approximation[coordinate], meter)?;
+        let limbs = radii[coordinate].numer().limb_count() + radii[coordinate].denom().limb_count();
+        charge(meter, limbs + 1, limbs * 8 + 128, 2)?;
+        let radius = radii[coordinate].clone();
+        domain.push(RealBall::new(midpoint, radius).map_err(|_| {
+            ObjectiveConsumerError::InvalidRequest("invalid stationary box radius")
+        })?);
+        let mut row = buffer(n, meter)?;
+        for column in 0..n {
+            row.push(exact_coordinate(inverse[coordinate * n + column], meter)?);
+        }
+        preconditioner.push(row);
+    }
+    charge(meter, n as u64 + 1, 0, 0)?;
+    meter.checkpoint()?;
+    Ok(RootBoxWitness {
+        domain,
+        center,
+        preconditioner,
+        precision_digits,
+    })
+}
+
+fn exact_coordinate<M: BudgetMeter + ?Sized>(
+    value: f64,
+    meter: &mut M,
+) -> Result<BigRational, ObjectiveConsumerError> {
+    // Every finite binary64 component has at most 1075 bits. This allowance
+    // covers powers of two, rational normalization and owned limb storage.
+    charge(meter, 8192, 16 * 1024, 32)?;
+    crate::exact_binary64_rational(value)
+        .ok_or(ObjectiveConsumerError::NonFinite("stationary box proposal"))
+}
+
 fn stopped(iterations: usize, state: &Evaluation) -> ObjectiveConsumerError {
     ObjectiveConsumerError::NoConvergence {
         iterations,
@@ -315,20 +427,7 @@ fn descent_direction<M: BudgetMeter + ?Sized>(
     meter: &mut M,
 ) -> Result<Option<Vec<f64>>, ObjectiveConsumerError> {
     let n = objective.variables().len();
-    let mut hessian = zeros(n * n, meter)?;
-    charge(meter, objective.hessian_pattern().len() as u64, 0, 0)?;
-    for (&(row, column), value) in objective
-        .hessian_pattern()
-        .iter()
-        .zip(&state.values.hessian)
-    {
-        if row >= n || column >= n {
-            return Err(ObjectiveConsumerError::ConsumerContract(
-                "Hessian coordinates",
-            ));
-        }
-        hessian[row * n + column] = *value;
-    }
+    let mut hessian = dense_hessian(objective, &state.values, meter)?;
     // Independently checked mixed partials may round differently. Symmetrizing
     // here is only numerical candidate generation, never a new symbolic proof.
     charge(meter, (3 * n * n) as u64, 0, 0)?;
@@ -408,6 +507,25 @@ fn descent_direction<M: BudgetMeter + ?Sized>(
         };
     }
     Ok(None)
+}
+
+fn dense_hessian<M: BudgetMeter + ?Sized>(
+    objective: &VerifiedObjective,
+    values: &ObjectiveEvaluation,
+    meter: &mut M,
+) -> Result<Vec<f64>, ObjectiveConsumerError> {
+    let n = objective.variables().len();
+    let mut hessian = zeros(n * n, meter)?;
+    charge(meter, objective.hessian_pattern().len() as u64, 0, 0)?;
+    for (&(row, column), value) in objective.hessian_pattern().iter().zip(&values.hessian) {
+        if row >= n || column >= n {
+            return Err(ObjectiveConsumerError::ConsumerContract(
+                "Hessian coordinates",
+            ));
+        }
+        hessian[row * n + column] = *value;
+    }
+    Ok(hessian)
 }
 
 fn linear_solve<M: BudgetMeter + ?Sized>(
@@ -498,6 +616,21 @@ fn zeros<M: BudgetMeter + ?Sized>(
         .map_err(|_| EvalError::AllocationFailure)?;
     values.resize(count, 0.0);
     Ok(values)
+}
+
+fn buffer<T, M: BudgetMeter + ?Sized>(
+    count: usize,
+    meter: &mut M,
+) -> Result<Vec<T>, ObjectiveConsumerError> {
+    let bytes = count
+        .checked_mul(size_of::<T>())
+        .ok_or(EvalError::DimensionOverflow)?;
+    charge(meter, 0, bytes as u64, u64::from(bytes != 0))?;
+    let mut result = Vec::new();
+    result
+        .try_reserve_exact(count)
+        .map_err(|_| EvalError::AllocationFailure)?;
+    Ok(result)
 }
 
 fn copy_values<M: BudgetMeter + ?Sized>(

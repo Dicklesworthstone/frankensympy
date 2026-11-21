@@ -20,7 +20,8 @@ use fsym_numeric_consumer::{
     ObjectiveConsumerError, RootProposal, SystemConsumerError,
     frankenscipy_analytic_system_with_meter, frankenscipy_fsolve_system_with_meter,
     least_squares_with_meter, minimize_with_meter, newton_refine_with_meter,
-    propose_root_box_with_meter, sparse_least_squares_with_meter, sparse_newton_refine_with_meter,
+    propose_root_box_with_meter, propose_stationary_box_with_meter,
+    sparse_least_squares_with_meter, sparse_newton_refine_with_meter,
 };
 use serde::{Deserialize, Serialize};
 
@@ -372,6 +373,61 @@ pub(super) fn minimize(
     let proposal = minimize_with_meter(objective, &initial, &controls, budget)?;
     budget.checkpoint()?;
     Ok(proposal)
+}
+
+/// Numerical descent and a Hessian inverse propose an untrusted exact witness.
+/// Protected original-source verification is the caller's separate next step.
+pub(super) fn propose_stationary_witness(
+    objective: &VerifiedObjective,
+    initial: &[String],
+    options: &CompiledStationarityOptions,
+    radii: &[String],
+    precision_digits: u32,
+    budget: &mut Budget,
+) -> Result<RootBoxWitness, CertificationSessionError> {
+    budget.checkpoint()?;
+    let variables = objective.variables().len();
+    if !(1..=MAX_MINIMIZE_VARIABLES).contains(&variables) {
+        return Err(ObjectiveConsumerError::InvalidRequest(
+            "stationary boxes require 1..=16 variables",
+        )
+        .into());
+    }
+    if radii.len() != variables {
+        return Err(ObjectiveConsumerError::Dimension {
+            input: "radii",
+            expected: variables,
+            actual: radii.len(),
+        }
+        .into());
+    }
+    if !(8..=fsym_core::MAX_ROOT_BOX_PRECISION).contains(&precision_digits) {
+        return Err(ObjectiveConsumerError::InvalidRequest("precision must be 8..=128").into());
+    }
+    charge(
+        budget,
+        variables,
+        variables * std::mem::size_of::<BigRational>(),
+    )?;
+    let mut exact_radii = Vec::new();
+    exact_radii
+        .try_reserve_exact(variables)
+        .map_err(|_| crate::certification::CertificationError::AllocationFailure)?;
+    for radius in radii {
+        let radius = parse_scalar(radius, budget)?;
+        if radius.numer().is_negative() || radius.numer().is_zero() {
+            return Err(ObjectiveConsumerError::InvalidRequest("radii must be positive").into());
+        }
+        exact_radii.push(radius);
+    }
+    let proposal = minimize(objective, initial, options, budget)?;
+    Ok(propose_stationary_box_with_meter(
+        objective,
+        &proposal.point,
+        &exact_radii,
+        precision_digits,
+        budget,
+    )?)
 }
 
 fn numeric_option(

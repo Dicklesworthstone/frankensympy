@@ -1179,6 +1179,7 @@ impl Session {
                     | "EvaluateObjective"
                     | "EvaluateHessianVectorProduct"
                     | "MinimizeCompiledObjective"
+                    | "MinimizeAndCertifyCompiledObjective"
                     | "ReleaseCompiledObjective"
                     | "RegisterParametricProblem"
                     | "CertifyParametricRoot"

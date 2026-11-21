@@ -460,6 +460,21 @@ pub enum CertificationRequest {
         #[serde(default)]
         options: CompiledStationarityOptions,
     },
+    /// Propose numerical stationarity, then independently check the original
+    /// objective on an exact box. Positive rational/decimal radii are explicit;
+    /// no box widening occurs. Only protected original-source verification can
+    /// publish a stationary certificate, whose local classification can also
+    /// be a maximum, saddle or unclassified point. This is never a global claim.
+    MinimizeAndCertifyCompiledObjective {
+        schema_version: u32,
+        program: CompiledObjectiveId,
+        certificate: StationaryPointId,
+        initial: Vec<String>,
+        #[serde(default)]
+        options: CompiledStationarityOptions,
+        radii: Vec<String>,
+        precision_digits: u32,
+    },
     ReleaseCompiledObjective {
         schema_version: u32,
         program: CompiledObjectiveId,
@@ -953,6 +968,7 @@ impl CertificationRequest {
             | Self::EvaluateObjective { schema_version, .. }
             | Self::EvaluateHessianVectorProduct { schema_version, .. }
             | Self::MinimizeCompiledObjective { schema_version, .. }
+            | Self::MinimizeAndCertifyCompiledObjective { schema_version, .. }
             | Self::ReleaseCompiledObjective { schema_version, .. }
             | Self::CompileResidualSystem { schema_version, .. }
             | Self::ExportCompiledResidualSystem { schema_version, .. }
@@ -3097,6 +3113,57 @@ impl CertificationState {
             } => self
                 .compiled_objectives
                 .minimize(program, &initial, &options, budget),
+            CertificationRequest::MinimizeAndCertifyCompiledObjective {
+                program,
+                certificate,
+                initial,
+                options,
+                radii,
+                precision_digits,
+                ..
+            } => {
+                let (objective, frozen_context, compiled) = self
+                    .compiled_objectives
+                    .source_record(&program)
+                    .ok_or(CertificationSessionError::UnknownCompiledObjective)?;
+                if frozen_context != context_digest {
+                    return Err(CertificationError::UniverseMismatch {
+                        found: frozen_context,
+                        expected: context_digest,
+                    }
+                    .into());
+                }
+                self.admit_stationary_point_id(&certificate, budget)?;
+                let problem = self
+                    .objectives
+                    .get(objective)
+                    .ok_or(CertificationSessionError::UnknownObjective)?;
+                let lease =
+                    lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+                let witness = compiled_solvers::propose_stationary_witness(
+                    compiled,
+                    &initial,
+                    &options,
+                    &radii,
+                    precision_digits,
+                    budget,
+                )?;
+                // Neither the stopping tolerance nor the compiled Hessian
+                // establishes stationarity. The independent checker evaluates
+                // the registered original source over the entire requested box.
+                let receipt = problem.verify_stationary(
+                    &witness,
+                    &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+                )?;
+                charge(budget, 1, objective.as_str().len())?;
+                self.publish_stationary_point(
+                    objective.clone(),
+                    certificate,
+                    receipt,
+                    frozen_context,
+                    budget,
+                )
+            }
             CertificationRequest::EvaluateHessianVectorProduct {
                 program,
                 point,
@@ -4878,5 +4945,98 @@ mod compiled_root_tests {
         assert!(state.certificate(&certificate).is_none());
         assert!(state.compiled_system(&program).is_some());
         assert_eq!(budget.snapshot(), before);
+    }
+}
+
+#[cfg(test)]
+mod compiled_objective_tests {
+    use super::*;
+
+    fn compiled_state() -> (
+        CertificationState,
+        Budget,
+        VerifierLease,
+        CertificationRequest,
+    ) {
+        let mut state = CertificationState::default();
+        let mut budget = Budget::new(fsym_budget::BudgetLimits::uniform(1 << 40, 1 << 40));
+        let lease = budget.verifier_lease().unwrap();
+        let objective = ObjectiveId::new("objective:frozen-context").unwrap();
+        let program = CompiledObjectiveId::new("objective_program:frozen-context").unwrap();
+        state
+            .handle(
+                CertificationRequest::RegisterObjective {
+                    schema_version: 1,
+                    objective: objective.clone(),
+                    source: "(x-1)^2".into(),
+                    variables: vec!["x".into()],
+                },
+                [1; 32],
+                &mut budget,
+                Some(&lease),
+            )
+            .unwrap();
+        state
+            .handle(
+                CertificationRequest::CompileObjective {
+                    schema_version: 1,
+                    objective,
+                    program: program.clone(),
+                },
+                [1; 32],
+                &mut budget,
+                Some(&lease),
+            )
+            .unwrap();
+        let request = CertificationRequest::MinimizeAndCertifyCompiledObjective {
+            schema_version: 1,
+            program,
+            certificate: StationaryPointId::new("stationary:frozen-context").unwrap(),
+            initial: vec!["0".into()],
+            options: CompiledStationarityOptions::default(),
+            radii: vec!["1/10".into()],
+            precision_digits: 24,
+        };
+        (state, budget, lease, request)
+    }
+
+    #[test]
+    fn objective_certification_rejects_rebound_context_before_work_or_publication() {
+        let (mut state, mut budget, lease, request) = compiled_state();
+        let before = budget.snapshot();
+        let error = state
+            .handle(request, [2; 32], &mut budget, Some(&lease))
+            .unwrap_err();
+        assert_eq!(error.code(), "universe_mismatch");
+        assert!(state.stationary_points.is_empty());
+        assert!(
+            state
+                .compiled_objectives
+                .objective(&CompiledObjectiveId::new("objective_program:frozen-context").unwrap(),)
+                .is_some()
+        );
+        assert_eq!(budget.snapshot(), before);
+    }
+
+    #[test]
+    fn absent_or_foreign_verifier_authority_cannot_publish_stationary_points() {
+        let (mut state, mut budget, _, request) = compiled_state();
+        let protected = budget.verifier_remaining();
+        let error = state
+            .handle(request.clone(), [1; 32], &mut budget, None)
+            .unwrap_err();
+        assert_eq!(error.code(), "budget_exhausted");
+        assert!(state.stationary_points.is_empty());
+        assert_eq!(budget.verifier_remaining(), protected);
+
+        let mut unrelated = Budget::new(fsym_budget::BudgetLimits::uniform(1 << 40, 1 << 40));
+        let foreign = unrelated.verifier_lease().unwrap();
+        let error = state
+            .handle(request, [1; 32], &mut budget, Some(&foreign))
+            .unwrap_err();
+        assert_eq!(error.code(), "budget_exhausted");
+        assert!(state.stationary_points.is_empty());
+        assert_eq!(budget.verifier_remaining(), protected);
+        assert_eq!(unrelated.verifier_remaining(), 1 << 40);
     }
 }

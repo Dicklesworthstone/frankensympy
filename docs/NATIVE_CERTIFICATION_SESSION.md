@@ -682,9 +682,10 @@ termination alone does not classify it.
 
 All three result kinds explicitly report `outcome: "approximate"` and
 `numeric_model: "binary64"`. They contain no evidence receipt or certificate.
-Use `CertifyRootBox` or `CertifyStationaryPoint` separately for their exact
-original-source interval claims. A numerical proposal does not bypass those
-independent checks.
+Use `CertifyRootBox` or `CertifyStationaryPoint` for their exact original-source
+interval claims, or the combined operations below to generate and verify a
+witness in one request. A numerical proposal does not bypass those independent
+checks.
 
 ### Solve and certify an exact root box
 
@@ -720,6 +721,44 @@ independent acceptance consumes the protected verifier pool. The complete
 response is reserved before the certificate is published, and an existing
 certificate identifier cannot be overwritten.
 
+### Minimize and certify a stationary point
+
+`MinimizeAndCertifyCompiledObjective` connects the existing numerical descent
+to independent original-source stationary-point verification. It accepts a
+locally compiled or independently replayed objective handle and exact positive
+radii in the frozen coordinate order:
+
+```json
+{"id":"certified-minimize","type":"MinimizeAndCertifyCompiledObjective","payload":{"schema_version":1,"program":"objective_program:descent","certificate":"stationary:descent","initial":["0","0"],"radii":["1/100","1/100"],"precision_digits":24}}
+```
+
+After the quadratic objective example above, the result is
+`stationary_point_certified`, with `classification: "strict_minimum"`, exact
+enclosures and a reusable `stationary:descent` handle. The complete original
+source is checked over the entire proposed box. Numerical convergence only
+supplies the center and inverse-Hessian proposal; exact binary64-to-rational
+conversion preserves those proposal values, and the supplied rational radii
+are retained without widening. A loose stopping tolerance cannot authorize a
+certificate if the box does not contain the stationary point.
+
+The response classifies the point according to the existing independent
+Hessian check: strict local minimum, strict local maximum, saddle or
+unclassified. A stationary initial maximum or saddle can pass the numerical
+stopping criterion and is reported with its actual certified classification.
+The operation does not claim global optimality or complete enumeration.
+`ExportStationaryCertificate` and `ReplayStationaryCertificate` transport and
+independently replay the resulting source-bound certificate unchanged.
+
+The operation supports 1–16 variables, precision 8–128 decimal digits, and the
+same optional `CompiledStationarityOptions` controls as
+`MinimizeCompiledObjective`. A singular numerical Hessian, invalid source
+domain, failed descent, insufficient box, cancellation or exhausted resources
+publishes no stationary handle. Ordinary cumulative resources fund descent and
+the untrusted witness; the protected verifier pool funds the independent C2,
+inclusion, contraction and classification checks. Response admission precedes
+publication, failed work is not refunded, and existing identifiers cannot be
+overwritten.
+
 ### Controls, limits, and failure behavior
 
 The optional `options` object accepts `max_iterations`, `max_step_norm`, and
@@ -750,8 +789,10 @@ preserve the original source and derivative domain checks, including held poles
 and Hessian singularities at stationary points. Nonfinite results refuse.
 
 Input conversion, controls, unsuccessful trials, actual consumer work, and
-response admission spend the same ordinary cumulative session budget. Solver
-requests do not spend protected verifier fuel after the program is admitted.
+response admission spend the same ordinary cumulative session budget. The
+approximate-only solver requests do not spend protected verifier fuel after
+the program is admitted. Combined solve-and-certify requests reserve that pool
+for their independent original-source acceptance stage.
 Cancellation is observed at the existing metered callback and synchronous kernel
 boundaries; this interface does not promise preemption inside a donor kernel.
 

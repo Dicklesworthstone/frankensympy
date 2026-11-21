@@ -78,6 +78,17 @@ impl CompiledObjectiveState {
         self.programs.get(id).map(|resident| &resident.program)
     }
 
+    /// Freeze the registered source and context alongside the checked program;
+    /// numerical proposals cannot select a different verification statement.
+    pub(super) fn source_record(
+        &self,
+        id: &CompiledObjectiveId,
+    ) -> Option<(&ObjectiveId, [u8; 32], &VerifiedObjective)> {
+        self.programs
+            .get(id)
+            .map(|resident| (&resident.source, resident.context_digest, &resident.program))
+    }
+
     pub(super) fn compile(
         &mut self,
         source: ObjectiveId,
