@@ -119,8 +119,8 @@ pub fn verified_diff(expr: &Expr, var: &Symbol) -> (Expr, DerivationTree) {
     derivative_tree(expr, var, deriv)
 }
 
-/// Internal numeric programs use a stable coth derivative without changing
-/// the public symbolic derivative or its ordinary receipt representation.
+/// Internal numeric programs use stable coth and literal identity-power
+/// derivatives without changing public symbolic receipts.
 pub(crate) fn verified_numeric_diff(expr: &Expr, var: &Symbol) -> (Expr, DerivationTree) {
     let deriv = crate::numeric_diff_unsimplified(expr, var);
     derivative_tree(expr, var, deriv)
@@ -365,6 +365,21 @@ fn reference_unsimplified_diff_with_coth(expr: &Expr, var: &Symbol, stable_coth:
             Expr::Add(add_terms)
         }
         Expr::Pow(base, exp) => {
+            // Reconstruct the numeric-only identity cases from exact source
+            // literals, independently of the optimizing differentiator.
+            if stable_coth {
+                match exp.as_ref() {
+                    Expr::Integer(n) if n.is_zero() => return Expr::from_i64(0),
+                    Expr::Rational(r) if r.numer().is_zero() => return Expr::from_i64(0),
+                    Expr::Integer(n) if n.is_one() => {
+                        return reference_sub_derivative(base, var);
+                    }
+                    Expr::Rational(r) if r.numer() == r.denom() => {
+                        return reference_sub_derivative(base, var);
+                    }
+                    _ => {}
+                }
+            }
             if let Expr::Integer(n) = exp.as_ref() {
                 let n_minus_1 = n - BigInt::from(1);
                 let du = reference_sub_derivative(base, var);
@@ -776,9 +791,18 @@ fn verify_rule_reduction_semantics(
                 let expected_rhs = Expr::Mul(vec![
                     Expr::Integer(n.clone()),
                     Expr::Pow(base.clone(), Arc::new(Expr::Integer(n_minus_1))),
-                    du,
+                    du.clone(),
                 ]);
-                if deriv != &expected_rhs {
+                // Preserve old persisted raw power proofs while admitting
+                // only the independently derived numeric identity form.
+                let identity = if stable_coth && n.is_zero() {
+                    Some(Expr::from_i64(0))
+                } else if stable_coth && n.is_one() {
+                    Some(du)
+                } else {
+                    None
+                };
+                if deriv != &expected_rhs && identity.as_ref() != Some(deriv) {
                     return Err(KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: format!(
@@ -795,11 +819,32 @@ fn verify_rule_reduction_semantics(
             }
         }
         RULE_DIFF_POW_RATIONAL => {
-            if let Expr::Pow(_, exponent) = expr
-                && matches!(exponent.as_ref(), Expr::Rational(_))
+            if let Expr::Pow(base, exponent) = expr
+                && let Expr::Rational(rational) = exponent.as_ref()
             {
                 let expected_rhs = reference_unsimplified_diff(expr, var);
-                if deriv != &expected_rhs {
+                // Older numeric artifacts retain the literal 0*u^-1*u' or
+                // 1*u^0*u' form. Accept exactly that independently rebuilt
+                // form as well; arbitrary equivalent expressions still fail.
+                let legacy_identity = if stable_coth
+                    && (rational.numer().is_zero() || rational.numer() == rational.denom())
+                {
+                    let shifted = BigRational::new(
+                        rational.numer() - rational.denom(),
+                        rational.denom().clone(),
+                    );
+                    Some(Expr::Mul(vec![
+                        Expr::Rational(rational.clone()),
+                        Expr::Pow(
+                            base.clone(),
+                            Arc::new(fsym_core::elementary::rational_expr(shifted)),
+                        ),
+                        reference_sub_derivative(base, var),
+                    ]))
+                } else {
+                    None
+                };
+                if deriv != &expected_rhs && legacy_identity.as_ref() != Some(deriv) {
                     return Err(KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: format!(

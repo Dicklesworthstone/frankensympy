@@ -4,7 +4,7 @@ use fsym_calculus::compile::EvalError;
 use fsym_calculus::sparse_hessian::ObjectiveEvaluationError;
 use fsym_calculus::verified::ResidualEvaluationError;
 use fsym_calculus::{VerifiedObjective, VerifiedResidualSystem};
-use fsym_core::{Expr, Symbol, parse};
+use fsym_core::{Expr, Symbol, parse_raw};
 use fsym_numeric_consumer::{
     LeastSquaresOptions, MinimizeOptions, ObjectiveConsumerError, SystemConsumerError,
     least_squares, minimize, sparse_least_squares, sparse_minimize,
@@ -24,7 +24,7 @@ fn domain_cases() -> Vec<(&'static str, f64, EvalError)> {
 fn held_sum(base: Expr, primitive: &str) -> Expr {
     Expr::Add(vec![
         base,
-        Expr::Mul(vec![Expr::from_i64(0), parse(primitive).unwrap()]),
+        Expr::Mul(vec![Expr::from_i64(0), parse_raw(primitive).unwrap()]),
     ])
 }
 

@@ -86,7 +86,8 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
 }
 
 /// The numerical derivative lane keeps coth' away from subtraction of two
-/// rounded ones. Public symbolic derivatives retain their existing form.
+/// rounded ones and avoids artificial poles in literal zero/one powers.
+/// Public symbolic derivatives retain their existing form.
 pub(crate) fn numeric_diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
     diff_unsimplified_with_coth(expr, var, true)
 }
@@ -125,6 +126,19 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
             Expr::Add(add_terms)
         }
         Expr::Pow(base, exp) => {
+            // Numeric programs retain their original source separately. A
+            // literal zero or one exponent therefore needs no artificial
+            // 0*u^-1 or 1*u^0 factor in its derivative. Original base-domain
+            // obligations still execute before any derivative is published.
+            if stable_coth {
+                match exp.as_ref() {
+                    Expr::Integer(n) if n.is_zero() => return Expr::from_i64(0),
+                    Expr::Rational(r) if r.numer().is_zero() => return Expr::from_i64(0),
+                    Expr::Integer(n) if n.is_one() => return diff(base, var),
+                    Expr::Rational(r) if r.numer() == r.denom() => return diff(base, var),
+                    _ => {}
+                }
+            }
             let du = diff(base, var);
             let dv = diff(exp, var);
             if du.is_zero() && dv.is_zero() {
