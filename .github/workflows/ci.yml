@@ -129,6 +129,8 @@ jobs:
         with:
           cache-on-failure: true
       - run: python -m pip install --disable-pip-version-check pytest==8.4.2
+      - name: Independent exact LLL row-lattice certificates
+        run: cargo test --locked -p fsym-proof-kernel --test integer_lll -j1
       - name: Independently checked integer column Hermite forms
         run: |
           cargo test --locked -p fsym-proof-kernel --test integer_hermite -j1
