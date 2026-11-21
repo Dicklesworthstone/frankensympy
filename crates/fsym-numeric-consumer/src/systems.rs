@@ -18,6 +18,8 @@
 
 mod least_squares;
 pub use least_squares::*;
+mod parametric;
+pub use parametric::*;
 mod sparse_least_squares;
 pub use sparse_least_squares::*;
 mod sparse_linear;
