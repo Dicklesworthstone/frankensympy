@@ -275,6 +275,7 @@ jobs:
           import pytest
           raise SystemExit(pytest.main([
               "-q", "-p", "no:cacheprovider",
+              "python/tests/test_hermite_normal_form.py",
               "python/tests/test_objective_program_transport.py",
               "python/tests/test_source_certification.py",
               "python/tests/test_polynomial_evaluation.py",

@@ -111,6 +111,17 @@ class MatrixBase:
         from ._integer_solve import solve_integer
         return solve_integer(self, rhs)
 
+    def hermite_normal_decomposition(self):
+        """Checked integer ``(H, V, V_inverse)`` with ``self*V == [0 | H]``.
+
+        H is the canonical basis of the original integer column lattice.
+        The transformation and its integer inverse preserve all source
+        directions, including for rectangular and rank-deficient matrices.
+        This native extension preserves the built-in matrix class.
+        """
+        from .normalforms import hermite_normal_decomposition
+        return hermite_normal_decomposition(self)
+
     @property
     def is_positive_definite(self):
         from ._definiteness import classify

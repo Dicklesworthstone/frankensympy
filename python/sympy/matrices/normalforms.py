@@ -1,4 +1,4 @@
-"""Independently checked bounded integer Smith normal forms.
+"""Independently checked bounded integer Smith and column Hermite forms.
 
 ``smith_normal_form`` implements the inferred-integer slice and returns a
 mutable dense Matrix, including for immutable or sparse inputs. The native
@@ -6,7 +6,12 @@ extension ``smith_normal_decomposition`` also returns integral unimodular
 transforms, preserving the input's built-in matrix class. Its convention is
 ``D = U*A*V`` with positive nonzero invariant factors followed by zeros.
 
-Both operations admit literal integer entries, at most 64 rows and columns,
+``hermite_normal_form`` returns a mutable dense canonical basis of the
+integer column lattice. ``hermite_normal_decomposition`` additionally returns
+V and its integral inverse with ``matrix*V == [0 | H]``, preserving the input
+matrix class. Redundant columns are removed; every original row is retained.
+
+All operations admit literal integer entries, at most 64 rows and columns,
 and at most 4096 bits per original coefficient. They refuse unsupported
 domains, modified built-in owners, source mutation and exhausted work without
 falling back to an unchecked algorithm. This bounded capability does not
@@ -39,6 +44,7 @@ _NATIVE = {Matrix: _native.Matrix, SparseMatrix: _native.SparseMatrix}
 _NATIVE_NAMES = (
     "shape", "validate_integer_normal_form_source",
     "smith_normal_form", "smith_normal_decomposition",
+    "hermite_normal_form", "hermite_normal_decomposition",
 )
 _NATIVE_METHODS = {
     base: tuple(_DICT.__get__(native)[name] for name in _NATIVE_NAMES)
@@ -115,7 +121,7 @@ class _IntegerSource:
         if max(rows, columns) > 64:
             raise ValueError("integer Smith form supports at most 64 rows and columns")
         native_type = _NATIVE[self.base]
-        native_shape, preflight, _form, _decompose = _NATIVE_METHODS[self.base]
+        native_shape, preflight = _NATIVE_METHODS[self.base][:2]
         if type(native) is not native_type:
             raise NotImplementedError("integer Smith form requires literal integer native storage")
         if native_shape.__get__(native, native_type) != shape:
@@ -158,6 +164,8 @@ class _IntegerSource:
         self.unchanged()
 
     def unchanged(self):
+        if _active_callback_session() is not self.session:
+            raise RuntimeError("integer normal-form request changed during evaluation")
         _interfaces()
         _check_rational_source(self.snapshot)
         for cell, stored in self.atoms:
@@ -165,9 +173,10 @@ class _IntegerSource:
                    for current, previous in zip(_atom_state(cell), stored)):
                 raise RuntimeError("integer Smith source atom mutated during decomposition")
 
-    def calculate(self, decomposition):
+    def calculate(self, decomposition, *, hermite=False):
         self.unchanged()
-        _shape, _preflight, form, decompose = _NATIVE_METHODS[self.base]
+        offset = 4 if hermite else 2
+        form, decompose = _NATIVE_METHODS[self.base][offset:offset + 2]
         rows, columns = self.shape
         if decomposition:
             native = decompose(self.native, session=self.session)
@@ -183,6 +192,15 @@ class _IntegerSource:
             matrix_type, base = Matrix, Matrix
         self.unchanged()
         descriptor = _NATIVE_METHODS[base][0]
+        if hermite:
+            if type(native[0]) is not native_type:
+                raise RuntimeError("integer Hermite form returned invalid result storage")
+            shape = descriptor.__get__(native[0], native_type)
+            if (type(shape) is not tuple or len(shape) != 2
+                    or shape[0] != rows or type(shape[1]) is not int
+                    or not 0 <= shape[1] <= min(rows, columns)):
+                raise RuntimeError("integer Hermite form returned an invalid rank or shape")
+            shapes = ((rows, shape[1]), (columns, columns), (columns, columns)) if decomposition else (shape,)
         if any(type(value) is not native_type
                or descriptor.__get__(value, native_type) != shape
                for value, shape in zip(native, shapes)):
@@ -225,4 +243,38 @@ def smith_normal_decomposition(matrix):
     return _IntegerSource(matrix).calculate(True)
 
 
-__all__ = ["smith_normal_form", "smith_normal_decomposition"]
+def hermite_normal_form(A, *, D=None, check_rank=False):
+    """Return the checked column Hermite form of an integer matrix.
+
+    The output has every source row and exactly one column per independent
+    integer-lattice direction. It is a mutable dense Matrix for all four
+    built-in input classes, including zero-area or deficient-rank matrices.
+    Positive pivots and reduced residues are checked independently of the
+    Euclidean generator, together with integral unimodular transformations.
+
+    This bounded slice uses the exact ordinary algorithm. The optional modular
+    determinant hint D is not supported; check_rank is accepted as a boolean
+    because every result already has its complete rank independently checked.
+    """
+    if D is not None:
+        raise NotImplementedError("hermite_normal_form does not support a modular determinant hint")
+    if type(check_rank) is not bool:
+        raise TypeError("hermite_normal_form check_rank must be a boolean")
+    return _IntegerSource(A).calculate(False, hermite=True)
+
+
+def hermite_normal_decomposition(matrix):
+    """Return checked ``(H, V, V_inverse)`` with ``matrix*V == [0 | H]``.
+
+    H is the canonical column basis, and both integer products V*V_inverse
+    and V_inverse*V equal the identity. All three matrices preserve the input
+    built-in class. Their shapes are m-by-r, n-by-n and n-by-n, respectively.
+    The inverse certifies equality of integer lattices, not just rational spans.
+    """
+    return _IntegerSource(matrix).calculate(True, hermite=True)
+
+
+__all__ = [
+    "smith_normal_form", "smith_normal_decomposition",
+    "hermite_normal_form", "hermite_normal_decomposition",
+]

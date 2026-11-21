@@ -8,8 +8,10 @@ use fsym_budget::{BudgetError, BudgetMeter, DIMENSION_COUNT, MeterError};
 use fsym_core::{BigInt, BigRational, Constant, Expr};
 use fsym_matrices::{
     Matrix, MatrixError, MatrixExponentialError, RationalLinearSolution, SparseMatrix,
-    VerifiedHermitianInertia, VerifiedRationalInertia, VerifiedSmithNormalForm,
+    VerifiedHermiteNormalForm, VerifiedHermitianInertia, VerifiedRationalInertia,
+    VerifiedSmithNormalForm,
 };
+use fsym_proof_kernel::integer_hermite::IntegerHermiteWitness;
 use fsym_proof_kernel::integer_normal_form::IntegerSmithWitness;
 use fsym_proof_kernel::sparse_rref::RationalSparseMatrix;
 use fsym_runtime::{Budget, BudgetLimits, Dimension};
@@ -218,6 +220,17 @@ impl IntegerMatrixSource<'_> {
             Self::Sparse(source) => source.metered_smith_normal_form(generator, verifier),
         }
     }
+
+    fn compute_hermite(
+        self,
+        generator: &mut impl BudgetMeter,
+        verifier: &mut impl BudgetMeter,
+    ) -> Result<VerifiedHermiteNormalForm, MatrixError> {
+        match self {
+            Self::Dense(source) => source.metered_hermite_normal_form(generator, verifier),
+            Self::Sparse(source) => source.metered_hermite_normal_form(generator, verifier),
+        }
+    }
 }
 
 fn checked_smith_output<'py, 'session, T>(
@@ -239,6 +252,30 @@ fn checked_smith_output<'py, 'session, T>(
         Ok(output)
     })();
     // Preserve the session's original exhausted/cancelled/ownership exception.
+    match generator.request.failure.or(verifier.request.failure) {
+        Some(error) => Err(error),
+        None => result,
+    }
+}
+
+fn checked_hermite_output<'py, 'session, T>(
+    source: IntegerMatrixSource<'_>,
+    py: Python<'py>,
+    session: Option<&'session PySupervisedCallbackSession>,
+    lift: impl FnOnce(IntegerHermiteWitness, &mut NormalFormRequestMeter<'py, 'session>) -> PyResult<T>,
+) -> PyResult<T> {
+    let mut generator = NormalFormRequestMeter::new(py, session);
+    let mut verifier = NormalFormRequestMeter::new(py, session);
+    let result = (|| {
+        let accepted = source
+            .compute_hermite(&mut generator, &mut verifier)
+            .map_err(matrix_err)?;
+        let (_, witness, _) = accepted.into_parts();
+        let output = lift(witness, &mut generator)?;
+        generator.checkpoint().map_err(to_value_error)?;
+        verifier.checkpoint().map_err(to_value_error)?;
+        Ok(output)
+    })();
     match generator.request.failure.or(verifier.request.failure) {
         Some(error) => Err(error),
         None => result,
@@ -811,6 +848,42 @@ impl PyMatrix {
                     integer_dense_output(witness.diagonal, meter)?,
                     integer_dense_output(witness.left, meter)?,
                     integer_dense_output(witness.right, meter)?,
+                ))
+            },
+        )
+    }
+
+    /// Canonical basis of the integer column lattice, independently checked.
+    #[pyo3(signature = (*, session=None))]
+    pub fn hermite_normal_form(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<Self> {
+        checked_hermite_output(
+            IntegerMatrixSource::Dense(&self.inner),
+            py,
+            session.as_deref(),
+            |witness, meter| integer_dense_output(witness.normal_form, meter),
+        )
+    }
+
+    /// Checked `(H, V, V_inverse)` with `A V = [0 | H]` over the integers.
+    #[pyo3(signature = (*, session=None))]
+    pub fn hermite_normal_decomposition(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<(Self, Self, Self)> {
+        checked_hermite_output(
+            IntegerMatrixSource::Dense(&self.inner),
+            py,
+            session.as_deref(),
+            |witness, meter| {
+                Ok((
+                    integer_dense_output(witness.normal_form, meter)?,
+                    integer_dense_output(witness.right, meter)?,
+                    integer_dense_output(witness.right_inverse, meter)?,
                 ))
             },
         )
@@ -1672,6 +1745,42 @@ impl PySparseMatrix {
                     integer_sparse_output(witness.diagonal, meter)?,
                     integer_sparse_output(witness.left, meter)?,
                     integer_sparse_output(witness.right, meter)?,
+                ))
+            },
+        )
+    }
+
+    /// Canonical integer column-lattice basis as a mutable dense matrix.
+    #[pyo3(signature = (*, session=None))]
+    pub fn hermite_normal_form(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<PyMatrix> {
+        checked_hermite_output(
+            IntegerMatrixSource::Sparse(&self.inner),
+            py,
+            session.as_deref(),
+            |witness, meter| integer_dense_output(witness.normal_form, meter),
+        )
+    }
+
+    /// Checked sparse `(H, V, V_inverse)` with `A V = [0 | H]`.
+    #[pyo3(signature = (*, session=None))]
+    pub fn hermite_normal_decomposition(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<(Self, Self, Self)> {
+        checked_hermite_output(
+            IntegerMatrixSource::Sparse(&self.inner),
+            py,
+            session.as_deref(),
+            |witness, meter| {
+                Ok((
+                    integer_sparse_output(witness.normal_form, meter)?,
+                    integer_sparse_output(witness.right, meter)?,
+                    integer_sparse_output(witness.right_inverse, meter)?,
                 ))
             },
         )
