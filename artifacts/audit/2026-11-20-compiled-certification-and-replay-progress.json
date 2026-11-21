@@ -39,7 +39,7 @@
     "native_python_function": 1
   },
   "validation": {
-    "status": "component_passed_full_integration_pending",
+    "status": "native_components_passed_full_runtime_blocked",
     "exact_toolchain": "nightly-2026-08-20; rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
     "completed_setup": [
       "cargo metadata --locked --format-version 1 --no-deps",
@@ -71,10 +71,10 @@
       }
     ],
     "not_completed": [
-      "Scoped strict Clippy (running at checkpoint)",
-      "Full fsym-python extension build",
-      "Public Python runtime tests",
-      "Native Session/CLI regression execution",
+      "Full fsym-python extension build terminal outcome",
+      "Actual public Python regression execution",
+      "Embedded actual_python_ bridge regression execution",
+      "Native Session/CLI stationary-certification regression execution",
       "cargo check --workspace --all-targets",
       "cargo clippy --workspace --all-targets -- -D warnings",
       "cargo test --workspace",
@@ -109,7 +109,46 @@
         "source_base": "a3c505e4acc62eb140516b442f35c1d87a8c1a9b plus source_git_blobs"
       }
     ],
-    "full_integration_pass_claimed": false
+    "full_integration_pass_claimed": false,
+    "tested_implementation_commit": "3cab3fb73e7f5bded70a57006ce13ed21bf02bbb",
+    "strict_scoped_clippy": [
+      {
+        "command": "cargo clippy --locked --offline -p fsym-calculus --test program_artifact_legacy --test program_artifact --test program_admission --test program_context_transport -j1 -- -D warnings",
+        "exit_code": 0,
+        "observed_completion": "Finished `dev` profile [unoptimized] target(s) in 38.24s"
+      },
+      {
+        "command": "cargo clippy --locked --offline -p fsym-numeric-consumer --test stationary_box_proposal --test objective_consumers -j1 -- -D warnings",
+        "exit_code": 0,
+        "observed_completion": "Finished `dev` profile [unoptimized] target(s) in 24.02s"
+      }
+    ],
+    "observed_test_result_excerpts": [
+      "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s",
+      "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s",
+      "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s",
+      "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s",
+      "test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s",
+      "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s"
+    ],
+    "total_distinct_native_tests_passed": 62,
+    "full_python_extension_build": {
+      "command": "cargo build --locked --offline -p fsym-python --features extension-module -j1",
+      "source_commit": "3cab3fb73e7f5bded70a57006ce13ed21bf02bbb",
+      "environment": "Pinned nightly, debug information disabled, incremental compilation disabled, one Cargo job",
+      "observed_progress": "Locked dependency compilation reached PyO3 and the real asupersync support crates. No source compiler diagnostic or terminal result was observed.",
+      "terminal_status": "unobserved_execution_environment_unavailable",
+      "failure_evidence": "The read-only status probe reported exec-server transport disconnected and recovery timed out after 45s, followed by an explicit unavailable environment notification.",
+      "build_pass_claimed": false,
+      "compiler_failure_or_sigkill_claimed": false
+    },
+    "supplementary_component": {
+      "built": false,
+      "executed": false,
+      "note": "A prior source-scoped recipe was inspected but no fallback component was created or run in this session."
+    },
+    "raw_log_availability": "Local logs were inspected for all 62 test results and both Clippy completions. The preserved excerpts above are actual captured output, not reconstructed full transcripts. A copy-to-artifact command did not return before the final environment outage, so no durable full-log copy is claimed here.",
+    "recorded_at_utc": "2026-11-21 02:51:28 UTC"
   },
   "donor_pins": {
     "asupersync": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
