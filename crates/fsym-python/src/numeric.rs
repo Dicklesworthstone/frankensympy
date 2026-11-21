@@ -812,6 +812,35 @@ pub(crate) fn extract_variables(values: &Bound<'_, PyAny>) -> PyResult<Vec<Symbo
         .collect()
 }
 
+/// Reserve only nonzero compilation costs in one atomic batch. The strict
+/// ledger deliberately rejects zero-sized charges; allocation-free constants
+/// and empty names still consume their positive compute/storage reservations.
+fn charge_compilation_work(
+    meter: &mut impl BudgetMeter,
+    steps: u64,
+    bytes: u64,
+    allocations: u64,
+) -> Result<(), fsym_budget::MeterError> {
+    meter.checkpoint()?;
+    let mut charges = [(Dimension::ComputeSteps, 0); 3];
+    let mut count = 0;
+    for (dimension, amount) in [
+        (Dimension::ComputeSteps, steps),
+        (Dimension::MemoryBytes, bytes),
+        (Dimension::AllocationCount, allocations),
+    ] {
+        if amount != 0 {
+            charges[count] = (dimension, amount);
+            count += 1;
+        }
+    }
+    if count != 0 {
+        meter.charge_batch(&charges[..count])?;
+    }
+    meter.checkpoint()?;
+    Ok(())
+}
+
 /// Snapshot exact native declarations without releasing the interpreter between
 /// checking a mutable input's length and capturing its admitted entries.
 pub(crate) fn extract_variables_metered(
@@ -850,11 +879,12 @@ pub(crate) fn extract_variables_metered(
             ));
         }
         with_evaluation_meter_attached(budget, |meter| {
-            meter.charge_batch(&[
-                (Dimension::ComputeSteps, name_length as u64 + 1),
-                (Dimension::MemoryBytes, name_length as u64),
-                (Dimension::AllocationCount, u64::from(name_length != 0)),
-            ])
+            charge_compilation_work(
+                meter,
+                name_length as u64 + 1,
+                name_length as u64,
+                u64::from(name_length != 0),
+            )
         })?;
         variables.push(crate::extract_symbol_arg(&value)?);
     }
@@ -881,14 +911,12 @@ fn charge_source_snapshot(source: &Expr, meter: &mut impl BudgetMeter) -> Result
         Expr::Pow(_, _) => (0, 2),
         Expr::Const(_) => (0, 0),
     };
-    meter.charge_batch(&[
-        (Dimension::ComputeSteps, payload as u64 + 1),
-        (
-            Dimension::MemoryBytes,
-            (std::mem::size_of::<Expr>() + payload) as u64,
-        ),
-        (Dimension::AllocationCount, allocations as u64),
-    ])?;
+    charge_compilation_work(
+        meter,
+        payload as u64 + 1,
+        (std::mem::size_of::<Expr>() + payload) as u64,
+        allocations as u64,
+    )?;
     match source {
         Expr::Add(children) | Expr::Mul(children) | Expr::Function(_, children) => {
             for child in children {
@@ -1327,11 +1355,12 @@ impl PyCompiledFunction {
         map.try_reserve(vars.len())
             .map_err(|_| CompileError::AllocationFailure)?;
         for (index, var) in vars.iter().enumerate() {
-            meter.charge_batch(&[
-                (Dimension::ComputeSteps, var.name.len() as u64 + 1),
-                (Dimension::MemoryBytes, var.name.len() as u64),
-                (Dimension::AllocationCount, 1),
-            ])?;
+            charge_compilation_work(
+                meter,
+                var.name.len() as u64 + 1,
+                var.name.len() as u64,
+                1,
+            )?;
             if map.insert(var.clone(), index).is_some() {
                 return Err(CompileError::DuplicateVariable(var.clone()));
             }

@@ -31,6 +31,23 @@ def compile_program(kind, source, x, budget):
 
 
 @pytest.mark.parametrize("kind", ["scalar", "residual"])
+@pytest.mark.parametrize("supplied_budget", [False, True])
+def test_named_constants_and_empty_axes_keep_positive_budget_charges(kind, supplied_budget):
+    budget = ledger() if supplied_budget else None
+    source = (s.pi, 0, s.Rational(1, 3))
+    program = compile_program(kind, source, (), budget)
+    expected = [math.pi, 0.0, 1/3]
+    if kind == "scalar":
+        assert program() == pytest.approx(expected)
+    else:
+        values, jacobian = program.evaluate()
+        assert values == pytest.approx(expected)
+        assert jacobian == [[], [], []]
+    if budget is not None:
+        assert all(0 < amount < LIMIT for amount in remaining(budget))
+
+
+@pytest.mark.parametrize("kind", ["scalar", "residual"])
 def test_compilation_and_evaluation_share_a_cumulative_ledger(kind):
     x = s.Symbol("compilation_budget_x", real=True)
     source = x**3 + s.sin(x)
@@ -141,6 +158,10 @@ def test_cancellation_after_native_admission_cannot_publish_a_python_program(kin
         budget.cancel()
         return result
 
+    if kind == "scalar":
+        # Source capture still calls the real native preflight before invoking
+        # this constructor wrapper and reaching the publication checkpoint.
+        admit_then_cancel._validate_source = original._validate_source
     monkeypatch.setattr(module._native, class_name, admit_then_cancel)
     published = []
     with pytest.raises(s.EvaluationCancelled):
