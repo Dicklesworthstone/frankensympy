@@ -1,0 +1,150 @@
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded constant_time_eq v0.4.2
+  Downloaded find-msvc-tools v0.1.11
+  Downloaded blake3 v1.8.7
+  Downloaded serde_json v1.0.151
+  Downloaded arrayvec v0.7.8
+  Downloaded bit-set v0.8.0
+  Downloaded bitflags v2.13.1
+  Downloaded errno v0.3.14
+  Downloaded autocfg v1.5.1
+  Downloaded once_cell v1.21.4
+  Downloaded fastrand v2.5.0
+  Downloaded cpufeatures v0.3.0
+  Downloaded bit-vec v0.8.0
+  Downloaded thiserror v2.0.20
+  Downloaded num-traits v0.2.19
+  Downloaded quote v1.0.47
+  Downloaded rusty-fork v0.3.1
+  Downloaded cfg-if v1.0.4
+  Downloaded wait-timeout v0.2.1
+  Downloaded unarray v0.1.4
+  Downloaded cc v1.4.4
+  Downloaded num-rational v0.4.2
+  Downloaded rand_chacha v0.9.0
+  Downloaded ppv-lite86 v0.2.21
+  Downloaded rand_xorshift v0.4.0
+  Downloaded zmij v1.0.23
+  Downloaded itoa v1.0.18
+  Downloaded thiserror-impl v2.0.20
+  Downloaded proc-macro2 v1.0.107
+  Downloaded rand_core v0.9.5
+  Downloaded shlex v2.0.1
+  Downloaded quick-error v1.2.3
+  Downloaded serde v1.0.229
+  Downloaded rand v0.9.5
+  Downloaded getrandom v0.3.4
+  Downloaded tempfile v3.27.0
+  Downloaded num-complex v0.4.6
+  Downloaded unicode-ident v1.0.24
+  Downloaded fnv v1.0.7
+  Downloaded serde_core v1.0.229
+  Downloaded num-bigint v0.4.8
+  Downloaded libc v0.2.189
+  Downloaded zerocopy v0.8.56
+  Downloaded regex-syntax v0.8.11
+  Downloaded rustix v1.1.4
+  Downloaded linux-raw-sys v0.12.1
+  Downloaded memchr v2.8.3
+  Downloaded num-integer v0.1.47
+  Downloaded proptest v1.11.0
+  Downloaded getrandom v0.4.3
+  Downloaded serde_derive v1.0.229
+  Downloaded syn v3.0.3
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+   Compiling syn v3.0.3
+   Compiling autocfg v1.5.1
+   Compiling serde_core v1.0.229
+   Compiling num-traits v0.2.19
+   Compiling cfg-if v1.0.4
+   Compiling serde v1.0.229
+   Compiling serde_derive v1.0.229
+   Compiling num-integer v0.1.47
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.11
+   Compiling cc v1.4.4
+   Compiling num-bigint v0.4.8
+   Compiling fsym-budget v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-budget)
+   Compiling zmij v1.0.23
+   Compiling fsym-bigint v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-bigint)
+   Compiling blake3 v1.8.7
+   Compiling serde_json v1.0.151
+   Compiling libc v0.2.189
+   Compiling thiserror v2.0.20
+   Compiling fsym-modular v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-modular)
+   Compiling num-rational v0.4.2
+   Compiling thiserror-impl v2.0.20
+   Compiling memchr v2.8.3
+   Compiling itoa v1.0.18
+   Compiling arrayvec v0.7.8
+   Compiling cpufeatures v0.3.0
+   Compiling constant_time_eq v0.4.2
+   Compiling fsym-rational v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-rational)
+   Compiling fsym-id v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-id)
+   Compiling num-complex v0.4.6
+   Compiling fsym-outcome v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-outcome)
+   Compiling fsym-core v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-core)
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-assumptions)
+   Compiling getrandom v0.3.4
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-proof-kernel)
+   Compiling zerocopy v0.8.56
+   Compiling getrandom v0.4.3
+   Compiling rustix v1.1.4
+   Compiling rand_core v0.9.5
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-evidence)
+   Compiling bitflags v2.13.1
+   Compiling linux-raw-sys v0.12.1
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-polys)
+   Compiling fastrand v2.5.0
+   Compiling once_cell v1.21.4
+   Compiling tempfile v3.27.0
+   Compiling ppv-lite86 v0.2.21
+   Compiling fsym-simplify v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-simplify)
+   Compiling wait-timeout v0.2.1
+   Compiling quick-error v1.2.3
+   Compiling fnv v1.0.7
+   Compiling bit-vec v0.8.0
+   Compiling bit-set v0.8.0
+   Compiling rusty-fork v0.3.1
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-calculus)
+   Compiling rand_chacha v0.9.0
+   Compiling rand_xorshift v0.4.0
+   Compiling rand v0.9.5
+   Compiling fsym-sets v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-sets)
+   Compiling regex-syntax v0.8.11
+   Compiling unarray v0.1.4
+   Compiling proptest v1.11.0
+   Compiling fsym-solvers v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-solvers)
+   Compiling fsym-matrices v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-matrices)
+    Finished `test` profile [unoptimized] target(s) in 7m 22s
+     Running tests/hermitian_inertia.rs (target/debug/build/fsym-matrices/1fb7958d4ba0e992/out/hermitian_inertia-1fb7958d4ba0e992)
+
+running 8 tests
+test original_expression_domains_and_dimensions_precede_all_shortcuts ... ok
+test tiny_positive_schur_complement_survives_float_rounding ... ok
+test native_candidate_acceptance_binds_original_skew_parts_and_witness ... ok
+test separate_phase_ledgers_cover_conversion_verification_and_publication ... ok
+test dense_and_sparse_complex_forms_have_complete_exact_inertia ... ok
+test known_complex_congruences_preserve_every_signed_and_null_direction ... ok
+test exhaustive_small_hermitian_forms_match_independent_trace_determinant_signs ... ok
+test maximum_complex_dimension_preserves_existing_rational_envelope ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.23s
+
+     Running tests/hermitian_inertia.rs (target/debug/build/fsym-proof-kernel/08e48a50b2049d67/out/hermitian_inertia-08e48a50b2049d67)
+
+running 8 tests
+test held_poles_and_foreign_nodes_are_checked_before_zero_cancellation ... ok
+test skew_hermitian_sources_keep_distinct_original_commitments ... ok
+test coefficient_snapshot_cannot_replace_original_held_or_skew_source ... ok
+test malformed_and_oversized_sources_fail_before_congruence_work ... ok
+test exact_reader_handles_gaussian_arithmetic_without_assumptions_or_approximation ... ok
+test sign_coordinate_and_congruence_mutations_do_not_certify ... ok
+test hand_derived_complex_congruence_has_doubled_real_counts ... ok
+test composition_and_original_reader_share_cumulative_verifier_budget ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+

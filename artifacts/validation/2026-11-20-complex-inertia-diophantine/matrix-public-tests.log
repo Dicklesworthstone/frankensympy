@@ -1,0 +1,10 @@
+Extension scope: documented_math_component
+Extension binary: /workspace/scratch/7fe32b905529/fsym-math-component-30dbf0e/fsym_python_math_component_30dbf0e.so
+Candidate Python: /workspace/scratch/7fe32b905529/frankensympy/python/sympy/__init__.py
+........................................................................ [ 22%]
+........................................................................ [ 45%]
+........................................................................ [ 68%]
+.....................................................................sss [ 91%]
+s...........................                                             [100%]
+312 passed, 4 skipped in 79.50s (0:01:19)
+Source changes during tests: []

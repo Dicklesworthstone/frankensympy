@@ -1,0 +1,35 @@
+Scope: documented_math_component: explicit-row Diophantine helper and publication internals
+Native binary: /workspace/scratch/7fe32b905529/fsym-math-component-30dbf0e/fsym_python_math_component_30dbf0e.so
+Public normalization is NOT exercised.
+PASS single_active_coordinate_0
+PASS single_active_coordinate_1
+PASS single_active_coordinate_2
+PASS signed_family_and_reversed_coordinates_0
+PASS signed_family_and_reversed_coordinates_1
+PASS signed_family_and_reversed_coordinates_2
+PASS signed_family_and_reversed_coordinates_3
+PASS signed_family_and_reversed_coordinates_4
+PASS signed_family_and_reversed_coordinates_5
+PASS signed_family_and_reversed_coordinates_6
+PASS three_active_primitive_family
+PASS checked_divisibility_obstruction_1
+PASS checked_divisibility_obstruction_3
+PASS checked_divisibility_obstruction_5
+PASS checked_divisibility_obstruction_-1
+PASS fresh_parameters_prevent_source_capture
+PASS same_printed_dummy_identities_remain_distinct
+PASS original_always_nonzero_guards
+PASS original_unknown_guard_refuses_unconditional_family
+PASS residual_zero_finite_index_subfamily_rejected
+PASS original_source_mutation__args
+PASS original_source_mutation__value
+PASS original_symbol_mutation
+PASS generated_parameter_mutation
+PASS post_domain_result_mutation_rejected
+PASS canonical_publication_ignores_stale_generator_payload
+PASS integer_class_cannot_disguise_native_rational
+PASS terminal_zero_budget_request
+PASS terminal_cancelled_request
+PASS late_cancellation_cannot_publish_family
+PASS source_solver_checker_and_publication_share_budget
+{"scope": "documented_math_component: explicit-row Diophantine helper and publication internals", "case_count": 31, "passed": 31, "failed": 0, "changed_sources": []}

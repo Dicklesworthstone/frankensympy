@@ -1,0 +1,43 @@
+   Compiling fsym-budget v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-budget)
+   Compiling hashbrown v0.17.1
+   Compiling indexmap v2.14.0
+   Compiling serde_json v1.0.151
+   Compiling fsym-bigint v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-bigint)
+   Compiling fsym-modular v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-modular)
+   Compiling fsym-rational v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-rational)
+   Compiling fsym-id v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-id)
+   Compiling fsym-outcome v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-outcome)
+   Compiling fsym-core v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-core)
+   Compiling pyo3-build-config v0.27.2
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-assumptions)
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-proof-kernel)
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-evidence)
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-polys)
+   Compiling fsym-simplify v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-simplify)
+   Compiling pyo3-macros-backend v0.27.2
+   Compiling pyo3-ffi v0.27.2
+   Compiling getrandom v0.4.3
+   Compiling chacha20 v0.10.1
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-calculus)
+   Compiling syn v2.0.119
+   Compiling rand v0.10.3
+   Compiling pyo3 v0.27.2
+   Compiling fsym-sets v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-sets)
+   Compiling fsci-runtime v0.2.0 (/workspace/scratch/7fe32b905529/frankenscipy-pin/crates/fsci-runtime)
+   Compiling fnp-linalg v0.3.0 (/workspace/scratch/7fe32b905529/franken_numpy-pin/crates/fnp-linalg)
+   Compiling fsci-opt v0.2.0 (/workspace/scratch/7fe32b905529/frankenscipy-pin/crates/fsci-opt)
+   Compiling fsym-solvers v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-solvers)
+   Compiling pyo3-macros v0.27.2
+   Compiling indoc v2.0.7
+   Compiling unindent v0.2.4
+   Compiling fsym-matrices v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-matrices)
+   Compiling fsym-numeric-consumer v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-numeric-consumer)
+   Compiling fsym-geometry v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-geometry)
+   Compiling fsym-tensor v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-tensor)
+   Compiling fsym-printing v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-printing)
+   Compiling fsym-logic v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-logic)
+   Compiling fsym-ntheory v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-ntheory)
+   Compiling fsym-functions v0.1.0 (/workspace/scratch/7fe32b905529/frankensympy/crates/fsym-functions)
+   Compiling fsym-budget-source-component v0.1.0 (/workspace/scratch/7fe32b905529/fsym-math-component-30dbf0e/runtime)
+   Compiling fsym-python-math-source-component v0.1.0 (/workspace/scratch/7fe32b905529/fsym-math-component-30dbf0e)
+    Finished `dev` profile [unoptimized] target(s) in 5m 57s

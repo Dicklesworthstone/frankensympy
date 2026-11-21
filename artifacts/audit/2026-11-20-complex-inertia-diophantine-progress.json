@@ -1,0 +1,289 @@
+{
+  "schema_version": 1,
+  "session_date": "2026-11-20",
+  "recorded_at_utc": "2026-11-21T02:39:04.294277+00:00",
+  "repository": "https://github.com/Dicklesworthstone/frankensympy",
+  "status": "implemented_and_targeted_native_component_validation_passed_full_runtime_pending",
+  "priority_basis": "Comprehensive plan and residual Beads review: expose already checked complex linear algebra and replace incomplete/refused retained-coordinate integer families with complete verified families.",
+  "implementation_commits": [
+    {
+      "sha": "e3822ae6819db8bf0a7afc02574747ee5dae15d9",
+      "purpose": "Native Python bridge for checked Hermitian source admission and inertia",
+      "exact_remote_commit_readback_verified": true
+    },
+    {
+      "sha": "30dbf0e64f9c2f55d4bfa006a622c7477d560359",
+      "purpose": "Bound retained complex sources, captured native binding, exact numeric owners and undefined-source publication",
+      "exact_remote_commit_readback_verified": true
+    },
+    {
+      "sha": "789993844e630e252dc91f31259c0ef73192714e",
+      "purpose": "Complete integer families with independent original inactive coordinates and two-way checked lattice coverage",
+      "exact_remote_commit_readback_verified": true
+    }
+  ],
+  "concurrent_work_preserved": {
+    "public_matrix_integration": "79f1732b3b43fc08fd2b80c11d6a91f4738d4ac9",
+    "numeric_owner_test_import_correction": "bf39c3a4028adbd7d9af15fac39c459700979798",
+    "reconciled_main_before_this_record": "a3c505e4acc62eb140516b442f35c1d87a8c1a9b",
+    "scope": "Later unrelated concurrent source changes are preserved, but are not covered by the frozen component execution."
+  },
+  "functional_scope": {
+    "matrices": "All five definiteness properties on dense/sparse mutable/immutable matrices; bounded exact Gaussian-rational original inputs through dimension32; complete positive/negative/zero inertia of the Hermitian part; held poles, stale payloads, original owners and shared request cancellation remain binding.",
+    "diophantine": "Linear integer equations with original inactive coordinates return complete affine integer families. Native checked Smith particular/kernel witnesses plus integer coverage of every primitive direction and exact original-row products prove both containments. Published formulas are rebuilt from verified rows and retain original-domain, typed-identity, mutation and request checks.",
+    "retained_limits": "Existing dimension/coefficient/work envelopes and zero-polynomial refusal remain. No broad workstream/profile or portable-proof gate is promoted."
+  },
+  "compatibility_difference": {
+    "held_cancellation": "Add(2*x,4*y,-6,z,-z,evaluate=False) has the pinned family (3-2*t_0,t_0,n1).",
+    "zero_product": "Add(3*x-6,Mul(0,x+y+z,evaluate=False),evaluate=False) retains the complete original-coordinate family (2,n1,n2); SymPy1.14 returns a one-coordinate tuple (2,). Upstream can also drop retained axes during negative-factor normalization.",
+    "claim": "The preview deliberately preserves original source coordinates; parameter-convention checks do not establish identical tuple arity or full upstream parity."
+  },
+  "tested_source_view": {
+    "native_and_shell_base": "30dbf0e64f9c2f55d4bfa006a622c7477d560359",
+    "diophantine_source_and_test_overlays_from": "789993844e630e252dc91f31259c0ef73192714e",
+    "hermitian_test_import_overlay_from": "bf39c3a4028adbd7d9af15fac39c459700979798",
+    "actual_critical_file_sha256": {
+      "crates/fsym-python/src/matrix.rs": "9e7507dfd54b4c68542271ad24c9e66fa4a17f7813aab5aeb4bc69dcc1eb0901",
+      "python/sympy/matrices/_definiteness.py": "cbbbee6745517ebfcf9fe95f9fb805d819b64f937feeddb3786ae1d1b9a32aa9",
+      "python/sympy/solvers/diophantine.py": "819a5abd0c5382576365f8d73ec74c3025d021a503b71fb356eb6e6908619d23",
+      "python/tests/test_hermitian_definiteness.py": "8731a6c438e25cc57be26cecd21678ada4ca4f19d19bf3d8c20554cfd154324d",
+      "python/tests/test_diophantine_linear_families.py": "a4d200872920f2fd05256e8741575c034f07c41ef0765c13666fb90803492355",
+      "python/tests/test_diophantine_source_domains.py": "89b145771df20ae421ee53e021c06e6f7194537df7d946bb7c8b4d3b2c17e6cb"
+    },
+    "binding": "Raw reports record the historical local HEAD and full before/after working-source hashes. These hashes identify the overlays precisely; the test result is not a full later-main validation claim."
+  },
+  "validation": {
+    "native_hermitian": {
+      "command": "cargo test --locked -p fsym-matrices -p fsym-proof-kernel --test hermitian_inertia",
+      "exit_code": 0,
+      "passed": 16,
+      "matrix_tests": 8,
+      "independent_kernel_tests": 8,
+      "log": "artifacts/validation/2026-11-20-complex-inertia-diophantine/native-hermitian.log"
+    },
+    "matrix_component": {
+      "exit_code": 0,
+      "passed": 312,
+      "skipped": 4,
+      "new_hermitian_cases": 216,
+      "existing_matrix_and_budget_cases_passed": 96,
+      "seconds": 79.5,
+      "skips": "Four pre-existing pinned-oracle-only observations; no new skip or weakened assertion.",
+      "source_changes": [],
+      "report": "artifacts/validation/2026-11-20-complex-inertia-diophantine/matrix-public-tests.json",
+      "log": "artifacts/validation/2026-11-20-complex-inertia-diophantine/matrix-public-tests.log"
+    },
+    "integer_family_helper_component": {
+      "exit_code": 0,
+      "passed": 31,
+      "failed": 0,
+      "source_changes": [],
+      "implementation_sources_bookended": 764,
+      "nested_steps_measured": 24118,
+      "one_step_short_budget": 24117,
+      "scope": "Actual explicit-row helper, native Smith solving/coverage, original-domain checker and final publication snapshots; public normalization/diophantine() dispatch is not exercised.",
+      "report": "artifacts/validation/2026-11-20-complex-inertia-diophantine/diophantine-helper-tests.json",
+      "log": "artifacts/validation/2026-11-20-complex-inertia-diophantine/diophantine-helper-tests.log",
+      "harness": "artifacts/validation/2026-11-20-complex-inertia-diophantine/diophantine_component_harness.py"
+    },
+    "isolated_sympy_oracle": {
+      "version": "1.14.0",
+      "interpreter": "/workspace/scratch/7fe32b905529/fsym-test-venv/bin/python -I",
+      "complex_fixtures_passed": 80,
+      "candidate_only_cases_skipped_in_oracle": 136,
+      "diophantine_selected_checks": {
+        "exact_family_or_emptiness": 13,
+        "missing_coordinate_errors": 3,
+        "signed_active_formulas_and_reversed_order": 18
+      },
+      "independent_extracted_generator_cases_passed": 90,
+      "production_fallback": false
+    },
+    "baseline_exact_arithmetic": {
+      "command": "cargo test --locked -p fsym-bigint -p fsym-rational -p fsym-modular",
+      "exit_code": 0,
+      "passed": 222,
+      "scope": "Baseline completion observed before executor recovery; separate from new-feature coverage."
+    },
+    "source_review": "Independent source review passed after undefined-source, captured-value, literal-owner, complete-lattice, candidate/output and parameter-binding fixes.",
+    "static_checks": [
+      {
+        "command": [
+          "python",
+          "tools/validate_planning.py"
+        ],
+        "exit_code": 0
+      },
+      {
+        "command": [
+          "python",
+          "-m",
+          "py_compile",
+          "python/sympy/matrices/_definiteness.py",
+          "python/sympy/solvers/diophantine.py",
+          "python/tests/test_hermitian_definiteness.py",
+          "python/tests/test_diophantine_linear_families.py",
+          "python/tests/test_diophantine_source_domains.py"
+        ],
+        "exit_code": 0
+      },
+      {
+        "command": [
+          "/workspace/scratch/7fe32b905529/fsym-rustup-home/toolchains/nightly-2026-08-20-x86_64-unknown-linux-gnu/bin/rustfmt",
+          "--check",
+          "--edition",
+          "2024",
+          "crates/fsym-python/src/matrix.rs"
+        ],
+        "exit_code": 0
+      },
+      {
+        "command": [
+          "git",
+          "diff",
+          "--check"
+        ],
+        "exit_code": 0
+      }
+    ]
+  },
+  "component_contract": {
+    "build_exit_code": 0,
+    "build_seconds": 357,
+    "binary_sha256": "be73b01c603f7ce5f99fe9ba78cc3bf7837bb7d8ab8960dcc134ccd7c0fd34ba",
+    "byte_identical_bridge_files": 41,
+    "shortened_bridge_files": [
+      "expr.rs",
+      "lib.rs"
+    ],
+    "omitted_members": [
+      "lib.rs::eval_error",
+      "lib.rs::eval_region",
+      "lib.rs::simplify_expr",
+      "lib.rs::expand_expr",
+      "expr.rs::PyExpr.simplify",
+      "expr.rs::PyExpr.expand"
+    ],
+    "source_function_replacements": [],
+    "external_packages_matching_production_lock": 56,
+    "full_production_extension": false,
+    "request_scope": "Original callbacks.rs and fsym-budget remain; supervised request accounting/cancellation is exercised. Asynchronous runtime integration is absent.",
+    "recipe": "artifacts/validation/2026-11-15-continuation/prepare_python_component.py",
+    "recipe_sha256": "3860c81b8785dda918afc554331f40f883192f7baf448926d7c7fa798aceae2d",
+    "recipe_adaptation": "Imported the unchanged recipe and overrode only ROOT and OUTPUT path constants in memory before main(). Captured component lock is preserved; do not resolve versions afresh.",
+    "build_command": "cargo build --locked --offline --manifest-path /workspace/scratch/7fe32b905529/fsym-math-component-30dbf0e/Cargo.toml --features extension-module",
+    "preparatory_nonzero_commands": [
+      "Offline generate-lockfile refused the already pinned subsequently yanked chacha20 0.10.1; no version changed.",
+      "Unfiltered offline metadata attempted an uncached cross-platform portable-atomic 1.15.0 fetch; filtered locked x86_64 metadata then passed with unchanged external identities."
+    ],
+    "record": "artifacts/validation/2026-11-20-complex-inertia-diophantine/component-build-result.json",
+    "dependency_record": "artifacts/validation/2026-11-20-complex-inertia-diophantine/dependency-lock-comparison.json",
+    "omission_record": "artifacts/validation/2026-11-20-complex-inertia-diophantine/omission-verification.json"
+  },
+  "full_production_validation": {
+    "status": "blocked_before_python_crate_compilation",
+    "command": "cargo build --locked -p fsym-python --features extension-module",
+    "attempts": [
+      {
+        "configuration": "initial standard build",
+        "exit_code": 101,
+        "observed_failure": "rustc for fsym-calculus received SIGKILL; no source diagnostic"
+      },
+      {
+        "configuration": "single job, debug/incremental disabled, frontend/backend jobs1, fewer names and MIR opt level0",
+        "exit_code": 101,
+        "observed_failure": "rustc for asupersync received SIGKILL before fsym-python compiled or linked; no source diagnostic",
+        "log": "artifacts/validation/2026-11-20-complex-inertia-diophantine/production-python-build.log"
+      }
+    ],
+    "interrupted_attempt": "An intermediate retry lost its executor without an observed terminal result; no pass/fail is inferred for it.",
+    "diagnosis_limit": "The signal and host resource pressure were observed. SIGKILL alone does not prove a precise memory cause.",
+    "pending": [
+      "Successful complete production extension build",
+      "Public diophantine normalization and full authored regression suite",
+      "Whole-workspace check, strict Clippy, runtime and compatibility-profile gates"
+    ],
+    "no_production_binary_claim": true
+  },
+  "residual_beads": {
+    "ids": [
+      "fra-kfo",
+      "fra-7kf"
+    ],
+    "status_priority_dependencies_and_claim_tiers": "unchanged; bounded progress notes only"
+  },
+  "evidence_files": {
+    "artifacts/validation/2026-11-20-complex-inertia-diophantine/component-build-result.json": {
+      "sha256": "4102c07d970349033749e5c89f60769170f0682c1d4edc8713f2cefb5a1edce2",
+      "bytes": 86318
+    },
+    "artifacts/validation/2026-11-20-complex-inertia-diophantine/component-source-before.json": {
+      "sha256": "26b11252fc7621fe760e6d5dce98773027bd65acde0bbd30f107bcac1c9b9fdd",
+      "bytes": 82884
+    },
+    "artifacts/validation/2026-11-20-complex-inertia-diophantine/bridge-composition.json": {
+      "sha256": "a7fae8af7ab9769725197eb4d34c916eb262947397ac44fa29d0849d9519778f",
+      "bytes": 9127
+    },
+    "artifacts/validation/2026-11-20-complex-inertia-diophantine/omission-verification.json": {
+      "sha256": "5b2d5c20be670ca4e36f39056209b7862e70ac01b617bc02f9b89bd29a983802",
+      "bytes": 359
+    },
+    "artifacts/validation/2026-11-20-complex-inertia-diophantine/dependency-lock-comparison.json": {
+      "sha256": "758fc0916060db1d52b4b0bf67fd19194275c979a97f43a10df479fd4ee610c9",
+      "bytes": 10752
+    },
+    "artifacts/validation/2026-11-20-complex-inertia-diophantine/component-Cargo.toml": {
+      "sha256": "26da50963dd9cca0305606ee2bad98ec3335344d2c4a7631a6f943218f1d1cfc",
+      "bytes": 1872
+    },
+    "artifacts/validation/2026-11-20-complex-inertia-diophantine/component-Cargo.lock": {
+      "sha256": "3bf263f6e5d95fb3015349cdc69636ea66b45f2ecfe4ee2c607fd4383936ad68",
+      "bytes": 17336
+    },
+    "artifacts/validation/2026-11-20-complex-inertia-diophantine/lib.rs.omissions.patch": {
+      "sha256": "0bc20be16139c8276967556362f4626d3242e00c7a6f407cc78c245adf762c33",
+      "bytes": 2854
+    },
+    "artifacts/validation/2026-11-20-complex-inertia-diophantine/expr.rs.omissions.patch": {
+      "sha256": "825ed3d2304cfc6124b1fc54238ede9ef196a9e995d46c8a25d0a0c735c6e59c",
+      "bytes": 1704
+    },
+    "artifacts/validation/2026-11-20-complex-inertia-diophantine/native-hermitian.log": {
+      "sha256": "b0df10c0e34d46610a0e0bb2f96c4bc4e7c84135a5354a3fec2177d783b8b10f",
+      "bytes": 6531
+    },
+    "artifacts/validation/2026-11-20-complex-inertia-diophantine/production-python-build.log": {
+      "sha256": "7ada2dd6883f2205347eadc9f31aa2a2912b142c4d112d8d58fe833ef75e17bd",
+      "bytes": 36251
+    },
+    "artifacts/validation/2026-11-20-complex-inertia-diophantine/math-component-build.log": {
+      "sha256": "989e43646bf64e0df3543e315fe9c7cfa2f3f9d1a20dce8f8e095aef49814abb",
+      "bytes": 3345
+    },
+    "artifacts/validation/2026-11-20-complex-inertia-diophantine/matrix-public-tests.json": {
+      "sha256": "01553814e531c3d4cb237112fa234ae351beda65e57eba3f4a0aba3a833a6b72",
+      "bytes": 181252
+    },
+    "artifacts/validation/2026-11-20-complex-inertia-diophantine/matrix-public-tests.log": {
+      "sha256": "d944a1f72831aa9ab8c5e104658d12d5816f40803051116a3208539303ab20f8",
+      "bytes": 721
+    },
+    "artifacts/validation/2026-11-20-complex-inertia-diophantine/diophantine-helper-tests.json": {
+      "sha256": "42d0325d455a03fc7fffbb169b850803a5871422b4f1af16963a46bbe7b24700",
+      "bytes": 184442
+    },
+    "artifacts/validation/2026-11-20-complex-inertia-diophantine/diophantine-helper-tests.log": {
+      "sha256": "8c647fd2f43bf44ffbaf223bb6b4a5f472f391278fdcfc3955383f90bcc2ff4a",
+      "bytes": 1720
+    },
+    "artifacts/validation/2026-11-20-complex-inertia-diophantine/diophantine_component_harness.py": {
+      "sha256": "14f582fcd16013073fe4c99aac0450e37557cf51272a9f9809b7e51209516d54",
+      "bytes": 20335
+    },
+    "artifacts/validation/2026-11-20-complex-inertia-diophantine/matrix_component_harness.py": {
+      "sha256": "868b7023d152c6fc3ecb79b3449d9c5caad91f0d32aacc5d255f6274ffdf5ea9",
+      "bytes": 2935
+    }
+  }
+}

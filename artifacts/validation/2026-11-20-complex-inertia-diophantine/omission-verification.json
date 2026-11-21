@@ -1,0 +1,17 @@
+{
+  "scope": "Exact removed Rust function definitions; no replacement bodies",
+  "omitted_function_definitions": {
+    "lib.rs": [
+      "eval_error",
+      "eval_region",
+      "simplify_expr",
+      "expand_expr"
+    ],
+    "expr.rs": [
+      "simplify",
+      "expand"
+    ]
+  },
+  "total_omitted_definitions": 6,
+  "only_documented_six_omissions": true
+}

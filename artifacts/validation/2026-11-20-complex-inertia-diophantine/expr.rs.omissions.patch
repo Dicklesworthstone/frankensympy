@@ -1,0 +1,42 @@
+--- production/expr.rs
++++ supplementary_component/expr.rs
+@@ -19,8 +19,6 @@
+     tanh as tanh_expr, zeta as zeta_expr,
+ };
+ use fsym_printing::{latex, pretty as render_pretty};
+-use fsym_runtime::{Budget, BudgetLimits, FsymCx, RuntimeBudget};
+-use fsym_simplify::{expand_with, simplify_with};
+ use pyo3::basic::CompareOp;
+ use pyo3::exceptions::{PyNotImplementedError, PyRecursionError, PyTypeError, PyValueError};
+ use pyo3::prelude::*;
+@@ -570,30 +568,6 @@
+             .collect()
+     }
+ 
+-    /// Simplify expression under budgeted region.
+-    pub fn simplify(&self) -> PyResult<PyExpr> {
+-        let cx = asupersync::Cx::detached_cancel_context();
+-        let steps = u64::try_from(RuntimeBudget::default().max_eval_steps).expect("valid u64");
+-        let limits = BudgetLimits::uniform(steps, 0);
+-        let mut region = FsymCx::new(&cx, Budget::new(limits), limits);
+-
+-        simplify_with(&self.inner, &mut region)
+-            .map(PyExpr::from_expr)
+-            .map_err(|e| PyValueError::new_err(e.to_string()))
+-    }
+-
+-    /// Expand expression under budgeted region.
+-    pub fn expand(&self) -> PyResult<PyExpr> {
+-        let cx = asupersync::Cx::detached_cancel_context();
+-        let steps = u64::try_from(RuntimeBudget::default().max_eval_steps).expect("valid u64");
+-        let limits = BudgetLimits::uniform(steps, 0);
+-        let mut region = FsymCx::new(&cx, Budget::new(limits), limits);
+-
+-        expand_with(&self.inner, &mut region)
+-            .map(PyExpr::from_expr)
+-            .map_err(|e| PyValueError::new_err(e.to_string()))
+-    }
+-
+     /// Evaluate expression to floating point number.
+     pub fn evalf(&self) -> PyResult<f64> {
+         self.inner
