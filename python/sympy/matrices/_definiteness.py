@@ -1,9 +1,10 @@
-"""Exact rational inertia and conservative symbolic definiteness properties.
+"""Exact rational/complex inertia and conservative symbolic definiteness.
 
-Rational forms use independent native block-LDL verification. Other admitted
-closed scalar expressions use their Hermitian part: diagonal and 2x2 tests
-are exact, while an unresolved larger form remains unknown. No principal-minor
-power set or floating-point sign guess participates in this implementation.
+Rational forms use independent native block-LDL verification. Defined Q(i)
+forms through dimension 32 use an independently checked realification of the
+original matrix, including its skew-Hermitian part. Other admitted scalar
+expressions retain their tri-valued symbolic rules. No principal-minor power
+set or floating-point sign guess participates in this implementation.
 """
 
 from ..core import (
@@ -50,12 +51,27 @@ _NATIVE_METHODS = {
                 ("shape", "is_exact_rational", "validate_rational_inertia_source", "quadratic_form_inertia"))
     for base, native in _NATIVE.items()
 }
+_HERMITIAN_NAMES = ("validate_hermitian_inertia_source", "hermitian_form_inertia")
+_HERMITIAN_METHODS = {
+    base: tuple(_DICT.__get__(native)[name] for name in _HERMITIAN_NAMES)
+    for base, native in _NATIVE.items()
+}
+_NATIVE_CELLS = {
+    Matrix: ("flat", _DICT.__get__(_NATIVE[Matrix])["flat"]),
+    SparseMatrix: ("todok", _DICT.__get__(_NATIVE[SparseMatrix])["todok"]),
+}
+_SCALAR_NATIVE_NAMES = ("raw_args", "is_integer", "is_rational", "is_add", "is_mul", "is_pow")
+_SCALAR_NATIVE = tuple(_DICT.__get__(_NATIVE_EXPR)[name] for name in _SCALAR_NATIVE_NAMES)
+_NATIVE_ZERO = _SCALAR_SLOTS[0].__get__(Zero(), Basic)
 _UNKNOWN = (None,) * 5
 
 
 def _interfaces():
     if _reduction_binding(_NATIVE_EXPR, "__eq__") is not _NATIVE_EQUAL:
         raise NotImplementedError("matrix definiteness requires original native scalar equality")
+    if any(_DICT.__get__(_NATIVE_EXPR).get(name) is not descriptor
+           for name, descriptor in zip(_SCALAR_NATIVE_NAMES, _SCALAR_NATIVE)):
+        raise NotImplementedError("matrix definiteness requires original native scalar interfaces")
     if any(_reduction_binding(cls, "_assumptions") is not _DECLARATIONS
            for cls in (Symbol, Dummy)):
         raise NotImplementedError("matrix definiteness requires original symbol declarations")
@@ -78,6 +94,10 @@ def _interfaces():
         for name, method in zip(
                 ("shape", "is_exact_rational", "validate_rational_inertia_source", "quadratic_form_inertia"),
                 _NATIVE_METHODS[base]):
+            if namespace.get(name) is not method:
+                raise NotImplementedError("matrix definiteness requires original native interfaces")
+        for name, method in (*zip(_HERMITIAN_NAMES, _HERMITIAN_METHODS[base]),
+                             _NATIVE_CELLS[base]):
             if namespace.get(name) is not method:
                 raise NotImplementedError("matrix definiteness requires original native interfaces")
 
@@ -148,6 +168,20 @@ def _closed(entries):
         children = _least_squares_stored_children(value)
         if children is None:
             children = _children(value)
+        # A scalar can carry more than one retained argument slot. Inspect
+        # every present tuple, including one hidden behind another slot's
+        # lookup precedence, before granting a native mathematical result.
+        retained = []
+        for candidate in stored[1:]:
+            if candidate is not None:
+                if type(candidate) is not tuple:
+                    raise ValueError("matrix definiteness requires exact retained argument tuples")
+                if not any(candidate is previous for previous in retained):
+                    retained.append(candidate)
+        if retained:
+            if sum(map(len, retained)) > 4096 - count - len(pending):
+                raise ValueError("symbolic definiteness source exceeds its expression envelope")
+            children = tuple(child for candidate in retained for child in candidate)
         if children is not None:
             if type(children) is not tuple or count + len(pending) + len(children) > 4096:
                 raise ValueError("symbolic definiteness source exceeds its expression envelope")
@@ -167,6 +201,69 @@ def _all(values):
     if all(value is True for value in values):
         return True
     return None
+
+
+def _bind_gaussian(native, base, retained, scalars):
+    """Bind every retained cell and child before native exact publication.
+
+    Admission has already bounded the borrowed native graph. Checking only the
+    root `_value` would miss a changed nested child or held argument tuple.
+    Compare retained children directly with raw native children; no evaluation,
+    reconstruction, printing or custom scalar callback is needed.
+    """
+    _charge_nested_if_active(len(retained) + len(scalars) + 1)
+    entries = _NATIVE_CELLS[base][1](native)
+    cells = enumerate(retained) if base is Matrix else dict.items(retained)
+    for coordinate, entry in cells:
+        value = _slot(_SCALAR_SLOTS[0], entry)
+        expected = entries[coordinate] if base is Matrix else entries.get(coordinate, _NATIVE_ZERO)
+        if type(value) is not _NATIVE_EXPR or _NATIVE_EQUAL(value, expected) is not True:
+            raise RuntimeError("Matrix retained cells differ from the native Hermitian source")
+    if base is SparseMatrix and any(coordinate not in retained for coordinate in entries):
+        raise RuntimeError("Matrix retained cells differ from the native Hermitian source")
+    raw_args, integer, rational, add, mul, power = _SCALAR_NATIVE
+    kinds = {Add: add, Mul: mul, Pow: power}
+    for scalar, _slots, stored, _declared, _facts in scalars:
+        value = stored[0]
+        if type(value) is not _NATIVE_EXPR:
+            raise RuntimeError("Matrix retained scalar has no native Hermitian source")
+        if any(type(scalar) is atom for atom in _ATOMS):
+            if not (integer.__get__(value, _NATIVE_EXPR) or rational.__get__(value, _NATIVE_EXPR)):
+                raise RuntimeError("Matrix retained atom differs from its native Hermitian source")
+        elif type(scalar) is _IMAGINARY_TYPE:
+            if _NATIVE_EQUAL(value, _IMAGINARY_VALUE) is not True:
+                raise RuntimeError("Matrix retained imaginary unit differs from its native source")
+        else:
+            kind = kinds.get(type(scalar))
+            if kind is None or kind.__get__(value, _NATIVE_EXPR) is not True:
+                raise RuntimeError("Matrix retained scalar kind differs from its native Hermitian source")
+        for children in stored[1:]:
+            if children is None:
+                continue
+            expected = raw_args(value)
+            if len(children) != len(expected):
+                raise RuntimeError("Matrix retained arguments differ from the native Hermitian source")
+            for child, original in zip(children, expected):
+                child_value = _slot(_SCALAR_SLOTS[0], child)
+                if (type(child_value) is not _NATIVE_EXPR
+                        or _NATIVE_EQUAL(child_value, original) is not True):
+                    raise RuntimeError("Matrix retained arguments differ from the native Hermitian source")
+
+
+def _gaussian_result(matrix, base, state, retained, scalars, session):
+    _unchanged(matrix, base, state, retained, scalars)
+    result = _HERMITIAN_METHODS[base][1](state[0], session=session)
+    _unchanged(matrix, base, state, retained, scalars)
+    if (type(result) is not tuple or len(result) != 3
+            or any(type(count) is not int or count < 0 for count in result)
+            or sum(result) != state[1][0]):
+        raise RuntimeError("matrix definiteness received incomplete Hermitian inertia")
+    positive, negative, _zero = result
+    dimension = state[1][0]
+    _charge_nested_if_active()
+    return (positive == dimension, negative == 0,
+            negative == dimension, positive == 0,
+            positive > 0 and negative > 0)
 
 
 def _symbolic(cells, n):
@@ -255,9 +352,28 @@ def classify(matrix):
                     raise RuntimeError("matrix definiteness received incomplete inertia")
                 _charge_nested_if_active()
                 return positive == rows, negative == 0, negative == rows, positive == 0, positive > 0 and negative > 0
+    # This is admission before generation, not a retry after failed algebra.
+    # Source parsing checks original nested domains and charges the same active
+    # session. Only the two explicit source-admission refusals select the
+    # symbolic/unknown route; budget, cancellation, coefficient and arithmetic
+    # failures remain terminal, as does every failure after generation starts.
+    gaussian = False
+    if native is not None and rows <= 32:
+        try:
+            admitted = _HERMITIAN_METHODS[base][0](native, session=session)
+        except (NotImplementedError, ZeroDivisionError) as error:
+            if type(error) not in (NotImplementedError, ZeroDivisionError):
+                raise
+        else:
+            if admitted is not None:
+                raise RuntimeError("matrix definiteness received invalid Hermitian source admission")
+            gaussian = True
+        _unchanged(matrix, base, state, surface)
+        if gaussian and surface is None:
+            return _gaussian_result(matrix, base, state, None, (), session)
     # Symbolic expressions remain shell-owned and retain tri-valued assumptions.
     # Native-only unknown expressions are not reconstructed from printed text.
-    if rows > 8 or surface is None:
+    if rows > 8 and not gaussian or surface is None:
         return _UNKNOWN
     if base is Matrix:
         if type(surface) is not tuple or len(surface) != rows*rows:
@@ -277,6 +393,9 @@ def classify(matrix):
     if scalars is None:
         _unchanged(matrix, base, state, retained)
         return _UNKNOWN
+    if gaussian:
+        _bind_gaussian(native, base, retained, scalars)
+        return _gaussian_result(matrix, base, state, retained, scalars, session)
     from ..solvers._checksol import _Work, _check_with_work
 
     work = _Work()
