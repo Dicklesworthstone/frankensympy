@@ -7,7 +7,7 @@
 
 use super::{
     CERTIFICATION_REQUEST_SCHEMA, CertificationRequest, CertificationResponse,
-    CertificationSessionError, ExactInterval, ExactRootWitness, MAX_AXES,
+    CertificationSessionError, CompiledRootSolveOptions, ExactInterval, ExactRootWitness, MAX_AXES,
     MAX_SESSION_ROOT_ARTIFACT_BYTES, admit_response, certification_error_code, charge,
     parse_domain, parse_witness, render_domain, render_hessian, render_scalar, valid_label,
 };
@@ -16,7 +16,9 @@ pub use crate::parametric::ParametricFamilyReceipt;
 use crate::parametric::{ParametricError, ParametricProblem};
 use crate::parametric_transport::{export_parametric_family, replay_parametric_family};
 use fsym_budget::{Budget, BudgetError, BudgetMeter, MeterError, VerifierLease};
+use fsym_calculus::VerifiedResidualSystem;
 use fsym_calculus::parametric_cover::ParametricRootCoverOptions;
+use fsym_calculus::program_artifact::check_program_source_binding;
 use fsym_core::{
     ParametricRootBoxWitness, ParametricRootCoverError, ParametricSensitivityReceipt, RootBoxError,
 };
@@ -138,6 +140,20 @@ pub(super) struct FamilyReplay {
     pub(super) parameter_domain: Vec<ExactInterval>,
 }
 
+/// A registered receiver statement and a compiled numerical proposal source.
+/// Exact binding is checked before any proposal work; neither object can
+/// choose a different source, coordinate role or parameter domain at replay.
+pub(super) struct CompiledFamilyRequest<'a> {
+    pub(super) problem: ParametricProblemId,
+    pub(super) family: ParametricFamilyId,
+    pub(super) program: &'a VerifiedResidualSystem,
+    pub(super) initial: &'a [String],
+    pub(super) parameter_domain: &'a [ExactInterval],
+    pub(super) options: &'a CompiledRootSolveOptions,
+    pub(super) radii: &'a [String],
+    pub(super) precision_digits: u32,
+}
+
 #[derive(Default)]
 pub(super) struct ParametricState {
     problems: BTreeMap<ParametricProblemId, ParametricProblem>,
@@ -205,6 +221,53 @@ impl ParametricState {
             request.problem,
             request.family,
             receipt,
+            context_digest,
+            budget,
+        )
+    }
+
+    /// A midpoint solve generates only a witness. The independent checker
+    /// uses the original registered problem and complete exact parameter box,
+    /// with its own protected allowance before atomic family publication.
+    pub(super) fn certify_compiled(
+        &mut self,
+        request: CompiledFamilyRequest<'_>,
+        context_digest: [u8; 32],
+        budget: &mut Budget,
+        lease: Option<&VerifierLease>,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        self.admit_family(&request.family, budget)?;
+        let source = self
+            .problems
+            .get(&request.problem)
+            .ok_or(CertificationSessionError::UnknownParametricProblem)?;
+        let lease = lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+        check_program_source_binding(
+            source.residuals(),
+            source.variables(),
+            request.program.residuals(),
+            request.program.vars(),
+            budget,
+        )?;
+        let parameter_domain =
+            parse_domain(request.parameter_domain, source.parameters().len(), budget)?;
+        let witness = super::compiled_solvers::propose_parametric_witness(
+            request.program,
+            request.initial,
+            &parameter_domain,
+            request.options,
+            request.radii,
+            request.precision_digits,
+            budget,
+        )?;
+        let receipt = source.verify_root_box(
+            &witness,
+            &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+        )?;
+        self.publish_family(
+            request.problem,
+            request.family,
+            ParametricFamilyReceipt::RootBox(receipt),
             context_digest,
             budget,
         )

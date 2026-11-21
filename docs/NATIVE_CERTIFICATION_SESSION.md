@@ -740,6 +740,52 @@ The candidate retains the exact native program owner and its frozen typed
 coordinate order. Legacy and portable program replay retain this method;
 replay still independently admits the original program.
 
+### Solve and certify a complete parameter range
+
+`SolveAndCertifyCompiledParametricSystem` combines the numerical proposal
+with the existing independent parameter-family checker. Register the exact
+same original source and ordered coordinate roles as a `ParametricProblem`,
+then supply an exact parameter box and explicit positive radii for the unknowns:
+
+```json
+{"id":"family-source","type":"RegisterResidualSystem","payload":{"schema_version":1,"system":"system:family-solve","residuals":["2*x-p"],"variables":["x","p"]}}
+{"id":"family-program","type":"CompileResidualSystem","payload":{"schema_version":1,"system":"system:family-solve","program":"program:family-solve"}}
+{"id":"family-statement","type":"RegisterParametricProblem","payload":{"schema_version":1,"problem":"parametric:family-solve","residuals":["2*x-p"],"unknowns":["x"],"parameters":["p"]}}
+{"id":"family-solve","type":"SolveAndCertifyCompiledParametricSystem","payload":{"schema_version":1,"program":"program:family-solve","problem":"parametric:family-solve","family":"family:solved","initial":["0"],"parameter_domain":[{"lower":"3/2","upper":"5/2"}],"radii":["1/2"],"precision_digits":24}}
+{"id":"family-sensitivity","type":"EncloseParametricSensitivity","payload":{"schema_version":1,"family":"family:solved","sensitivity":"sensitivity:solved"}}
+```
+
+The accepted `parametric_family_certified` response proves that for every
+`p` in `[3/2, 5/2]`, exactly one nonsingular unknown root lies in the declared
+unknown box `[1/2, 3/2]`. The checked root enclosure is `[3/4, 5/4]`;
+the sensitivity request independently returns `dx/dp = [1/2, 1/2]`.
+The resulting family supports the existing export, replay and sensitivity APIs.
+
+The driver solves at a binary64 approximation of the exact parameter midpoint.
+That numerical point and the donor inverse supply only an untrusted witness.
+The full original parameter box, including exact point intervals such as
+`[1/10, 1/10]`, is retained unchanged for protected verification. The checker
+recomputes source values and derivatives across the entire product domain.
+A successful midpoint solve cannot establish a family whose roots leave the
+unknown box, whose source has a pole elsewhere in the parameter range, or
+whose unknown Jacobian cannot be certified nonsingular.
+
+Source and typed-coordinate binding, context identity, domain parsing and
+control validation precede verification. Proposal work uses ordinary resources;
+acceptance uses the same ledger's protected verifier pool. Only a complete
+check and successful response admission publish the family. Refusal leaves the
+requested family label available. This operation proposes one box, does not
+widen the caller's radii, and does not invoke adaptive cover search. Use
+`CertifyParametricCover` separately when one uniform box cannot certify a
+larger parameter range.
+
+Python exposes the corresponding
+`program.solve_parametric_certified(initial, parameter_box,
+unknown_radii=..., precision=32, budget=...)` method. It captures exact
+bounds and checks source eligibility before the numerical solve, retains one
+cumulative ledger through solving and checking, and returns the existing
+`ParametricRootBoxReceipt` only after independent original-source acceptance.
+
 ### Solve and certify an exact root box
 
 `SolveAndCertifyCompiledResidualSystem` composes numerical refinement with

@@ -179,7 +179,7 @@ jobs:
       - name: Native feature regressions
         run: |
           cargo test --locked -p fsym-calculus --test program_artifact --test program_artifact_legacy --test program_admission --test program_context_transport -j1
-          cargo test --locked -p frankensympy --test compiled_program_transport --test compiled_program_cli --test compiled_artifacts --test compiled_residual_session --test compiled_residual_products --test compiled_objective_session --test compiled_objective_certification --test compiled_solver_session --test compiled_solver_cli --test compiled_root_certification -j1
+          cargo test --locked -p frankensympy --test compiled_program_transport --test compiled_program_cli --test compiled_artifacts --test compiled_residual_session --test compiled_residual_products --test compiled_objective_session --test compiled_objective_certification --test compiled_solver_session --test compiled_solver_cli --test compiled_root_certification --test compiled_parametric_session --test compiled_parametric_certification -j1
           cargo test --locked -p frankensympy --test real_solver_session --test real_constraints_session --test real_polynomial_session -j1
           cargo test --locked -p frankensympy --lib certification_session::real_solver::tests -j1
           cargo test --locked -p frankensympy --lib certification_session::polynomial_solver::tests -j1
@@ -228,7 +228,7 @@ jobs:
           cargo test --locked -p fsym-calculus --lib fourier::tests -j1
           cargo test --locked -p fsym-calculus --test exponential_summation --test geometric_summation --test rational_summation -j1
           cargo test --locked -p fsym-calculus -p fsym-proof-kernel --test rational_product --test rational_product_modular -j1
-          cargo test --locked -p fsym-calculus --test square_root_programs -j1
+          cargo test --locked -p fsym-calculus --test square_root_programs --test smooth_source_domains -j1
           cargo test --locked -p fsym-solvers --test linear_ode_system --test polynomial_ode_system --test general_ode_system --test forced_ode_system --test forced_scalar_ode --test exact_ode --test ode_radicals --test bernoulli -j1
           cargo test --locked -p fsym-solvers --test linear_pde --test linear_pde_elementary -j1
           cargo test --locked -p fsym-calculus --test general_power_programs --test directional_series --test branch_cut_series --test generalized_series --test complex_modulus_series --test series_coefficient_obligations --test inverse_branch_series -j1
@@ -586,6 +586,7 @@ jobs:
               "python/tests/test_closed_numeric_source_admission.py",
               "python/tests/test_numeric_donor_consumers.py",
               "python/tests/test_parametric_root_candidate.py",
+              "python/tests/test_parametric_solve_certified.py",
               "python/tests/test_analytic_donor_backend.py",
               "python/tests/test_least_squares_consumer.py",
               "python/tests/test_sparse_least_squares_consumer.py",

@@ -1278,7 +1278,12 @@ fn source_lists_match<M: BudgetMeter + ?Sized>(
     Ok(true)
 }
 
-fn bind_sources<M: BudgetMeter + ?Sized>(
+/// Check exact original-source and ordered typed-coordinate binding under one
+/// meter. Held operand order, scalar variants and symbol identities remain
+/// significant. Both borrowed source envelopes are bounded before comparison.
+/// This checks only source identity; it does not admit derivative evidence,
+/// prove a domain, or grant a numerical or mathematical certificate.
+pub fn check_program_source_binding<M: BudgetMeter + ?Sized>(
     expected_sources: &[Expr],
     expected_variables: &[Symbol],
     candidate_sources: &[Expr],
@@ -1365,7 +1370,7 @@ pub fn admit_residual_candidate<M: BudgetMeter + ?Sized>(
     candidate: SparseJacobian,
     meter: &mut M,
 ) -> Result<VerifiedResidualSystem, ProgramAdmissionError> {
-    bind_sources(
+    check_program_source_binding(
         residuals,
         variables,
         &candidate.residuals,
@@ -1392,7 +1397,7 @@ pub fn admit_objective_candidate<M: BudgetMeter + ?Sized>(
     candidate: ObjectiveCandidate,
     meter: &mut M,
 ) -> Result<VerifiedObjective, ProgramAdmissionError> {
-    bind_sources(
+    check_program_source_binding(
         std::slice::from_ref(source),
         variables,
         &candidate.gradient.residuals,

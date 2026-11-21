@@ -547,6 +547,22 @@ pub enum CertificationRequest {
         #[serde(default)]
         options: CompiledRootSolveOptions,
     },
+    /// Solve at the exact parameter box's midpoint, then independently check
+    /// one unique unknown root for every value in that complete box. The
+    /// registered problem must bind the same original sources and typed axes
+    /// as the compiled program. Explicit positive unknown radii never widen.
+    SolveAndCertifyCompiledParametricSystem {
+        schema_version: u32,
+        program: CompiledResidualSystemId,
+        problem: ParametricProblemId,
+        family: ParametricFamilyId,
+        initial: Vec<String>,
+        parameter_domain: Vec<ExactInterval>,
+        #[serde(default)]
+        options: CompiledRootSolveOptions,
+        radii: Vec<String>,
+        precision_digits: u32,
+    },
     /// Propose a numerical root, then independently check its original sources
     /// on an exact box. Positive decimal/rational radii and precision are explicit;
     /// no widening or backend fallback occurs. Only a successful protected check
@@ -990,6 +1006,7 @@ impl CertificationRequest {
             | Self::EvaluateJacobianTransposeVectorProduct { schema_version, .. }
             | Self::SolveCompiledResidualSystem { schema_version, .. }
             | Self::SolveCompiledParametricSystem { schema_version, .. }
+            | Self::SolveAndCertifyCompiledParametricSystem { schema_version, .. }
             | Self::SolveAndCertifyCompiledResidualSystem { schema_version, .. }
             | Self::SolveCompiledLeastSquares { schema_version, .. }
             | Self::ReleaseCompiledResidualSystem { schema_version, .. }
@@ -3292,6 +3309,44 @@ impl CertificationState {
             } => self
                 .compiled
                 .solve_parametric(program, &initial, &parameters, &options, budget),
+            CertificationRequest::SolveAndCertifyCompiledParametricSystem {
+                program,
+                problem,
+                family,
+                initial,
+                parameter_domain,
+                options,
+                radii,
+                precision_digits,
+                ..
+            } => {
+                let (_, frozen_context, compiled) = self
+                    .compiled
+                    .source_record(&program)
+                    .ok_or(CertificationSessionError::UnknownCompiledSystem)?;
+                if frozen_context != context_digest {
+                    return Err(CertificationError::UniverseMismatch {
+                        found: frozen_context,
+                        expected: context_digest,
+                    }
+                    .into());
+                }
+                self.parametric.certify_compiled(
+                    parametric::CompiledFamilyRequest {
+                        problem,
+                        family,
+                        program: compiled,
+                        initial: &initial,
+                        parameter_domain: &parameter_domain,
+                        options: &options,
+                        radii: &radii,
+                        precision_digits,
+                    },
+                    context_digest,
+                    budget,
+                    lease,
+                )
+            }
             CertificationRequest::SolveAndCertifyCompiledResidualSystem {
                 program,
                 certificate,
@@ -5073,6 +5128,113 @@ mod compiled_objective_tests {
             .unwrap_err();
         assert_eq!(error.code(), "budget_exhausted");
         assert!(state.stationary_points.is_empty());
+        assert_eq!(budget.verifier_remaining(), protected);
+        assert_eq!(unrelated.verifier_remaining(), 1 << 40);
+    }
+}
+
+#[cfg(test)]
+mod compiled_parametric_tests {
+    use super::*;
+
+    fn compiled_state() -> (
+        CertificationState,
+        Budget,
+        VerifierLease,
+        CertificationRequest,
+    ) {
+        let mut state = CertificationState::default();
+        let mut budget = Budget::new(fsym_budget::BudgetLimits::uniform(1 << 40, 1 << 40));
+        let lease = budget.verifier_lease().unwrap();
+        let system = ResidualSystemId::new("system:parameter-context").unwrap();
+        let program = CompiledResidualSystemId::new("program:parameter-context").unwrap();
+        let problem = ParametricProblemId::new("parametric:parameter-context").unwrap();
+        for request in [
+            CertificationRequest::RegisterResidualSystem {
+                schema_version: 1,
+                system: system.clone(),
+                residuals: vec!["2*x-p".into()],
+                variables: vec!["x".into(), "p".into()],
+            },
+            CertificationRequest::CompileResidualSystem {
+                schema_version: 1,
+                system,
+                program: program.clone(),
+            },
+            CertificationRequest::RegisterParametricProblem {
+                schema_version: 1,
+                problem: problem.clone(),
+                residuals: vec!["2*x-p".into()],
+                unknowns: vec!["x".into()],
+                parameters: vec!["p".into()],
+            },
+        ] {
+            state
+                .handle(request, [1; 32], &mut budget, Some(&lease))
+                .unwrap();
+        }
+        let request = CertificationRequest::SolveAndCertifyCompiledParametricSystem {
+            schema_version: 1,
+            program,
+            problem,
+            family: ParametricFamilyId::new("family:parameter-context").unwrap(),
+            initial: vec!["0".into()],
+            parameter_domain: vec![ExactInterval {
+                lower: "3/2".into(),
+                upper: "5/2".into(),
+            }],
+            options: CompiledRootSolveOptions::default(),
+            radii: vec!["1/2".into()],
+            precision_digits: 24,
+        };
+        (state, budget, lease, request)
+    }
+
+    fn assert_no_family(state: &CertificationState) {
+        assert!(
+            state
+                .parametric
+                .family(&ParametricFamilyId::new("family:parameter-context").unwrap())
+                .is_none()
+        );
+        assert!(
+            state
+                .compiled
+                .source_record(&CompiledResidualSystemId::new("program:parameter-context").unwrap())
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn parameter_family_certification_rejects_a_rebound_context_before_work() {
+        let (mut state, mut budget, lease, request) = compiled_state();
+        let before = budget.snapshot();
+        let error = state
+            .handle(request, [2; 32], &mut budget, Some(&lease))
+            .unwrap_err();
+        assert_eq!(error.code(), "universe_mismatch");
+        assert_no_family(&state);
+        assert_eq!(budget.snapshot(), before);
+    }
+
+    #[test]
+    fn parameter_family_requires_authority_from_its_own_ledger() {
+        let (mut state, mut budget, _, request) = compiled_state();
+        let protected = budget.verifier_remaining();
+        let error = state
+            .handle(request.clone(), [1; 32], &mut budget, None)
+            .unwrap_err();
+        assert_eq!(error.code(), "budget_exhausted");
+        assert_no_family(&state);
+        assert_eq!(budget.verifier_remaining(), protected);
+
+        let mut unrelated = Budget::new(fsym_budget::BudgetLimits::uniform(1 << 40, 1 << 40));
+        let foreign = unrelated.verifier_lease().unwrap();
+        let error = state
+            .handle(request, [1; 32], &mut budget, Some(&foreign))
+            .unwrap_err();
+        assert_eq!(error.code(), "budget_exhausted");
+        assert_no_family(&state);
         assert_eq!(budget.verifier_remaining(), protected);
         assert_eq!(unrelated.verifier_remaining(), 1 << 40);
     }

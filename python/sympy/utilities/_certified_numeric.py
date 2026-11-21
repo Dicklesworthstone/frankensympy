@@ -290,14 +290,11 @@ def root_search_options(precision, max_attempts):
         raise ValueError("certified root search max_attempts must be an integer from 1 through 24")
 
 
-def prepare_root_search(program, precision, max_attempts):
-    """Reject static certificate ineligibility before candidate iteration."""
-    root_search_options(precision, max_attempts)
-    columns, rows = program.native_system.variable_count, program.native_system.residual_count
-    if not 1 <= columns <= _MAX_VARIABLES or rows != columns:
-        raise ValueError("certified root search requires a square system with 1..16 variables")
+def _prepare_root_source(program):
+    """Reject exact-source and captured-assumption ineligibility before solving."""
     if program._has_inexact_source:
         raise ValueError("certified methods require exact source literals; replace Float with explicit Rational")
+    columns = program.native_system.variable_count
     if program._assumptions is None or len(program._assumptions) != columns:
         raise ValueError("certified boxes require bounded Boolean assumptions matching captured symbol bindings")
     supported = {
@@ -309,6 +306,15 @@ def prepare_root_search(program, precision, max_attempts):
     for facts in program._assumptions:
         if any(key not in supported for key, _ in facts):
             raise NotImplementedError("certified real boxes do not support one or more declared symbol assumptions")
+
+
+def prepare_root_search(program, precision, max_attempts):
+    """Reject static certificate ineligibility before candidate iteration."""
+    root_search_options(precision, max_attempts)
+    columns, rows = program.native_system.variable_count, program.native_system.residual_count
+    if not 1 <= columns <= _MAX_VARIABLES or rows != columns:
+        raise ValueError("certified root search requires a square system with 1..16 variables")
+    _prepare_root_source(program)
 
 
 def search_root_box(program, candidate, precision, max_attempts, *, budget=None):

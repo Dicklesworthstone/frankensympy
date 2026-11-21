@@ -11,7 +11,7 @@ use super::compiled_objective;
 use super::{CertificationSessionError, charge, parse_scalar};
 use fsym_budget::{Budget, BudgetMeter};
 use fsym_calculus::{VerifiedObjective, VerifiedResidualSystem};
-use fsym_core::{BigRational, RootBoxWitness};
+use fsym_core::{BigRational, ParametricRootBoxWitness, RealBall, RootBoxWitness};
 use fsym_numeric_consumer::{
     LeastSquaresOptions, LeastSquaresProposal, MAX_CONSUMER_NEWTON_ITERATIONS,
     MAX_CONSUMER_VARIABLES, MAX_LEAST_SQUARES_RESIDUALS, MAX_MINIMIZE_ITERATIONS,
@@ -20,7 +20,8 @@ use fsym_numeric_consumer::{
     ObjectiveConsumerError, RootProposal, SystemConsumerError,
     frankenscipy_analytic_system_with_meter, frankenscipy_fsolve_system_with_meter,
     least_squares_with_meter, minimize_with_meter, newton_refine_parametric_with_meter,
-    newton_refine_with_meter, propose_root_box_with_meter, propose_stationary_box_with_meter,
+    newton_refine_with_meter, propose_parametric_root_box_with_meter,
+    propose_root_box_with_meter, propose_stationary_box_with_meter,
     sparse_least_squares_with_meter, sparse_newton_refine_with_meter,
 };
 use serde::{Deserialize, Serialize};
@@ -235,6 +236,81 @@ pub(super) fn solve_parametric_root(
         newton_refine_parametric_with_meter(system, &initial, &parameters, &guards, budget)?;
     budget.checkpoint()?;
     Ok((proposal, parameters))
+}
+
+/// Solve at the parameter midpoint and propose one exact uniform witness.
+/// The midpoint is only a numerical aid: the full exact parameter domain is
+/// retained for the caller's protected independent original-source check.
+pub(super) fn propose_parametric_witness(
+    system: &VerifiedResidualSystem,
+    initial: &[String],
+    parameter_domain: &[RealBall],
+    options: &CompiledRootSolveOptions,
+    radii: &[String],
+    precision_digits: u32,
+    budget: &mut Budget,
+) -> Result<ParametricRootBoxWitness, CertificationSessionError> {
+    budget.checkpoint()?;
+    let unknowns = system.num_residuals();
+    let total = system.num_vars();
+    if unknowns == 0 || unknowns >= total || total > MAX_CONSUMER_VARIABLES {
+        return Err(SystemConsumerError::InvalidRequest(
+            "parametric roots require one unknown per residual, at least one parameter, and at most 16 total variables",
+        )
+        .into());
+    }
+    if radii.len() != unknowns || parameter_domain.len() != total - unknowns {
+        return Err(CertificationSessionError::InvalidDomain);
+    }
+    if !(8..=fsym_core::MAX_ROOT_BOX_PRECISION).contains(&precision_digits) {
+        return Err(SystemConsumerError::InvalidRequest("precision must be 8..=128").into());
+    }
+    let guards = root_controls(options, budget)?;
+    charge(
+        budget,
+        unknowns,
+        unknowns * std::mem::size_of::<BigRational>(),
+    )?;
+    let mut exact_radii = Vec::new();
+    exact_radii
+        .try_reserve_exact(unknowns)
+        .map_err(|_| crate::certification::CertificationError::AllocationFailure)?;
+    for radius in radii {
+        let radius = parse_scalar(radius, budget)?;
+        if radius.numer().is_negative() || radius.numer().is_zero() {
+            return Err(SystemConsumerError::InvalidRequest("radii must be positive").into());
+        }
+        exact_radii.push(radius);
+    }
+    charge(
+        budget,
+        parameter_domain.len(),
+        std::mem::size_of_val(parameter_domain),
+    )?;
+    let mut parameters = Vec::new();
+    parameters
+        .try_reserve_exact(parameter_domain.len())
+        .map_err(|_| crate::certification::CertificationError::AllocationFailure)?;
+    for interval in parameter_domain {
+        let value = interval
+            .midpoint()
+            .metered_to_f64(budget)?
+            .filter(|value| value.is_finite())
+            .ok_or(CertificationSessionError::InvalidNumericPoint)?;
+        parameters.push(value);
+    }
+    let initial = numeric_values(initial, unknowns, "initial unknowns", budget)?;
+    let proposal =
+        newton_refine_parametric_with_meter(system, &initial, &parameters, &guards, budget)?;
+    Ok(propose_parametric_root_box_with_meter(
+        system,
+        &proposal.root,
+        &parameters,
+        &exact_radii,
+        parameter_domain,
+        precision_digits,
+        budget,
+    )?)
 }
 
 fn root_controls(

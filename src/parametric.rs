@@ -170,6 +170,11 @@ impl ParametricProblem {
         &self.source.variables()[self.unknown_count..]
     }
 
+    /// All captured typed coordinates, unknowns followed by parameters.
+    pub fn variables(&self) -> &[Symbol] {
+        self.source.variables()
+    }
+
     /// Independently certify one nonsingular unknown root for every parameter.
     ///
     /// The unknown box requires strict interior inclusion; fixed parameter

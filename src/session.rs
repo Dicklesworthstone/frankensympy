@@ -1139,6 +1139,7 @@ impl Session {
                     | "EvaluateJacobianTransposeVectorProduct"
                     | "SolveCompiledResidualSystem"
                     | "SolveCompiledParametricSystem"
+                    | "SolveAndCertifyCompiledParametricSystem"
                     | "SolveAndCertifyCompiledResidualSystem"
                     | "SolveCompiledLeastSquares"
                     | "ReleaseCompiledResidualSystem"

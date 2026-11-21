@@ -1148,6 +1148,49 @@ class _ResidualCallable:
         _check_evaluation_budget(budget)
         return result
 
+    def solve_parametric_certified(
+            self, initial, parameter_box, *, unknown_radii, tol=None, maxiter=None,
+            max_step_norm=None, precision=32, budget=None):
+        """Solve at the parameter midpoint and certify the entire exact family.
+
+        The first m variables for m residuals are unknowns; the remaining
+        variables are parameters, with 1 <= m < total variables <= 16.
+        parameter_box is a flat list/tuple of exact rational bound pairs in
+        parameter order. Point intervals are allowed and retained exactly.
+        unknown_radii supplies one positive exact rational radius per unknown
+        as a flat list/tuple. Neither box is silently widened or retried.
+
+        The pinned FrankenNumPy solver proposes an unknown point at the
+        binary64 approximation of the exact parameter midpoint. Its controls
+        and initial argument follow solve_parametric_candidate. Each proposed
+        unknown is converted exactly from binary64, and the caller's radii
+        form one closed box around that center. The original-source verifier
+        checks this entire unknown box against the unchanged exact parameter
+        box, using an independently proposed exact inverse preconditioner.
+        Captured typed assumptions must hold throughout the final boxes;
+        they are not imposed on the initial numerical guess.
+
+        Only an accepted ParametricRootBoxReceipt is returned. It certifies
+        one unique nonsingular unknown root for every parameter value in the
+        declared box and can independently enclose parameter sensitivities.
+        It gives no exact symbolic solution function or requested coordinate
+        accuracy guarantee. RootSearchError distinguishes numerical proposal
+        failure from rejection of the single certificate; neither returns a
+        floating candidate. Cancellation, allocation and resource exceptions
+        keep their operational types.
+
+        One supplied EvaluationBudget, or one bounded private ledger when
+        omitted, covers exact input preparation, midpoint conversion, numeric
+        solving, independent full-family verification and final publication.
+        Floating source literals, unsupported captured assumptions, malformed
+        exact boxes and invalid radii refuse before numerical iteration.
+        """
+        from ._parametric_root import solve_parametric_certified
+        return solve_parametric_certified(
+            self, initial, parameter_box, unknown_radii, tol, maxiter,
+            max_step_norm, precision, budget=budget,
+        )
+
     def solve_least_squares(self, initial, *, backend="dense", gtol=None, maxiter=None,
                            max_step_norm=None, budget=None):
         """Find an approximate stationary point of the full least-squares cost.

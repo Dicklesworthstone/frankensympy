@@ -1,0 +1,465 @@
+{
+  "schema_version": 1,
+  "client_date": "2026-11-20",
+  "repository": "Dicklesworthstone/frankensympy",
+  "purpose": "Record implemented fixed-parameter proposal and uniform-family certification paths without upgrading partial or failed checks into full-workspace evidence.",
+  "publication": {
+    "branch": "main",
+    "pull_requests_created": 0,
+    "previous_checkpoints": [
+      {
+        "sha": "7b2dd56cc7a491aa0d34be9cc73752ee3d535aeb",
+        "feature": "Native fixed-parameter Newton proposals"
+      },
+      {
+        "sha": "c53efaabfc78dc56b7baa5d47634db27f9cfdb39",
+        "feature": "Original common smooth-domain evaluation and trial backtracking"
+      },
+      {
+        "sha": "75cb09f0985e0853ea1a2a587cd749c9cfeffcde",
+        "feature": "Source-bound Python and native Session fixed-parameter proposal APIs"
+      },
+      {
+        "sha": "66084ad279142b79daa20a58f181743872e1f3e4",
+        "feature": "Numeric literal identity-power derivatives; corrected domain/legacy-proof regressions"
+      }
+    ],
+    "included_in_this_checkpoint": [
+      "propose_parametric_root_box_with_meter: exact binary64 unknown center and inverse proposal, exact caller radii and full parameter domain",
+      "compile_residual_system(...).solve_parametric_certified: one shared ledger, exact input snapshot, static source eligibility, midpoint numerical proposal and independent full-family verification",
+      "SolveAndCertifyCompiledParametricSystem: receiver-owned registered problem, exact held-source and typed-axis binding, frozen context, protected independent verification, atomic family publication",
+      "Existing accepted parameter-family export/replay and sensitivity consumers receive the resulting receipt",
+      "Focused native and Python regression targets selected in existing CI"
+    ]
+  },
+  "mathematical_scope": {
+    "shape": "One unknown per residual followed by a nonempty fixed parameter suffix; 1 <= unknowns < total variables <= 16",
+    "numerical_evidence": "Finite binary64 proposal meeting a fresh residual tolerance; neither root existence nor uniqueness is implied.",
+    "accepted_family_claim": "For every parameter value in the exact declared parameter box, exactly one nonsingular unknown root lies in the explicit unknown box.",
+    "proposal_policy": "One numerical midpoint solve and one radius-bounded witness; no automatic radius widening or backend replacement.",
+    "proof_boundary": "Original source and full exact product domain are independently checked; exact parameter boxes are never replaced by rounded numerical samples.",
+    "remaining_limits": [
+      "The automatic path uses one uniform witness; existing adaptive cover APIs are separate.",
+      "No coordinate-accuracy, global completeness outside the unknown box, or performance claim is added.",
+      "No campaign or compatibility-profile gate is closed by this checkpoint."
+    ]
+  },
+  "correction_trace": [
+    {
+      "observation": "Held 0*sqrt(p) at p=0 was incorrectly accepted by a derivative-based Session candidate.",
+      "implemented_correction": "c53efaabfc78dc56b7baa5d47634db27f9cfdb39 retains source primitive smooth-domain obligations before derivative publication.",
+      "verification": "25 established consumer cases passed again on that guard baseline; the original six-case Session target has not yet rerun."
+    },
+    {
+      "observation": "The new calculus polynomial control found a nonfinite raw derivative of literal x^0 at zero.",
+      "implemented_correction": "66084ad279142b79daa20a58f181743872e1f3e4 removes artificial identity-power poles in the numeric lane and independently verifies the identity while retaining old raw proof forms.",
+      "verification": "Independent source review only; corrected nine-case calculus and two-case trial targets still require execution."
+    },
+    {
+      "observation": "Earlier new fixtures assumed empty sparse patterns, admitted bare Abs/Piecewise derivatives, and preserved sqrt spelling under ordinary parsing.",
+      "implemented_correction": "Use actual sparse sizes, supported held-source shapes, and parse_raw while retaining endpoint, inactive-branch, cancellation and atomicity obligations.",
+      "verification": "Corrected snapshots were reviewed and independently fetched, not counted as passing tests."
+    }
+  ],
+  "source_review": {
+    "reviewers": [
+      "root",
+      "native_gap_audit",
+      "locate_repo",
+      "validation_setup"
+    ],
+    "result": "No concrete source blocker identified in the final proposal, identity-power, Python certification and Session family compositions.",
+    "scope": "Source and immutable-blob integrity review; this is not compilation or execution.",
+    "new_native_family_tests": {
+      "consumer": 6,
+      "session_integration": 7,
+      "session_internal_context_and_authority": 2
+    },
+    "python_syntax": "Candidate and certified convenience files passed AST parsing while the runner was available. Later CI-only native selections received source/byte review."
+  },
+  "execution_evidence": {
+    "schema_version": 2,
+    "recorded_date": "2026-11-21",
+    "author_role": "validation agent",
+    "repository": "Dicklesworthstone/frankensympy",
+    "provenance": "Observed terminal tool outputs, complete Cargo test logs, explicit source-bookend comparison for the earlier Session component, and separately labelled source-only reviews. Repeated tests are not counted as distinct cases. No partial component evidence is promoted into a production workspace pass.",
+    "environment": {
+      "toolchain": "nightly-2026-08-20",
+      "rustc": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+      "setup": "/workspace/scratch/7cbcb07e542d/validation-env.sh",
+      "rustup": "/workspace/scratch/7cbcb07e542d/validation-rustup",
+      "cargo_home": "/workspace/scratch/7cbcb07e542d/validation-cargo",
+      "cargo_target": "/workspace/scratch/7cbcb07e542d/validation-target",
+      "cargo_incremental": 0,
+      "dev_debug": 0,
+      "test_debug": 0,
+      "build_jobs": 1,
+      "donor_revisions": {
+        "asupersync": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+        "franken_numpy": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+        "frankenscipy": "213a417c739025ed865a3875c89a7d86726ecb5a"
+      }
+    },
+    "completed_production_crate_checks": [
+      {
+        "command": "cargo test --locked --offline -p fsym-calculus --test program_artifact_legacy --test program_artifact --test program_admission --test program_context_transport -j1",
+        "exit_code": 0,
+        "targets": {
+          "program_admission": 11,
+          "program_artifact": 10,
+          "program_artifact_legacy": 10,
+          "program_context_transport": 7
+        },
+        "log": "validation-calculus-final.log",
+        "scope": "Integrated codec/legacy encoder source subsequently published in 3cab3fb73e7f5bded70a57006ce13ed21bf02bbb; not a final-main/workspace pass"
+      },
+      {
+        "command": "cargo test --locked --offline -p fsym-numeric-consumer --test stationary_box_proposal --test objective_consumers -j1",
+        "exit_code": 0,
+        "targets": {
+          "objective_consumers": 19,
+          "stationary_box_proposal": 5
+        },
+        "log": "validation-consumer-final.log"
+      },
+      {
+        "command": "cargo clippy --locked --offline -p fsym-calculus --test program_artifact_legacy --test program_artifact --test program_admission --test program_context_transport -j1 -- -D warnings",
+        "exit_code": 0,
+        "log": "validation-calculus-clippy-final.log"
+      },
+      {
+        "command": "cargo clippy --locked --offline -p fsym-numeric-consumer --test stationary_box_proposal --test objective_consumers -j1 -- -D warnings",
+        "exit_code": 0,
+        "log": "validation-consumer-clippy-final.log"
+      },
+      {
+        "command": "cargo test --locked --offline -p fsym-numeric-consumer --test parametric_root_consumer --test generic_system_consumers --test smooth_system_consumers -j1",
+        "exit_code": 0,
+        "targets": {
+          "parametric_root_consumer": 10,
+          "generic_system_consumers": 10,
+          "smooth_system_consumers": 5
+        },
+        "log": "validation-parametric-consumer.log",
+        "source_note": "Run on 96c9485cb1479be69a2058a672a1c2f954386d39 plus candidate consumer changes, later published as 7b2dd56cc7a491aa0d34be9cc73752ee3d535aeb. Later core changes have not received this full rerun."
+      }
+    ],
+    "authentic_extension": {
+      "command": "cargo build --locked --offline -p fsym-python --features extension-module -j1",
+      "earlier_attempt": "Execution transport lost; no terminal outcome observed.",
+      "resumed_attempt": {
+        "exit_code": 101,
+        "terminal_diagnostic": "could not compile asupersync (lib); rustc terminated with signal 9, SIGKILL: kill",
+        "log": "validation-python-extension-resumed.log",
+        "no_python_bridge_compiler_diagnostic": true,
+        "measured_peak_memory": null,
+        "cause_note": "SIGKILL was observed. An OOM cause was not independently measured.",
+        "full_extension_pass": false
+      }
+    },
+    "source_component_session": {
+      "scope": "Complete original root library/CLI and mathematical source with selected whole synchronous runtime and pinned codec modules; supplementary source component only.",
+      "production_async_runtime_covered": false,
+      "source_functions_modified_or_substituted": [],
+      "runtime_modules": [
+        "workspace.rs",
+        "protocol.rs",
+        "fmap.rs",
+        "publication.rs",
+        "repair.rs"
+      ],
+      "codec_modules": [
+        "tracing_compat.rs",
+        "raptorq/decoder.rs",
+        "raptorq/systematic.rs",
+        "raptorq/gf256.rs",
+        "raptorq/linalg.rs",
+        "raptorq/rfc6330.rs",
+        "raptorq/proof.rs",
+        "raptorq/decision_contract.rs",
+        "util/det_rng.rs",
+        "util/det_hash.rs",
+        "util/entropy.rs",
+        "util/arena.rs",
+        "types/id.rs",
+        "types/symbol.rs"
+      ],
+      "omitted_runtime_rust_files": 12,
+      "omitted_donor_rust_files": 1535,
+      "registry_packages_matching_production_lock": 58,
+      "original_path_packages": 25,
+      "source_files_in_bookends": 767,
+      "source_bookends_equal": true,
+      "before_head": "7b2dd56cc7a491aa0d34be9cc73752ee3d535aeb",
+      "after_head": "7b2dd56cc7a491aa0d34be9cc73752ee3d535aeb",
+      "source_note": "The working tree included new, uncommitted parametric Session implementation/tests. The HEAD alone is not the complete tested source identity; complete source hashes are in the retained pre/post records.",
+      "command": "cargo test --locked --offline -p frankensympy-session-source-component-check --test compiled_parametric_session --test compiled_solver_session --test compiled_root_certification --test compiled_objective_certification --test compiled_objective_session -j1",
+      "initial_attempt": {
+        "exit_code": 101,
+        "diagnostic": "No space left on device while creating a rustc temp directory for the root library.",
+        "log": "validation-session-candidates.log"
+      },
+      "retry": {
+        "exit_code": 101,
+        "passed": {
+          "compiled_objective_certification": 8,
+          "compiled_objective_session": 11,
+          "compiled_parametric_session": 5
+        },
+        "failed": {
+          "compiled_parametric_session": 1
+        },
+        "failing_test": "fixed_parameter_poles_and_derivative_domains_cannot_disappear_at_a_zero_residual",
+        "failure": "Held x-1+0*sqrt(p) at p=0 returned approximate root 1 instead of refusing the singular derivative endpoint.",
+        "not_reached": [
+          "compiled_root_certification",
+          "compiled_solver_session"
+        ],
+        "log": "validation-session-candidates-retry.log",
+        "pre_source_record": "validation-session-component/pre-session-tests-retry.json",
+        "post_source_record": "validation-session-component/post-session-tests-retry.json"
+      },
+      "additional_observed_cli_diagnostics": [
+        {
+          "source": "x-1+0*(1/p)",
+          "parameter": 0,
+          "result": "numeric_evaluation_refused"
+        },
+        {
+          "source": "x-sqrt(p)",
+          "parameter": 0,
+          "result": "numeric_evaluation_refused"
+        },
+        {
+          "source": "x-1+0*sqrt(p)",
+          "parameter": 0,
+          "result": "approximate success; derivative endpoint gap"
+        },
+        {
+          "source": "x-1+0*asin(p)",
+          "parameter": 1,
+          "result": "approximate success; derivative endpoint gap"
+        },
+        {
+          "source": "x-1+0*acos(p)",
+          "parameter": 1,
+          "result": "approximate success; derivative endpoint gap"
+        },
+        {
+          "source": "x-1+0*acosh(p)",
+          "parameter": 1,
+          "result": "approximate success; derivative endpoint gap"
+        },
+        {
+          "source": "x-1+0*(p^(1/3))",
+          "parameter": 0,
+          "result": "approximate success; derivative endpoint gap"
+        }
+      ]
+    },
+    "prepared_python_component": {
+      "built": false,
+      "tested": false,
+      "copied_complete_bridge_files": 42,
+      "shortened_files": [
+        "lib.rs",
+        "expr.rs"
+      ],
+      "omitted_helpers": [
+        "lib.rs::eval_error",
+        "lib.rs::eval_region",
+        "lib.rs::simplify_expr",
+        "lib.rs::expand_expr",
+        "expr.rs::PyExpr.simplify",
+        "expr.rs::PyExpr.expand"
+      ],
+      "registry_packages_matching_production_lock": 56,
+      "target": "/tmp/frankensympy-python-component-target-7cbcb07e542d",
+      "source_note": "Copy predates the subsequent concurrent-main synchronization. Refresh from the merged source before any claim of current-source validation."
+    },
+    "preserved_cache_relocation": {
+      "original": "/workspace/scratch/7cbcb07e542d/validation-target",
+      "destination": "/tmp/frankensympy-validation-target-7cbcb07e542d",
+      "original_is_symlink": true,
+      "preserved_files": 3015,
+      "preserved_bytes": 969331105,
+      "relative_path_and_size_inventory_equal": true,
+      "discarded_files": 0,
+      "recovery_note": "The first environment restart erased /tmp cache contents while retaining the original-path symlink. The /tmp target was recreated with parent authorization and actual guard gates rebuilt there. At the latest observed resource check, /tmp had 3.3GB free and /workspace overlay had 103MB free. Survival of this cache across the latest outage is unverified."
+    },
+    "current_blocker": {
+      "execution_environment": "Explicitly unavailable following exec-server transport disconnection while preparing only a scratch scope-recorder script",
+      "last_locally_observed_source_context": "Parent synchronized and reported clean main1237dd1, then authors applied frozen pending native family and Python certified source. Fresh component compositions were prepared; no later metadata/build/test ran.",
+      "cargo_jobs_active_at_outage": [],
+      "pending": [
+        "Corrected smooth-source guard and zero/one integer-power tests",
+        "New parametric witness helper and tests",
+        "Actual-source Session candidate and family integration/internal tests",
+        "Current-source partial Python bridge build and focused public tests",
+        "Native embedded actual_python_ tests"
+      ],
+      "no_final_main_pass_claim": true,
+      "no_workspace_pass_claim": true,
+      "no_full_runtime_or_extension_pass_claim": true,
+      "no_compatibility_profile_claim": true,
+      "peak_rss_measured": false
+    },
+    "supersedes_loose_blob": "37c95c0f1242c6d478ed1cb0f813631a372e8091",
+    "recovered_gate_attempts": [
+      {
+        "command": "cargo test --locked --offline -p fsym-calculus --test smooth_source_domains -j1",
+        "exit_code": 101,
+        "source_scope": "Actual production fsym-calculus crate on the restored local 3e35cb7 baseline containing c53efaab smooth-source guard changes; the test file had only pinned rustfmt formatting changes. Later source fixes and new family APIs are excluded.",
+        "duration_reported_by_cargo": "3m 13s compile, unoptimized test profile",
+        "log": "validation-smooth-source-domains.log",
+        "result": {
+          "passed": 1,
+          "failed": 6
+        },
+        "passed_tests": [
+          "literal_exponent_bounds_preserve_nonintegral_source_status"
+        ],
+        "failures": [
+          {
+            "test": "inactive_piecewise_boundaries_are_not_hoisted_into_derivative_evaluation",
+            "diagnostic": "Verified derivative construction failed: General derivative must remain unevaluated as diff(Piecewise(...), x), got a Piecewise derivative."
+          },
+          {
+            "test": "scalar_values_keep_closed_endpoints_while_derivative_bundles_require_open_domains",
+            "diagnostic": "Compilation(UnsupportedFunction(\"diff\"))"
+          },
+          {
+            "test": "shared_source_memo_never_promotes_scalar_endpoints_or_leaks_between_calls",
+            "diagnostic": "Compilation(UnsupportedFunction(\"diff\"))"
+          },
+          {
+            "test": "rejected_boundary_work_keeps_one_ledger_and_cancellation_remains_terminal",
+            "diagnostic": "Expected smooth source refusal, but got sparse Jacobian output dimension mismatch: expected 1, actual 0."
+          },
+          {
+            "test": "zero_products_powers_and_vectors_cannot_publish_erased_source_boundaries",
+            "diagnostic": "Assertion that the sparse Jacobian entries are empty failed."
+          },
+          {
+            "test": "integer_powers_remain_smooth_at_zero_and_on_negative_bases",
+            "diagnostic": "Evaluation(NonFiniteValue)"
+          }
+        ],
+        "interpretation": "These are preserved failing gates. Some assertions or unsupported fixture constructions are under code-owner correction; the integer-power failure also requires a production evaluation fix or baseline diagnosis. No pass is claimed for the corrected code before a rerun."
+      },
+      {
+        "command": "cargo test --locked --offline -p fsym-numeric-consumer --test smooth_trial_domains --test parametric_root_consumer --test generic_system_consumers --test smooth_system_consumers -j1",
+        "exit_code": null,
+        "terminal_observation": "The complete log reached Cargo's final `test result: FAILED` and `error: test failed, to rerun pass -p fsym-numeric-consumer --test smooth_trial_domains`. The wrapper's numeric process exit was not retained through context compaction, so no numeric exit code is invented.",
+        "source_scope": "Actual production fsym-numeric-consumer crate against the same restored 3e35cb7/c53efaab guard baseline. Existing parametric proposal source had previously landed in 7b2dd56. Later fixes/family source are excluded.",
+        "duration_reported_by_cargo": "1m 24s compile, unoptimized test profile",
+        "log": "validation-smooth-consumer-regressions.log",
+        "targets": {
+          "generic_system_consumers": {
+            "passed": 10,
+            "failed": 0
+          },
+          "parametric_root_consumer": {
+            "passed": 10,
+            "failed": 0
+          },
+          "smooth_system_consumers": {
+            "passed": 5,
+            "failed": 0
+          },
+          "smooth_trial_domains": {
+            "passed": 0,
+            "failed": 2
+          }
+        },
+        "failures": [
+          {
+            "test": "dense_and_sparse_objective_trials_backtrack_before_publishing_an_endpoint",
+            "diagnostic": "Actual Err(Evaluation(Evaluation(NonsmoothSource(\"power\")))) versus expected NonsmoothSource(\"sqrt\"). Endpoint refusal occurred; exact error-label assertion failed."
+          },
+          {
+            "test": "dense_and_sparse_least_squares_retry_math_domains_and_recheck_original_sources",
+            "diagnostic": "The exact SparseEvaluation(ResidualEvaluationError::Evaluation(expected)) assertion failed. No full underlying value was printed by this assertion; its cause is left to source-owner diagnosis."
+          }
+        ],
+        "note": "The 25 successful cases repeat earlier consumer cases on the newer guard baseline. They are not 25 additional unique test cases, and the four-target command is not a passing gate."
+      }
+    ],
+    "formatting_recovery": {
+      "command": "Pinned nightly rustfmt --edition 2024 --config skip_children=true on the six smooth-guard implementation/test files",
+      "implementation_files_changed": [],
+      "test_files_changed": [
+        "crates/fsym-calculus/tests/smooth_source_domains.rs",
+        "crates/fsym-numeric-consumer/tests/smooth_trial_domains.rs"
+      ],
+      "record": "validation-guard-format.json",
+      "meaning": "Formatting only; no executable correctness conclusion."
+    },
+    "original_session_test_recovery": {
+      "stash": "812e007dbe952b7b431dcdd952bac34fb1c45f7f",
+      "source": "812e007dbe952b7b431dcdd952bac34fb1c45f7f^3:tests/compiled_parametric_session.rs",
+      "bytes": 12977,
+      "sha256": "13ac2c8562c2d11661bb7377e107e867ba462d70d00c707d47b0dd47f743a9be",
+      "github_blob": "f4ac243b93c0fe1967dc9017c692174e43dc6641",
+      "exact_restore": true,
+      "reconstructed": false,
+      "retained_failing_regression": "fixed_parameter_poles_and_derivative_domains_cannot_disappear_at_a_zero_residual"
+    },
+    "prepared_family_components": {
+      "session": {
+        "path": "/workspace/scratch/7cbcb07e542d/validation-session-family-component",
+        "root_library_and_cli": "Direct paths to complete current production source; no root function replacements.",
+        "registered_actual_root_test_files": 49,
+        "selected_whole_runtime_modules": 5,
+        "selected_whole_pinned_codec_modules": 14,
+        "metadata_resolved": false,
+        "built": false,
+        "tested": false
+      },
+      "python": {
+        "path": "/workspace/scratch/7cbcb07e542d/validation-python-family-component",
+        "captured_bridge_files": 46,
+        "retained_complete_bridge_files": 44,
+        "shortened_files": [
+          "lib.rs",
+          "expr.rs"
+        ],
+        "omitted_helpers": [
+          "lib.rs::eval_error",
+          "lib.rs::eval_region",
+          "lib.rs::simplify_expr",
+          "lib.rs::expand_expr",
+          "expr.rs::PyExpr.simplify",
+          "expr.rs::PyExpr.expand"
+        ],
+        "source_functions_replaced": [],
+        "metadata_resolved": false,
+        "built": false,
+        "tested": false,
+        "note": "Prepared after the candidate bridge and concurrent main additions, before the next executor outage. The shell and native family source were still pending publication at preparation. Recheck hashes after recovery before using."
+      },
+      "cache_plan": "Reuse the generated /tmp target for registry/math dependencies; identify, copy and hash any resulting component extension into an explicit import directory. No full production extension pass follows from this composition."
+    },
+    "source_only_reviews": [
+      {
+        "scope": "Public certified parameter-family convenience and tests",
+        "finding": "No concrete source blocker found. Exact box/radius snapshots, one budget, midpoint-only proposer, source owner, full-family independent verification and operational exception types reviewed.",
+        "execution": "Not executed"
+      },
+      {
+        "scope": "Native family API integration and private authorization/context tests",
+        "integration_test_blob": "0e1035ec6ef0fdcd4b6224d238bd02d877ca0b5b",
+        "internal_test_and_implementation_blob": "10d5af8915b37045979d779c0cd39e8a167d7fd8",
+        "finding": "No concrete source blocker found. Seven rebuilt integration tests plus two private tests match the reviewed claims and protocol; full-box and fractional parameter retention, source/axis binding, protected authority, publication atomicity and fresh-process replay are asserted.",
+        "execution": "Not executed; rebuilt test content is not claimed byte-identical to the earlier lost draft."
+      }
+    ]
+  },
+  "required_next_execution": [
+    "cargo test --locked --offline -p fsym-calculus --test smooth_source_domains -j1",
+    "cargo test --locked --offline -p fsym-numeric-consumer --test smooth_trial_domains --test parametric_root_proposal --test parametric_root_consumer --test generic_system_consumers --test smooth_system_consumers -j1",
+    "Actual-source native Session compiled_parametric_session, compiled_parametric_certification and private compiled_parametric_tests; adjacent compiled solver/root/objective certification targets",
+    "Actual-source Python bridge build and focused test_parametric_root_candidate.py plus test_parametric_solve_certified.py and adjacent certified-family/solver suites",
+    "Full production cargo check -p fsym-python -p frankensympy when execution is stable; a full extension build remains a distinct unpassed gate"
+  ]
+}

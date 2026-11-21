@@ -12,12 +12,13 @@
 //! parameter checker is the only acceptance boundary for a family certificate.
 
 use super::{
-    MAX_CONSUMER_VARIABLES, NewtonGuards, RootProposal, SystemConsumerError, charge,
-    evaluate_system, finite, infinity_norm, linear_solve, point_dimension, publication_checkpoint,
-    validate_guards, zeros,
+    MAX_CONSUMER_VARIABLES, NewtonGuards, RootProposal, SystemConsumerError, buffer, charge,
+    evaluate_system, exact_coordinate, finite, infinity_norm, linear_solve, point_dimension,
+    publication_checkpoint, validate_guards, zeros,
 };
 use fsym_budget::{BudgetMeter, Unbounded};
 use fsym_calculus::VerifiedResidualSystem;
+use fsym_core::{BigRational, ParametricRootBoxWitness, RealBall, RootBoxError};
 
 fn shape<M: BudgetMeter>(
     system: &VerifiedResidualSystem,
@@ -152,5 +153,135 @@ pub fn newton_refine_parametric_with_meter<M: BudgetMeter>(
     Err(SystemConsumerError::NoConvergence {
         iterations: guards.max_iterations,
         residual_norm,
+    })
+}
+
+fn rational_height<M: BudgetMeter>(
+    value: &BigRational,
+    meter: &mut M,
+) -> Result<(), SystemConsumerError> {
+    charge(meter, 1, 0, 0)?;
+    if value.numer().limb_count() > fsym_core::MAX_ROOT_BOX_LIMBS
+        || value.denom().limb_count() > fsym_core::MAX_ROOT_BOX_LIMBS
+    {
+        return Err(RootBoxError::ResourceLimit("parametric box rational height").into());
+    }
+    Ok(())
+}
+
+/// Propose a uniform root-family witness without granting a family claim.
+///
+/// The original program is evaluated at the supplied unknown approximation and
+/// fixed binary64 parameters solely to propose an inverse of the unknown
+/// Jacobian block. The parameter values need not equal or belong to the exact
+/// parameter domain: even an inexact binary64 image of a fixed rational point
+/// may propose a useful inverse. Acceptance must independently check the full
+/// original source on the exact product of the returned unknown and parameter
+/// boxes. No parameter midpoint, sample or compiled derivative supplies proof.
+///
+/// Unknown centers and inverse entries retain their exact binary64 values.
+/// Unknown radii must be strictly positive exact rationals; parameter intervals
+/// may have zero width. The complete exact parameter domain is copied unchanged.
+/// Dimensions, rational heights and precision are bounded before solver work.
+/// A coordinator can charge construction to ordinary resources and reserve its
+/// protected verifier meter for independent acceptance. No refusal resets the
+/// supplied ledger or requests protected verifier authority.
+pub fn propose_parametric_root_box_with_meter<M: BudgetMeter>(
+    system: &VerifiedResidualSystem,
+    approximation: &[f64],
+    parameters: &[f64],
+    radii: &[BigRational],
+    parameter_domain: &[RealBall],
+    precision_digits: u32,
+    meter: &mut M,
+) -> Result<ParametricRootBoxWitness, SystemConsumerError> {
+    let (unknowns, total) = shape(system, meter)?;
+    for (input, expected, actual) in [
+        ("unknown radii", unknowns, radii.len()),
+        ("parameter domain", total - unknowns, parameter_domain.len()),
+    ] {
+        if actual != expected {
+            return Err(SystemConsumerError::Dimension {
+                input,
+                expected,
+                actual,
+            });
+        }
+    }
+    if !(8..=fsym_core::MAX_ROOT_BOX_PRECISION).contains(&precision_digits) {
+        return Err(SystemConsumerError::InvalidRequest(
+            "precision must be 8..=128",
+        ));
+    }
+    for radius in radii {
+        rational_height(radius, meter)?;
+        if radius.numer().is_zero() || radius.numer().is_negative() {
+            return Err(SystemConsumerError::InvalidRequest(
+                "unknown radii must be positive",
+            ));
+        }
+    }
+    for coordinate in parameter_domain {
+        rational_height(coordinate.midpoint(), meter)?;
+        rational_height(coordinate.radius(), meter)?;
+    }
+    let point = point(approximation, parameters, unknowns, total, meter)?;
+    let mut residuals = zeros(unknowns, meter)?;
+    let mut full_jacobian = zeros(unknowns * total, meter)?;
+    let mut unknown_jacobian = zeros(unknowns * unknowns, meter)?;
+    evaluate(
+        system,
+        &point,
+        &mut residuals,
+        &mut full_jacobian,
+        &mut unknown_jacobian,
+        meter,
+    )?;
+    let mut inverse = zeros(unknowns * unknowns, meter)?;
+    let mut unit = zeros(unknowns, meter)?;
+    for column in 0..unknowns {
+        charge(meter, (2 * unknowns + 1) as u64, 0, 0)?;
+        unit.fill(0.0);
+        unit[column] = 1.0;
+        let solution = linear_solve(&unknown_jacobian, &unit, unknowns, meter)?;
+        for row in 0..unknowns {
+            inverse[row * unknowns + column] = solution[row];
+        }
+    }
+
+    let mut center = buffer(unknowns, meter)?;
+    let mut unknown_domain = buffer(unknowns, meter)?;
+    let mut preconditioner = buffer(unknowns, meter)?;
+    for coordinate in 0..unknowns {
+        center.push(exact_coordinate(approximation[coordinate], meter)?);
+        let midpoint = exact_coordinate(approximation[coordinate], meter)?;
+        let limbs =
+            radii[coordinate].numer().limb_count() + radii[coordinate].denom().limb_count();
+        charge(meter, limbs + 1, limbs * 8 + 128, 2)?;
+        unknown_domain.push(
+            RealBall::new(midpoint, radii[coordinate].clone()).map_err(RootBoxError::from)?,
+        );
+        let mut row = buffer(unknowns, meter)?;
+        for column in 0..unknowns {
+            row.push(exact_coordinate(inverse[coordinate * unknowns + column], meter)?);
+        }
+        preconditioner.push(row);
+    }
+    let mut exact_parameters = buffer(parameter_domain.len(), meter)?;
+    for coordinate in parameter_domain {
+        let limbs = coordinate.midpoint().numer().limb_count()
+            + coordinate.midpoint().denom().limb_count()
+            + coordinate.radius().numer().limb_count()
+            + coordinate.radius().denom().limb_count();
+        charge(meter, limbs + 1, limbs * 8 + 256, 4)?;
+        exact_parameters.push(coordinate.clone());
+    }
+    publication_checkpoint(total, meter)?;
+    Ok(ParametricRootBoxWitness {
+        unknown_domain,
+        parameter_domain: exact_parameters,
+        center,
+        preconditioner,
+        precision_digits,
     })
 }

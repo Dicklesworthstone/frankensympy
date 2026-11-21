@@ -5,10 +5,14 @@ checker retains the full parameter intervals in both the centered residuals
 and the unknown Jacobian; only its accepted receipt authorizes publication.
 """
 
+from fractions import Fraction
+import math
+
 from ..core import _native, _wrap
 from ._certified_numeric import (
     _Receipt, _bounds, _bounded_inverse, _call_budgeted, _charge_exact_work,
-    _native_box, _native_number, _prepare_box, _rational, _sequence,
+    _check_assumptions, _native_box, _native_number, _prepare_box,
+    _prepare_root_source, _rational, _sequence,
 )
 from .lambdify import _check_evaluation_budget
 
@@ -110,6 +114,109 @@ def _prepare_parametric_domains(program, unknown_box, parameter_box, precision, 
     if any(lo == hi for lo, hi in unknown_box):
         raise ValueError("parametric unknown coordinates require positive width")
     return unknown_box, parameter_box
+
+
+def solve_parametric_certified(
+        program, initial, parameter_box, unknown_radii, tol, maxiter,
+        max_step_norm, precision, *, budget=None):
+    """Propose one exact unknown box, then check the unchanged whole family."""
+    from ..solvers.numerical import RootSearchError
+    from .lambdify import NumericParametricRootCandidate
+
+    _check_evaluation_budget(budget)
+    if budget is None:
+        budget = _fallback_budget()
+    _check_evaluation_budget(budget)
+    dimension = program.native_system.residual_count
+    total = program.native_system.variable_count
+    if not 1 <= dimension < total <= 16:
+        raise ValueError(
+            "parametric roots require one unknown per residual, at least one parameter, "
+            "and at most 16 total variables"
+        )
+    if type(precision) is not int or not 8 <= precision <= 128:
+        raise ValueError("certified precision must be an integer from 8 through 128")
+    _prepare_root_source(program)
+    # The supported facts are real/sign predicates. A positive-width real
+    # interval always contains either a positive or a negative subinterval,
+    # so these representatives decide static feasibility without constraining
+    # the numerical starting guess or proposing the final certificate box.
+    for facts in program._assumptions[:dimension]:
+        try:
+            _check_assumptions(((1, 2),), (facts,))
+        except ValueError:
+            try:
+                _check_assumptions(((-2, -1),), (facts,))
+            except ValueError:
+                raise ValueError(
+                    "captured unknown assumptions do not admit a positive-width real box"
+                ) from None
+    radii = tuple(_rational(value, budget) for value in
+                  _sequence(unknown_radii, dimension, "unknown radii"))
+    _charge_exact_work(budget, *radii, operations=dimension)
+    if any(radius <= 0 for radius in radii):
+        raise ValueError("parametric unknown radii must be positive exact rational values")
+    parameters = []
+    for pair in _sequence(parameter_box, total - dimension, "parameter box"):
+        lo, hi = (_rational(value, budget) for value in _sequence(pair, 2, "parameter bounds"))
+        _charge_exact_work(budget, lo, hi)
+        if lo > hi:
+            raise ValueError("parameter box lower bound exceeds upper bound")
+        parameters.append((lo, hi))
+    parameter_box = tuple(parameters)
+    # Parameter assumptions apply to the complete fixed domain before any
+    # floating work. Unknown assumptions apply to the eventual whole box,
+    # never to an arbitrary initial guess used only by the numerical proposer.
+    _check_assumptions(parameter_box, program._assumptions[dimension:])
+    _charge_exact_work(
+        budget, *(value for pair in parameter_box for value in pair),
+        operations=2 * len(parameter_box),
+    )
+    midpoints = tuple(_rational((lo + hi) / 2, budget) for lo, hi in parameter_box)
+    _charge_exact_work(budget, *midpoints, operations=len(midpoints))
+    try:
+        approximate_parameters = tuple(float(value) for value in midpoints)
+    except OverflowError:
+        raise ValueError("parameter midpoints must have finite binary64 approximations") from None
+    if any(not math.isfinite(value) for value in approximate_parameters):
+        raise ValueError("parameter midpoints must have finite binary64 approximations")
+    _check_evaluation_budget(budget)
+    try:
+        candidate = program.solve_parametric_candidate(
+            initial, approximate_parameters, tol=tol, maxiter=maxiter,
+            max_step_norm=max_step_norm, budget=budget,
+        )
+    except (ValueError, OverflowError, ZeroDivisionError) as error:
+        raise RootSearchError(
+            "candidate", f"certified parametric solve could not generate a candidate: {error}",
+        ) from error
+    _check_evaluation_budget(budget)
+    if (type(candidate) is not NumericParametricRootCandidate
+            or candidate.native_system is not program.native_system):
+        raise TypeError("a source-bound native parametric root candidate is required")
+    values = _sequence(candidate.root, dimension, "parametric root candidate")
+    if any(type(value) is not float or not math.isfinite(value) for value in values):
+        raise ValueError("parametric root candidate coordinates must be finite binary64 values")
+    # Every binary64 coordinate is retained exactly as a rational witness.
+    # Neither this conversion nor a small residual grants a root claim.
+    _charge_exact_work(budget, bits=1096, operations=4 * dimension)
+    center = tuple(Fraction(*value.as_integer_ratio()) for value in values)
+    _charge_exact_work(budget, *center, *radii, operations=2 * dimension)
+    try:
+        unknown_box = tuple(
+            (_rational(value - radius, budget), _rational(value + radius, budget))
+            for value, radius in zip(center, radii)
+        )
+        result = certify_parametric_root_box(
+            program, unknown_box, parameter_box, center, None, precision, budget=budget,
+        )
+    except ValueError as error:
+        raise RootSearchError(
+            "certification", f"the proposed parametric root box was not accepted: {error}",
+            failures=(str(error),),
+        ) from error
+    _check_evaluation_budget(budget)
+    return result
 
 
 def certify_parametric_root_box(
