@@ -355,6 +355,8 @@ jobs:
           import pytest
           raise SystemExit(pytest.main([
               "-q", "-p", "no:cacheprovider",
+              "python/tests/test_structural_has.py",
+              "python/tests/test_integration_coordinate_identity.py",
               "python/tests/test_assumptions_soundness.py",
               "python/tests/test_set_membership.py",
               "python/tests/test_lambda_substitution.py",

@@ -1263,13 +1263,130 @@ class Basic:
     def is_Wild(self) -> bool:
         return False
 
-    def has(self, pattern: Any) -> bool:
-        try:
-            return _native_expr(self).has(_native_expr(pattern))
-        except (NotImplementedError, TypeError):
-            if self == pattern:
+    def has(self, *patterns: Any) -> bool:
+        """Test structural containment of any expression or symbolic class.
+
+        The shell graph is authoritative here: held arguments, bound symbols,
+        and distinct Python function classes must survive the query. This is
+        neither a free-symbol query nor a test of mathematical equivalence.
+        """
+        if not patterns:
+            return False
+        classes = []
+        expressions = set()
+        for pattern in patterns:
+            if isinstance(pattern, type) and issubclass(pattern, Basic):
+                classes.append(pattern)
+                continue
+            if not isinstance(pattern, Basic):
+                # Upstream uses strict sympification here. In particular a
+                # string is not a parsed expression, nor is a list an OR of
+                # its members. The shell's general sympify accepts both.
+                if isinstance(pattern, (str, bytes, bytearray, list, dict, set)):
+                    continue
+                if isinstance(pattern, bool):
+                    from ..logic.boolalg import false, true
+
+                    pattern = true if pattern else false
+                elif type(pattern) is Fraction:
+                    pattern = Rational(pattern.numerator, pattern.denominator)
+                elif type(pattern) is tuple:
+                    pattern = Tuple(*pattern)
+                elif type(pattern) is int or type(pattern) is float:
+                    pattern = sympify(pattern, strict=True)
+                else:
+                    active = _active_callback_session()
+                    request = (contextlib.nullcontext(active) if active is not None
+                               else supervised_callback_session())
+                    with request as session:
+                        def convert(value):
+                            try:
+                                converter = getattr(value, "_sympy_", None)
+                                result = (value._sympy_() if converter is not None
+                                          else sympify(value, strict=True))
+                                return True, result
+                            except SympifyError:
+                                # Unsupported patterns are normal query misses,
+                                # not a failed effect that poisons the request.
+                                return False, None
+
+                        admitted, pattern = session.invoke_fresh(
+                            "has.sympify", f"has-pattern:{id(pattern)}",
+                            _expr_node_count(pattern), convert, (pattern,),
+                            _expr_node_count,
+                        )
+                    if not admitted:
+                        continue
+            # Preserve the profile's failure for an unhashable symbolic
+            # pattern instead of silently treating it as absent.
+            expressions.add(pattern)
+
+        types = tuple(classes)
+        nodes = [self]
+        for node in nodes:
+            _charge_nested_if_active()
+            if node in expressions or isinstance(node, types):
                 return True
-            return any(arg.has(pattern) if hasattr(arg, "has") else arg == pattern for arg in self.args)
+            nodes.extend(node.args)
+
+        # Add/Mul have exact argument-containment matchers. User matchers
+        # remain Python behavior and run in one supervised request; they do
+        # not gain native mathematical or proof authority.
+        from inspect import getattr_static
+
+        for pattern in expressions:
+            definition = getattr_static(pattern, "_has_matcher", None)
+            if (definition is None
+                    and any(type(pattern) is cls for cls in _exact_surface_types())):
+                continue
+            owner = type(pattern)
+            native_matcher = (
+                (owner is Add or owner is Mul)
+                and definition is _ASSOC_HAS_MATCHER
+                and _ASSOC_HAS_MATCHER.__code__ is _ASSOC_HAS_MATCHER_CODE
+                and not _contains_opaque(pattern)
+                and all(type(node) is owner and not _contains_opaque(node)
+                        for node in nodes if isinstance(node, owner))
+            )
+            if native_matcher:
+                match = _ASSOC_HAS_MATCHER(pattern)
+                for node in nodes:
+                    _charge_nested_if_active()
+                    if match(node):
+                        return True
+                continue
+            active = _active_callback_session()
+            request = (contextlib.nullcontext(active) if active is not None
+                       else supervised_callback_session())
+            with request as session:
+                key = f"has-matcher:{id(pattern)}"
+
+                def make_matcher():
+                    # Descriptor lookup is itself user code. Keep both the
+                    # profile's presence check and factory call supervised.
+                    if not hasattr(pattern, "_has_matcher"):
+                        return False, None
+                    return True, pattern._has_matcher()
+
+                found, match = session.invoke_fresh(
+                    "_has_matcher", key, _expr_node_count(pattern),
+                    make_matcher, (), _expr_node_count,
+                )
+                if not found:
+                    continue
+
+                def matches(node):
+                    # An arbitrary predicate's __bool__ is also an effect.
+                    return bool(match(node))
+
+                for node in nodes:
+                    if session.invoke_fresh(
+                        "_has_matcher.match", key,
+                        _expr_node_count(pattern) + _expr_node_count(node),
+                        matches, (node,), _expr_node_count,
+                    ):
+                        return True
+        return False
 
     def subs(self, *args: Any, **kwargs: Any) -> "Basic":
         simultaneous = bool(kwargs.pop("simultaneous", False))
@@ -4633,6 +4750,41 @@ class AssocOp(Basic):
         if isinstance(expr, cls):
             return tuple(expr.args)
         return (expr,)
+
+    def _has_matcher(self):
+        """Match an exact argument subset without algebraic rewriting."""
+        owner = type(self)
+        commuting = set()
+        ordered = []
+        for argument in self.args:
+            if argument.is_commutative is True:
+                commuting.add(argument)
+            else:
+                ordered.append(argument)
+
+        def contains(node):
+            if not isinstance(node, owner):
+                return False
+            available = set()
+            sequence = []
+            for argument in node.args:
+                if argument.is_commutative is True:
+                    available.add(argument)
+                else:
+                    sequence.append(argument)
+            if not commuting.issubset(available):
+                return False
+            width = len(ordered)
+            return not ordered or any(
+                sequence[start:start + width] == ordered
+                for start in range(len(sequence) - width + 1)
+            )
+
+        return contains
+
+
+_ASSOC_HAS_MATCHER = AssocOp._has_matcher
+_ASSOC_HAS_MATCHER_CODE = _ASSOC_HAS_MATCHER.__code__
 
 
 AssocOp.__module__ = "sympy.core.operations"
