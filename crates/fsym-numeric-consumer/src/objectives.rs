@@ -23,7 +23,11 @@ use fsym_calculus::sparse_hessian::{ObjectiveEvaluation, ObjectiveEvaluationErro
 use fsym_core::{BigRational, RealBall, RootBoxWitness};
 use std::mem::size_of;
 
+mod sparse;
+
 pub const MAX_MINIMIZE_VARIABLES: usize = 16;
+pub const MAX_SPARSE_MINIMIZE_VARIABLES: usize =
+    fsym_calculus::sparse_hessian::MAX_OBJECTIVE_VARIABLES;
 pub const MAX_MINIMIZE_ITERATIONS: usize = 1024;
 const MAX_SHIFT_ATTEMPTS: usize = 8;
 const MAX_BACKTRACKS: usize = 64;
@@ -114,12 +118,54 @@ pub fn minimize_with_meter<M: BudgetMeter + ?Sized>(
     options: &MinimizeOptions,
     meter: &mut M,
 ) -> Result<MinimizationProposal, ObjectiveConsumerError> {
+    minimize_impl(objective, initial, options, false, meter)
+}
+
+/// Sparse Newton descent without a dense Hessian or a donor linear solve.
+///
+/// The bounded conjugate-gradient inner iteration proposes a direction from
+/// the checked sparse Hessian. Diagonal shifts, fresh original-source domain
+/// checks and Armijo admission follow the same contract as the dense backend.
+/// This is only a finite-real stationary-point proposal, not a minimum proof.
+pub fn sparse_minimize(
+    objective: &VerifiedObjective,
+    initial: &[f64],
+    options: &MinimizeOptions,
+) -> Result<MinimizationProposal, ObjectiveConsumerError> {
+    sparse_minimize_with_meter(objective, initial, options, &mut Unbounded)
+}
+
+/// One cumulative meter covers sparse products, rejected shifts and trials,
+/// final reevaluation and publication. No alternate backend is selected.
+pub fn sparse_minimize_with_meter<M: BudgetMeter + ?Sized>(
+    objective: &VerifiedObjective,
+    initial: &[f64],
+    options: &MinimizeOptions,
+    meter: &mut M,
+) -> Result<MinimizationProposal, ObjectiveConsumerError> {
+    minimize_impl(objective, initial, options, true, meter)
+}
+
+fn minimize_impl<M: BudgetMeter + ?Sized>(
+    objective: &VerifiedObjective,
+    initial: &[f64],
+    options: &MinimizeOptions,
+    sparse: bool,
+    meter: &mut M,
+) -> Result<MinimizationProposal, ObjectiveConsumerError> {
     meter.checkpoint()?;
     let n = objective.variables().len();
-    if !(1..=MAX_MINIMIZE_VARIABLES).contains(&n) {
-        return Err(ObjectiveConsumerError::InvalidRequest(
-            "minimization requires 1..=16 variables",
-        ));
+    let limit = if sparse {
+        MAX_SPARSE_MINIMIZE_VARIABLES
+    } else {
+        MAX_MINIMIZE_VARIABLES
+    };
+    if !(1..=limit).contains(&n) {
+        return Err(ObjectiveConsumerError::InvalidRequest(if sparse {
+            "sparse minimization requires 1..=64 variables"
+        } else {
+            "minimization requires 1..=16 variables"
+        }));
     }
     if initial.len() != n {
         return Err(ObjectiveConsumerError::Dimension {
@@ -177,14 +223,24 @@ pub fn minimize_with_meter<M: BudgetMeter + ?Sized>(
             return Err(stopped(iteration, &state));
         }
 
-        let Some(direction) = descent_direction(
-            objective,
-            &state,
-            options.max_step_norm,
-            &mut regularizations,
-            meter,
-        )?
-        else {
+        let direction = if sparse {
+            sparse::descent_direction(
+                objective,
+                &state,
+                options.max_step_norm,
+                &mut regularizations,
+                meter,
+            )?
+        } else {
+            descent_direction(
+                objective,
+                &state,
+                options.max_step_norm,
+                &mut regularizations,
+                meter,
+            )?
+        };
+        let Some(direction) = direction else {
             return Err(stopped(iteration, &state));
         };
         let slope = dot(&state.values.gradient, &direction, meter)?;
