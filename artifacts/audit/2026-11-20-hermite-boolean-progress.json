@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "session_date": "2026-11-20",
+  "repository": "Dicklesworthstone/frankensympy",
+  "base_commit": "0396e5116dc3e930a8de38a324d71a61cd0a4ce8",
+  "feature_commits": {
+    "integer_hermite_native": "30bdcdfbfce0072970b226f4e9c4d06e9ca86d6f",
+    "integer_hermite_public": "1cc278a16cbb4b84cb4a3abba60270a8ea9ac34f",
+    "boolean_identity_and_arity": "941961b3e32ea7f1091cb084b546a88cabc2991d"
+  },
+  "implementation": {
+    "hermite": {
+      "source_domain": "literal integer dense or sparse matrices",
+      "identity": "A * V = [zero_columns | H]",
+      "completeness": "V and V_inverse are integer matrices and both inverse identities are independently checked; H satisfies canonical column Hermite pivots and residues.",
+      "dimensions_maximum": 64,
+      "input_coefficient_bits_maximum": 4096,
+      "witness_coefficient_bits_maximum": 8192,
+      "phase_compute_step_limit": 20000000,
+      "phase_allocation_byte_limit": 268435456,
+      "interfaces": [
+        "sympy.matrices.normalforms.hermite_normal_form",
+        "sympy.matrices.normalforms.hermite_normal_decomposition",
+        "MatrixBase.hermite_normal_decomposition"
+      ],
+      "return_contract": "Ordinary HNF is mutable dense; decomposition preserves each built-in dense/sparse mutable/immutable source class.",
+      "explicitly_unsupported": "Modular determinant hints D other than None; nonliteral integer sources; values outside the bounded envelope."
+    },
+    "boolean": {
+      "fixes": [
+        "Typed source identities replace printed names in native SAT lowering.",
+        "Every operand of n-ary Xor and Equivalent is included.",
+        "Model lifting requires exactly the admitted atom universe and returns original objects.",
+        "Enumeration freezes assignments before yield and rejects original-source/session mutations.",
+        "valid() distinguishes the satisfying empty assignment from UNSAT."
+      ],
+      "guards": [
+        "Exact built-in ownership and source admission",
+        "Bounded traversal and enumeration",
+        "Original atom metadata and source-storage identity",
+        "Active supervised request identity and terminal budget/cancellation failures"
+      ]
+    }
+  },
+  "observed_validation": {
+    "hermite_verifier": {
+      "status": "passed",
+      "passed": 11,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 0,
+      "scope": "Supplementary composition of four unchanged production proof-kernel modules with the original integration test, real fsym-core/fsym-budget dependencies, and no replacement functions. Not a whole proof-kernel package, generator, PyO3, runtime, workspace, or profile gate.",
+      "modules": [
+        "linear_system.rs",
+        "sparse_rref.rs",
+        "integer_normal_form.rs",
+        "integer_hermite.rs"
+      ],
+      "compiler": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19), pinned nightly-2026-08-20",
+      "registry_dependency_binding": {
+        "matched": 28,
+        "mismatches": 0,
+        "comparison_fields": [
+          "name",
+          "version",
+          "source",
+          "checksum"
+        ],
+        "against": "production Cargo.lock"
+      },
+      "command": [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "hermite-kernel-component/Cargo.toml",
+        "--test",
+        "integer_hermite",
+        "-j1"
+      ],
+      "rustflags": "-Zunstable-options --jobs-frontend=1 --jobs-backend=1",
+      "compiler_profile": {
+        "jobs": 1,
+        "codegen_units": 1,
+        "debug": 0,
+        "incremental": false
+      },
+      "elapsed_seconds": 29.330058097839355,
+      "exit_code": 0,
+      "source_sha256": {
+        "crates/fsym-proof-kernel/src/linear_system.rs": "74815988346dd71d45d4b375e7c209956fa254753cd99fed91974c4ef1936ec7",
+        "crates/fsym-proof-kernel/src/sparse_rref.rs": "ca616ffc95742710d8bc1edd79c778042ac40327c0f63d84b0bc6dfc5397d916",
+        "crates/fsym-proof-kernel/src/integer_normal_form.rs": "042ea7db6aec71fde42b943835d36fdeee9d1479ad7888bff82802bcd70cd49c",
+        "crates/fsym-proof-kernel/src/integer_hermite.rs": "6da5be6eb2270d8ed0fae4a97b5eb8277111f1d1f379f4a85de518d30f01c12b",
+        "crates/fsym-proof-kernel/tests/integer_hermite.rs": "c72734ebf687cf8dcc4bfffe7d7c0e899ac0740cba2f1821caca7aed71eb0a04",
+        "Cargo.lock": "da84995568279c4ebf6123a38b3c38c29807f967f0992a435f53b7a9091361d7"
+      },
+      "coverage": [
+        "Complete source and witness binding",
+        "Rank-deficient and zero-area lattices",
+        "Noncontiguous pivots",
+        "Proper-sublattice and rational-inverse rejection",
+        "Canonical-form rejection",
+        "Malformed and oversized decoder inputs",
+        "Cancellation at every safe point",
+        "Cumulative budget exhaustion"
+      ]
+    },
+    "formatting": {
+      "status": "passed",
+      "scope": "All 10 touched Rust files, direct pinned rustfmt --check; includes final verifier-test import correction and the independently concurrent binary64-equivalent atan2 literal correction."
+    },
+    "python_syntax": {
+      "status": "passed",
+      "files": [
+        "python/sympy/matrices/normalforms.py",
+        "python/sympy/matrices/dense.py",
+        "python/tests/test_hermite_normal_form.py",
+        "python/sympy/logic/boolalg.py",
+        "python/sympy/logic/inference.py",
+        "python/tests/test_boolean_identity.py"
+      ]
+    },
+    "whitespace": {
+      "status": "passed",
+      "command": "git diff --check"
+    },
+    "independent_review": {
+      "status": "completed without identified blocker",
+      "scope": [
+        "HNF generator and separate kernel acceptance",
+        "HNF public/native source admission and publication",
+        "Boolean identities, n-ary truth functions and complete model enumeration"
+      ]
+    },
+    "upstream_oracle": {
+      "version": "SymPy 1.14.0",
+      "status": "Fixed Hermite expectation fixtures independently checked in an isolated environment; this is oracle-only evidence, not execution of the candidate."
+    }
+  },
+  "uncompleted_validation": {
+    "native_generator_tests": "Not executed: normal locked fsym-matrices test build ended in SIGKILL while compiling fsym-budget, exit 101 after 10.46 seconds, during severe shared-resource exhaustion.",
+    "public_python_tests": "Authored and selected in CI; not executed against the new extension. The production extension build was killed/interrupted and the shared executor reset repeatedly.",
+    "full_workspace": "No successful full-workspace check, test, Clippy or production-extension claim.",
+    "hosted_ci": "Push-triggered CI jobs were queued at last observation; no pass is asserted."
+  },
+  "publication": {
+    "method": "GitHub connector, direct fast-forward updates to main with expected-head leases; no PRs or force pushes.",
+    "verification": "Each feature commit was fetched back and its main ancestry verified. Concurrent ODE and Hermitian-inertia work was preserved.",
+    "beads": [
+      "fra-kfo",
+      "fra-7kf"
+    ],
+    "claim_promotion": false,
+    "broad_workstream_closure": false
+  },
+  "limitations": [
+    "A verified Hermite form is operation-specific; broad WS10 and compatibility/profile gates remain open.",
+    "Boolean fixes address admitted built-in Boolean syntax, not general relational or opaque Boolean completeness.",
+    "Original failed/interrupted production build attempts are not counted as test execution."
+  ]
+}

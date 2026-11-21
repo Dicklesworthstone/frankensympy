@@ -4,8 +4,7 @@ use fsym_budget::{Budget, BudgetLimits, BudgetMeter, Dimension, MeterError, Unbo
 use fsym_core::{BigInt, BigRational};
 use fsym_proof_kernel::integer_hermite::{
     INTEGER_HERMITE_SCHEMA_VERSION, IntegerHermiteError, IntegerHermiteWitness,
-    MAX_INTEGER_HERMITE_COEFFICIENT_BITS, MAX_INTEGER_HERMITE_DIMENSION,
-    verify_integer_hermite,
+    MAX_INTEGER_HERMITE_COEFFICIENT_BITS, MAX_INTEGER_HERMITE_DIMENSION, verify_integer_hermite,
 };
 use fsym_proof_kernel::sparse_rref::{RationalSparseMatrix, SparseRationalEntry, SparseRrefError};
 
