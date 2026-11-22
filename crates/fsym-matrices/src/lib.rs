@@ -1944,8 +1944,21 @@ impl Matrix {
         Ok(sol)
     }
 
-    /// Solves an exact-rational least-squares system $A^T A X = A^T B$.
+    /// Returns the unique exact least-squares solution for full column rank.
+    /// Gaussian-rational inputs use the Hermitian normal equations and a
+    /// bounded independently checked rank witness. Original nonliteral cells
+    /// are admitted before any product can erase their domains.
     pub fn solve_least_squares(&self, b: &Matrix) -> Result<Matrix, MatrixError> {
+        self.validate_shape()?;
+        b.validate_shape()?;
+        if self
+            .data
+            .iter()
+            .chain(&b.data)
+            .any(|entry| !matches!(entry, Expr::Integer(_) | Expr::Rational(_)))
+        {
+            return self.metered_gaussian_solve_least_squares(b, &mut fsym_budget::Unbounded);
+        }
         let at = self.transpose();
         let ata = at.matmul(self)?;
         let atb = at.matmul(b)?;

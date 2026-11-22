@@ -1717,21 +1717,22 @@ class Matrix(MatrixBase):
         return _checked_gauss_jordan_solve(self, B, freevar)
 
     def solve_least_squares(self, b, method="CH"):
-        """Return an exact rational least-squares solution.
+        """Return an exact least-squares solution.
 
-        The default retains the unique full-column-rank normal-equation lane.
-        ``method='PINV'`` returns the complete family through ``pinv_solve``,
+        The default checks the unique full-column-rank Hermitian solution
+        for rational or bounded Gaussian-rational inputs. ``method='PINV'``
+        retains the rational complete-family route through ``pinv_solve``,
         including singular, wide, and inconsistent systems.
         """
         if method == "PINV":
             return self.pinv_solve(b)
         if method != "CH":
             raise NotImplementedError("solve_least_squares currently supports CH and PINV methods")
-        if hasattr(b, "to_dense"):
-            b = b.to_dense()
-        if not isinstance(b, Matrix):
+        from .sparse import SparseMatrix, ImmutableSparseMatrix
+        if type(b) not in (Matrix, ImmutableMatrix, SparseMatrix, ImmutableSparseMatrix):
             raise TypeError(f"solve_least_squares requires Matrix right-hand side, got {type(b)}")
-        return self._new(self._native.solve_least_squares(b._native))
+        from ._pseudoinverse import solve_least_squares
+        return solve_least_squares(self, b)
 
     def tolist(self):
         return [[self[r, c] for c in range(self.cols)] for r in range(self.rows)]

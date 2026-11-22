@@ -172,6 +172,8 @@ jobs:
         run: |
           cargo test --locked -p fsym-matrices --test gaussian_pseudoinverse --test pseudoinverse -j1
           cargo test --locked -p fsym-matrices --lib pseudoinverse::gaussian::tests -j1
+          cargo test --locked -p fsym-matrices --test gaussian_least_squares -j1
+          cargo test --locked -p fsym-matrices --lib pseudoinverse::gaussian::least_squares::tests -j1
       - name: Checked recursive polynomial pseudo-division
         run: cargo test --locked -p fsym-polys --test pseudo_division -j1
       - name: Normalized half-line transform identities
@@ -331,6 +333,7 @@ jobs:
               "python/tests/test_matrix_definiteness.py",
               "python/tests/test_matrix_hermitian_definiteness.py",
               "python/tests/test_matrix_complex_pseudoinverse.py",
+              "python/tests/test_matrix_complex_least_squares.py",
               "python/tests/test_matrix_pseudoinverse.py",
               "python/tests/test_matrix_definiteness_budget.py",
               "python/tests/test_hermitian_definiteness.py",

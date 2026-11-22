@@ -15,13 +15,15 @@
 //! neither reserves protected verifier resources nor exports a new portable
 //! proof-kernel certificate.
 
+mod least_squares;
+
 use crate::{Matrix, MatrixError, SparseMatrix, generate_sparse_pseudoinverse_candidate};
 use fsym_budget::{BudgetError, BudgetMeter, Dimension, MeterError};
 use fsym_core::arith::RationalArithmeticError;
 use fsym_core::{BigRational, Constant, Expr};
 use fsym_proof_kernel::hermitian_inertia::{
     GaussianRationalMatrix, HermitianInertiaError, MAX_GAUSSIAN_RATIONAL_INPUT_BITS,
-    read_gaussian_rational_matrix,
+    MAX_HERMITIAN_INERTIA_DIMENSION, read_gaussian_rational_matrix,
 };
 use fsym_proof_kernel::sparse_rref::SparseRrefError;
 use num_traits::{One, Zero};
@@ -426,34 +428,39 @@ impl GaussianMatrix {
         work.tick(1)?;
         Matrix::new(self.rows, self.cols, entries)
     }
+
+    fn realification(&self, work: &mut Work<'_, impl BudgetMeter>) -> Result<SparseMatrix> {
+        let (rows, cols) = (self.rows, self.cols);
+        let mut entries = BTreeMap::new();
+        for row in 0..rows {
+            for column in 0..cols {
+                work.tick(1)?;
+                let (real, imaginary) = self.get(row, column);
+                if !real.is_zero() {
+                    work.storage(1024)?;
+                    let first = work.clone_scalar(real)?;
+                    let second = work.clone_scalar(real)?;
+                    entries.insert((row, column), work.scalar_expression(first)?);
+                    entries.insert((row + rows, column + cols), work.scalar_expression(second)?);
+                }
+                if !imaginary.is_zero() {
+                    work.storage(1024)?;
+                    let upper = work.negate(imaginary)?;
+                    let lower = work.clone_scalar(imaginary)?;
+                    entries.insert((row, column + cols), work.scalar_expression(upper)?);
+                    entries.insert((row + rows, column), work.scalar_expression(lower)?);
+                }
+            }
+        }
+        work.tick(entries.len() as u64 * 16 + 1)?;
+        SparseMatrix::new(rows * 2, cols * 2, entries)
+    }
 }
 
 fn propose(matrix: &Matrix, work: &mut Work<'_, impl BudgetMeter>) -> Result<Matrix> {
     let source = GaussianMatrix::read(matrix, work)?;
     let (rows, cols) = (source.rows, source.cols);
-    let mut entries = BTreeMap::new();
-    for row in 0..rows {
-        for column in 0..cols {
-            work.tick(1)?;
-            let (real, imaginary) = source.get(row, column);
-            if !real.is_zero() {
-                work.storage(1024)?;
-                let first = work.clone_scalar(real)?;
-                let second = work.clone_scalar(real)?;
-                entries.insert((row, column), work.scalar_expression(first)?);
-                entries.insert((row + rows, column + cols), work.scalar_expression(second)?);
-            }
-            if !imaginary.is_zero() {
-                work.storage(1024)?;
-                let upper = work.negate(imaginary)?;
-                let lower = work.clone_scalar(imaginary)?;
-                entries.insert((row, column + cols), work.scalar_expression(upper)?);
-                entries.insert((row + rows, column), work.scalar_expression(lower)?);
-            }
-        }
-    }
-    work.tick(entries.len() as u64 * 16 + 1)?;
-    let realified = SparseMatrix::new(rows * 2, cols * 2, entries)?;
+    let realified = source.realification(work)?;
     let candidate = generate_sparse_pseudoinverse_candidate(&realified, work)?;
     let proposal = candidate.witness.pseudoinverse;
     if proposal.rows != 2 * cols || proposal.columns != 2 * rows {
@@ -561,6 +568,51 @@ impl Matrix {
         meter: &mut impl BudgetMeter,
     ) -> Result<()> {
         verify(self, inverse, &mut Work::new(meter))
+    }
+}
+
+impl SparseMatrix {
+    /// Bound and admit borrowed original sparse Q(i) cells before any dense
+    /// conversion. Missing cells are exactly zero; each axis is at most 32.
+    pub fn validate_gaussian_pseudoinverse_source_with_meter(
+        &self,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<()> {
+        let mut work = Work::new(meter);
+        work.tick(1)?;
+        let (rows, cols) = (self.rows(), self.cols());
+        let side = rows.max(cols);
+        if side > MAX_HERMITIAN_INERTIA_DIMENSION {
+            return Err(limit("complex dimension exceeds 32"));
+        }
+        // SparseMatrix keeps its storage private. Check the original
+        // rectangle before a padded square could admit a misplaced cell.
+        if self.entries().len() > rows * cols {
+            return Err(MatrixError::InvalidCertificate(
+                "too many original sparse Gaussian cells".into(),
+            ));
+        }
+        for (&(row, column), value) in self.entries() {
+            work.tick(1)?;
+            if row >= rows || column >= cols {
+                return Err(MatrixError::OutOfBounds(row, column, rows, cols));
+            }
+            if value.is_zero() {
+                return Err(MatrixError::InvalidCertificate(
+                    "sparse Gaussian source has an explicit zero".into(),
+                ));
+            }
+        }
+        read_gaussian_rational_matrix(
+            side,
+            side,
+            self.entries()
+                .iter()
+                .map(|(&coordinate, value)| (coordinate, value)),
+            &mut work,
+        )
+        .map_err(source_error)?;
+        work.tick(1)
     }
 }
 

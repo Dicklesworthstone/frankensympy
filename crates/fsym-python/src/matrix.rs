@@ -1351,12 +1351,33 @@ impl PyMatrix {
     }
 
     /// Solves the exact least-squares system `A^T A X = A^T B` for `X`.
-    pub fn solve_least_squares(&self, b: &Self) -> PyResult<Self> {
-        let res = self
-            .inner
-            .solve_least_squares(&b.inner)
-            .map_err(matrix_err)?;
-        Ok(Self { inner: res })
+    #[pyo3(signature = (b, *, session=None))]
+    pub fn solve_least_squares(
+        &self,
+        py: Python<'_>,
+        b: &Self,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<Self> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = (|| {
+            meter.checkpoint().map_err(to_value_error)?;
+            let solution =
+                if session.is_none() && self.is_exact_rational() && b.is_exact_rational() {
+                    self.inner.solve_least_squares(&b.inner)
+                } else {
+                    self.inner
+                        .metered_gaussian_solve_least_squares(&b.inner, &mut meter)
+                }
+                .map_err(matrix_err)?;
+            meter
+                .charge(Dimension::ComputeSteps, 1)
+                .map_err(to_value_error)?;
+            Ok(Self { inner: solution })
+        })();
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
     }
 
     /// Checked minimum-norm particular and complete orthogonal kernel projector.
@@ -1678,6 +1699,24 @@ impl PySparseMatrix {
             .iter()
             .map(|(&coordinate, value)| (coordinate, PyExpr::from_expr(value.clone())))
             .collect()
+    }
+
+    /// Admit bounded original rectangular sparse Q(i) cells before dense copying.
+    #[pyo3(signature = (*, session=None))]
+    pub fn validate_gaussian_pseudoinverse_source(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<()> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = self
+            .inner
+            .validate_gaussian_pseudoinverse_source_with_meter(&mut meter)
+            .map_err(matrix_err);
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
     }
 
     /// Number of elements in full shape.
