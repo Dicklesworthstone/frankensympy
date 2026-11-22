@@ -282,13 +282,40 @@ pub(crate) fn divide_with_work<M: BudgetMeter>(
     order: TermOrder,
     work: &mut PolynomialWork<'_, M>,
 ) -> Result<(Vec<MultivariatePoly>, MultivariatePoly), PolyError> {
+    divide_in_domain_with_work(f, divisors, order, false, work)
+}
+
+fn integral_polynomial<M: BudgetMeter>(
+    polynomial: &MultivariatePoly,
+    work: &mut PolynomialWork<'_, M>,
+) -> Result<(), PolyError> {
+    work.tick(polynomial.terms.len())?;
+    if polynomial.terms.values().any(|value| !value.is_integer()) {
+        return Err(refused("integer reduction requires integral coefficients"));
+    }
+    Ok(())
+}
+
+fn divide_in_domain_with_work<M: BudgetMeter>(
+    f: &MultivariatePoly,
+    divisors: &[MultivariatePoly],
+    order: TermOrder,
+    integer_domain: bool,
+    work: &mut PolynomialWork<'_, M>,
+) -> Result<(Vec<MultivariatePoly>, MultivariatePoly), PolyError> {
     validate_poly(f, work)?;
+    if integer_domain {
+        integral_polynomial(f, work)?;
+    }
     if divisors.len() > MAX_BASIS {
         return Err(refused("divisor count exceeds 64"));
     }
     for divisor in divisors {
         validate_poly(divisor, work)?;
         same_ring(&f.generators, &divisor.generators)?;
+        if integer_domain {
+            integral_polynomial(divisor, work)?;
+        }
     }
     let mut pending = copy_poly(f, work)?.terms;
     work.allocate(
@@ -317,13 +344,19 @@ pub(crate) fn divide_with_work<M: BudgetMeter>(
             if !divides(divisor_monomial, &monomial) {
                 continue;
             }
+            let quotient = work.divide(&coefficient, divisor_coefficient)?;
+            // Distributed ZZ division tries the next ordered divisor when
+            // this leading coefficient does not divide. Unlike recursive
+            // Poly.div, it does not stop at the first coefficient obstruction.
+            if integer_domain && !quotient.is_integer() {
+                continue;
+            }
             work.allocate(monomial.len() * 4)?;
             let shift: Vec<u32> = monomial
                 .iter()
                 .zip(*divisor_monomial)
                 .map(|(a, b)| a - b)
                 .collect();
-            let quotient = work.divide(&coefficient, divisor_coefficient)?;
             accumulate(
                 &mut quotients[index].terms,
                 shift.clone(),
@@ -361,6 +394,19 @@ pub fn bounded_division(
     divide_with_work(f, divisors, order, &mut PolynomialWork::new(meter))
 }
 
+/// Generate a distributed quotient/remainder without extending ZZ to QQ.
+/// Both monomial and leading-coefficient divisibility select each step.
+/// As in the rational primitive, zero divisors are skipped; public callers
+/// whose protocol forbids them must reject them before this operation.
+pub fn bounded_integer_division(
+    f: &MultivariatePoly,
+    divisors: &[MultivariatePoly],
+    order: TermOrder,
+    meter: &mut impl BudgetMeter,
+) -> Result<(Vec<MultivariatePoly>, MultivariatePoly), PolyError> {
+    divide_in_domain_with_work(f, divisors, order, true, &mut PolynomialWork::new(meter))
+}
+
 /// Independently check `f = sum(q_i*g_i) + r` and that no remainder monomial
 /// is divisible by any divisor's leading monomial. This reference convolution
 /// never invokes polynomial division, multiplication, simplification or search.
@@ -373,8 +419,38 @@ pub fn verify_bounded_division(
     order: TermOrder,
     meter: &mut impl BudgetMeter,
 ) -> Result<(), PolyError> {
+    verify_division_in_domain(f, divisors, quotients, remainder, order, false, meter)
+}
+
+/// Independently check the complete coefficient identity and ZZ reduction.
+/// Every input and output coefficient must be integral. A remainder term is
+/// irreducible only if every leading divisor fails monomial divisibility or
+/// exact integer coefficient divisibility. This never invokes generation.
+pub fn verify_bounded_integer_division(
+    f: &MultivariatePoly,
+    divisors: &[MultivariatePoly],
+    quotients: &[MultivariatePoly],
+    remainder: &MultivariatePoly,
+    order: TermOrder,
+    meter: &mut impl BudgetMeter,
+) -> Result<(), PolyError> {
+    verify_division_in_domain(f, divisors, quotients, remainder, order, true, meter)
+}
+
+fn verify_division_in_domain(
+    f: &MultivariatePoly,
+    divisors: &[MultivariatePoly],
+    quotients: &[MultivariatePoly],
+    remainder: &MultivariatePoly,
+    order: TermOrder,
+    integer_domain: bool,
+    meter: &mut impl BudgetMeter,
+) -> Result<(), PolyError> {
     let mut work = PolynomialWork::new(meter);
     validate_poly(f, &mut work)?;
+    if integer_domain {
+        integral_polynomial(f, &mut work)?;
+    }
     if divisors.len() > MAX_BASIS || divisors.len() != quotients.len() {
         return Err(refused("quotient/divisor count mismatch"));
     }
@@ -385,14 +461,20 @@ pub fn verify_bounded_division(
     {
         validate_poly(poly, &mut work)?;
         same_ring(&f.generators, &poly.generators)?;
+        if integer_domain {
+            integral_polynomial(poly, &mut work)?;
+        }
     }
-    for monomial in remainder.terms.keys() {
+    for (monomial, coefficient) in &remainder.terms {
         for divisor in divisors {
             work.tick(divisor.terms.len().max(1) * f.generators.len().max(1))?;
-            if divisor
-                .leading_term(order)
-                .is_some_and(|(leading, _)| divides(leading, monomial))
-            {
+            let Some((leading, divisor_coefficient)) = divisor.leading_term(order) else {
+                continue;
+            };
+            if !divides(leading, monomial) {
+                continue;
+            }
+            if !integer_domain || work.divide(coefficient, divisor_coefficient)?.is_integer() {
                 return Err(PolyError::IdentityCheckFailed(
                     "remainder is not completely reduced".into(),
                 ));
@@ -429,6 +511,19 @@ pub fn checked_polynomial_division(
 ) -> Result<(Vec<MultivariatePoly>, MultivariatePoly), PolyError> {
     let (quotients, remainder) = bounded_division(f, divisors, order, generator_meter)?;
     verify_bounded_division(f, divisors, &quotients, &remainder, order, verifier_meter)?;
+    Ok((quotients, remainder))
+}
+
+/// Generate and independently check bounded distributed division over ZZ.
+pub fn checked_integer_polynomial_division(
+    f: &MultivariatePoly,
+    divisors: &[MultivariatePoly],
+    order: TermOrder,
+    generator_meter: &mut impl BudgetMeter,
+    verifier_meter: &mut impl BudgetMeter,
+) -> Result<(Vec<MultivariatePoly>, MultivariatePoly), PolyError> {
+    let (quotients, remainder) = bounded_integer_division(f, divisors, order, generator_meter)?;
+    verify_bounded_integer_division(f, divisors, &quotients, &remainder, order, verifier_meter)?;
     Ok((quotients, remainder))
 }
 
