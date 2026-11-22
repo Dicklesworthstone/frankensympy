@@ -1734,6 +1734,50 @@ fn finite_taylor_point_value(expr: &Expr) -> Result<Expr, CalculusError> {
         }
         *remaining -= 1;
         let child_depth = depth + 1;
+        // Literal real infinities can be valid inputs to exact finite
+        // elementary values. Fold only that immediate, fully known parent;
+        // an infinity produced by log(0) or 0**-1 must still be refused while
+        // visiting the original child, before an outer function can hide it.
+        let literal_infinity = |value: &Expr| {
+            matches!(
+                value,
+                Expr::Const(Constant::Infinity | Constant::NegativeInfinity)
+            )
+        };
+        let literal_children = match expr {
+            Expr::Function(_, args) if args.len() == 1 && literal_infinity(&args[0]) => {
+                Some(1usize)
+            }
+            Expr::Pow(base, exponent)
+                if literal_infinity(base)
+                    && matches!(exponent.as_ref(), Expr::Integer(_) | Expr::Rational(_)) =>
+            {
+                Some(2usize)
+            }
+            _ => None,
+        };
+        if let Some(count) = literal_children {
+            if child_depth > MAX_DIRECT_SUBSTITUTION_DEPTH || *remaining < count {
+                return Err(refused());
+            }
+            *remaining -= count;
+            let value = match expr {
+                Expr::Function(name, args) => {
+                    fsym_core::elementary::eval_function(name, args).ok_or_else(refused)?
+                }
+                Expr::Pow(base, exponent) => fsym_core::elementary::eval_pow(
+                    base.as_ref().clone(),
+                    exponent.as_ref().clone(),
+                ),
+                _ => unreachable!("validated literal infinity composition"),
+            };
+            if has_infinity(&value) {
+                return Err(refused());
+            }
+            // Charge and validate the finite result too, under the same
+            // depth/node allowance. No whole-source simplification occurs.
+            return visit(&value, depth, remaining);
+        }
         let children = |args: &[Expr], remaining: &mut usize| {
             args.iter()
                 .map(|arg| visit(arg, child_depth, remaining))
@@ -1805,7 +1849,7 @@ fn finite_taylor_point_value(expr: &Expr) -> Result<Expr, CalculusError> {
         // source children have passed their own point-domain checks.
         let evaluated = match rebuilt {
             Expr::Function(name, args) => fsym_core::elementary::eval_function(&name, &args)
-                .unwrap_or_else(|| Expr::Function(name, args)),
+                .unwrap_or(Expr::Function(name, args)),
             Expr::Pow(base, exponent) => fsym_core::elementary::eval_pow(
                 Arc::unwrap_or_clone(base),
                 Arc::unwrap_or_clone(exponent),

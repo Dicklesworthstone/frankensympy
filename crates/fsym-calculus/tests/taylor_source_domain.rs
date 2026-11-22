@@ -264,3 +264,95 @@ fn point_substitution_admits_combined_size_and_depth_before_cloning() {
     }
     assert_refused(&nested_source, &x, &nested_center, 0);
 }
+
+fn finite_literal_infinity_values() -> [(Expr, Expr); 3] {
+    [
+        (
+            function("exp", Expr::Const(Constant::NegativeInfinity)),
+            Expr::from_i64(0),
+        ),
+        (
+            function("atan", Expr::Const(Constant::Infinity)),
+            Expr::rational(1, 2).unwrap() * Expr::Const(Constant::Pi),
+        ),
+        (
+            power(Expr::Const(Constant::Infinity), -1),
+            Expr::from_i64(0),
+        ),
+    ]
+}
+
+#[test]
+fn finite_literal_infinity_sources_remain_defined() {
+    let x = Symbol::new("finite_literal_source_x");
+    let xe = Expr::Sym(x.clone());
+    let zero = Expr::from_i64(0);
+    for (source, expected) in finite_literal_infinity_values() {
+        for order in [0, 3] {
+            assert_equal(taylor(&source, &x, &zero, order).unwrap(), expected.clone());
+            let held_zero = Expr::Mul(vec![zero.clone(), source.clone()]);
+            assert_equal(taylor(&held_zero, &x, &zero, order).unwrap(), zero.clone());
+        }
+        let composed = Expr::Add(vec![function("exp", xe.clone()), source]);
+        let expected_source = function("exp", xe.clone()) + expected;
+        assert_equal(
+            taylor(&composed, &x, &zero, 3).unwrap(),
+            taylor(&expected_source, &x, &zero, 3).unwrap(),
+        );
+    }
+    // Generated infinities at excluded source points are not literal inputs
+    // to a defined constant. Even a finite outer limit cannot repair them.
+    for source in [
+        function("log", zero.clone()),
+        power(zero.clone(), -1),
+        function("exp", function("log", zero.clone())),
+        power(power(zero.clone(), -1), -1),
+        function("exp", Expr::Mul(vec![Expr::from_i64(-1), power(xe, -2)])),
+    ] {
+        for order in [0, 3] {
+            assert_refused(&source, &x, &zero, order);
+        }
+    }
+    for nonfinite in [
+        Expr::Const(Constant::Infinity),
+        Expr::Const(Constant::NegativeInfinity),
+        Expr::Const(Constant::ComplexInfinity),
+        Expr::Const(Constant::NaN),
+        function("exp", Expr::Const(Constant::Infinity)),
+        function("log", Expr::Const(Constant::Infinity)),
+    ] {
+        let held_zero = Expr::Mul(vec![zero.clone(), nonfinite]);
+        assert_refused(&held_zero, &x, &zero, 0);
+        assert_refused(&held_zero, &x, &zero, 3);
+    }
+}
+
+#[test]
+fn finite_literal_infinity_centers_match_their_exact_values() {
+    let x = Symbol::new("finite_literal_center_x");
+    let source = function("exp", Expr::Sym(x.clone()));
+    for (center, value) in finite_literal_infinity_values() {
+        for order in [0, 3] {
+            assert_equal(
+                taylor(&source, &x, &center, order).unwrap(),
+                taylor(&source, &x, &value, order).unwrap(),
+            );
+            let shifted_center = Expr::Add(vec![Expr::from_i64(1), center.clone()]);
+            let shifted_value = Expr::from_i64(1) + value.clone();
+            assert_equal(
+                taylor(&source, &x, &shifted_center, order).unwrap(),
+                taylor(&source, &x, &shifted_value, order).unwrap(),
+            );
+        }
+    }
+    for center in [
+        function("exp", function("log", Expr::from_i64(0))),
+        power(power(Expr::from_i64(0), -1), -1),
+        Expr::Mul(vec![Expr::from_i64(0), Expr::Const(Constant::Infinity)]),
+        function("exp", Expr::Const(Constant::Infinity)),
+        function("log", Expr::Const(Constant::Infinity)),
+    ] {
+        assert_refused(&source, &x, &center, 0);
+        assert_refused(&source, &x, &center, 3);
+    }
+}
