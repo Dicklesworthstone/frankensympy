@@ -39,7 +39,9 @@ def replay_program(program, data, *, budget=None):
     if type(program) not in (_ResidualCallable, _SourceContext):
         raise TypeError("root-proof replay requires a captured exact residual system")
     budget = _source_budget(budget)
-    native = program.native_system.replay_root_certificate(data, budget=budget)
+    from ._legacy_absolute_transport import replay_root
+    sources = program._sources if type(program) is _ResidualCallable else None
+    native = replay_root(program.native_system, data, sources, budget)
     # Root existence is independently checked in native code. Preserve the
     # shell's narrower exact-input and captured-assumption rules as well; an
     # incompatible domain never becomes a returned public receipt.

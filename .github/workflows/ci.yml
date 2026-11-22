@@ -572,6 +572,7 @@ jobs:
               "python/tests/test_error_function_numeric.py",
               "python/tests/test_sinc_numeric.py",
               "python/tests/test_absolute_numeric.py",
+              "python/tests/test_absolute_artifact_compatibility.py",
               "python/tests/test_exact_dsolve.py",
               "python/tests/test_bernoulli_initial_conditions.py",
               "python/tests/test_general_vop.py",

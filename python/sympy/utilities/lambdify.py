@@ -840,9 +840,9 @@ class NumericLeastSquaresCandidate:
 class _ResidualCallable:
     """Python argument layout around an immutable checked native system."""
 
-    __slots__ = ("_layout", "_native_system", "_variables", "_has_inexact_source", "_assumptions")
+    __slots__ = ("_layout", "_native_system", "_variables", "_has_inexact_source", "_assumptions", "_sources")
 
-    def __init__(self, layout, native, variables, inexact, assumptions):
+    def __init__(self, layout, native, variables, inexact, assumptions, sources):
         if hasattr(self, "_native_system"):
             raise AttributeError("compiled residual systems are immutable")
         object.__setattr__(self, "_layout", layout)
@@ -850,6 +850,7 @@ class _ResidualCallable:
         object.__setattr__(self, "_variables", tuple(variables))
         object.__setattr__(self, "_has_inexact_source", inexact)
         object.__setattr__(self, "_assumptions", assumptions)
+        object.__setattr__(self, "_sources", tuple(sources))
 
     def __setattr__(self, name, value):
         raise AttributeError("compiled residual systems are immutable")
@@ -927,6 +928,8 @@ class _ResidualCallable:
         Use ``receipt.to_bytes()`` on a result of ``solve_certified`` or
         ``certify_root_box`` to obtain an artifact. The native proof format is
         bounded to 1 MiB and uses the default empty ambient context.
+        Historical Abs-to-abs source tags undergo independent old-source and
+        canonical-source replay; returned receipts re-export canonical Abs.
         """
         from ._root_certificate import replay_program
         return replay_program(self, data, budget=budget)
@@ -1481,7 +1484,7 @@ def compile_residual_system(residuals, args, *, budget=None):
     prepared = _residual_source(residuals, args)
     layout, variables, bindings, assumptions, sources, inexact = prepared
     native = _native.VerifiedResidualSystem(sources, bindings, budget=budget)
-    result = _ResidualCallable(layout, native, variables, inexact, assumptions)
+    result = _ResidualCallable(layout, native, variables, inexact, assumptions, sources)
     _check_evaluation_budget(budget)
     return result
 
@@ -1511,6 +1514,12 @@ def load_residual_system(data, *, residuals, args, budget=None):
     then independently rechecks retained symbolic derivative proofs,
     omitted zero derivatives, sparsity and bytecode before publication.
     Corrupt data, incompatible schemas and mismatched source raise ValueError.
+
+    Historical Python files that lowered the registered Abs class to ``abs``
+    are independently admitted against that exact old lowering, then their
+    retained proofs are replayed against the canonical Abs source. Re-export
+    upgrades those function tags; other historical bytes keep their existing
+    representation. No arbitrary function-name alias is admitted.
 
     The caller must supply both ``residuals`` and ``args``. Their exact
     lowered source and ordered typed symbols must match the bundle, including
@@ -1543,10 +1552,9 @@ def load_residual_system(data, *, residuals, args, budget=None):
     prepared = _residual_source(residuals, args)
     layout, variables, bindings, assumptions, sources, inexact = prepared
     _check_evaluation_budget(budget)
-    native = _native.VerifiedResidualSystem.from_bytes(
-        data, residuals=sources, variables=bindings, budget=budget,
-    )
-    result = _ResidualCallable(layout, native, variables, inexact, assumptions)
+    from ._legacy_absolute_transport import load_program
+    native = load_program(data, sources, bindings, budget)
+    result = _ResidualCallable(layout, native, variables, inexact, assumptions, sources)
     _check_evaluation_budget(budget)
     return result
 

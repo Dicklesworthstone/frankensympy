@@ -411,6 +411,18 @@ budget with compilation and evaluation. Existing `to_bytes`,
 These artifacts carry checked derivative programs; numerical values remain
 approximate, and root or stationary-point certificates are separate.
 
+Saved Python programs and root proofs using the historical internal `abs`
+spelling remain loadable against the original registered `Abs` expression.
+The compatibility adapter first verifies the unchanged artifact against the
+receiver's historical source encoding. It then upgrades only the function
+tags in that accepted canonical export and independently checks the retained
+evidence against the current source. Re-export uses canonical `Abs` tags.
+Both program formats and standalone or compiled-program root-proof replay use
+this path. Typed coordinates, held operands, ambient context and every other
+source spelling remain exact; opaque functions named `abs` acquire no builtin
+capability. Each phase retains consumed work and observes the same caller
+budget and cancellation. No derivative proof is regenerated during migration.
+
 The public compiler admits up to 256 variables and 4,096 residuals, with
 65,536 source nodes, 65,536 stored bytecode operations, and 65,536 units of
 row-local differentiation work. Each row contributes its source-node count

@@ -162,6 +162,11 @@ class RootBoxReceipt(_Receipt):
         ``args`` follows the ordinary source-certification argument contract.
         Captured declared assumptions must hold throughout the encoded box.
 
+        Historical compiled Python proofs that used the Abs-to-abs lowering
+        are first checked against that exact historical source, then replayed
+        against canonical Abs syntax. The returned receipt and its exported
+        bytes use canonical tags; all other source identities remain exact.
+
         Only the default empty ambient context is supported, with declared
         symbol facts retained by their typed identities. Different contexts,
         noncanonical or malformed encodings and invalid witnesses refuse.

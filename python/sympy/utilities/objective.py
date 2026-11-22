@@ -545,6 +545,11 @@ def load_objective(data, *, objective, args, budget=None):
     Held operations, source order and assumption identities must match the
     artifact. No Python symbol or callback is loaded from serialized data.
 
+    Historical Python Abs-to-abs lowering is migrated only after independent
+    admission against that old source. Retained proofs are then rechecked
+    against canonical Abs syntax. Re-export upgrades those function tags;
+    no other source aliases or replacement derivative proofs are introduced.
+
     Declared assumptions and Float-source restrictions are recaptured from
     the receiver's objects. A Float source remains approximate-only even when
     its native rational representation matches the saved source. The returned
@@ -565,9 +570,8 @@ def load_objective(data, *, objective, args, budget=None):
         raise ValueError("objective program data exceeds the 1 MiB byte limit")
     layout, variables, bindings, assumptions, source, inexact = _objective_source(objective, args)
     _check_evaluation_budget(budget)
-    native = _native.VerifiedObjective.from_bytes(
-        data, source=source, variables=bindings, budget=budget,
-    )
+    from ._legacy_absolute_transport import load_program
+    native = load_program(data, [source], bindings, budget, objective=True)
     result = _ObjectiveCallable(layout, native, variables, inexact, assumptions)
     _check_evaluation_budget(budget)
     return result

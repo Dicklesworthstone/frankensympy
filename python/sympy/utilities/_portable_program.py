@@ -31,6 +31,10 @@ def load_portable_residual_system(data, *, residuals, args, budget=None):
     are replaced by fresh symbolic differentiation. Independent admission
     rechecks retained derivatives, omitted zeros and executable provenance.
 
+    Historical Python Abs-to-abs lowering is independently admitted and its
+    retained proofs replayed again against canonical Abs source. Re-export
+    upgrades those tags. Context and every other source identity stay exact.
+
     The supplied argument nesting and captured assumptions are retained.
     Float-origin restrictions are recaptured from the receiving source, so
     these bytes do not turn approximate literals into certified inputs.
@@ -50,10 +54,9 @@ def load_portable_residual_system(data, *, residuals, args, budget=None):
     budget = _input(data, budget)
     layout, variables, bindings, assumptions, sources, inexact = _residual_source(residuals, args)
     _check_evaluation_budget(budget)
-    native = _native.VerifiedResidualSystem.from_portable_bytes(
-        data, residuals=sources, variables=bindings, budget=budget,
-    )
-    result = _ResidualCallable(layout, native, variables, inexact, assumptions)
+    from ._legacy_absolute_transport import load_program
+    native = load_program(data, sources, bindings, budget, portable=True)
+    result = _ResidualCallable(layout, native, variables, inexact, assumptions, sources)
     _check_evaluation_budget(budget)
     return result
 
@@ -67,6 +70,11 @@ def load_portable_objective(data, *, objective, args, budget=None):
     context must match before independent gradient/Hessian and bytecode
     admission. Both mixed-partial orders and omitted derivatives are checked.
     Neither an encoded flag nor a producer's receipt grants acceptance.
+
+    Historical Python Abs-to-abs lowering is admitted against the receiver's
+    exact historical source before retained proofs are replayed against
+    canonical Abs syntax. Re-export upgrades those tags, without changing
+    typed identities, ambient context or any other source spelling.
 
     Python argument nesting, assumptions and Float-source restrictions are
     recaptured from the supplied objects. No object classes, callbacks, symbol
@@ -87,9 +95,8 @@ def load_portable_objective(data, *, objective, args, budget=None):
     budget = _input(data, budget)
     layout, variables, bindings, assumptions, source, inexact = _objective_source(objective, args)
     _check_evaluation_budget(budget)
-    native = _native.VerifiedObjective.from_portable_bytes(
-        data, source=source, variables=bindings, budget=budget,
-    )
+    from ._legacy_absolute_transport import load_program
+    native = load_program(data, [source], bindings, budget, objective=True, portable=True)
     result = _ObjectiveCallable(layout, native, variables, inexact, assumptions)
     _check_evaluation_budget(budget)
     return result
