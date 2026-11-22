@@ -1,0 +1,184 @@
+{
+  "date_utc": "2026-11-22",
+  "repository": "Dicklesworthstone/frankensympy",
+  "branch": "main",
+  "starting_commit": "a9b84b46eb5dd6929f1babe0c029257ee31f34a7",
+  "feature_head": "ceb887f03707a57ad4f148166ea2f6fad992f847",
+  "work_items": [
+    "fra-o4g",
+    "fra-kfo"
+  ],
+  "commits": [
+    {
+      "sha": "223e1796b06d9741154160a95caa00a8cd96ef0e",
+      "subject": "feat(polys): add checked multivariate prime-field composition",
+      "remote_verification": "Exact commit fetched with git; expected message and six-file diff inspected."
+    },
+    {
+      "sha": "c07d9fe8f132b52c73c9c0efc7b4957424716e3b",
+      "subject": "feat(matrices): add exact complex Moore-Penrose pseudoinverses",
+      "remote_verification": "Exact commit fetched with git; expected message and nine-file diff inspected."
+    },
+    {
+      "sha": "ceb887f03707a57ad4f148166ea2f6fad992f847",
+      "subject": "fix(matrices): solve complex least squares with Hermitian equations",
+      "remote_verification": "Exact commit fetched with git and GitHub; expected message and nine-file diff inspected."
+    }
+  ],
+  "implementation": [
+    {
+      "feature": "Multivariate prime-field composition",
+      "behavior": "Substitute the second polynomial for the first declared generator of the first polynomial, preserving the remaining typed generators as coefficient variables and the original prime field.",
+      "generation": "Sparse Horner evaluation.",
+      "acceptance": "Separate ascending-power coefficient convolution checks the full original polynomial identity; point evaluation does not establish acceptance.",
+      "public_api": "Poly/PurePoly.compose and module-level compose; explicit polys=False returns an expression.",
+      "bounds": "Existing bounded prime-field multivariate source/ring/term/work/allocation limits remain; composition growth includes the retained coefficient axes and is preflighted before expansion.",
+      "tests_authored": "Seven new native regression functions plus Compose in the existing arithmetic-mutant campaign; 14 new public test functions with parameterization.",
+      "remaining": "No new protected verifier reservation or active CallbackSession forwarding for the existing finite-field bridge; no extension-field or general multivariate factorization claim."
+    },
+    {
+      "feature": "Exact Gaussian-rational Moore-Penrose pseudoinverse",
+      "behavior": "Dense mutable and immutable Matrix.pinv for exact Q(i), including rectangular and rank-deficient matrices.",
+      "generation": "Rational realification and the existing sparse rational candidate generator.",
+      "acceptance": "A distinct dense Q(i) reference checker re-reads original A and X and verifies AXA=A, XAX=X, (AX)*=AX and (XA)*=XA, including real Hermitian diagonals.",
+      "source_and_runtime": "Retained original scalar/storage binding, original native descriptors, cumulative active request accounting, terminal cancellation and final publication checks.",
+      "bounds": "Complex or active-session lane: each axis <=32; input/output components <=4096 bits; intermediate envelope <=8192 bits; native call <=20M compute units and <=256 MiB cumulative logical allocation. Ordinary literal-rational default behavior retained.",
+      "tests_authored": "18 native integration functions, two private reference tests and 14 public test functions (39 parameterized cases).",
+      "remaining": "Same-crate synchronous reference checking, not a new portable proof-kernel certificate or protected verifier-pool claim."
+    },
+    {
+      "feature": "Unique complex least squares",
+      "defect": "The previous default used A^T A and could accept -1/3 for A=[1,2i]^T, b=[1,0]^T. The Hermitian solution is 1/5.",
+      "behavior": "Bounded exact Q(i) full-column-rank solve_least_squares default/CH, including multiple RHS and dense or sparse RHS classes; result retains the coefficient matrix class.",
+      "acceptance": "Existing independent sparse rank and normal-equation verification on realifications, followed by a separate direct original Q(i) check of A*(AX-B)=0.",
+      "source_and_runtime": "Both original operands are admitted before generation. Joint lane selection bounds mixed complex/literal inputs before snapshotting or densifying. Sparse RHS conversion uses original native descriptors, with pre/post original-source checks. Active sessions retain cumulative accounting through publication.",
+      "bounds": "Same bounded Q(i) dimensions/height/work/allocation envelope as the Gaussian pseudoinverse path.",
+      "tests_authored": "13 native integration functions, one private residual-mutation test and 18 public test functions (65 parameterized cases).",
+      "remaining": "Rank-deficient CH requests refuse. Complete PINV least-squares families remain on the existing rational-only path. Existing native singular-error ValueError policy is retained; upstream CH uses TypeError."
+    }
+  ],
+  "observed_validation": [
+    {
+      "command": "cargo metadata --no-deps --locked --format-version 1",
+      "exit_code": 0,
+      "scope": "Original workspace metadata."
+    },
+    {
+      "command": "cargo fmt --check",
+      "exit_code": 1,
+      "scope": "Clean starting-commit baseline: 64 formatting hunks in 13 files."
+    },
+    {
+      "command": "cargo fmt --check",
+      "exit_code": 1,
+      "scope": "Final feature head: the same 64 normalized formatting hunks, with zero additional hunks. This is not a global formatting pass."
+    },
+    {
+      "command": "rustfmt --edition 2024 --check crates/fsym-matrices/src/pseudoinverse.rs crates/fsym-matrices/src/pseudoinverse/gaussian.rs crates/fsym-matrices/tests/gaussian_pseudoinverse.rs; git diff --check",
+      "exit_code": 0,
+      "scope": "Pseudoinverse checkpoint before the least-squares follow-on."
+    },
+    {
+      "command": "rustfmt --edition 2024 --config skip_children=true crates/fsym-matrices/src/pseudoinverse/gaussian.rs crates/fsym-matrices/src/pseudoinverse/gaussian/least_squares.rs crates/fsym-matrices/tests/gaussian_least_squares.rs; git diff --check",
+      "exit_code": 0,
+      "scope": "Final native least-squares files formatted and whitespace-checked. Whole lib.rs formatting was not applied."
+    },
+    {
+      "command": "Python AST parsing of changed/new Python files",
+      "exit_code": 0,
+      "scope": "Syntax checks only; no candidate-native execution."
+    },
+    {
+      "command": "Isolated SymPy 1.14.0 composition fixture script under python -I",
+      "exit_code": 0,
+      "scope": "15 expected-fixture checks: ten complete coefficient tables, two generator orders and three output policies. Separate PurePoly class and inactive-coordinate observations also matched."
+    },
+    {
+      "command": "Isolated SymPy 1.14.0 pytest: test_matrix_complex_pseudoinverse.py",
+      "exit_code": 0,
+      "passed": 20,
+      "skipped": 19,
+      "scope": "Upstream expected mathematical fixtures; native-specific cases skipped. Not candidate execution."
+    },
+    {
+      "command": "Isolated SymPy 1.14.0 pytest: test_matrix_complex_least_squares.py",
+      "exit_code": 0,
+      "passed": 26,
+      "skipped": 31,
+      "scope": "Upstream expected fixtures at the initial test checkpoint. Eight native-only cases were added afterward; the 26 ordinary test definitions remained unchanged and final AST parsing passed."
+    },
+    {
+      "command": "cargo check --locked -p fsym-matrices -p fsym-polys --all-targets -j1",
+      "exit_code": 101,
+      "scope": "Final feature head, actual production workspace with pinned dependencies.",
+      "outcome": "Failed before candidate compilation: could not create build-target/debug/build/fsym-id/d44da610988c048f/out; No space left on device (os error 28). The 180-second bounded invocation failed immediately, before its timeout. This is not a Rust source diagnostic."
+    }
+  ],
+  "incomplete_validation": [
+    {
+      "command": "cargo check --workspace --all-targets --locked",
+      "scope": "Clean starting-commit baseline",
+      "exit_code": 130,
+      "outcome": "Interrupted to prioritize focused feature execution; not a successful check."
+    },
+    {
+      "command": "cargo test --locked -p fsym-polys --test finite_field_multivariate",
+      "attempts": 2,
+      "exit_code": null,
+      "outcome": "Execution-service losses prevented terminal status recovery. The first retained log stopped at syn 3.0.3. The second progressed through fsym-budget/fsym-bigint to fsym-modular; no compiler error or test execution was observed. At recovery the old session was unreachable and target locks were free."
+    },
+    {
+      "command": "cargo test --locked -p fsym-matrices --test gaussian_pseudoinverse --test pseudoinverse --test gaussian_least_squares --test least_squares -j1",
+      "outcome": "Not executed; dependency build did not reach this queued step."
+    },
+    {
+      "command": "cargo test --locked -p fsym-matrices --lib pseudoinverse::gaussian -j1",
+      "outcome": "Not executed; three private Gaussian reference tests remain pending."
+    },
+    {
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "outcome": "Not executed."
+    },
+    {
+      "command": "cargo test --workspace",
+      "outcome": "Not executed."
+    },
+    {
+      "command": "Production fsym-python build and candidate Python feature suites",
+      "outcome": "Not executed; no candidate extension pass is claimed."
+    }
+  ],
+  "ci": {
+    "workflow": "CI Gate Topology",
+    "run_id": 44995255703,
+    "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/44995255703",
+    "observed_at_utc": "2026-11-22T06:58:24Z",
+    "status": "queued",
+    "conclusion": null,
+    "integration": "All new native and public feature suites are selected by the existing G3 job; existing gates, comparators and required tests remain intact.",
+    "updated_at": "2026-11-22T06:46:42Z"
+  },
+  "toolchain": {
+    "rust": "nightly-2026-08-20",
+    "rustc": "1.100.0-nightly",
+    "rustc_commit": "f7d782a3be46d6bb4b9792fe69a61db389ba1769",
+    "python": "3.12.14",
+    "oracle": "SymPy 1.14.0 (isolated from the repository Python shell)",
+    "pytest": "8.4.2 in a scratch-only target",
+    "build_settings": {
+      "jobs": 1,
+      "incremental": false,
+      "development_and_test_debuginfo": false
+    },
+    "donors": {
+      "asupersync": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+      "franken_numpy": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+      "frankenscipy": "213a417c739025ed865a3875c89a7d86726ecb5a"
+    }
+  },
+  "claim_effect": "Implementation progress only. No broad WS08/WS10/profile gate, portable proof class, performance claim or Beads task is closed or promoted. Work-item status, priority and dependency edges remain unchanged.",
+  "evidence_storage": "Native source and tests are bound to the remote commits above. Command terminal outputs were observed in the session. Raw local build logs may be transient; unavailable or interrupted commands are not successful evidence.",
+  "recorded_at_utc": "2026-11-22T06:58:24Z",
+  "validation_assessment": "Feature implementation and source/fixture checks are complete; candidate compilation and runtime acceptance remain unverified. Repeated executor transport losses were followed by a concrete ENOSPC failure.",
+  "artifact_type": "implementation_progress"
+}
