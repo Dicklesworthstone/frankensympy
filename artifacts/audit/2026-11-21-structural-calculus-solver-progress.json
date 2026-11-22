@@ -1,0 +1,848 @@
+{
+  "schema_version": 1,
+  "status": "implemented_uncertified",
+  "observed_at_utc": "2026-11-22T00:52:33.675040+00:00",
+  "repository": "Dicklesworthstone/frankensympy",
+  "starting_head": "f091f7e9cd0bbf05a98d7510e80b29a0f0195ee1",
+  "source_commits": [
+    {
+      "sha": "6c8d4f2a3187ca4280fd4b65654bddc344caea0c",
+      "scope": "Integration substitution preserves user parameters and typed symbol identity"
+    },
+    {
+      "sha": "87afdb71b24dafbf1dd1a518f68c6393c41d428f",
+      "scope": "Taylor coefficients retain original source domains"
+    },
+    {
+      "sha": "d0607b55ff78d076411049ffb8b4349d9de4294e",
+      "scope": "Structural has queries use the Python surface graph"
+    },
+    {
+      "sha": "7571d25ccab2b441c62370d84d1ec44a6db655f9",
+      "scope": "Symbolic quadratic candidates retain original source exclusions"
+    },
+    {
+      "sha": "07188183bc126b6754f302266bc5b4409a311967",
+      "scope": "Callable and grouped structural find/count queries are restored"
+    },
+    {
+      "sha": "6e9990368897d12fa7680afe251461c917b59bea",
+      "scope": "Checked roots retain finite elementary compositions of literal infinities"
+    },
+    {
+      "sha": "98c643cded723aaa4d441067cbce168e085f88a7",
+      "scope": "Taylor values preserve finite literal infinity compositions while retaining original holes"
+    }
+  ],
+  "scope": "Structural Python queries, integration coordinate identity, pointwise Taylor source domains, and checked symbolic root admission.",
+  "prioritization": {
+    "inputs": [
+      "COMPREHENSIVE_PLAN_FOR_FRANKENSYMPY.md",
+      ".beads/issues.jsonl"
+    ],
+    "graph_scope": [
+      "fra-a5x",
+      "fra-7kf",
+      "fra-ws21-profile-closure-82j"
+    ],
+    "reason": "Address missing foundational public-query behavior and silent mathematical wrong-answer risks in remaining calculus and solver workstreams."
+  },
+  "behavior": {
+    "structural_has": "Variadic and class queries traverse the Python surface graph; held arguments, typed Symbols and Dummies, custom classes, exact associative subsets and noncommutative order retain their identities. Custom conversion, descriptor access, matcher creation and predicate truth conversion remain fresh supervised effects.",
+    "structural_find_count": "Restore callable, class and symbolic queries; grouped find counts each occurrence, shared subgraphs are visited per occurrence, and count does not require hashable nodes. Preserve source-match precedence, callback failures, conversion fallback and traversal-before-hashing order.",
+    "integration": "Choose fresh substitution symbols across the complete original source symbol universe and the integration coordinate; same printed names with different assumptions or Dummy identities remain distinct.",
+    "taylor": "Check original source children at the center before cancellation, zero products or zeroth powers can erase holes; retain decided Piecewise branch selection, typed coordinates and bounded substitution. Exact finite compositions of literal real infinities remain valid, while generated poles and nonfinite centers refuse.",
+    "solvers": "Filter proved original logarithmic and reciprocal exclusions from symbolic quadratic candidates without treating unresolved generic parameter conditions as false. Strict candidate/residual checks retain exact finite infinity compositions and continue to reject invalid nonfinite products."
+  },
+  "authored_regressions": {
+    "native": 25,
+    "python": 70
+  },
+  "source_sha256": {
+    "crates/fsym-calculus/src/lib.rs": "83554790c9196f864f19348a55eff110f3a5435d92bb56dbd3905e5d250c9004",
+    "crates/fsym-calculus/src/integrate.rs": "a4a56061bbf2d709f4a0856808fb4d90db18f66cea0ce8a7b6e487fb29695f82",
+    "crates/fsym-calculus/tests/integration_substitution_identity.rs": "95d389490ea94df4f259e42674ad734f170c13993fce03d990586668cd2b1a4a",
+    "crates/fsym-calculus/tests/taylor_source_domain.rs": "42c47eb22094a4845501415e4276f6d44745c125d54a413c5fc4a56e8ec8ecbe",
+    "crates/fsym-solvers/src/univariate.rs": "bff1f5e54e96f83dcaf63f36aaea4783bfc44f90ea0b278a12590b05e0873f45",
+    "crates/fsym-solvers/tests/symbolic_source_domains.rs": "d96a89048262273feae038bb1f8f8c53309075da0d6d96289637d018728c2aff",
+    "python/sympy/core/__init__.py": "debf561e664e56671bff32582c2ae2ba788e0774a9f8efa910714e8cfddc2280",
+    "python/sympy/core/match.py": "3dd42394ec06095f53b05067ced0f4afd276854536daff8087ff06e3b45225c0",
+    "python/tests/test_structural_has.py": "846b4c956478bbb5c65426756cc5ac4e09c40d803b77c0f8f96bd40a51cedd38",
+    "python/tests/test_structural_find.py": "3b9b12c4cd185a3322cc1cf801778d7e86075af5e978629d655f4d0926fbd510",
+    "python/tests/test_integration_coordinate_identity.py": "814accd2960a9706187571054b32769dac318a075773b7aa31398a426d38106c",
+    ".github/workflows/ci.yml": "89b5f91e9c9f978170c9ec8d3e238b18ae0600043819584d9d3ebf7bb2de79b1"
+  },
+  "native_validation": {
+    "environment": {
+      "toolchain": "nightly-2026-08-20",
+      "setup_command": "source /workspace/scratch/f4c0815e01ed/verification-env.sh",
+      "setup_script_sha256": "cf687ba7c0bdd3253b32761908924a53e98257aa23684c4ce89d85e31c4c1533",
+      "cargo_jobs": 1,
+      "rust_test_threads": 1
+    },
+    "native_results": {
+      "passed": 50,
+      "failed": 0,
+      "new_regression_tests": 25,
+      "existing_tests": 25,
+      "runs": [
+        {
+          "id": "solver-source-domains-05",
+          "command": "cargo test --locked -p fsym-solvers --test symbolic_source_domains",
+          "log": {
+            "file": "solver-source-domains-05.log",
+            "sha256": "3a4b7a39fb4001b5415bc6e1c7d013a5629bab1e863dfc022baccb2db76a8087"
+          },
+          "exit_receipt": "solver-source-domains-05.exit",
+          "exit_code": 0,
+          "source_receipts": [
+            "solver-source-domains-05.before.sha256",
+            "solver-source-domains-05.after.sha256"
+          ],
+          "unchanged_manifest_sha256": "3d77a794ef5e83a2078f794ed784ee208f3cc7150433790ead7c92a42f58b123",
+          "tests": {
+            "passed": 9,
+            "failed": 0
+          },
+          "captured_log_excerpt": "    Finished `test` profile [unoptimized] target(s) in 2m 53s\n     Running tests/symbolic_source_domains.rs (/workspace/scratch/f4c0815e01ed/build-target/debug/build/fsym-solvers/5810fab04c351778/out/symbolic_source_domains-5810fab04c351778)\n\nrunning 9 tests\ntest an_unknown_constraint_cannot_hide_a_proved_pole ... ok\ntest held_zero_logarithms_do_not_publish_their_original_poles ... ok\ntest held_zero_products_cannot_erase_literal_nonfinite_factors ... ok\ntest nonrational_nested_reciprocals_retain_the_original_hole ... ok\ntest ordinary_symbolic_and_irrational_quadratic_formulas_are_preserved ... ok\ntest piecewise_domain_checks_only_follow_selected_branches ... ok\ntest regular_roots_survive_original_domain_filtering ... ok\ntest source_domain_substitution_uses_the_full_coordinate_identity ... ok\ntest unknown_parameter_conditions_remain_generic_solutions ... ok\n\ntest result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s\n"
+        },
+        {
+          "id": "solver-univariate-existing-06",
+          "command": "cargo test --locked -p fsym-solvers --lib univariate::",
+          "log": {
+            "file": "solver-univariate-existing-06.log",
+            "sha256": "54089be8d12a5bad82e4ba272833e82ad129f6d899fe9947670ee4ebe4b3a775"
+          },
+          "exit_receipt": "solver-univariate-existing-06.exit",
+          "exit_code": 0,
+          "source_receipts": [
+            "solver-univariate-existing-06.before.sha256",
+            "solver-univariate-existing-06.after.sha256"
+          ],
+          "unchanged_manifest_sha256": "3d77a794ef5e83a2078f794ed784ee208f3cc7150433790ead7c92a42f58b123",
+          "tests": {
+            "passed": 21,
+            "failed": 0
+          },
+          "captured_log_excerpt": "test univariate::original_equation_tests::nested_reciprocal_holes_are_not_forgotten_by_rational_rewriting ... ok\ntest univariate::original_equation_tests::original_domain_and_finite_solution_checks_precede_simplification ... ok\ntest univariate::original_equation_tests::original_rational_poles_survive_cancellation_and_multiplicity ... ok\ntest univariate::original_equation_tests::radical_elimination_preserves_exact_rational_and_irrational_roots ... ok\ntest univariate::original_equation_tests::symbolic_principal_branch_obligation_survives_public_dispatch ... ok\ntest univariate::original_equation_tests::unevaluable_residual_is_incomplete_not_a_root_or_an_empty_set ... ok\ntest univariate::quartic_publication_tests::cubic_parameter_requires_the_complete_exact_resolvent_multiset ... ok\ntest univariate::quartic_publication_tests::either_cubic_branch_yields_a_complete_quartic_multiset ... ok\ntest univariate::quartic_publication_tests::every_original_coefficient_is_bound ... ok\ntest univariate::quartic_publication_tests::malformed_sources_and_oversized_factors_are_refused_before_lifting ... ok\ntest univariate::quartic_publication_tests::proposed_factor_mutations_cannot_publish_roots ... ok\ntest univariate::quartic_publication_tests::reference_quadratic_factors_reconstruct_original_coefficients ... ok\ntest univariate::quartic_publication_tests::shifted_biquadratics_use_their_independent_square_root_relation ... ok\n\ntest result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 63 filtered out; finished in 2.67s\n"
+        },
+        {
+          "id": "calculus-finite-literal-focused-12",
+          "command": "cargo test --locked -p fsym-calculus --test integration_substitution_identity --test taylor_source_domain",
+          "log": {
+            "file": "calculus-finite-literal-focused-12.log",
+            "sha256": "a94639480c17976d3611a20c551041e4a1daceff1bdaca575ceccf481ef0e246"
+          },
+          "exit_receipt": "calculus-finite-literal-focused-12.exit",
+          "exit_code": 0,
+          "source_receipts": [
+            "calculus-finite-literal-focused-12.before.sha256",
+            "calculus-finite-literal-focused-12.after.sha256"
+          ],
+          "unchanged_manifest_sha256": "56077766a9aa425b225ab33cae605138102028c297c70ecab4084cc48d727d53",
+          "tests": {
+            "passed": 16,
+            "failed": 0,
+            "target_pass_counts": [
+              6,
+              10
+            ]
+          },
+          "captured_log_excerpt": "     Running tests/taylor_source_domain.rs (/workspace/scratch/f4c0815e01ed/build-target/debug/build/fsym-calculus/885ad451a2f63d15/out/taylor_source_domain-885ad451a2f63d15)\n\nrunning 10 tests\ntest finite_analytic_compositions_keep_exact_coefficients ... ok\ntest finite_literal_infinity_centers_match_their_exact_values ... ok\ntest finite_literal_infinity_sources_remain_defined ... ok\ntest formal_punctured_series_remains_distinct_from_pointwise_taylor ... ok\ntest inactive_piecewise_branches_do_not_invent_point_domain_failures ... ok\ntest logarithmic_poles_are_checked_before_parent_normalization ... ok\ntest nonrational_composition_cannot_erase_original_removable_holes ... ok\ntest point_substitution_admits_combined_size_and_depth_before_cloning ... ok\ntest point_substitution_respects_typed_coordinate_identity ... ok\ntest undefined_constant_children_and_nonfinite_centers_refuse ... ok\n\ntest result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s\n"
+        },
+        {
+          "id": "calculus-finite-literal-existing-13",
+          "command": "cargo test --locked -p fsym-calculus --lib taylor",
+          "log": {
+            "file": "calculus-finite-literal-existing-13.log",
+            "sha256": "e0703336ef21d1f1311646b26b0df2ec404102d2b8a2b53455bdc41e02056954"
+          },
+          "exit_receipt": "calculus-finite-literal-existing-13.exit",
+          "exit_code": 0,
+          "source_receipts": [
+            "calculus-finite-literal-existing-13.before.sha256",
+            "calculus-finite-literal-existing-13.after.sha256"
+          ],
+          "unchanged_manifest_sha256": "56077766a9aa425b225ab33cae605138102028c297c70ecab4084cc48d727d53",
+          "tests": {
+            "passed": 4,
+            "failed": 0
+          },
+          "captured_log_excerpt": "   Compiling fsym-calculus v0.1.0 (/workspace/scratch/f4c0815e01ed/frankensympy/crates/fsym-calculus)\n    Finished `test` profile [unoptimized] target(s) in 7.94s\n     Running unittests src/lib.rs (/workspace/scratch/f4c0815e01ed/build-target/debug/build/fsym-calculus/527a6b851c740746/out/fsym_calculus-527a6b851c740746)\n\nrunning 4 tests\ntest tests::taylor_refuses_singular_coefficients ... ok\ntest tests::test_taylor_exp_matches_near_origin ... ok\ntest tests::test_taylor_nondifferentiable_is_typed_error ... ok\ntest tests::test_taylor_sin_structural_cubic_term ... ok\n\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 76 filtered out; finished in 0.00s\n"
+        }
+      ]
+    },
+    "strict_clippy": {
+      "id": "calculus-solver-scoped-clippy-14",
+      "command": "cargo clippy --locked -p fsym-calculus -p fsym-solvers --lib --test integration_substitution_identity --test taylor_source_domain --test symbolic_source_domains -- -D warnings",
+      "log": {
+        "file": "calculus-solver-scoped-clippy-14.log",
+        "sha256": "ebcdeaf8d06b7202ef9c020f8a8f45ab8411ca22a9f603ae1703cee1820bbbd4"
+      },
+      "exit_receipt": "calculus-solver-scoped-clippy-14.exit",
+      "exit_code": 0,
+      "source_receipts": [
+        "calculus-solver-scoped-clippy-14.before.sha256",
+        "calculus-solver-scoped-clippy-14.after.sha256"
+      ],
+      "unchanged_manifest_sha256": "864f87f2024a73d4b2a2f9b8eda49a50215015386b170c03e2eaff22de3560f6",
+      "captured_log_excerpt": "    Checking fsym-calculus v0.1.0 (/workspace/scratch/f4c0815e01ed/frankensympy/crates/fsym-calculus)\n    Checking fsym-solvers v0.1.0 (/workspace/scratch/f4c0815e01ed/frankensympy/crates/fsym-solvers)\n    Finished `dev` profile [unoptimized] target(s) in 7.71s"
+    },
+    "retained_failures": [
+      {
+        "id": "calculus-correctness-restarted",
+        "log": {
+          "file": "calculus-correctness-restarted.log",
+          "sha256": "9bc35012b1df82c56be43d3bef4867d5c3116f98701eb4a2fdc7566f0892b8ad"
+        },
+        "resolution": "Six exact-zero residual assertions failed because normalization left equivalent products factored. Added exact distribution; derivative, identity, and replay assertions remain.",
+        "observed_tests": {
+          "passed": 0,
+          "failed": 6
+        }
+      },
+      {
+        "id": "solver-source-domains-02",
+        "log": {
+          "file": "solver-source-domains-02.log",
+          "sha256": "563fd54f291412769a639bb38249dba77fe0f7d56b9604e6354e94f790183a42"
+        },
+        "resolution": "Seven passed and two failed: finite exp(-oo) composition was rejected, and the generic quadratic residual needed another exact expansion after radical reduction.",
+        "observed_tests": {
+          "passed": 7,
+          "failed": 2
+        }
+      },
+      {
+        "id": "solver-domain-diagnostic-03",
+        "log": {
+          "file": "solver-domain-diagnostic-03.log",
+          "sha256": "fed56fe447ecf83a8276778da559d6d0270dca745ba27d715e369f15060449d9"
+        },
+        "resolution": "Temporary trace confirmed strict root checking received 1 + 0*exp(-oo). Trace was removed before passing runs.",
+        "exit_receipt": "solver-domain-diagnostic-03.exit",
+        "exit_code": 101,
+        "observed_tests": {
+          "passed": 0,
+          "failed": 1
+        }
+      },
+      {
+        "id": "calculus-solver-scoped-clippy-07",
+        "log": {
+          "file": "calculus-solver-scoped-clippy-07.log",
+          "sha256": "b051fc8944e1de1769c6c27330f5bab9e3983852a0c3d185bbf6a8f8137c614d"
+        },
+        "resolution": "Strict Clippy rejected one unnecessary lazy fallback in the Taylor helper. Replaced unwrap_or_else with ownership-only unwrap_or and reran affected checks.",
+        "exit_receipt": "calculus-solver-scoped-clippy-07.exit",
+        "exit_code": 101
+      },
+      {
+        "id": "taylor-finite-literals-before-11",
+        "command": "cargo test --locked -p fsym-calculus --test taylor_source_domain finite_literal_infinity",
+        "log": {
+          "file": "taylor-finite-literals-before-11.log",
+          "sha256": "05541aef7cc6a91d08fa7856962aa1e63ff56e2a83eafd6a55a7320b8a9ed5f5"
+        },
+        "exit_receipt": "taylor-finite-literals-before-11.exit",
+        "exit_code": 101,
+        "observed_tests": {
+          "passed": 0,
+          "failed": 2
+        },
+        "source_receipts": [
+          "taylor-finite-literals-before-11.before.sha256",
+          "taylor-finite-literals-before-11.after.sha256"
+        ],
+        "unchanged_manifest_sha256": "f0788e9c560ced8e805a1e4cfaeb1f75871f1e122967b42ac9e3298450fafaa3",
+        "regression_test_sha256": "42c47eb22094a4845501415e4276f6d44745c125d54a413c5fc4a56e8ec8ecbe",
+        "resolution": "Unchanged new tests demonstrated refusal of finite literal-infinity source values and centers. Immediate trusted finite folds now pass while original undefined children and resource limits remain enforced."
+      }
+    ],
+    "known_limits": [
+      "Scoped native correctness evidence only; full-workspace, release, workstream, and compatibility-profile closure are excluded.",
+      "Generic roots retain unresolved parameter conditions. Taylor source-domain checks are not general analyticity or convergence proofs.",
+      "Source receipts bind listed files only. Solver05/06 precede the Taylor-only corrections; solver files are unchanged, and final calculus12/13 plus Clippy14 include all Taylor corrections.",
+      "Production extension and public Python validation are separate and excluded here. Interrupted pre-test driver04 contributes no validation result."
+    ]
+  },
+  "oracle_validation": {
+    "implementation": "isolated upstream SymPy 1.14.0",
+    "python": "3.12.14",
+    "passed": 70,
+    "candidate_evidence": false,
+    "runs": [
+      {
+        "command": "/workspace/scratch/f4c0815e01ed/conformance-venv/bin/python -I -u -m unittest discover -s python/tests -p test_structural_has.py -v",
+        "passed": 32,
+        "exit_code": 0,
+        "log": "has-oracle-final.log",
+        "log_sha256": "310a393e54bf69537df5a1a6c248112f865cd6017a7dbf97aeced55f9d341aa5",
+        "terminal_summary": "----------------------------------------------------------------------\nRan 32 tests in 0.321s\n\nOK"
+      },
+      {
+        "command": "/workspace/scratch/f4c0815e01ed/conformance-venv/bin/python -I -u -m unittest discover -s python/tests -p test_structural_find.py -v",
+        "passed": 32,
+        "exit_code": 0,
+        "log": "find-oracle-final.log",
+        "log_sha256": "5cac966891e408e561d1391932966af331911e26042f5eaf01dcee805a79d17e",
+        "terminal_summary": "----------------------------------------------------------------------\nRan 32 tests in 0.054s\n\nOK"
+      },
+      {
+        "command": "/workspace/scratch/f4c0815e01ed/conformance-venv/bin/python -I -u -m unittest discover -s python/tests -p test_integration_coordinate_identity.py -v",
+        "passed": 6,
+        "exit_code": 0,
+        "log": "integration-oracle-final.log",
+        "log_sha256": "58ea55b3e1113715abab6d5b7cbfb9cb34eacdf7886aba9c64bbbef7892155fe",
+        "terminal_summary": "----------------------------------------------------------------------\nRan 6 tests in 3.864s\n\nOK"
+      }
+    ]
+  },
+  "production_extension_attempt": {
+    "scope": "Full production Cargo dependency graph, no source omissions or replacements",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "-p",
+      "fsym-python",
+      "--lib",
+      "--features",
+      "extension-module",
+      "--message-format=json-render-diagnostics"
+    ],
+    "local_git_head": "6e9990368897d12fa7680afe251461c917b59bea",
+    "rustc": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "cargo": "cargo 1.100.0-nightly (514c56dd7 2026-08-19)",
+    "donor_checkouts": {
+      "asupersync": {
+        "path": "/workspace/scratch/f4c0815e01ed/asupersync",
+        "commit": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+        "tracked_changes": ""
+      },
+      "franken_numpy-pin": {
+        "path": "/workspace/scratch/f4c0815e01ed/franken_numpy-pin",
+        "commit": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+        "tracked_changes": ""
+      },
+      "frankenscipy-pin": {
+        "path": "/workspace/scratch/f4c0815e01ed/frankenscipy-pin",
+        "commit": "213a417c739025ed865a3875c89a7d86726ecb5a",
+        "tracked_changes": ""
+      }
+    },
+    "state": "build_failed",
+    "cargo_exit_code": 101,
+    "build_finished_at": "2026-11-22T00:29:43.374724+00:00",
+    "native_sources_unchanged": true,
+    "modified_source_sha256": {
+      "crates/fsym-calculus/src/lib.rs": "9fe6053f9bd0c1f73d801dd7ed5058b7d824a6be2591fb10f565cc871f6f5c0f",
+      "crates/fsym-calculus/src/integrate.rs": "a4a56061bbf2d709f4a0856808fb4d90db18f66cea0ce8a7b6e487fb29695f82",
+      "crates/fsym-calculus/tests/integration_substitution_identity.rs": "95d389490ea94df4f259e42674ad734f170c13993fce03d990586668cd2b1a4a",
+      "crates/fsym-calculus/tests/taylor_source_domain.rs": "27b5e90cb01976013e8abb30e73ea88a19fe316883f2bb99c08b7e3dfdc190bd",
+      "crates/fsym-solvers/src/univariate.rs": "bff1f5e54e96f83dcaf63f36aaea4783bfc44f90ea0b278a12590b05e0873f45",
+      "crates/fsym-solvers/tests/symbolic_source_domains.rs": "d96a89048262273feae038bb1f8f8c53309075da0d6d96289637d018728c2aff"
+    }
+  },
+  "production_extension_failure": {
+    "reason": "The compiler for unchanged pinned asupersync was killed by signal9 (SIGKILL). No production extension was produced.",
+    "log_sha256": "0503f21d59f2a43b8bad7466446c601b9dae9b8b7d5c10245e7dac0151552849",
+    "source_boundary": "The attempt used local HEAD 6e9990368897d12fa7680afe251461c917b59bea plus the ownership-only Taylor Clippy correction. Source hashes remained unchanged during that attempt. The final finite-literal Taylor behavior correction was committed afterward in 98c643cded723aaa4d441067cbce168e085f88a7; the blocked dependency and its pins did not change."
+  },
+  "python_candidate_validation": {
+    "mode": "component",
+    "scope": "Supplementary actual-source mathematical/PyO3 component; six runtime helpers absent",
+    "started_at": "2026-11-22T00:41:20.047661+00:00",
+    "finished_at": "2026-11-22T00:41:24.991452+00:00",
+    "command": [
+      "/workspace/scratch/f4c0815e01ed/conformance-venv/bin/python",
+      "-I",
+      "/workspace/scratch/f4c0815e01ed/run-selected-python-validation.py",
+      "--mode",
+      "component",
+      "--extension-dir",
+      "/workspace/scratch/f4c0815e01ed/component-extension",
+      "--attempt",
+      "01",
+      "--child"
+    ],
+    "tests_selected": [
+      "python/tests/test_structural_has.py",
+      "python/tests/test_structural_find.py",
+      "python/tests/test_solve_source_domains.py",
+      "python/tests/test_surface.py::SurfaceTests::test_wild_match_replace_and_traversal",
+      "python/tests/test_callback_effects_and_ownership.py"
+    ],
+    "known_component_exclusions": [
+      {
+        "nodeid": "python/tests/test_integration_coordinate_identity.py::IntegrationCoordinateIdentityTests::test_parameter_named_like_the_first_substitution_coordinate",
+        "reason": "Shared check_primitive requires native Expr.expand and Expr.simplify, two of the documented six omitted runtime helpers"
+      },
+      {
+        "nodeid": "python/tests/test_integration_coordinate_identity.py::IntegrationCoordinateIdentityTests::test_all_original_suffix_names_are_reserved",
+        "reason": "Shared check_primitive requires native Expr.expand and Expr.simplify, two of the documented six omitted runtime helpers"
+      },
+      {
+        "nodeid": "python/tests/test_integration_coordinate_identity.py::IntegrationCoordinateIdentityTests::test_integration_coordinate_can_have_the_internal_preferred_name",
+        "reason": "Shared check_primitive requires native Expr.expand and Expr.simplify, two of the documented six omitted runtime helpers"
+      },
+      {
+        "nodeid": "python/tests/test_integration_coordinate_identity.py::IntegrationCoordinateIdentityTests::test_same_printed_parameter_names_keep_distinct_assumptions",
+        "reason": "Shared check_primitive requires native Expr.expand and Expr.simplify, two of the documented six omitted runtime helpers"
+      },
+      {
+        "nodeid": "python/tests/test_integration_coordinate_identity.py::IntegrationCoordinateIdentityTests::test_dummy_parameter_keeps_its_identity",
+        "reason": "Shared check_primitive requires native Expr.expand and Expr.simplify, two of the documented six omitted runtime helpers"
+      },
+      {
+        "nodeid": "python/tests/test_integration_coordinate_identity.py::IntegrationCoordinateIdentityTests::test_same_printed_coordinate_and_parameter_are_not_conflated",
+        "reason": "Shared check_primitive requires native Expr.expand and Expr.simplify, two of the documented six omitted runtime helpers"
+      }
+    ],
+    "state": "component_run_complete",
+    "exit_code": 0,
+    "extension_sha256_before": "d6b80d8f737217c7751ae8072634305653480367cbfeef9f56ea8d3a1a968f20",
+    "extension_sha256_after": "d6b80d8f737217c7751ae8072634305653480367cbfeef9f56ea8d3a1a968f20",
+    "sources_unchanged": true,
+    "binary_unchanged": true,
+    "component_scope_counts": {
+      "eligible_passed": 100,
+      "eligible_failed": 0,
+      "reached_omitted_helper_paths": 0,
+      "known_exclusions": 6
+    },
+    "counts_by_module": {
+      "python/tests/test_callback_effects_and_ownership.py": 8,
+      "python/tests/test_solve_source_domains.py": 27,
+      "python/tests/test_structural_find.py": 32,
+      "python/tests/test_structural_has.py": 32,
+      "python/tests/test_surface.py": 1
+    },
+    "eligible_passed_nodes": [
+      "python/tests/test_callback_effects_and_ownership.py::test_cancellation_and_unknown_effect_taint_refuse_auto_retry",
+      "python/tests/test_callback_effects_and_ownership.py::test_exactly_once_callback_execution_and_session_trace",
+      "python/tests/test_callback_effects_and_ownership.py::test_gc_cycle_weakref_finalizer_and_no_class_retention",
+      "python/tests/test_callback_effects_and_ownership.py::test_hero_constitutive_law_held_matrix_jacobian_differential",
+      "python/tests/test_callback_effects_and_ownership.py::test_interpreter_and_thread_ownership_adversaries",
+      "python/tests/test_callback_effects_and_ownership.py::test_matrix_alias_snapshot_and_mid_traversal_mutation_guard",
+      "python/tests/test_callback_effects_and_ownership.py::test_metaclass_subclass_override_and_dynamic_capability_change",
+      "python/tests/test_callback_effects_and_ownership.py::test_slow_non_cooperative_callback_and_budget_bounds",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_cancelled_equality_sides_do_not_publish_an_undefined_root",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_check_false_does_not_allocate_or_execute_source_checking",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_denominator_dispatch_cannot_erase_unsupported_held_terms",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_denominator_dispatch_does_not_hide_unrelated_linear_failures",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_denominator_dispatch_preserves_sources_for_candidate_admission",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_direct_linsolve_still_refuses_original_denominator_conditions",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_domain_admission_does_not_capture_other_candidate_coordinates",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_enclosing_callback_budget_failure_is_not_an_unknown_domain",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_float_rationalization_retains_original_poles_before_rounding",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_indexed_algebraic_roots_are_preserved_when_domain_check_is_unknown",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_linear_and_polynomial_systems_filter_whole_candidate_rows",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_multivariable_scalar_fallback_keeps_free_coordinate_and_output_shape",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_original_source_snapshot_survives_generator_list_mutation",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_polynomial_sources_keep_the_existing_native_solver",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_public_checksol_keeps_its_full_residual_verdict",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_rational_affine_system_retains_explicit_mapping_and_set_formats",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_rational_candidate_routing_is_independent_of_source_order",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_rational_candidates_are_checked_without_floating_conversion",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_same_name_symbols_keep_distinct_source_domains",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_source_candidate_failure_does_not_restart_polynomial_solving",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_source_checks_share_one_bounded_allowance_and_exhaustion_is_terminal",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_source_system_admits_undefined_originals_before_empty_shortcuts",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_source_system_clearing_keeps_same_name_coordinate_identities",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_substitution_callback_budget_failure_is_checked_before_publication",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_unchecked_rational_system_keeps_denominator_clearing_candidates",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_unresolved_parameter_domain_is_not_interpreted_as_false",
+      "python/tests/test_solve_source_domains.py::SolveOriginalSourceDomainTests::test_valid_roots_survive_the_original_domain_filter_in_every_shape",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_assumption_distinct_symbols_remain_separate_keys",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_bound_symbols_are_structurally_findable",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_callable_finds_original_symbol_nodes",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_callable_queries_can_observe_raw_structural_arguments",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_class_queries_include_subclasses",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_converter_precedes_callable_query_behavior",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_count_does_not_require_hashable_nodes",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_custom_instance_check_is_supervised",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_custom_symbolic_matches_can_return_an_empty_binding",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_declined_conversion_preserves_the_original_callable_query",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_exact_patterns_do_not_use_has_argument_subset_matching",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_find_finishes_predicates_before_hashing_matches",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_group_counts_every_held_occurrence",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_held_numeric_sum_keeps_its_literal_arguments",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_held_zero_power_keeps_its_variable",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_none_is_truth_filter_only_for_find",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_ordinary_class_queries_do_not_consume_callback_occurrences",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_ordinary_exact_queries_do_not_consume_callback_occurrences",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_predicate_failure_does_not_return_partial_matches",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_predicate_truth_conversion_is_inside_supervision",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_rational_and_boolean_queries_preserve_types",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_repeated_callback_occurrences_are_fresh",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_same_named_dummies_remain_separate_keys",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_same_named_function_classes_are_not_interchangeable",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_shared_subgraphs_are_counted_each_time_they_occur",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_source_match_override_is_supervised",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_source_match_override_precedes_the_pattern_hook",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_string_and_list_queries_are_not_silently_parsed",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_tuple_query_keeps_assumed_symbol_identity",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_unexpected_conversion_failure_never_falls_back_to_callable",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_wild_property_failures_propagate",
+      "python/tests/test_structural_find.py::StructuralFindTests::test_wild_queries_use_existing_symbolic_pattern_matching",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_additive_patterns_match_exact_argument_subsets",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_boolean_patterns_do_not_become_numeric_atoms",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_bound_coordinates_are_still_structurally_present",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_class_queries_keep_the_profile_hashability_obligation",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_classes_match_nodes_and_their_base_classes",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_converter_descriptor_reads_follow_the_supervised_profile",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_custom_converter_keeps_the_returned_symbol_identity",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_custom_matcher_queries_the_original_shell_nodes",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_distinct_queries_do_not_share_cached_predicate_outcomes",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_effectful_converters_are_fresh_for_distinct_queries",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_effectful_matcher_factories_are_fresh_for_distinct_queries",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_empty_pattern_list_is_false",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_exact_match_precedes_custom_matcher_creation",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_exact_python_scalar_patterns",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_forged_bound_method_metadata_cannot_bypass_supervision",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_held_commuting_subset_uses_profile_set_semantics",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_held_numeric_arguments_are_not_replaced_by_the_value",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_held_product_keeps_a_literal_identity_factor",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_held_zero_power_keeps_its_source_children",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_matcher_descriptor_and_truth_conversion_are_supervised",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_mixed_classes_and_expressions",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_multiple_patterns_are_an_any_of_query",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_multiplicative_patterns_match_exact_argument_subsets",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_noncommuting_subset_requires_a_contiguous_ordered_block",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_same_named_custom_functions_remain_distinct",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_same_named_dummies_keep_individual_identity",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_same_named_symbols_keep_assumption_identity",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_strings_and_lists_are_not_parsed_as_patterns",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_structural_subclasses_match_their_real_class",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_tuple_patterns_preserve_symbol_identity",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_undefined_function_class_queries",
+      "python/tests/test_structural_has.py::StructuralHasTests::test_unhashable_symbolic_patterns_raise",
+      "python/tests/test_surface.py::SurfaceTests::test_wild_match_replace_and_traversal"
+    ],
+    "omission_observation_sites": {
+      "Expr.expand": {
+        "file": "/workspace/scratch/f4c0815e01ed/frankensympy/python/sympy/core/__init__.py",
+        "line": 6229
+      },
+      "Expr.simplify": {
+        "file": "/workspace/scratch/f4c0815e01ed/frankensympy/python/sympy/core/__init__.py",
+        "line": 6268
+      }
+    },
+    "omission_observation_limitations": [
+      "A passed test that reaches an omitted-helper path is not counted as component-independent evidence.",
+      "Independent child interpreters are not monitored; callback hero subprocess success is not an oracle comparison when its hard-coded oracle interpreter is absent.",
+      "This record does not certify the full production runtime or whole compatibility profile."
+    ],
+    "observations_sha256": "62b5a0581581763da081fe322fabab33621eacfe9afbca2122684635839b36ff",
+    "verified_shell_and_test_files": 171,
+    "log_sha256": "ceac074c7c7d950571c484d6ea6eb5d355cb80913e079f8201e0208c4949152a",
+    "captured_log": "{\"mode\": \"component\", \"python\": \"3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]\", \"interpreter\": \"/workspace/scratch/f4c0815e01ed/conformance-venv/bin/python\", \"native_path\": \"/workspace/scratch/f4c0815e01ed/component-extension/fsym_python.so\", \"native_sha256\": \"d6b80d8f737217c7751ae8072634305653480367cbfeef9f56ea8d3a1a968f20\", \"shell_path\": \"/workspace/scratch/f4c0815e01ed/frankensympy/python/sympy/__init__.py\", \"runtime_helpers\": {\"simplify_expr\": false, \"expand_expr\": false, \"Expr.simplify\": false, \"Expr.expand\": false}}\n........................................................................ [ 72%]\n............................                                             [100%]\n100 passed in 4.20s\n{\"component_eligible_passed\": 100, \"component_eligible_failed\": 0, \"reached_omitted_helpers\": 0, \"known_exclusions\": 6, \"observations\": \"/workspace/scratch/f4c0815e01ed/component-python-validation-omission-observations.json\"}\n",
+    "omission_observer_positive_control": {
+      "status": "passed",
+      "purpose": "Positive control for passive omitted-method observation; not part of the100 candidate test count",
+      "observed_helper_paths": [
+        "expand",
+        "simplify"
+      ],
+      "expected_missing_helper_errors": {
+        "expand": "'fsym_python.Expr' object has no attribute 'expand'",
+        "simplify": "'fsym_python.Expr' object has no attribute 'simplify'"
+      },
+      "native_sha256": "d6b80d8f737217c7751ae8072634305653480367cbfeef9f56ea8d3a1a968f20",
+      "shell_core_sha256": "debf561e664e56671bff32582c2ae2ba788e0774a9f8efa910714e8cfddc2280",
+      "candidate_observations_sha256": "62b5a0581581763da081fe322fabab33621eacfe9afbca2122684635839b36ff"
+    },
+    "omission_observer_positive_control_sha256": "02ab4eb2004f704f706d1072c0800a53bfc85fb3cca691ca87f04cfdd0ea8586",
+    "outcome": "passed_for_declared_component_scope"
+  },
+  "source_review": {
+    "kind": "Independent source and mathematical review before publication, with separate review of both finite-composition corrections.",
+    "areas": [
+      "Typed source identity and held Python graphs",
+      "Fresh supervised callback effects, descriptors and truth conversion",
+      "Exact source-domain retention and unknown-condition handling",
+      "Piecewise branch policy",
+      "Allocation bounds before point substitution",
+      "Finite literal compositions versus generated poles",
+      "Unchanged exact mathematical residual comparators and separate structural profile comparators"
+    ],
+    "final_taylor_correction_review": {
+      "reviewer": "verification_setup",
+      "status": "approved after independent candidate-patch review and final hash verification",
+      "committed_source_head": "98c643cded723aaa4d441067cbce168e085f88a7",
+      "source_sha256": {
+        "crates/fsym-calculus/src/lib.rs": "83554790c9196f864f19348a55eff110f3a5435d92bb56dbd3905e5d250c9004",
+        "crates/fsym-calculus/tests/taylor_source_domain.rs": "42c47eb22094a4845501415e4276f6d44745c125d54a413c5fc4a56e8ec8ecbe"
+      },
+      "findings": [
+        "Only immediate unary calls with literal real positive/negative infinity or numeric powers of such literal infinity can use the early exact fold.",
+        "The original parent and child nodes are charged before the trusted elementary evaluation; the finite result is recursively revalidated and charged under the same remaining allowance and tree position.",
+        "Preserved log(0), original reciprocal holes, nested inverse holes, and exp(-1/x^2) at zero still fail while visiting the original child; no finite outer limit can hide them.",
+        "Literal complex infinity and NaN retain the existing input refusal policy. Nonfinite outputs and held zero products containing them remain rejected.",
+        "Two new tests exercise finite source constants, held products, analytic sums, exact/shifted centers, and negative source/center controls using exact residual equality.",
+        "The preceding one-line unwrap_or lint correction constructs only an enum from already-owned values and does not add a callback or mathematical evaluation."
+      ],
+      "validation": {
+        "native_receipt": "/workspace/scratch/f4c0815e01ed/native-final-evidence-draft.json",
+        "before_control": "Two added finite-composition tests failed on the preceding source, retained by native agent",
+        "final_native": "integration6 plus Taylor10 plus existing Taylor4 plus solver9 plus existing univariate21 passed; scoped strict Clippy passed",
+        "component": "Actual-source mathematical/PyO3 component built against this committed head; selected100 Python cases passed with no reached omitted-helper paths; six integration comparator cases explicitly excluded"
+      },
+      "limitations": [
+        "The full production extension remains blocked by the pinned asupersync rustc SIGKILL from the preceding production attempt.",
+        "This does not claim a general analytic-domain/convergence decision procedure or strict Python3.14 profile certification."
+      ]
+    },
+    "final_taylor_correction_review_sha256": "899d2fa3fe56db2da146e35130e9bac03bd441ec5c81e20a9bbb4184b8cb4ce3"
+  },
+  "baseline_checks": [
+    {
+      "command": "python3 -m unittest discover -s tools -p 'test_*.py'",
+      "observed_terminal_exit_code": 0,
+      "result": "25 passed",
+      "log_sha256": "6ad87e134abc3ca3e24083a7de743b5e06dd1089f92fd91e940e39bfba0cbc71"
+    },
+    {
+      "command": "python3 tools/validate_planning.py",
+      "observed_terminal_exit_code": 0,
+      "result": "planning integrity validation passed",
+      "log_sha256": "6eb2e9b3d9b1feebe4ca86880694b817c3b00937ae615c4d28c57cd2b65eced1"
+    },
+    {
+      "command": "python3 tools/validate_planning.py --self-test",
+      "observed_terminal_exit_code": 0,
+      "result": "claims-linter self-test passed",
+      "log_sha256": "ffd1e1df32bd03c38ca223e87e00313c4b9ad3e0654aa44cdf6b96beda0ee3b5"
+    },
+    {
+      "command": "python3 -m unittest discover -s tools/conformance-lab -p 'test_*.py'",
+      "observed_terminal_exit_code": 1,
+      "result": "125 run;2 errors;13 skipped;both errors require Python3.14 but environment is3.12.14",
+      "log_sha256": "bb3cfc159e0f4fdc60aa562ef00dc21541ab1fdbe691777421600be19c557c9b"
+    },
+    {
+      "command": "cargo fmt --check",
+      "observed_terminal_exit_code": 1,
+      "result": "pre-existing formatting differences in unchanged files",
+      "log_sha256": "2439b590b4ea59f95d8eaa1820c2a9e47a8b7e58891df8f029f698f4ff8678db"
+    },
+    {
+      "command": "cargo check --locked --workspace --all-targets",
+      "observed_terminal_exit_code": 130,
+      "result": "interrupted while waiting on package cache before compilation",
+      "log_sha256": "e237bf68452f394ffe54e018832419d40907390b5a98d44e8939943ca20bf452"
+    }
+  ],
+  "preexisting_format_drift_files": [
+    "crates/fsym-core/src/real_roots/query.rs",
+    "crates/fsym-core/src/real_roots.rs",
+    "crates/fsym-core/tests/real_root_query.rs",
+    "crates/fsym-matrices/src/lib.rs",
+    "crates/fsym-matrices/src/normal_forms/integer_system.rs",
+    "crates/fsym-matrices/src/normal_forms/modular_inverse.rs",
+    "crates/fsym-matrices/tests/modular_inverse.rs",
+    "crates/fsym-proof-kernel/src/integer_lll.rs",
+    "crates/fsym-proof-kernel/src/integer_modular_inverse.rs",
+    "crates/fsym-proof-kernel/tests/integer_lll.rs",
+    "crates/fsym-python/src/algebraic_roots/query.rs",
+    "crates/fsym-python/src/matrix/modular_inverse.rs",
+    "crates/fsym-python/src/matrix.rs"
+  ],
+  "workspace_gates": {
+    "state": "complete_with_failures",
+    "started_at": "2026-11-22T00:44:28.370825+00:00",
+    "finished_at": "2026-11-22T00:49:20.763633+00:00",
+    "local_git_head": "98c643cded723aaa4d441067cbce168e085f88a7",
+    "commands": [
+      {
+        "label": "final-workspace-fmt",
+        "command": [
+          "cargo",
+          "fmt",
+          "--check"
+        ],
+        "started_at": "2026-11-22T00:44:28.432855+00:00",
+        "log": "/workspace/scratch/f4c0815e01ed/final-workspace-fmt.log",
+        "exit_code": 1,
+        "finished_at": "2026-11-22T00:44:32.620399+00:00",
+        "log_sha256": "2439b590b4ea59f95d8eaa1820c2a9e47a8b7e58891df8f029f698f4ff8678db"
+      },
+      {
+        "label": "final-workspace-check",
+        "command": [
+          "cargo",
+          "check",
+          "--locked",
+          "--workspace",
+          "--all-targets"
+        ],
+        "started_at": "2026-11-22T00:44:32.622922+00:00",
+        "log": "/workspace/scratch/f4c0815e01ed/final-workspace-check.log",
+        "exit_code": -9,
+        "finished_at": "2026-11-22T00:49:20.238338+00:00",
+        "log_sha256": "39565dd3f9435f5db4cbbe25a57050f728552b02a216454051482d7f04979ab1",
+        "captured_log_excerpt": "    Checking semver v1.0.28\n    Checking hex v0.4.3\n    Checking either v1.18.0\n    Checking base64 v0.23.1\n    Checking slab v0.4.12\n    Checking asupersync v0.6.0 (/workspace/scratch/f4c0815e01ed/asupersync)"
+      }
+    ],
+    "sources_unchanged": true,
+    "optional_tools": {
+      "rch": null,
+      "ubs": null
+    },
+    "formatting": {
+      "outcome": "failed_on_preexisting_drift_only",
+      "baseline_path_count": 13,
+      "final_path_count": 13,
+      "paths_unchanged": true
+    },
+    "check": {
+      "outcome": "terminated_by_SIGKILL",
+      "cargo_subprocess_return_code": -9,
+      "last_compilation_stage": "Checking asupersync",
+      "rust_diagnostic_observed": false
+    },
+    "clippy": {
+      "outcome": "not_run",
+      "reason": "The prerequisite workspace metadata check was killed before completing; repeating the unchanged graph was not treated as useful validation."
+    },
+    "tests": {
+      "outcome": "not_run",
+      "reason": "The full runtime compilation shares the pinned asupersync SIGKILL blocker observed in the production extension attempt. No unchanged full-link retry."
+    }
+  },
+  "claims_and_graph": "Progress notes only on three existing Beads. No status, priority, dependency, profile, claim tier, workstream closure or release certification is promoted.",
+  "boundaries": [
+    "Taylor source-domain checks do not establish general analyticity or convergence; formal Laurent series remain distinct.",
+    "Generic symbolic roots retain unresolved parameter conditions; global solver completeness is not claimed.",
+    "The installed Python3.12.14 runtime does not satisfy the immutable CPython3.14 strict profile.",
+    "Oracle agreement and scoped component execution do not certify a complete compatibility profile."
+  ],
+  "component_build": {
+    "scope": "Supplementary mathematical/PyO3 component only; production async runtime and six helpers absent; no replacement functions or upstream production engine",
+    "local_git_head": "98c643cded723aaa4d441067cbce168e085f88a7",
+    "omitted_members": [
+      "lib.rs::eval_error",
+      "lib.rs::eval_region",
+      "lib.rs::simplify_expr",
+      "lib.rs::expand_expr",
+      "expr.rs::PyExpr.simplify",
+      "expr.rs::PyExpr.expand"
+    ],
+    "source_function_replacements": [],
+    "commands": [
+      {
+        "command": [
+          "cargo",
+          "metadata",
+          "--offline",
+          "--format-version=1",
+          "--features",
+          "extension-module"
+        ],
+        "cwd": "/workspace/scratch/f4c0815e01ed/python-component",
+        "started_at": "2026-11-22T00:38:43.174424+00:00",
+        "stdout": "/workspace/scratch/f4c0815e01ed/component-dependency-metadata.json",
+        "stderr": "/workspace/scratch/f4c0815e01ed/component-lock-resolution.log",
+        "exit_code": 0,
+        "finished_at": "2026-11-22T00:38:43.463989+00:00"
+      },
+      {
+        "command": [
+          "cargo",
+          "build",
+          "--locked",
+          "--offline",
+          "--lib",
+          "--features",
+          "extension-module",
+          "--message-format=json-render-diagnostics"
+        ],
+        "cwd": "/workspace/scratch/f4c0815e01ed/python-component",
+        "started_at": "2026-11-22T00:38:43.486626+00:00",
+        "log": "/workspace/scratch/f4c0815e01ed/component-extension-build.log",
+        "exit_code": 0,
+        "finished_at": "2026-11-22T00:40:12.791591+00:00"
+      },
+      {
+        "command": [
+          "/workspace/scratch/f4c0815e01ed/conformance-venv/bin/python",
+          "-I",
+          "/workspace/scratch/f4c0815e01ed/run-component-extension.py",
+          "--smoke"
+        ],
+        "cwd": "/workspace/scratch/f4c0815e01ed/frankensympy",
+        "started_at": "2026-11-22T00:40:13.189544+00:00",
+        "log": "/workspace/scratch/f4c0815e01ed/component-extension-smoke.log",
+        "exit_code": 0,
+        "finished_at": "2026-11-22T00:40:14.067289+00:00"
+      }
+    ],
+    "lock_verification": {
+      "external_versions_or_checksums_absent_from_production": [],
+      "production_lock_unchanged": true,
+      "component_lock_sha256": "76def8a8caba3efff8e17ed3a9d72cf894e3e06ec1621e7a5175977c78e95a60",
+      "full_runtime_packages_present": []
+    },
+    "sources_unchanged": true,
+    "artifact": {
+      "cargo_path": "/workspace/scratch/f4c0815e01ed/build-target/debug/libfsym_python.so",
+      "test_path": "/workspace/scratch/f4c0815e01ed/component-extension/fsym_python.so",
+      "sha256": "d6b80d8f737217c7751ae8072634305653480367cbfeef9f56ea8d3a1a968f20"
+    },
+    "finished_at": "2026-11-22T00:40:14.067380+00:00",
+    "build_log_sha256": "9d3d658b426e1efc94cd7601efac3c99b7bd32c31f52fa663aad2f1977523c63",
+    "composition_manifest_sha256": "490fba0b294f7c4a78f1624869d7760b8b1030b69dda84346d26fec967d8476e",
+    "recipe": "artifacts/validation/2026-11-15-continuation/prepare_python_component.py",
+    "existing_dependency_alignment": "The supplementary manifest mirrors the production bridge num-traits 0.2 dependency at locked 0.2.19; no new production dependency, version, checksum, or source replacement was introduced."
+  },
+  "repository_head_before_audit": "98c643cded723aaa4d441067cbce168e085f88a7",
+  "beads_updates": {
+    "base_blob": "d02a4a0e050b5ea2b4227c647d491b8400c4a20d",
+    "new_blob": "d2073b4a87a6b457fb6c8e413030278bbf5da593",
+    "updated_at": "2026-11-22T00:46:34Z",
+    "changed_beads": [
+      "fra-7kf",
+      "fra-a5x",
+      "fra-ws21-profile-closure-82j"
+    ],
+    "changed_fields": [
+      "notes",
+      "updated_at"
+    ],
+    "rows": 124,
+    "sha256": "a49aa57201e0b22b7ff5ba86ddab9fd4ee4b98db492a89d25724422e414fe26e",
+    "non_note_fields_verified_unchanged": true
+  },
+  "ci_at_observation": [
+    {
+      "id": 44967530063,
+      "name": "Verify Remote Main (Read Only)",
+      "head_sha": "98c643cded723aaa4d441067cbce168e085f88a7",
+      "status": "pending",
+      "conclusion": null,
+      "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/44967530063"
+    },
+    {
+      "id": 44967530117,
+      "name": "CI Gate Topology",
+      "head_sha": "98c643cded723aaa4d441067cbce168e085f88a7",
+      "status": "queued",
+      "conclusion": null,
+      "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/44967530117"
+    }
+  ],
+  "publication_verification": "All seven functional commits were independently fetched from GitHub after direct-main publication, and each expected message and changed path was checked. The final functional commit files exactly matched the local committed bytes.",
+  "static_checks": {
+    "scoped_rustfmt": "passed on changed Rust files",
+    "scoped_diff_check": "passed",
+    "planning_integrity": "passed after Beads progress update",
+    "planning_command": [
+      "python",
+      "tools/validate_planning.py"
+    ],
+    "planning_log_sha256": "6eb2e9b3d9b1feebe4ca86880694b817c3b00937ae615c4d28c57cd2b65eced1",
+    "beads_graph_fields": "unchanged; only notes and updated_at changed on three existing records"
+  }
+}
