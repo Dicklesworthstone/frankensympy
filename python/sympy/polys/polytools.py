@@ -26,7 +26,7 @@ from ..core import (
     _wrap,
 )
 # Eagerly retain builtin implementations before the first lazy eval import.
-from . import _evaluation_owners
+from . import _evaluation_owners, _reduced
 
 
 _GENS_ORDER = {
@@ -996,6 +996,9 @@ class PurePoly(Poly):
         if _finitefield.is_finite(self):
             return _finitefield.identity_hash(self)
         return hash(("PurePoly", tuple(c for _, c in self.terms())))
+
+
+_reduced.register_poly_owners(Poly, PurePoly)
 
 
 def _is_rational_function(c: Any) -> bool:
@@ -4541,14 +4544,17 @@ def pexquo(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Any:
 
 
 def reduced(f: Any, G: Any, *gens: Any, **kwargs: Any) -> Tuple[list, Any]:
-    """Reduce a prime-field polynomial by a complete ordered divisor list.
+    """Reduce a polynomial by an ordered divisor list over QQ, ZZ or GF(p).
 
     The checked bounded lane supports lex, grlex and grevlex with at most
     eight generators and 32 divisors. It independently verifies the complete
-    quotient/remainder identity and that no divisor leading monomial divides
-    any remainder term. Other coefficient domains currently refuse.
+    quotient/remainder identity and complete remainder reduction in the chosen
+    coefficient domain. Default integer inputs may extend to QQ; domain='ZZ'
+    or auto=False keeps integer coefficient divisibility. No Groebner-basis
+    construction is needed, and no ideal non-membership claim is made.
     """
-    return _finitefield.reduced_entry(f, G, gens, kwargs)
+    from ._reduced import reduced_entry
+    return reduced_entry(f, G, gens, kwargs)
 
 
 def rem(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Any:

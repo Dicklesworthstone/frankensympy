@@ -60,7 +60,7 @@ pub(crate) fn polynomial_source(
     Ok(polynomial)
 }
 
-fn integral(polynomial: &MultivariatePoly, meter: &mut Budget) -> PyResult<bool> {
+pub(crate) fn integral(polynomial: &MultivariatePoly, meter: &mut Budget) -> PyResult<bool> {
     charge(meter, polynomial.terms().len(), 0)?;
     Ok(polynomial
         .terms()
@@ -70,7 +70,7 @@ fn integral(polynomial: &MultivariatePoly, meter: &mut Budget) -> PyResult<bool>
 
 /// Operation-ring union cannot repair a false declaration on a retained Poly.
 /// The original ring is admitted separately, including unused typed axes.
-fn original_domain(
+pub(crate) fn original_domain(
     source: &Expr,
     polynomial: Option<&MultivariatePoly>,
     variables: &[Symbol],
@@ -112,7 +112,10 @@ fn original_domain(
     Ok(())
 }
 
-fn checked_lift(polynomial: &MultivariatePoly, verifier: &mut Budget) -> PyResult<PyExpr> {
+pub(crate) fn checked_lift(
+    polynomial: &MultivariatePoly,
+    verifier: &mut Budget,
+) -> PyResult<PyExpr> {
     // Both complete output allocations were prepaid before the first lift.
     let expression = polynomial.to_expr().map_err(polynomial_error)?;
     let recovered = bounded_polynomial_from_expr(&expression, polynomial.generators(), verifier)

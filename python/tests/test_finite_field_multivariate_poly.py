@@ -289,8 +289,7 @@ def test_reduction_empty_repeated_constant_and_zero_divisors():
         polynomial.div(sp.Poly(0, x, y, modulus=5))
     with pytest.raises(ZeroDivisionError):
         sp.reduced(polynomial, [divisor, sp.Poly(0, x, y, modulus=5)])
-    with pytest.raises(NotImplementedError, match="prime-field"):
-        sp.reduced(x*y, [x], x, y)
+    assert sp.reduced(x*y, [x], x, y) == ([y], 0)
     with pytest.raises(GeneratorsNeeded):
         sp.reduced(x*y, [x, y], modulus=5)
 
