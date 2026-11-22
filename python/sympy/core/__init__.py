@@ -1527,20 +1527,6 @@ class Basic:
             return self
         return self.func(*new_args)
 
-    def find(self, query: Any) -> set["Basic"]:
-        """Collect nodes matching a type or an exact expression."""
-        found: set[Basic] = set()
-        stack: list[Basic] = [self]
-        while stack:
-            node = stack.pop()
-            if isinstance(query, type):
-                if isinstance(node, query):
-                    found.add(node)
-            elif node == query:
-                found.add(node)
-            stack.extend(arg for arg in node.args if isinstance(arg, Basic))
-        return found
-
     def xreplace(self, rule: Any) -> "Basic":
         """Replace exact nodes. Unlike ``subs``, this does not rewrite algebraically."""
         from ._surface_transforms import xreplace

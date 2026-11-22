@@ -14,7 +14,12 @@ fn half() -> Expr {
 }
 
 fn assert_same_expression(actual: Expr, expected: Expr) {
-    let difference = fsym_simplify::simplify(&(actual.clone() - expected.clone()));
+    // Primitive construction and differentiation may distribute different
+    // factors. Normalize their exact polynomial residual before comparing.
+    let difference = fsym_simplify::try_expand(&(actual.clone() - expected.clone()))
+        .expect("exact residual expansion failed");
+    let difference =
+        fsym_simplify::try_simplify(&difference).expect("exact residual simplification failed");
     assert!(difference.is_zero(), "expected {expected}, got {actual}");
 }
 

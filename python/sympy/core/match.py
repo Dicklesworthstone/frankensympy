@@ -15,6 +15,9 @@ for a pattern that does not reproduce the expression.
 
 from __future__ import annotations
 
+import contextlib
+from fractions import Fraction
+from inspect import getattr_static
 from typing import Any, Callable, Iterator
 
 from . import (
@@ -26,11 +29,21 @@ from . import (
     Pow,
     Rational,
     Symbol,
+    SympifyError,
+    Tuple,
+    _active_callback_session,
+    _charge_nested_if_active,
+    _contains_opaque,
+    _exact_surface_types,
+    _expr_node_count,
     _native,
     _wrap,
+    supervised_callback_session,
     sympify,
 )
 
+_DEFAULT_BASIC_MATCH = Basic.match
+_DEFAULT_BASIC_MATCH_CODE = _DEFAULT_BASIC_MATCH.__code__
 _WILD_PREFIX = "__fsymWild_"
 _wild_by_number: dict[int, "Wild"] = {}
 _wild_by_key: dict[tuple, "Wild"] = {}
@@ -199,10 +212,7 @@ def _match_wild(w: Wild, expr: Any, d: dict) -> dict | None:
     if any(_contains(expr, x) for x in w.exclude):
         return None
     for prop in w.properties:
-        try:
-            if not prop(expr):
-                return None
-        except Exception:
+        if not prop(expr):
             return None
     nd = dict(d)
     nd[w] = expr
@@ -388,9 +398,122 @@ def replace(expr: Any, query: Any, value: Any, map: bool = False, simultaneous: 
     return (out, found) if map else out
 
 
+def _find_predicate(query: Any) -> Any:
+    """Build the profile's class, symbolic-pattern, or callable query."""
+    original_query = query
+    try:
+        if not isinstance(query, (Basic, type)):
+            if type(query) is bool:
+                from ..logic.boolalg import false, true
+
+                query = true if query else false
+            elif type(query) is Fraction:
+                query = Rational(query.numerator, query.denominator)
+            elif type(query) is tuple:
+                query = Tuple(*query)
+            elif type(query) is int or type(query) is float:
+                query = sympify(query, strict=True)
+            else:
+                converter = getattr(query, "_sympy_", None)
+                if converter is not None:
+                    query = query._sympy_()
+                elif not callable(query):
+                    # Strict query conversion never parses strings or turns a
+                    # list into a symbolic Tuple. Invalid non-callables fail
+                    # when queried, just as filter does in the pinned profile.
+                    if isinstance(query, (str, bytes, bytearray, list, dict, set)):
+                        return query
+                    query = sympify(query, strict=True)
+    except SympifyError:
+        # A declined conversion leaves the original callable query intact.
+        # Catch it inside the supervised effect so an ordinary conversion
+        # miss does not poison the request; unexpected failures propagate.
+        query = original_query
+    if isinstance(query, type):
+        return lambda node: isinstance(node, query)
+    if isinstance(query, Basic):
+        pattern_match = getattr_static(query, "matches", None) is not None
+
+        def symbolic_query(node):
+            # A source override has priority. The ordinary shell matcher
+            # delegates custom pattern hooks here without replacing the
+            # general match engine or treating their output as a proof.
+            if (pattern_match
+                    and getattr_static(node, "match", None) is _DEFAULT_BASIC_MATCH
+                    and _DEFAULT_BASIC_MATCH.__code__ is _DEFAULT_BASIC_MATCH_CODE):
+                return query.matches(node) is not None
+            return node.match(query) is not None
+
+        return symbolic_query
+    return query
+
+
+def _ordinary_find_query(query: Any) -> bool:
+    """Only unchanged, closed queries may run without callback supervision."""
+    if isinstance(query, type):
+        return (getattr_static(type(query), "__instancecheck__", None)
+                is type.__dict__["__instancecheck__"])
+    if (type(query) is int or type(query) is float
+            or type(query) is bool or type(query) is Fraction):
+        return True
+    return (
+        any(type(query) is cls for cls in _exact_surface_types())
+        and not _contains_opaque(query)
+        and not _has_wild(query)
+        and getattr_static(query, "matches", None) is None
+    )
+
+
+def _matching_nodes(expr: Any, query: Any, *, default_truth: bool = False) -> Iterator[Any]:
+    """Yield each matching occurrence, preserving held and shared children."""
+    ordinary = _ordinary_find_query(query)
+    class_query = isinstance(query, type)
+    with contextlib.ExitStack() as effects:
+        session = _active_callback_session()
+
+        def callback_session():
+            nonlocal session
+            if session is None:
+                session = effects.enter_context(supervised_callback_session())
+            return session
+
+        if ordinary:
+            predicate = _find_predicate(query)
+        else:
+            predicate = callback_session().invoke_fresh(
+                "find.query", f"find-query:{id(query)}", _expr_node_count(query),
+                _find_predicate, (query,), _expr_node_count,
+            )
+        # find follows filter(None, nodes); count still tries to call None.
+        if default_truth and predicate is None:
+            predicate = bool
+
+        def selected(node):
+            # Predicate return values may have effectful __bool__ methods.
+            return bool(predicate(node))
+
+        for node in preorder_traversal(expr):
+            _charge_nested_if_active()
+            source_override = (
+                ordinary and not class_query and isinstance(node, Basic)
+                and (_contains_opaque(node)
+                     or getattr_static(node, "match", None) is not _DEFAULT_BASIC_MATCH
+                     or _DEFAULT_BASIC_MATCH.__code__ is not _DEFAULT_BASIC_MATCH_CODE)
+            )
+            if not ordinary or source_override:
+                accepted = callback_session().invoke_fresh(
+                    "find.predicate", f"find-query:{id(query)}",
+                    _expr_node_count(query) + _expr_node_count(node),
+                    selected, (node,), _expr_node_count,
+                )
+            else:
+                accepted = selected(node)
+            if accepted:
+                yield node
+
+
 def find(expr: Any, query: Any, group: bool = False) -> Any:
-    test = _query_fn(query)
-    hits = [n for n in preorder_traversal(expr) if isinstance(n, Basic) and test(n) not in (None, False)]
+    hits = list(_matching_nodes(expr, query, default_truth=True))
     if group:
         counts: dict = {}
         for h in hits:
@@ -400,8 +523,7 @@ def find(expr: Any, query: Any, group: bool = False) -> Any:
 
 
 def count(expr: Any, query: Any) -> int:
-    test = _query_fn(query)
-    return sum(1 for n in preorder_traversal(expr) if isinstance(n, Basic) and test(n) not in (None, False))
+    return sum(1 for _ in _matching_nodes(expr, query))
 
 
 # ---------------------------------------------------------------------------
