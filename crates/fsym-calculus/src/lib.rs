@@ -87,7 +87,8 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
 
 /// The numerical derivative lane keeps tanh' and coth' away from subtraction
 /// of two rounded ones, keeps the entire sinc jets finite at their removable
-/// singularity, and avoids artificial poles in literal zero/one powers.
+/// singularity, retains guarded absolute-value derivatives on nonzero real
+/// branches, and avoids artificial poles in literal zero/one powers.
 /// Public symbolic derivatives retain their existing forms.
 pub(crate) fn numeric_diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
     diff_unsimplified_with_coth(expr, var, true)
@@ -501,6 +502,24 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                     Expr::from_i64(-1),
                     Expr::pow(denom, Expr::from_i64(-1)),
                     du,
+                ])
+            } else if stable_coth
+                && matches!(name.as_str(), "abs" | "Abs" | "_fsym_abs_d1")
+                && args.len() == 1
+            {
+                // These private nodes denote the real derivatives only on
+                // u != 0. Their evaluators reject zero rather than assigning
+                // a subgradient; original smooth-source evaluation separately
+                // retains that obligation when zero arithmetic removes a jet.
+                let next = if name == "_fsym_abs_d1" {
+                    "_fsym_abs_d2"
+                } else {
+                    "_fsym_abs_d1"
+                };
+                let u = &args[0];
+                Expr::Mul(vec![
+                    Expr::Function(next.to_string(), vec![u.clone()]),
+                    diff(u, var),
                 ])
             } else if name == "sinc" && args.len() == 1 {
                 let u = &args[0];

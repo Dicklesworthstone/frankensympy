@@ -727,7 +727,36 @@ undefined user functions with the same names do not acquire native capability.
 
 ---
 
-## Smooth absolute-value certificates (development API)
+## Absolute-value numerical programs and smooth certificates (development API)
+
+`compile_residual_system` and `compile_objective` support real `Abs` branches,
+including nested expressions and nonlinear arguments. Checked Jacobians,
+Hessians and their vector products retain the argument's sign and every chain
+term. The private numerical derivative operations use exact `-1`, `1` and `0`
+on their admitted branches, including finite subnormal and very large inputs.
+Saved and portable programs independently replay both derivative stages.
+
+```python
+from sympy import Abs, Symbol, compile_objective, compile_residual_system
+
+x = Symbol("x")
+residual = compile_residual_system(Abs(x) - 2, x)
+assert residual.evaluate(-3) == ([1.0], [[-1.0]])
+
+objective = compile_objective((Abs(x) - 2)**2, x)
+assert objective.evaluate(-3) == (1.0, [-2.0], [[2.0]])
+minimum = objective.minimize_certified(-3)
+assert minimum.kind == "strict_minimum"
+assert minimum.stationary_enclosure == ((-2, -2),)
+```
+
+Scalar `Abs(0)` remains defined, but derivative programs reject a zero argument
+at any original `Abs` node. This check survives held zero products, zeroth
+powers and zero direction or weight vectors. It conservatively also applies
+to a composition such as held `Abs(x**2)` at zero. Public symbolic derivative
+forms are unchanged. Numerical proposals can now reach `nsolve_certified` and
+`minimize_certified` on smooth branches; their evidence still comes from the
+independent original-source checkers below.
 
 The original-source residual/Jacobian and objective/Hessian checkers support
 `Abs` when the complete argument enclosure lies strictly above or strictly

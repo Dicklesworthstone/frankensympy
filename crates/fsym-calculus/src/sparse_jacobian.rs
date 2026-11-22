@@ -1732,7 +1732,9 @@ pub fn compiled_expression_matches_with_meter<M: BudgetMeter + ?Sized>(
                         "exp" => CompiledOp::Exp,
                         "log" | "ln" => CompiledOp::Ln,
                         "sqrt" => CompiledOp::Sqrt,
-                        "abs" => CompiledOp::Abs,
+                        "abs" | "Abs" => CompiledOp::Abs,
+                        "_fsym_abs_d1" => CompiledOp::AbsDerivative,
+                        "_fsym_abs_d2" => CompiledOp::AbsSecondDerivative,
                         _ => {
                             return Err(CompileError::UnsupportedFunction(compilation_diagnostic(
                                 name, self.meter,

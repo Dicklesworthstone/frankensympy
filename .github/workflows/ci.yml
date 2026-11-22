@@ -137,6 +137,8 @@ jobs:
           cargo test --locked -p fsym-matrices --test hermite_normal_form --test modular_inverse -j1
       - name: Original-source smooth absolute-value certificates
         run: cargo test --locked -p fsym-core --test abs_certification --test objective_enclosure --test root_box_general -j1
+      - name: Compiled absolute-value branches and original cusp domains
+        run: cargo test --locked -p fsym-calculus --test absolute_programs --test smooth_source_domains -j1
       - name: Reciprocal elementary original-source certificates
         run: cargo test --locked -p fsym-core --test reciprocal_enclosures -j1
       - name: Exact rational polynomial partial evaluation
@@ -562,6 +564,7 @@ jobs:
               "python/tests/test_inverse_hyperbolic_numeric.py",
               "python/tests/test_error_function_numeric.py",
               "python/tests/test_sinc_numeric.py",
+              "python/tests/test_absolute_numeric.py",
               "python/tests/test_exact_dsolve.py",
               "python/tests/test_bernoulli_initial_conditions.py",
               "python/tests/test_general_vop.py",

@@ -362,6 +362,12 @@ pub enum CompiledOp {
     Ln,
     Sqrt,
     Abs,
+    /// Real absolute-value first derivative on strictly nonzero arguments.
+    /// Unlike sign, this private numerical jet refuses zero.
+    AbsDerivative,
+    /// Real absolute-value second derivative, zero away from the cusp.
+    /// Retaining this guarded node prevents a zero result from admitting zero.
+    AbsSecondDerivative,
     /// Binary comparisons of the evaluated binary64 operands, producing 0 or 1.
     /// These do not claim exact-real comparison at rounded boundaries.
     Equal,
@@ -638,6 +644,8 @@ impl CompiledExpr {
             | CompiledOp::Ln
             | CompiledOp::Sqrt
             | CompiledOp::Abs
+            | CompiledOp::AbsDerivative
+            | CompiledOp::AbsSecondDerivative
             | CompiledOp::Not => {
                 if depth == 0 {
                     return Err(EvalError::StackUnderflow);
@@ -973,7 +981,9 @@ impl CompiledExpr {
                     "exp" => CompiledOp::Exp,
                     "ln" | "log" => CompiledOp::Ln,
                     "sqrt" => CompiledOp::Sqrt,
-                    "abs" => CompiledOp::Abs,
+                    "abs" | "Abs" => CompiledOp::Abs,
+                    "_fsym_abs_d1" => CompiledOp::AbsDerivative,
+                    "_fsym_abs_d2" => CompiledOp::AbsSecondDerivative,
                     other => {
                         return Err(CompileError::UnsupportedFunction(compilation_diagnostic(
                             other, meter,
@@ -1473,6 +1483,24 @@ impl CompiledExpr {
                         return Err(EvalError::NonsmoothSource("abs"));
                     }
                     stack.push(v.abs());
+                }
+                CompiledOp::AbsDerivative | CompiledOp::AbsSecondDerivative => {
+                    let value = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    if !value.is_finite() {
+                        return Err(EvalError::NonFiniteValue);
+                    }
+                    if value == 0.0 {
+                        return Err(EvalError::NonsmoothSource("abs"));
+                    }
+                    // No division, squaring or cancellation: both branches
+                    // retain their derivatives even for subnormal/MAX inputs.
+                    stack.push(if matches!(op, CompiledOp::AbsSecondDerivative) {
+                        0.0
+                    } else if value < 0.0 {
+                        -1.0
+                    } else {
+                        1.0
+                    });
                 }
                 CompiledOp::Equal
                 | CompiledOp::NotEqual

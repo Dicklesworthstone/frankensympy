@@ -55,6 +55,11 @@ pub const RULE_DIFF_ERFC: &str = "diff_erfc";
 pub const RULE_DIFF_SINC: &str = "diff_sinc";
 /// Exact chain rule for the private entire sinc first-derivative node.
 pub const RULE_DIFF_SINC_D1: &str = "diff_sinc_d1";
+/// Numeric-only real chain rules on the open domain u != 0. Original source
+/// and private jet evaluation must discharge that domain at every invocation;
+/// these rules do not claim a derivative or subgradient at the cusp.
+pub const RULE_DIFF_ABS: &str = "diff_abs_nonzero_real";
+pub const RULE_DIFF_ABS_D1: &str = "diff_abs_d1_nonzero_real";
 pub const RULE_DIFF_SQRT: &str = "diff_sqrt";
 pub const RULE_DIFF_GENERAL: &str = "diff_general";
 
@@ -115,23 +120,45 @@ pub fn classify_diff_rule(expr: &Expr, var: &Symbol) -> &'static str {
     }
 }
 
+fn classify_diff_rule_with_form(expr: &Expr, var: &Symbol, form: DerivativeForm) -> &'static str {
+    // Preserve public symbolic and persisted legacy rule names. The new real
+    // absolute-value interpretation belongs only to the current numeric lane.
+    if form == DerivativeForm::Numeric
+        && let Expr::Function(name, arguments) = expr
+        && arguments.len() == 1
+    {
+        match name.as_str() {
+            "abs" | "Abs" => return RULE_DIFF_ABS,
+            "_fsym_abs_d1" => return RULE_DIFF_ABS_D1,
+            _ => {}
+        }
+    }
+    classify_diff_rule(expr, var)
+}
+
 /// Computes the symbolic derivative and generates a typed, verifiable derivation proof tree
 /// establishing the claim: $\vdash \text{diff}(\text{expr}, \text{var}) = \text{deriv}$.
 pub fn verified_diff(expr: &Expr, var: &Symbol) -> (Expr, DerivationTree) {
     let deriv = diff_unsimplified(expr, var);
-    derivative_tree(expr, var, deriv)
+    derivative_tree(expr, var, deriv, DerivativeForm::Symbolic)
 }
 
 /// Internal numeric programs use stable tanh/coth, entire sinc jets and literal
-/// identity-power derivatives without changing public symbolic receipts.
+/// identity-power derivatives, plus guarded real absolute-value jets, without
+/// changing public symbolic receipts.
 pub(crate) fn verified_numeric_diff(expr: &Expr, var: &Symbol) -> (Expr, DerivationTree) {
     let deriv = crate::numeric_diff_unsimplified(expr, var);
-    derivative_tree(expr, var, deriv)
+    derivative_tree(expr, var, deriv, DerivativeForm::Numeric)
 }
 
-fn derivative_tree(expr: &Expr, var: &Symbol, deriv: Expr) -> (Expr, DerivationTree) {
+fn derivative_tree(
+    expr: &Expr,
+    var: &Symbol,
+    deriv: Expr,
+    form: DerivativeForm,
+) -> (Expr, DerivationTree) {
     let diff_term = make_diff_term(expr, var);
-    let rule_name = classify_diff_rule(expr, var);
+    let rule_name = classify_diff_rule_with_form(expr, var, form);
 
     let step = DerivationStep {
         id: StepId(1),
@@ -231,7 +258,7 @@ pub(crate) fn verify_legacy_numeric_diff_reduction(
         expr,
         var,
         deriv,
-        classify_diff_rule(expr, var),
+        classify_diff_rule_with_form(expr, var, DerivativeForm::LegacyNumeric),
         DerivativeForm::LegacyNumeric,
     )
 }
@@ -263,7 +290,7 @@ fn verify_diff_derivation_with_form(
         });
     }
 
-    let expected_rule_name = classify_diff_rule(expr, var);
+    let expected_rule_name = classify_diff_rule_with_form(expr, var, form);
 
     match &root_step.rule {
         ProofRule::DefinitionalReduction {
@@ -733,6 +760,14 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
                 }
                 "_fsym_sinc_d1" => Expr::Mul(vec![
                     Expr::Function("_fsym_sinc_d2".to_string(), vec![u.clone()]),
+                    du,
+                ]),
+                "abs" | "Abs" if form == DerivativeForm::Numeric => Expr::Mul(vec![
+                    Expr::Function("_fsym_abs_d1".to_string(), vec![u.clone()]),
+                    du,
+                ]),
+                "_fsym_abs_d1" if form == DerivativeForm::Numeric => Expr::Mul(vec![
+                    Expr::Function("_fsym_abs_d2".to_string(), vec![u.clone()]),
                     du,
                 ]),
                 _ => make_diff_term(expr, var),
@@ -1400,6 +1435,53 @@ fn verify_rule_reduction_semantics(
                     rule_name: rule_name.to_string(),
                     reason:
                         "Entire sinc second derivative disagrees with the independent chain rule"
+                            .to_string(),
+                });
+            }
+        }
+        RULE_DIFF_ABS | RULE_DIFF_ABS_D1 => {
+            let Expr::Function(name, arguments) = expr else {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Expected a guarded real absolute-value derivative".to_string(),
+                });
+            };
+            let valid_source = if rule_name == RULE_DIFF_ABS {
+                matches!(name.as_str(), "abs" | "Abs")
+            } else {
+                name == "_fsym_abs_d1"
+            };
+            if form != DerivativeForm::Numeric || arguments.len() != 1 || !valid_source {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Absolute-value jet rules require their exact unary numeric source"
+                        .to_string(),
+                });
+            }
+            // For real u > 0, |u| = u; for u < 0, |u| = -u. Hence the
+            // first derivative is +/-1, and its derivative is zero on each
+            // open branch. Retain the private second jet instead of erasing
+            // its nonzero-domain obligation. Constancy is checked separately,
+            // matching the generator's early-zero rule without invoking it.
+            let inner = reference_sub_derivative(&arguments[0], var);
+            let expected = if inner.is_zero() {
+                Expr::from_i64(0)
+            } else {
+                let jet = if rule_name == RULE_DIFF_ABS {
+                    "_fsym_abs_d1"
+                } else {
+                    "_fsym_abs_d2"
+                };
+                Expr::Mul(vec![
+                    Expr::Function(jet.to_string(), vec![arguments[0].clone()]),
+                    inner,
+                ])
+            };
+            if deriv != &expected {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason:
+                        "Absolute-value derivative disagrees with the independent real chain rule"
                             .to_string(),
                 });
             }

@@ -67,14 +67,27 @@ def test_residual_and_objective_artifacts_replay_origin_derivatives_and_reject_f
         for point in (0, 1e-12, 0.5):
             assert restored.evaluate(point) == residual.evaluate(point)
     encoded = residual.to_bytes()
-    assert b'"Sinc"' in encoded and b'"SincDerivative"' in encoded
-    for original, replacement in ((b'"Sinc"', b'"Sin"'),
+    # Residual artifacts retain the source and derivative bytecode; value
+    # programs are reconstructed from that source during admission.
+    assert b'"sinc"' in encoded and b'"SincDerivative"' in encoded
+    for original, replacement in ((b'"sinc"', b'"sin"'),
                                   (b'"SincDerivative"', b'"SincSecondDerivative"')):
+        forged = encoded.replace(original, replacement)
+        assert forged != encoded
         with pytest.raises(ValueError):
-            s.load_residual_system(encoded.replace(original, replacement), residuals=source, args=x)
+            s.load_residual_system(forged, residuals=source, args=x)
     objective = s.compile_objective(source, x)
-    restored = s.load_objective(objective.to_bytes(), objective=source, args=x)
+    encoded = objective.to_bytes()
+    restored = s.load_objective(encoded, objective=source, args=x)
     assert restored.evaluate(0) == objective.evaluate(0)
+    for original, replacement in ((b'"Sinc"', b'"Sin"'),
+                                  (b'"SincDerivative"', b'"SincSecondDerivative"'),
+                                  (b'"SincSecondDerivative"', b'"SincDerivative"')):
+        assert original in encoded
+        forged = encoded.replace(original, replacement)
+        assert forged != encoded
+        with pytest.raises(ValueError):
+            s.load_objective(forged, objective=source, args=x)
 
 
 def test_direct_source_enclosures_do_not_depend_on_numeric_derivative_generation(monkeypatch):

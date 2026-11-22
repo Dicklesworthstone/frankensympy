@@ -65,7 +65,7 @@ _CLOSED_NATIVE_FUNCTIONS = {
     "sinh": "sinh", "cosh": "cosh", "tanh": "tanh",
     "coth": "coth", "sech": "sech", "csch": "csch",
     "asinh": "asinh", "acosh": "acosh", "atanh": "atanh",
-    "exp": "exp", "log": "log", "Abs": "abs",
+    "exp": "exp", "log": "log", "Abs": "Abs",
     "floor": "floor", "ceiling": "ceiling", "gamma": "gamma",
     "erf": "erf", "erfc": "erfc", "factorial": "factorial",
 }
@@ -183,7 +183,10 @@ def _functions():
         (csch, ("csch", _math_csch)),
         (asinh, ("asinh", math.asinh)), (acosh, ("acosh", math.acosh)),
         (atanh, ("atanh", math.atanh)), (exp, ("exp", math.exp)), (log, ("log", math.log)),
-        (Abs, ("abs", abs)), (floor, ("floor", math.floor)), (ceiling, ("ceiling", math.ceil)),
+        # Preserve the registered source tag through receipts and transport.
+        # The native compiler admits Abs directly; lowering it to the opaque
+        # Python spelling "abs" would lose exact class and structural identity.
+        (Abs, ("Abs", abs)), (floor, ("floor", math.floor)), (ceiling, ("ceiling", math.ceil)),
         (gamma, ("gamma", math.gamma)), (erf, ("erf", math.erf)), (erfc, ("erfc", math.erfc)),
         (factorial, ("factorial", math.factorial)),
     ))

@@ -15,9 +15,7 @@ use fsym_calculus::sparse_jacobian::{
     JacobianVerificationError, SparseJacobian, SparseJacobianEntry,
     verify_sparse_jacobian_certificate,
 };
-use fsym_calculus::verified::{
-    ResidualEvaluationError, VerifiedCompilationError, VerifiedResidualSystem,
-};
+use fsym_calculus::verified::{ResidualEvaluationError, VerifiedResidualSystem};
 use fsym_core::{BigInt, BigRational, Expr, Symbol};
 use fsym_proof_kernel::{Claim, ProofRule};
 use std::collections::HashMap;
@@ -94,18 +92,6 @@ fn scalar_values_keep_closed_endpoints_while_derivative_bundles_require_open_dom
         let scalar = compile(&source);
         assert!(scalar.try_eval_finite(&[endpoint]).unwrap().is_finite());
         assert!(scalar.try_eval_finite(&[interior]).unwrap().is_finite());
-        if name == "abs" {
-            // A bare Abs derivative is outside the admitted symbolic profile.
-            // The held-zero tests below exercise its original source guard
-            // without asserting support for an unevaluated diff instruction.
-            assert!(matches!(
-                VerifiedResidualSystem::try_compile(&[source], &[Symbol::new("x")]),
-                Err(VerifiedCompilationError::Compilation(
-                    CompileError::UnsupportedFunction(function)
-                )) if function == "diff"
-            ));
-            continue;
-        }
         let system = VerifiedResidualSystem::try_compile(&[source], &[Symbol::new("x")]).unwrap();
         residual_error(system.evaluate_sparse(&[endpoint]), name);
         assert!(system.evaluate_sparse(&[interior]).is_ok(), "{name}");
