@@ -575,6 +575,7 @@ jobs:
               "python/tests/test_exact_dsolve.py",
               "python/tests/test_bernoulli_initial_conditions.py",
               "python/tests/test_general_vop.py",
+              "python/tests/test_separatevars.py",
               "python/tests/test_positive_rational_power_simplification.py",
               "python/tests/test_recurrence_integrity.py",
               "python/tests/test_recurrence_forcing.py",

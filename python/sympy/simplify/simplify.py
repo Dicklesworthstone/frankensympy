@@ -23,6 +23,7 @@ from ..core import (
     sympify,
 )
 from ..polys import cancel, together
+from ._separatevars import separatevars as _bounded_separatevars
 
 
 def simplify(expr: Any, **kwargs: Any) -> Any:
@@ -990,12 +991,16 @@ def collect(
     return Add(*[k * c for k, c in collected.items()])
 
 
-def separatevars(expr: Any, symbols: Any = None, dict: bool = False) -> Any:
-    """Separate multiplicative factors in an expression."""
-    expr = sympify(expr)
-    # Oracle-pinned: separatevars fuses all-negative-power Adds
-    # (separatevars(1/x + 1/y) -> (x + y)/(x*y)).
-    return _maybe_fuse_rational_add(expr)
+def separatevars(expr: Any, symbols: Any = [], dict: bool = False, force: bool = False) -> Any:
+    """Separate variable factors, optionally returning an axis/coefficient dict.
+
+    Empty ``symbols`` infers the axes; explicit ``None`` keeps the entire
+    expression under ``'coeff'``. A dictionary result is ``None`` when factors
+    still couple requested axes. Exact polynomial factoring and elementary
+    separation are bounded; unsupported effects or loss of original source
+    domains raise explicitly instead of returning a partial separation.
+    """
+    return _bounded_separatevars(expr, symbols, dict, force)
 
 
 def _real_to_rational(expr: Any, tolerance: float | None = None) -> Any:
