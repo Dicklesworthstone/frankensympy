@@ -36,10 +36,12 @@ fn assert_roots(source: &Expr, coordinate: &Symbol, expected: Vec<Expr>) {
 
 fn assert_zero(expression: Expr) {
     let expanded = fsym_simplify::try_expand(&expression).unwrap();
-    assert!(
-        fsym_simplify::try_simplify(&expanded).unwrap().is_zero(),
-        "nonzero residual: {expanded}"
-    );
+    let simplified = fsym_simplify::try_simplify(&expanded).unwrap();
+    // Reducing a squared radical can expose a discriminant sum inside a
+    // product. Distribute that new sum before checking the exact residual.
+    let expanded = fsym_simplify::try_expand(&simplified).unwrap();
+    let simplified = fsym_simplify::try_simplify(&expanded).unwrap();
+    assert!(simplified.is_zero(), "nonzero residual: {simplified}");
 }
 
 #[test]
@@ -81,6 +83,19 @@ fn held_zero_products_cannot_erase_literal_nonfinite_factors() {
             polynomial.clone(),
             Expr::Mul(vec![Expr::from_i64(0), Expr::Const(constant)]),
         ]);
+        assert_roots(&source, &x, vec![]);
+        let source = Expr::Sym(x.clone()) - Expr::Const(constant);
+        assert_roots(&source, &x, vec![]);
+    }
+    for name in ["exp", "log"] {
+        let nonfinite_composition =
+            Expr::Function(name.into(), vec![Expr::Const(Constant::Infinity)]);
+        let source = Expr::Add(vec![
+            polynomial.clone(),
+            Expr::Mul(vec![Expr::from_i64(0), nonfinite_composition.clone()]),
+        ]);
+        assert_roots(&source, &x, vec![]);
+        let source = Expr::Sym(x.clone()) - nonfinite_composition;
         assert_roots(&source, &x, vec![]);
     }
     for (finite_composition, value) in [

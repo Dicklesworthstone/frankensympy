@@ -22,6 +22,7 @@ use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
 use fsym_polys::UnivariatePoly;
 use num_traits::{One, Signed, Zero};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 fn func(name: &str, arg: Expr) -> Expr {
     eval_function(name, std::slice::from_ref(&arg))
@@ -1425,6 +1426,63 @@ fn contains_nonfinite(e: &Expr) -> bool {
     false
 }
 
+fn is_literal_infinity(e: &Expr) -> bool {
+    matches!(
+        e,
+        Expr::Const(Constant::Infinity | Constant::NegativeInfinity | Constant::ComplexInfinity)
+    )
+}
+
+/// Fold exact finite compositions such as exp(-oo), atan(oo), and oo**-1
+/// in generated values, after their inputs have passed the verifier bounds.
+/// Keep arithmetic held until remaining nonfinite descendants are rejected;
+/// otherwise a zero product could conceal an undefined generated value.
+/// The original equation is never normalized through this helper.
+fn normalize_finite_infinity_composites(e: Expr) -> Result<Expr, SolverError> {
+    fn fold(e: &Expr) -> Expr {
+        match e {
+            Expr::Add(args) => Expr::Add(args.iter().map(fold).collect()),
+            Expr::Mul(args) => Expr::Mul(args.iter().map(fold).collect()),
+            Expr::Pow(base, exponent) => {
+                let base = fold(base);
+                let exponent = fold(exponent);
+                if is_literal_infinity(&base) && number(&exponent).is_some() {
+                    let value = eval_pow(base.clone(), exponent.clone());
+                    if !contains_nonfinite(&value) {
+                        return value;
+                    }
+                }
+                Expr::Pow(Arc::new(base), Arc::new(exponent))
+            }
+            Expr::Function(name, args) => {
+                let args: Vec<_> = args.iter().map(fold).collect();
+                if args.len() == 1
+                    && is_literal_infinity(&args[0])
+                    && let Some(value) = eval_function(name, &args)
+                    && !contains_nonfinite(&value)
+                {
+                    return value;
+                }
+                Expr::Function(name.clone(), args)
+            }
+            _ => e.clone(),
+        }
+    }
+
+    if !contains_nonfinite(&e) {
+        return Ok(e);
+    }
+    let folded = fold(&e);
+    if contains_nonfinite(&folded) {
+        return Ok(folded);
+    }
+    fsym_simplify::try_simplify(&folded).map_err(|error| {
+        SolverError::IncompleteSolutionSet(format!(
+            "finite elementary candidate normalization was refused: {error}"
+        ))
+    })
+}
+
 /// Check denominator/log constraints before substitution can cancel them.
 /// An undecidable constraint must not hide a later, proved exclusion.
 fn candidate_domain_status(e: &Expr, x: &Symbol, root: &Expr) -> Option<bool> {
@@ -1505,7 +1563,14 @@ fn candidate_domain_status(e: &Expr, x: &Symbol, root: &Expr) -> Option<bool> {
             // evaluator's real-only power lane. Reuse the exact structural
             // nonvanishing check used for Cardano denominators; an enclosure
             // or a floating approximation is not needed for (-1)^r != 0.
-            let zero = zero_status(&at_root).or_else(|| cubic_nonzero(&at_root).then_some(false));
+            // Declared infinities are nonzero extended values, so their
+            // reciprocals can be finite. Continue visiting original children:
+            // an infinity produced by an inner 0**-1 does not erase that hole.
+            let zero = if is_literal_infinity(&at_root) {
+                Some(false)
+            } else {
+                zero_status(&at_root).or_else(|| cubic_nonzero(&at_root).then_some(false))
+            };
             match zero {
                 Some(true) => return Some(false),
                 Some(false) => {}
@@ -1547,12 +1612,14 @@ fn filter_symbolic_quadratic_domains(
             "original-equation verification exceeds its bounded input envelope".into(),
         ));
     }
-    Ok(roots
-        .into_iter()
-        .filter(|root| {
-            !contains_nonfinite(root) && candidate_domain_status(e, x, root) != Some(false)
-        })
-        .collect())
+    let mut checked = Vec::new();
+    for root in roots {
+        let root = normalize_finite_infinity_composites(root)?;
+        if !contains_nonfinite(&root) && candidate_domain_status(e, x, &root) != Some(false) {
+            checked.push(root);
+        }
+    }
+    Ok(checked)
 }
 
 /// Return only independently checked original-equation roots. A residual
@@ -1566,10 +1633,13 @@ fn check_roots(e: &Expr, x: &Symbol, roots: Vec<Expr>) -> Result<Vec<Expr>, Solv
     }
     let mut checked = Vec::new();
     for root in roots {
+        let root = normalize_finite_infinity_composites(root)?;
         if contains_nonfinite(&root) || !candidate_in_domain(e, x, &root)? {
             continue;
         }
-        let residual = e.subs(&HashMap::from([(x.clone(), root.clone())]));
+        let residual = normalize_finite_infinity_composites(
+            e.subs(&HashMap::from([(x.clone(), root.clone())])),
+        )?;
         if contains_nonfinite(&residual) {
             continue;
         }
