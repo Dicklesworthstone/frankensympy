@@ -200,6 +200,123 @@ def _solve_system(expr, var, initial, tolerance, maxiter, budget=None):
     return variables, _iterate_system(program, values, tolerance, maxiter, budget=budget)
 
 
+def _scalar_uses_checked_jets(instructions):
+    """Select a bounded intrinsic lane from an already admitted math program.
+
+    Math keeps exact integer intermediates and accepts a wider source language
+    than native derivative compilation. Inspect a conservative abstract stack;
+    never execute source functions or attempt compilation to discover support.
+    Sources outside this small lane retain the established symbolic route.
+    """
+    from ..utilities.lambdify import _math_coth, _math_sinc
+
+    intrinsics = (abs, _math_sinc, math.tanh, _math_coth)
+    if len(instructions) > 128 or not any(
+        instruction[0] == "function" and any(instruction[1] is function for function in intrinsics)
+        for instruction in instructions
+    ):
+        return False
+    math_only = (math.floor, math.ceil, math.gamma, math.factorial)
+    # Each entry is (possible integer bit bound, literal integer, nodes,
+    # derivative growth). Unknown/noninteger values have no integer bit bound.
+    stack = []
+    for instruction in instructions:
+        kind = instruction[0]
+        if kind == "constant":
+            value = instruction[1]
+            if type(value) in (int, bool):
+                bits = int(value).bit_length()
+                if bits > 53:
+                    return False
+                stack.append((bits, int(value), 1, 1))
+            elif type(value) is float and math.isfinite(value):
+                stack.append((None, None, 1, 1))
+            else:
+                return False
+            continue
+        if kind == "variable":
+            stack.append((None, None, 1, 1))
+            continue
+        if kind not in ("add", "multiply", "power", "function"):
+            return False  # Piecewise retains its existing lazy symbolic path.
+        arity = instruction[-1]
+        children = stack[-arity:] if arity else []
+        if arity:
+            del stack[-arity:]
+        nodes = sum(child[2] for child in children)
+        derivatives = sum(child[3] for child in children)
+        bits = None
+        if kind == "function":
+            function = instruction[1]
+            if any(function is unsupported for unsupported in math_only):
+                return False
+            growth = 24 + 4*nodes + derivatives
+            if function is abs:
+                bits = children[0][0]
+            elif function is _math_sinc:
+                bits = 1  # math sinc returns integer one exactly at zero.
+        elif kind == "power":
+            exponent = children[1][1]
+            # Float math instructions cannot retain exact rational exponent
+            # components. Dynamic, noninteger and large powers stay symbolic.
+            if exponent is None or not -64 <= exponent <= 64:
+                return False
+            growth = 4 + children[0][2] + children[0][3]
+            if children[0][0] is not None and exponent >= 0:
+                bits = max(1, children[0][0]*exponent)
+        else:
+            growth = (1 + derivatives if kind == "add"
+                      else 1 + arity + max(0, arity-1)*nodes + derivatives)
+            bits = 0 if kind == "add" else 1
+            for child in children:
+                if bits is None or child[0] is None:
+                    bits = None
+                elif kind == "add":
+                    bits = max(bits, child[0]) + 1
+                else:
+                    bits += child[0]
+                if bits is not None and bits > 53:
+                    return False
+        if bits is not None and bits > 53 or growth > 512:
+            return False
+        stack.append((bits, None, nodes+1, growth))
+    return True
+
+
+def _scalar_newton_functions(expr, var, budget):
+    """Keep scalar value semantics and select derivatives before compilation.
+
+    Closed math admission checks exact classes, stored operands, typed bindings
+    and limits. Compiler, proof, domain and operational failures never select
+    another path. The checked lane evaluates the complete original source
+    before every Jacobian, including erased derivative-domain restrictions.
+    """
+    from ..utilities.lambdify import (
+        _BASIC_VALUE, _evaluate_math, _functions, _math_program,
+    )
+
+    instructions = []
+    _math_program(expr, {_BASIC_VALUE.__get__(var, Basic): 0}, _functions(), [0], instructions)
+    instructions = tuple(instructions)
+
+    if budget is None:
+        def residual(value):
+            return _evaluate_math(instructions, (value,))
+    else:
+        residual = compile_numeric(var, expr)
+
+    if not _scalar_uses_checked_jets(instructions):
+        derivative = (lambdify(var, diff(expr, var), modules="math") if budget is None
+                      else compile_numeric(var, diff(expr, var)))
+    else:
+        program = compile_residual_system(expr, var)
+
+        def derivative(value, *, budget=None):
+            return program.jacobian(value, budget=budget)[0][0]
+
+    return residual, derivative
+
+
 def _iterate_system(program, values, tolerance, maxiter, budget=None):
     """Generate candidates using one captured native residual/Jacobian program.
 
@@ -504,17 +621,25 @@ def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False, budget=Non
            backend="python", max_step_norm=None):
     """Find a finite real Newton candidate for an equation or residual system.
 
-    ``backend="python"`` retains the scalar typed-symbolic Newton path and
-    system path with checked native Jacobians, equilibrated column-pivoted QR
-    and bounded backtracking. Systems supply equations and variables as list,
+    ``backend="python"`` uses independently checked native derivatives for a
+    bounded scalar subset containing Abs, sinc, tanh or coth. This includes
+    nonzero Abs branches and the analytic sinc extension at zero. Scalar
+    residuals retain math-backend arithmetic. Other scalar sources, Piecewise,
+    math-only functions, large exact integer arithmetic and sources with
+    noninteger/dynamic powers retain typed symbolic differentiation.
+    The system path uses checked native Jacobians, equilibrated column-pivoted
+    QR and bounded backtracking. Systems supply equations and variables as list,
     tuple, or matrix vectors. This route admits square and overdetermined
     systems; underdetermined and numerically rank-deficient systems refuse.
     Matrix inputs are snapshots.
 
     On the Python route, ``tol`` bounds every residual and the undamped Newton
-    step; an exactly zero binary64 residual also terminates. A small or damped
-    step alone never establishes convergence. ``maxiter`` remains a built-in
-    integer from 1 through 10,000, and ``max_step_norm`` must be omitted.
+    step; an exactly zero binary64 residual also terminates before evaluating
+    its derivative, including at a multiple root or source cusp. Away from an
+    exact root, checked scalar derivatives retain original-source smooth-domain
+    guards. A small or damped step alone never establishes convergence.
+    ``maxiter`` remains a built-in integer from 1 through 10,000, and
+    ``max_step_norm`` must be omitted.
 
     ``backend="sparse"`` selects native damped LSQR for square systems with
     1..256 variables, including a scalar equation. It keeps checked sparse
@@ -614,12 +739,7 @@ def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False, budget=Non
             budget._checkpoint()
         return result
 
-    if budget is None:
-        residual = lambdify(var, expr, modules="math")
-        derivative = lambdify(var, diff(expr, var), modules="math")
-    else:
-        residual = compile_numeric(var, expr)
-        derivative = compile_numeric(var, diff(expr, var))
+    residual, derivative = _scalar_newton_functions(expr, var, budget)
 
     def evaluate(function, value, name):
         try:

@@ -285,7 +285,7 @@ fn oversized_requests_and_nonpositive_precision_are_terminal() {
         .is_err()
     );
     let request = RealRootQuery {
-        lower: Some(BigRational::from_integer(BigInt::one() << 4096usize)),
+        lower: Some(BigRational::from_integer(BigInt::one() << 4096u32)),
         ..query(None, None)
     };
     assert!(matches!(

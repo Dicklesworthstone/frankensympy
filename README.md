@@ -758,6 +758,17 @@ forms are unchanged. Numerical proposals can now reach `nsolve_certified` and
 `minimize_certified` on smooth branches; their evidence still comes from the
 independent original-source checkers below.
 
+Ordinary scalar `nsolve` also selects these checked derivatives for bounded
+closed expressions involving `Abs`, `sinc`, `tanh` or `coth`. For example,
+`nsolve(Abs(x) - 2, x, -3)` returns the approximate root `-2`. Residual values
+retain the existing math arithmetic, and an exactly zero residual still
+terminates before evaluating its derivative. A nonroot cusp remains a domain
+refusal. The selection keeps ordinary expressions, Piecewise, math-only
+functions and expressions beyond its size or exact-integer limits on the
+existing symbolic scalar path. Compiler, proof, budget and cancellation
+failures propagate directly. This produces numerical candidates; use the
+certification APIs for mathematical receipts.
+
 The original-source residual/Jacobian and objective/Hessian checkers support
 `Abs` when the complete argument enclosure lies strictly above or strictly
 below zero. They prove the branch from exact rational interval bounds, then

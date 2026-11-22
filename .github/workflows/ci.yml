@@ -593,6 +593,7 @@ jobs:
               "python/tests/test_certified_numeric_budget.py",
               "python/tests/test_certified_numeric.py",
               "python/tests/test_nsolve_certified.py",
+              "python/tests/test_scalar_numeric_derivatives.py",
               "python/tests/test_verified_program_transport.py",
               "python/tests/test_portable_program_transport.py",
               "python/tests/test_callback_effects_and_ownership.py",
