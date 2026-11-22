@@ -1,0 +1,252 @@
+{
+  "schema_version": 1,
+  "status": "implemented_uncertified",
+  "observed_at_utc": "2026-11-22 00:07:09 UTC",
+  "scope": "Signed Symbol/Dummy assumption closure and the bounded entire-sinc numerical/certified development APIs.",
+  "source_commits": [
+    {
+      "sha": "33d18d9b335a7d4c1d625ef31c70ad217aabcbf4",
+      "scope": "Signed Symbol/Dummy declarations, contradiction checks, and 68 Python regression cases."
+    },
+    {
+      "sha": "97c2f26ed637698036edc6e671738e738be58596",
+      "scope": "Independent rational-ball sinc jets, original-source C1/C2 evaluation, and nine native regression cases."
+    },
+    {
+      "sha": "67b0df58afbe486cacc11262e9a03d7308d726c6",
+      "scope": "Stable numerical sinc jets, independent derivative/opcode checks, Python integration, 14 native and 22 Python regression cases."
+    }
+  ],
+  "graph_scope": [
+    "fra-campaign-jacobian-bundle-ukp",
+    "fra-ws21-profile-closure-82j"
+  ],
+  "behavior": {
+    "assumptions": "Retain explicit false premises in scalar domain, sign and parity closure; reject contradictions before native/cache publication; preserve original declarations and typed identity.",
+    "sinc_numeric": "Bounded Taylor evaluation near zero and divided trigonometric identities for large finite binary64 arguments; analytic first and second derivative nodes in generated residual/objective programs.",
+    "sinc_certified": "Independent outward-rounded rational series/trigonometric jets and full-input-ball variation bounds from sinc(x)=integral_0^1 cos(t*x)dt and |sinc^(k)(x)|<=1/(k+1).",
+    "preserved_obligations": [
+      "original source domains",
+      "typed coordinates",
+      "source-bound artifact replay",
+      "cumulative work budgets",
+      "cancellation",
+      "atomic output/certificate publication"
+    ],
+    "boundaries": [
+      "Binary64 outputs are approximate.",
+      "Public symbolic sinc differentiation retains its existing quotient form.",
+      "The RealBall sinc precision ceiling is 256 digits, with existing source, work, and trigonometric range limits.",
+      "Wide boxes may be too coarse to certify a stationary point."
+    ]
+  },
+  "source_review": {
+    "outcome": "complete_no_blocker_found",
+    "evidence_kind": "independent_source_and_mathematical_review",
+    "areas": [
+      "signed assumption closure and public compatibility boundaries",
+      "sinc series recurrences and global derivative bounds",
+      "numeric and symbolic proof-mode separation",
+      "source/opcode matching and forged-artifact rejection",
+      "original domains and cancellation/budget semantics",
+      "module-import initialization order and lazy assumptions-import cycle safety"
+    ]
+  },
+  "authored_regressions": {
+    "native_core": 9,
+    "native_calculus": 14,
+    "python_assumptions": 68,
+    "python_sinc": 22
+  },
+  "oracle": {
+    "outcome": "passed_with_native_only_skips",
+    "implementation": "isolated upstream SymPy 1.14.0",
+    "pytest_version": "8.4.2",
+    "command": "PYTHONPATH=/workspace/scratch/8b3dcb048084/validation-toolchain/python-deps python -m pytest -q /workspace/scratch/8b3dcb048084/frankensympy/python/tests/test_symbol_assumption_closure.py",
+    "cwd": "/workspace/scratch/8b3dcb048084",
+    "passed": 59,
+    "skipped": 9,
+    "seconds": 1.25,
+    "evidence": "Captured successful tool stdout; no persistent oracle-output log was created.",
+    "limitation": "These are upstream expectation checks, not candidate execution."
+  },
+  "static_checks": {
+    "python_syntax": "passed",
+    "git_diff_check": "passed",
+    "remote_publication": "All three functional commits and their remote main heads were fetched and checked; all 11 final numerical/public blobs matched reviewed local Git blob hashes.",
+    "scoped_rustfmt": {
+      "outcome": "passed",
+      "scope": [
+        "crates/fsym-calculus/src/compile.rs",
+        "crates/fsym-calculus/src/compile/sinc.rs",
+        "crates/fsym-calculus/src/lib.rs (before later nonoverlapping remote Taylor merge)",
+        "crates/fsym-calculus/src/proof.rs",
+        "crates/fsym-calculus/src/sparse_jacobian.rs",
+        "crates/fsym-calculus/tests/sinc_programs.rs",
+        "crates/fsym-core/src/ball/sinc.rs",
+        "crates/fsym-core/tests/sinc_enclosures.rs"
+      ],
+      "limitation": "The later whole-workspace format check did not finish."
+    }
+  },
+  "toolchain": {
+    "channel": "nightly-2026-08-20",
+    "jobs": 1,
+    "incremental": false,
+    "serial_rustflags": "-Zunstable-options --jobs-backend=1 --jobs-frontend=1 -Cdebuginfo=0 -Ccodegen-units=256"
+  },
+  "execution": {
+    "full_production_extension": {
+      "outcome": "blocked",
+      "command": "cargo build --locked -p fsym-python --features extension-module -j1",
+      "exit_code": 101,
+      "reason": "rustc was killed by SIGKILL while compiling unchanged pinned asupersync."
+    },
+    "initial_core_test": {
+      "outcome": "cancelled_before_tests",
+      "exit_code": 130,
+      "reason": "Stalled during fsym-core compilation; no test assertions executed."
+    },
+    "serial_core_test": {
+      "outcome": "timed_out_before_tests",
+      "command": "cargo test --locked -p fsym-core --test sinc_enclosures -j1",
+      "child_return_code": -2,
+      "seconds": 373.32,
+      "max_rss_kib": 43496,
+      "last_output": "Compiling proc-macro2 v1.0.107"
+    },
+    "queued_calculus_test": {
+      "outcome": "cancelled_while_waiting_for_target_lock",
+      "exit_code": 130,
+      "tests_executed": 0
+    },
+    "actual_candidate_python": {
+      "outcome": "not_executed"
+    },
+    "workspace_gates": {
+      "fmt": {
+        "outcome": "timed_out",
+        "command": "cargo fmt --all -- --check",
+        "exit_code": 124,
+        "deadline_seconds": 120
+      },
+      "check": {
+        "outcome": "timed_out_before_source_diagnostics",
+        "deadline_seconds": 90,
+        "elapsed_seconds": 94.155901071,
+        "child_return_code": -2,
+        "peak_sampled_rss_kib": 204,
+        "command": "cargo check --offline --locked --workspace --all-targets -j1"
+      },
+      "clippy": {
+        "outcome": "timed_out_before_source_diagnostics",
+        "deadline_seconds": 90,
+        "elapsed_seconds": 90.614601657,
+        "child_return_code": -2,
+        "peak_sampled_rss_kib": 3296,
+        "command": "cargo clippy --offline --locked --workspace --all-targets -j1 -- -D warnings"
+      },
+      "tests": {
+        "outcome": "attempted_interrupted_incomplete",
+        "terminal_code": null,
+        "reason": "The final active stage was workspace tests. Its result JSON was absent, and the former driver session was no longer addressable; its terminal status was not observed.",
+        "last_observed": {
+          "elapsed_seconds": 72.721,
+          "aggregate_rss_kib": 294684,
+          "phase": "dependency compilation",
+          "last_dependency": "cc",
+          "preceding_dependencies": [
+            "num_bigint",
+            "fsym_bigint"
+          ],
+          "test_summary_seen": false,
+          "max_aggregate_rss_kib": 376412,
+          "last_log_dependency": "blake3",
+          "dependency_compilation": [
+            "num_bigint",
+            "fsym_bigint",
+            "cc",
+            "num-rational",
+            "blake3"
+          ]
+        },
+        "command": "cargo test --offline --locked --workspace -j1"
+      }
+    },
+    "component_metadata": {
+      "outcome": "timed_out_before_component_build",
+      "deadline_seconds": 90,
+      "elapsed_seconds": 102.456978645,
+      "child_return_code": -2,
+      "peak_sampled_rss_kib": 6860,
+      "scope": "The existing reviewed component recipe omits exactly six documented asynchronous simplify/expand runtime helpers. Preparation is not candidate execution. No component build or tests started after metadata timed out.",
+      "observations": [
+        "No rustc child existed during the observed metadata stall.",
+        "Process samples waited in folio_wait_bit_common and blk_mq_get_tag at a few MiB RSS."
+      ],
+      "command": "cargo metadata --offline --format-version=1 --features extension-module",
+      "preparation": {
+        "recipe": "artifacts/validation/2026-11-15-continuation/prepare_python_component.py",
+        "unchanged_complete_bridge_files": 44,
+        "documented_runtime_helper_omissions": 6,
+        "actual_math_crates_and_budget": true,
+        "build_started": false,
+        "candidate_tests_started": false,
+        "complete_before_after_build_scope_verification": false
+      }
+    },
+    "no_candidate_tests_pass_claimed": true,
+    "pipeline_driver_status": "The earlier workspace driver terminal status was unobserved; the later focused reporting driver exited 0 while both test attempts recorded deadline failure.",
+    "focused_retry": {
+      "outcome": "both_suites_timed_out_before_test_execution",
+      "reason": "The final workspace attempt reached dependency compilation, warming the shared cache.",
+      "deadline_seconds_per_suite": 180,
+      "suites": [
+        "fsym-core::sinc_enclosures",
+        "fsym-calculus::sinc_programs"
+      ],
+      "core": {
+        "outcome": "timed_out_before_tests",
+        "deadline_seconds": 180,
+        "elapsed_seconds": 180.097874788,
+        "child_return_code": -2,
+        "peak_aggregate_rss_kib": 167320,
+        "last_dependency": "serde_core",
+        "test_results_seen": false,
+        "command": "cargo test --offline --locked -p fsym-core --test sinc_enclosures -j1"
+      },
+      "pipeline_driver_exit": 0,
+      "driver_exit_meaning": "Reporting completed; both individual suite outcomes remained deadline failures.",
+      "calculus": {
+        "outcome": "timed_out_before_tests",
+        "command": "cargo test --offline --locked -p fsym-calculus --test sinc_programs -j1",
+        "deadline_seconds": 180,
+        "elapsed_seconds": 181.484604,
+        "child_return_code": -2,
+        "peak_aggregate_rss_kib": 48016,
+        "last_log": "Compiling serde_core v1.0.229",
+        "test_results_seen": false
+      }
+    }
+  },
+  "ci_at_observation": {
+    "head_sha": "67b0df58afbe486cacc11262e9a03d7308d726c6",
+    "run_id": 44963586725,
+    "status": "queued",
+    "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/44963586725"
+  },
+  "claims_and_graph": "Only progress notes and update timestamps are appended to two existing beads. No status, claim tier, dependency, priority, profile closure, campaign closure, or release certification is promoted.",
+  "omissions": "No upstream runtime fallback, mock native engine, replacement simplify/expand helper, or weakened gate was used.",
+  "source_identity_observed_after_oracle": {
+    "limitation": "These SHA-256 values were observed after publication, not recorded during the historical oracle process.",
+    "sha256": {
+      "python/sympy/core/__init__.py": "af78b7cb7565a48432555333e6d069056c1377f3eb9a6fc5c7ce7f6103acfe20",
+      "python/tests/test_symbol_assumption_closure.py": "d34c9761a8008a5ee8b78fd36adb9ea694b0c4ff5e7a42921129c930ce363a3e",
+      "upstream sympy/__init__.py": "4e9476348ba105feab28d82f5bcf6cdba2e3e84de6e059bbfe7a13728c0a4ab0",
+      "upstream sympy/core/symbol.py": "d31c20c53ed97e13e3abcee0970d8242ae4cb4810ef833ab0285eeedb1f0585a",
+      "upstream sympy/core/assumptions.py": "f0af6b858b53fa4a92ee199cf65b64602fb0ba3613de97b405a50936b3abf1f8"
+    },
+    "snapshot_commit": "67b0df58afbe486cacc11262e9a03d7308d726c6"
+  },
+  "repository_head_before_audit": "07188183bc126b6754f302266bc5b4409a311967"
+}
