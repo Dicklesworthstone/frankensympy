@@ -224,7 +224,7 @@ pub fn prime_field_multivariate_native(
     let term_order = self::order(order)?;
     let valid_count = match operation {
         "reduced" => (1..=33).contains(&sources.len()),
-        "add" | "sub" | "mul" | "divrem" | "gcd" | "lcm" => sources.len() == 2,
+        "add" | "sub" | "mul" | "compose" | "divrem" | "gcd" | "lcm" => sources.len() == 2,
         "normalize" | "neg" | "monic" | "pow" | "diff" => sources.len() == 1,
         _ => false,
     };
@@ -246,6 +246,7 @@ pub fn prime_field_multivariate_native(
         "add" => Some(Op::Add),
         "sub" => Some(Op::Subtract),
         "mul" => Some(Op::Multiply),
+        "compose" => Some(Op::Compose),
         "monic" => Some(Op::Monic(term_order)),
         "pow" => Some(Op::Power(parameter)),
         "diff" => {

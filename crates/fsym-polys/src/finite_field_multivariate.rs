@@ -3,6 +3,8 @@
 //! Sources retain typed, ordered generators and a validated prime field.
 //! Generation uses sparse modular updates; verification assembles independent
 //! signed integer coefficient columns and reduces only the completed identity.
+//! Composition substitutes the first declared generator, using sparse Horner
+//! generation and a separate ascending-power coefficient identity checker.
 //! Division proves reconstruction and a fully reduced remainder. It does not
 //! claim uniqueness of quotients for an arbitrary ordered list of divisors.
 //! Every whole phase has cumulative 20M-step / 128MiB logical allocation caps.
@@ -83,6 +85,9 @@ pub enum PrimeFieldMultivariateOperation {
     Add,
     Subtract,
     Multiply,
+    /// Substitute `right` for the first ordered generator of `left`.
+    /// All remaining generators are retained as coefficient variables.
+    Compose,
     Monic(TermOrder),
     Power(u64),
     Derivative(Vec<u32>),
@@ -684,6 +689,7 @@ fn arithmetic_admission(
         PrimeFieldMultivariateOperation::Add
             | PrimeFieldMultivariateOperation::Subtract
             | PrimeFieldMultivariateOperation::Multiply
+            | PrimeFieldMultivariateOperation::Compose
     );
     if binary != right.is_some() {
         return Err(refused("arithmetic operand count"));
@@ -709,8 +715,116 @@ fn arithmetic_admission(
             return Err(refused("power degree bound"));
         }
     }
+    if *operation == PrimeFieldMultivariateOperation::Compose {
+        let right = right.ok_or_else(|| refused("missing composition operand"))?;
+        let degree = right
+            .terms()
+            .keys()
+            .map(|m| m.iter().map(|value| u64::from(*value)).sum::<u64>())
+            .max()
+            .unwrap_or(0);
+        work.tick(right.terms().len() * (right.generators().len() + 1))?;
+        // Check every original term, including coefficient-variable powers.
+        // This conservative envelope precedes expansion and applies equally
+        // to generation and verification; cancellation is never a size oracle.
+        for monomial in left.terms().keys() {
+            work.tick(monomial.len() + 1)?;
+            let substituted = u64::from(monomial.first().copied().unwrap_or(0));
+            let retained = monomial.iter().skip(1).map(|v| u64::from(*v)).sum::<u64>();
+            if substituted * degree + retained > MAX_DEGREE {
+                return Err(refused("composition degree bound"));
+            }
+        }
+    }
     Ok(())
 }
+
+/// Sparse Horner evaluation in the first coordinate. Walking canonical terms
+/// backwards groups equal first-coordinate powers without dense coefficient
+/// arrays or rebuilding the complete source at every step.
+fn generated_composition(
+    source: &Terms,
+    replacement: &Terms,
+    prime: u64,
+    work: &mut PolynomialWork<'_, impl BudgetMeter>,
+) -> Result<Terms, PolyError> {
+    let mut result = empty(work)?;
+    let mut power = source
+        .keys()
+        .next_back()
+        .and_then(|monomial| monomial.first())
+        .copied()
+        .unwrap_or(0);
+    for (monomial, coefficient) in source.iter().rev() {
+        let target = monomial.first().copied().unwrap_or(0);
+        while power > target {
+            work.tick(1)?;
+            result = product(&result, replacement, prime, work)?;
+            power -= 1;
+        }
+        let mut retained = monomial_copy(monomial, work)?;
+        if let Some(first) = retained.first_mut() {
+            *first = 0;
+        }
+        accumulate(&mut result, retained, *coefficient, prime, work)?;
+    }
+    for _ in 0..power {
+        work.tick(1)?;
+        result = product(&result, replacement, prime, work)?;
+    }
+    Ok(result)
+}
+
+/// The reference lane expands each source monomial against independently
+/// convolved replacement powers. It does not call the Horner generator or
+/// modular sparse arithmetic. Only one successive power is retained, and all
+/// shifted coefficient columns must match, even over fields where different
+/// polynomials agree at every field-valued point.
+fn reference_composition(
+    columns: &mut Columns,
+    source: &Terms,
+    replacement: &Terms,
+    width: usize,
+    prime: u64,
+    work: &mut PolynomialWork<'_, impl BudgetMeter>,
+) -> Result<(), PolyError> {
+    let mut expected_power = constant(width, 1, work)?;
+    let mut power = 0;
+    for (monomial, coefficient) in source {
+        let target = monomial.first().copied().unwrap_or(0);
+        while power < target {
+            work.tick(1)?;
+            expected_power = reference_value(&expected_power, replacement, prime, work)?;
+            power += 1;
+        }
+        for (powers, value) in &expected_power {
+            work.tick(width + 1)?;
+            work.allocate(width * std::mem::size_of::<u32>())?;
+            let mut shifted = Vec::with_capacity(width);
+            let mut degree = 0u64;
+            for (index, (&source_power, &replacement_power)) in
+                monomial.iter().zip(powers).enumerate()
+            {
+                let exponent = replacement_power
+                    .checked_add(if index == 0 { 0 } else { source_power })
+                    .ok_or_else(|| refused("reference composition exponent bound"))?;
+                degree += u64::from(exponent);
+                shifted.push(exponent);
+            }
+            if degree > MAX_DEGREE {
+                return Err(refused("reference composition degree bound"));
+            }
+            column(
+                columns,
+                shifted,
+                -i128::from(*coefficient) * i128::from(*value),
+                work,
+            )?;
+        }
+    }
+    Ok(())
+}
+
 fn generated_arithmetic(
     operation: &PrimeFieldMultivariateOperation,
     left: &PrimeFieldMultivariatePolynomial,
@@ -732,6 +846,14 @@ fn generated_arithmetic(
                 _ => sum(source, right, *operation == Op::Subtract, p, work),
             }
         }
+        Op::Compose => generated_composition(
+            source,
+            right
+                .ok_or_else(|| refused("missing composition operand"))?
+                .terms(),
+            p,
+            work,
+        ),
         Op::Monic(order) => {
             let coefficient = leading(source, *order, work)?.map_or(1, |(_, c)| c);
             let inverse = scalar_power(coefficient, p - 2, p, work)?;
@@ -810,6 +932,16 @@ fn reference_arithmetic(
                 )?;
             }
         }
+        Op::Compose => reference_composition(
+            &mut columns,
+            source,
+            right
+                .ok_or_else(|| refused("missing composition operand"))?
+                .terms(),
+            left.generators().len(),
+            p,
+            work,
+        )?,
         Op::Monic(order) => {
             if let Some((_, coefficient)) = reference_head(source, *order, work)? {
                 if reference_head(candidate, *order, work)?.is_none_or(|(_, c)| c != 1) {

@@ -248,11 +248,12 @@ fn every_arithmetic_operation_rejects_modified_coefficients() {
         Op::Add,
         Op::Subtract,
         Op::Multiply,
+        Op::Compose,
         Op::Monic(TermOrder::Lex),
         Op::Power(3),
         Op::Derivative(vec![1, 0]),
     ] {
-        let right = matches!(op, Op::Add | Op::Subtract | Op::Multiply).then_some(&b);
+        let right = matches!(op, Op::Add | Op::Subtract | Op::Multiply | Op::Compose).then_some(&b);
         let mut result = run(&op, &a, right).terms().clone();
         let constant = vec![0, 0];
         let value = (result.get(&constant).copied().unwrap_or(0) + 1) % 5;
@@ -721,4 +722,272 @@ fn three_variable_grevlex_uses_reverse_last_differing_exponent() {
         run(&Op::Monic(TermOrder::DegRevLex), &f, None).terms(),
         &terms(&[(&[1, 0, 1], 4), (&[0, 2, 0], 1)])
     );
+}
+
+#[test]
+fn composition_substitutes_only_the_first_declared_generator() {
+    let source = poly(5, &[(&[2, 0], 1), (&[0, 1], 1)]);
+    let replacement = poly(5, &[(&[1, 0], 1), (&[0, 1], 1)]);
+    let accepted = arithmetic(
+        &Op::Compose,
+        &source,
+        Some(&replacement),
+        &mut Unbounded,
+        &mut Unbounded,
+    )
+    .unwrap();
+    assert_eq!(accepted.operation(), &Op::Compose);
+    assert_eq!(accepted.left(), &source);
+    assert_eq!(accepted.right(), Some(&replacement));
+    assert_eq!(
+        accepted.result().terms(),
+        &terms(&[(&[2, 0], 1), (&[1, 1], 2), (&[0, 2], 1), (&[0, 1], 1)])
+    );
+    let reversed_ring = [Symbol::new("y"), Symbol::new("x")];
+    let source = Polynomial::new(&reversed_ring, 5, &terms(&[(&[0, 2], 1), (&[1, 0], 1)])).unwrap();
+    let replacement = Polynomial::new(&reversed_ring, 5, replacement.terms()).unwrap();
+    let result = run(&Op::Compose, &source, Some(&replacement));
+    assert_eq!(result.generators(), &reversed_ring);
+    assert_eq!(
+        result.terms(),
+        &terms(&[(&[0, 2], 1), (&[0, 1], 1), (&[1, 0], 1)])
+    );
+}
+
+#[test]
+fn composition_matches_independent_integer_coefficient_expansion_in_small_fields() {
+    // Over ZZ, (3*x^2*y+2*x*y^2+4*y+5)(2*x*y+3*y^2+1, y)
+    // has these complete coefficients. Reduce the same identity over each
+    // characteristic, including cancellations of whole source and output terms.
+    let integer_expected = [
+        (&[2, 3][..], 12),
+        (&[1, 4][..], 36),
+        (&[1, 3][..], 4),
+        (&[1, 2][..], 12),
+        (&[0, 5][..], 27),
+        (&[0, 4][..], 6),
+        (&[0, 3][..], 18),
+        (&[0, 2][..], 2),
+        (&[0, 1][..], 7),
+        (&[0, 0][..], 5),
+    ];
+    for p in [2, 3, 5, 7, 65521] {
+        let source = poly(
+            p,
+            &[
+                (&[2, 1], 3 % p),
+                (&[1, 2], 2 % p),
+                (&[0, 1], 4 % p),
+                (&[0, 0], 5 % p),
+            ],
+        );
+        let replacement = poly(p, &[(&[1, 1], 2 % p), (&[0, 2], 3 % p), (&[0, 0], 1)]);
+        let expected = Polynomial::new(
+            &ring(),
+            p,
+            &integer_expected
+                .iter()
+                .map(|(m, c)| (m.to_vec(), c % p))
+                .collect(),
+        )
+        .unwrap();
+        assert_eq!(run(&Op::Compose, &source, Some(&replacement)), expected);
+    }
+}
+
+#[test]
+fn composition_preserves_zero_constants_identity_and_inactive_coordinates() {
+    let zero = poly(5, &[]);
+    let constant = poly(5, &[(&[0, 0], 3)]);
+    let source = poly(5, &[(&[3, 1], 1), (&[0, 2], 2)]);
+    let x = poly(5, &[(&[1, 0], 1)]);
+    assert_eq!(run(&Op::Compose, &source, Some(&x)), source);
+    assert_eq!(run(&Op::Compose, &zero, Some(&source)), zero);
+    assert_eq!(run(&Op::Compose, &constant, Some(&source)), constant);
+    assert_eq!(
+        run(&Op::Compose, &source, Some(&zero)),
+        poly(5, &[(&[0, 2], 2)])
+    );
+    assert_eq!(
+        run(&Op::Compose, &source, Some(&constant)),
+        poly(5, &[(&[0, 1], 2), (&[0, 2], 2)])
+    );
+    let inactive = poly(5, &[(&[0, 2], 1), (&[0, 0], 3)]);
+    let high_degree = poly(5, &[(&[64, 0], 1)]);
+    assert_eq!(run(&Op::Compose, &inactive, Some(&high_degree)), inactive);
+    let field = Polynomial::new(&[], 5, &terms(&[(&[], 3)])).unwrap();
+    assert_eq!(run(&Op::Compose, &field, Some(&field)), field);
+}
+
+#[test]
+fn composition_checker_rejects_pointwise_aliases_and_wrong_coordinate_substitution() {
+    // x^2+x is nonzero in F_2[x,y], despite vanishing at every F_2 point.
+    let source = poly(2, &[(&[2, 0], 1), (&[1, 0], 1)]);
+    let y = poly(2, &[(&[0, 1], 1)]);
+    let expected = poly(2, &[(&[0, 2], 1), (&[0, 1], 1)]);
+    assert_eq!(run(&Op::Compose, &source, Some(&y)), expected);
+    for wrong in [Terms::new(), source.terms().clone(), terms(&[(&[0, 2], 1)])] {
+        assert!(
+            verify_arithmetic(
+                &Op::Compose,
+                &source,
+                Some(&y),
+                &ArithmeticCertificate { result: wrong },
+                &mut Unbounded,
+            )
+            .is_err()
+        );
+    }
+    let replay = verify_arithmetic(
+        &Op::Compose,
+        &source,
+        Some(&y),
+        &ArithmeticCertificate {
+            result: expected.terms().clone(),
+        },
+        &mut Unbounded,
+    )
+    .unwrap();
+    assert_eq!(replay.result(), &expected);
+}
+
+#[test]
+fn composition_retains_exact_ring_identity_even_for_constant_results() {
+    let zero = poly(5, &[]);
+    let typed_x = Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([93; 32]));
+    let wrong_identity = Polynomial::new(&[typed_x, Symbol::new("y")], 5, &Terms::new()).unwrap();
+    let wrong_order =
+        Polynomial::new(&[Symbol::new("y"), Symbol::new("x")], 5, &Terms::new()).unwrap();
+    for right in [wrong_identity, wrong_order, poly(7, &[])] {
+        assert!(
+            arithmetic(
+                &Op::Compose,
+                &zero,
+                Some(&right),
+                &mut Unbounded,
+                &mut Unbounded
+            )
+            .is_err()
+        );
+    }
+    assert!(arithmetic(&Op::Compose, &zero, None, &mut Unbounded, &mut Unbounded).is_err());
+}
+
+#[test]
+fn composition_bounds_degree_and_sparse_expansion_before_publication() {
+    let source = poly(5, &[(&[32, 0], 1)]);
+    let replacement = poly(5, &[(&[0, 2], 1)]);
+    assert_eq!(
+        run(&Op::Compose, &source, Some(&replacement)),
+        poly(5, &[(&[0, 64], 1)])
+    );
+    let source = poly(5, &[(&[32, 1], 1)]);
+    let mut generation = Count::default();
+    let mut verification = Count::default();
+    let refusal = arithmetic(
+        &Op::Compose,
+        &source,
+        Some(&replacement),
+        &mut generation,
+        &mut verification,
+    )
+    .unwrap_err();
+    assert!(refusal.to_string().contains("composition degree"));
+    assert_eq!(generation.bytes, 0);
+    assert_eq!(verification.steps, 0);
+
+    let generators: Vec<_> = (0..8).map(|i| Symbol::new(format!("v{i}"))).collect();
+    let source = Polynomial::new(
+        &generators,
+        65521,
+        &terms(&[(&[8, 0, 0, 0, 0, 0, 0, 0], 1)]),
+    )
+    .unwrap();
+    let mut replacement = Terms::from([(vec![0; 8], 1)]);
+    for coordinate in 0..8 {
+        let mut monomial = vec![0; 8];
+        monomial[coordinate] = 1;
+        replacement.insert(monomial, 1);
+    }
+    let replacement = Polynomial::new(&generators, 65521, &replacement).unwrap();
+    assert!(
+        arithmetic(
+            &Op::Compose,
+            &source,
+            Some(&replacement),
+            &mut Unbounded,
+            &mut Unbounded
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("sparse term bound")
+    );
+}
+
+#[test]
+fn composition_meters_both_phases_and_cancels_through_final_publication() {
+    let source = poly(7, &[(&[3, 1], 2), (&[1, 2], 1), (&[0, 0], 3)]);
+    let replacement = poly(7, &[(&[1, 0], 1), (&[0, 1], 1), (&[0, 0], 2)]);
+    let (mut g, mut v) = (Count::default(), Count::default());
+    arithmetic(&Op::Compose, &source, Some(&replacement), &mut g, &mut v).unwrap();
+    for (dimension, generated, verified) in [
+        (Dimension::ComputeSteps, g.steps, v.steps),
+        (Dimension::MemoryBytes, g.bytes, v.bytes),
+    ] {
+        assert!(generated > 0 && verified > 0);
+        arithmetic(
+            &Op::Compose,
+            &source,
+            Some(&replacement),
+            &mut cap(dimension, generated),
+            &mut cap(dimension, verified),
+        )
+        .unwrap();
+        assert!(
+            arithmetic(
+                &Op::Compose,
+                &source,
+                Some(&replacement),
+                &mut cap(dimension, generated - 1),
+                &mut Unbounded
+            )
+            .is_err()
+        );
+        assert!(
+            arithmetic(
+                &Op::Compose,
+                &source,
+                Some(&replacement),
+                &mut Unbounded,
+                &mut cap(dimension, verified - 1)
+            )
+            .is_err()
+        );
+    }
+    for (generation, checkpoints) in [(true, g.checkpoints), (false, v.checkpoints)] {
+        for at in [1, checkpoints / 2, checkpoints] {
+            let mut stopped = Count {
+                cancel: Some(at),
+                ..Count::default()
+            };
+            let result = if generation {
+                arithmetic(
+                    &Op::Compose,
+                    &source,
+                    Some(&replacement),
+                    &mut stopped,
+                    &mut Unbounded,
+                )
+            } else {
+                arithmetic(
+                    &Op::Compose,
+                    &source,
+                    Some(&replacement),
+                    &mut Unbounded,
+                    &mut stopped,
+                )
+            };
+            assert!(result.is_err(), "phase={generation}, checkpoint={at}");
+        }
+    }
 }

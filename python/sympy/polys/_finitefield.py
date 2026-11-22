@@ -198,7 +198,7 @@ def _call(request, prime, symmetric, operation, parameter=0,
     try:
         if len(request.gens) != 1 or operation == "reduced":
             if operation not in ("normalize", "neg", "add", "sub", "mul", "monic",
-                                  "pow", "diff", "divrem", "reduced", "gcd", "lcm"):
+                                  "pow", "diff", "compose", "divrem", "reduced", "gcd", "lcm"):
                 raise NotImplementedError(
                     "%s is not implemented for multivariate prime-field Poly" % operation)
             result = _native.prime_field_multivariate_native(
@@ -820,7 +820,7 @@ def _entry(values, generators, options, name, containers=()):
     if raw is None:
         raise NotInvertible("zero divisor")
     want_polys = name not in ("resultant", "discriminant") and (
-        options.get("polys", bool(states)) if name == "reduced" else
+        options.get("polys", bool(states)) if name in ("reduced", "compose") else
         bool(states) or options.get("polys", False))
     cls = type(inherited.polynomial) if inherited else _poly_types()[0]
     if want_polys:
