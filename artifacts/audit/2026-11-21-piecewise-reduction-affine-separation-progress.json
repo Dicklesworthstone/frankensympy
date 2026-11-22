@@ -1,0 +1,260 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-11-22T03:53:16.164585+00:00",
+  "client_date": "2026-11-21",
+  "client_timezone": "America/New_York",
+  "repository": "Dicklesworthstone/frankensympy",
+  "audit_base_commit": "ebe337a456c4332769ad971dc43c213fa196394b",
+  "source_plan": "COMPREHENSIVE_PLAN_FOR_FRANKENSYMPY.md and existing Beads reviewed before feature selection; bounded progress only",
+  "publication": {
+    "branch": "main",
+    "pull_requests_created": 0,
+    "force_updates": false,
+    "method": "GitHub app Git data tree/commit/update-ref operations with expected-parent leases; each successful commit independently fetched and main ref checked",
+    "feature_commits": [
+      {
+        "sha": "5b2327729e85bdc589d8b6e1ec4a2aad2348afc5",
+        "purpose": "independently checked integer distributed reduction",
+        "url": "https://github.com/Dicklesworthstone/frankensympy/commit/5b2327729e85bdc589d8b6e1ec4a2aad2348afc5"
+      },
+      {
+        "sha": "6b8bbe0aef9622624bd36b25890f9f37c3bfd6f9",
+        "purpose": "ordered bounded Piecewise folding",
+        "url": "https://github.com/Dicklesworthstone/frankensympy/commit/6b8bbe0aef9622624bd36b25890f9f37c3bfd6f9"
+      },
+      {
+        "sha": "828769724d186a988e5f8ccb4c269cada8687d91",
+        "purpose": "public QQ/ZZ reduced interface",
+        "url": "https://github.com/Dicklesworthstone/frankensympy/commit/828769724d186a988e5f8ccb4c269cada8687d91"
+      },
+      {
+        "sha": "ce5adc757431eaf16692a2e2b95ceefa670390d6",
+        "purpose": "conditional affine integration and Piecewise semantic free symbols",
+        "url": "https://github.com/Dicklesworthstone/frankensympy/commit/ce5adc757431eaf16692a2e2b95ceefa670390d6"
+      },
+      {
+        "sha": "ebe337a456c4332769ad971dc43c213fa196394b",
+        "purpose": "bounded variable separation and dictionary semantics",
+        "url": "https://github.com/Dicklesworthstone/frankensympy/commit/ebe337a456c4332769ad971dc43c213fa196394b"
+      }
+    ],
+    "lease_race": {
+      "unpublished_commit": "250b4f7ddf94e9d0cad3b25ddeaa637e42ea0133",
+      "observation": "Update returned a GraphQL error after main advanced to7e250dd; latest main was fetched, concurrent content retained, and replacement ce5adc7 published with a new lease. No force update."
+    }
+  },
+  "functionality": {
+    "piecewise_fold": "Replaces identity stub with ordered arithmetic/function/relational/nested-condition folding, aligned shared guards, distinct True/False/None normalization, bounded growth, retained typed/held children and supervised unknown reconstruction.",
+    "reduced": "Checked ordered QQ/ZZ division using independent coefficient convolution and reduced-remainder checks; strict integer divisibility differs from field extension. Supports lex/grlex/grevlex, typed axes, Poly/PurePoly ring behavior and existing GF(p) dispatch without inferring Groebner non-membership.",
+    "conditional_integration": "Elementary exp/sin/cos/sinh/cosh primitives for a rational multiple of one typed slope parameter, explicit zero-slope branches, correlated-intercept specialization and original-source admission retained through fallback recursion.",
+    "piecewise_symbols": "Composed Piecewise arithmetic and admitted builtin functions use semantic child symbols; default-condition markers are excluded and genuine True-named symbols, typed identities and binders retained. Changed readers keep legacy native behavior without invoking replacement hooks.",
+    "separatevars": "Real expression/dictionary modes, inferred versus explicit-None symbol selection, selected-axis factors, polynomial/common-factor and bounded elementary separation. Exact coefficient reconstruction checks legacy native factor output; noncommuting sources, excessive growth and loss of source obligations refuse."
+  },
+  "validation": {
+    "combined_python": {
+      "passed": 191,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "per_module": {
+        "test_piecewise_fold": 37,
+        "test_reduced_polynomial_division": 49,
+        "test_conditional_affine_integration": 37,
+        "test_piecewise_free_symbols": 25,
+        "test_separatevars": 43
+      },
+      "command": [
+        "/workspace/scratch/f4c0815e01ed/conformance-venv/bin/python",
+        "-I",
+        "/tmp/frankensympy-final-feature-validation-20261122/run.py",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "--junitxml=/tmp/frankensympy-final-feature-validation-20261122/junit.xml",
+        "/workspace/scratch/f4c0815e01ed/frankensympy/python/tests/test_piecewise_fold.py",
+        "/workspace/scratch/f4c0815e01ed/frankensympy/python/tests/test_reduced_polynomial_division.py",
+        "/workspace/scratch/f4c0815e01ed/frankensympy/python/tests/test_conditional_affine_integration.py",
+        "/workspace/scratch/f4c0815e01ed/frankensympy/python/tests/test_piecewise_free_symbols.py",
+        "/workspace/scratch/f4c0815e01ed/frankensympy/python/tests/test_separatevars.py"
+      ],
+      "python_source_and_binary_bookends_match": true,
+      "log": "/tmp/frankensympy-final-feature-validation-20261122/tests.log",
+      "log_sha256": "77d190603d8e127993d50cd2d1eb80b468559e9bab43004dd5d814d3145fded8",
+      "native_snapshot_sha256": "7503a817a15c0482fec4c09239948ae4d864da9b7cb900c80044badee43f9358",
+      "scope": "Connected Python feature suites using recorded mathematical/PyO3 component snapshot; whole merged native graph was not rebuilt"
+    },
+    "native": {
+      "polynomial_tests_passed": 56,
+      "calculus_tests_passed": 26,
+      "total_unique_tests_passed": 82,
+      "strict_clippy": "Passed scoped fsym-polys lib and four test targets, fsym-calculus lib and two test targets on their recorded native snapshots; not a merged whole-workspace Clippy claim",
+      "merged_lib_rustfmt_check": "rustfmt --edition2024 --check --config skip_children=true crates/fsym-calculus/src/lib.rs exited0 after the nonconflicting merge"
+    },
+    "public_oracle": {
+      "version": "SymPy1.14.0",
+      "piecewise_fold_exact_passed": 24,
+      "conditional_integration_exact_passed": 33,
+      "piecewise_free_symbols_exact_passed": 23,
+      "separatevars_exact_passed": 30,
+      "total_exact_cases_passed": 110,
+      "reduced_unchanged_strict_passed": 9,
+      "reduced_unchanged_strict_failed": 20,
+      "strict_failure_reason": "Existing candidate Poly.domain is a string; upstream returns IntegerRing/RationalField objects. Original assertions/failures retained.",
+      "reduced_separate_algebra_domain_identifier_passed": 29,
+      "domain_identifier_scope": "A separately named str(domain) comparison supports coefficient-domain selection only; it is not a replacement profile comparator or Domain-class parity claim."
+    },
+    "neighbor_controls": {
+      "piecewise_numeric_and_hybrid_passed": 89,
+      "reduced_finitefield_and_recursive_passed": 25,
+      "separation_piecewise_and_opaque_polynomial_passed": 71,
+      "counting_note": "Neighbor suites overlap earlier/other runs; no summed unique total is claimed."
+    },
+    "component_build": {
+      "state": "ready_for_component_tests",
+      "artifact": {
+        "cargo_path": "/workspace/scratch/f4c0815e01ed/build-target/debug/libfsym_python.so",
+        "test_path": "/workspace/scratch/f4c0815e01ed/component-extension-next/fsym_python.so",
+        "sha256": "7503a817a15c0482fec4c09239948ae4d864da9b7cb900c80044badee43f9358"
+      },
+      "source_hashes_unchanged_during_build": true,
+      "lock_verification": {
+        "external_versions_or_checksums_absent_from_production": [],
+        "production_lock_unchanged": true,
+        "component_lock_sha256": "76def8a8caba3efff8e17ed3a9d72cf894e3e06ec1621e7a5175977c78e95a60",
+        "full_runtime_packages_present": []
+      },
+      "omitted_members": [
+        "lib.rs::eval_error",
+        "lib.rs::eval_region",
+        "lib.rs::simplify_expr",
+        "lib.rs::expand_expr",
+        "expr.rs::PyExpr.simplify",
+        "expr.rs::PyExpr.expand"
+      ],
+      "source_function_replacements": [],
+      "initial_git_head_with_working_native_changes": "5b2327729e85bdc589d8b6e1ec4a2aad2348afc5"
+    },
+    "component_scope": "The recorded7503a817 component predates concurrent52b3437/f5b196d native changes. Post-merge Python tests exercise this recorded snapshot; the whole merged native graph was not rebuilt.",
+    "interpreter": "Python3.12.14; immutable Python3.14 profile not executed"
+  },
+  "concurrent_changes_preserved": {
+    "commits": [
+      "52b343757f0437bda45ad457fce94f559e9b7865",
+      "f5b196dfa7038c1ff7b0a95d8d40e9c9df769fb4",
+      "7e250ddb22c11a693c4cf3f3536f2a28e2800c37"
+    ],
+    "ownership": "Other concurrent work, not authored or counted as feature work in this audit",
+    "merge_conflicts": 0,
+    "deleted_files": 0,
+    "integration_review": "Remote lib.rs changes are guarded numerical Abs jets; public symbolic derivative entrypoints and our integration/fallback block remain byte-identical to tested versions. Reversing exactly those two remote hunks reconstructs the previous whole lib.rs bytes.",
+    "tested_lib_sha256": "7c8482dd5e34a9684bb8d85bba70d2c4227cff15ad1c6189d7649ec6041b1f1c",
+    "merged_lib_sha256": "771fc26ab7e25b6d2aa2af9db90513196824381e15035b28c9115870edd1b9ff",
+    "integration_block_sha256": "2c46535158504ebc13ff6a5aaae3b8017927d725e6d262a914f124911210b1a3"
+  },
+  "preserved_initial_failures": [
+    "Conditional native fixtures initially used raw reciprocal construction and a BigInt shift width incompatible with the local type; corrected fixtures, original failures retained.",
+    "Actual conditional primitives exposed odd-function sign placement, exact exponential derivative identity normalization, and a default-condition marker free-symbol leak; implementation/profile fixes and focused regressions retained.",
+    "High-degree reduction assertion called component-omitted Poly.terms expansion; changed to full independent65-term structural binomial comparison, preserving original source-admission objective.",
+    "One existing finite-field control expected ordinary QQ reduction to refuse; updated to exact new result while keeping GF(p) checks.",
+    "One free-symbol opaque control failed during unsupported evaluated construction before reaching the target operation; held construction exercises the existing opaque fallback, original failure retained.",
+    "Component bridge Clippy setup attempted mkdir and reported ENOSPC before Cargo started; no pass or merged native build is claimed. No files were deleted to make space."
+  ],
+  "limits_and_nonclaims": [
+    "Full production extension/workspace checks remain unverified; prior pinned asupersync compilation and workspace metadata checks were killed. The unchanged resource blocker was not rerun as ceremony.",
+    "Unknown shifted exponential slopes remain formal unless the intercept specializes exactly to zero; arbitrary composite slopes and general definite convergence are excluded.",
+    "Full Piecewise folding explicitly refuses held constant relational normalization; source/Boolean/branch growth and custom effects remain bounded.",
+    "separatevars admits a bounded commuting scalar grammar. It retains source-domain obligations and refuses unsupported coupled reciprocal/forced forms; legacy factor generation is not advertised as a new cumulative-budget or portable proof certificate.",
+    "No full compatibility profile, workstream, release or proof gate is closed by these changes."
+  ],
+  "beads_progress": {
+    "ids": [
+      "fra-o4g",
+      "fra-a5x",
+      "fra-ws21-profile-closure-82j"
+    ],
+    "changes": "Append notes and update timestamps only; preserve status, priority, dependencies and claims",
+    "updated_at": "2026-11-22T03:53:33Z"
+  },
+  "published_file_sha256": {
+    ".github/workflows/ci.yml": "06eb4f41d21230d72773952e5101b81083c3f9df7fd81b555eed2d1581d32619",
+    "crates/fsym-calculus/src/integrate.rs": "c423adf4285c6d2f25e9b6ba6ef36859d5e6a58a44adfc180b85b90b60a49f91",
+    "crates/fsym-calculus/src/lib.rs": "771fc26ab7e25b6d2aa2af9db90513196824381e15035b28c9115870edd1b9ff",
+    "crates/fsym-calculus/tests/conditional_affine_integration.rs": "fa3027c0241c9423ca8530bfa10cd67fe6ad203da074adee8f2721270da55800",
+    "crates/fsym-polys/src/division.rs": "13cd04e5c71f43848dc0022bc5634d1a70ff2f8dc21de1c0475ed2758ee85930",
+    "crates/fsym-polys/tests/distributed_reduction.rs": "0dfddb6502b17c54d93154b3425eaf7790ef657cce417ace9874575e6bf42825",
+    "crates/fsym-python/src/lib.rs": "9b2330404159fe677af8a24ada5db00de3d643a75e219d7a0ad40e1353da6301",
+    "crates/fsym-python/src/recursive_division.rs": "9e217f695383731ee98e8db6f73ffbb1ea9fefe2c17309b1156836cbf59670b8",
+    "crates/fsym-python/src/reduced.rs": "95573a902348fa0f301f2d9f78867a3ebaecc9d2b1792376e50a8b8f3969769c",
+    "python/sympy/__init__.py": "37599b6c28993febad11407c83ec5eec9996691af60b6bf56be9c933075d7b22",
+    "python/sympy/core/__init__.py": "bcf86d865432764a0566cfdfc562635024a6c6b32fc141681f4dda3d33dbc4eb",
+    "python/sympy/functions/elementary/piecewise.py": "ead41a532f743128dcea365f39ac93f89f74da9ae1de90d543f51a61a0b41fcc",
+    "python/sympy/polys/_reduced.py": "508c69e44893e2639ef7a400a299216cc9df7c4cf83ae0eff4d0617eb1d60a6e",
+    "python/sympy/polys/polytools.py": "f978687b0eb1cc2cb0c7a642cc701f54f6168323bed0fc70c8de4e10584ac132",
+    "python/sympy/simplify/_separatevars.py": "df426cb5218520e9c749580ed0ac9c80e8fcb896ef38319f32704a42bb692d1c",
+    "python/sympy/simplify/simplify.py": "1994a07ddf4e45a18c7d012f1daa9c4c2cc003d84bfdde35b75b0ca3947caccc",
+    "python/tests/test_conditional_affine_integration.py": "98bc50a73c41067f39003a0d2e20449181cefe9595db3c9c23ab6ce7de25de18",
+    "python/tests/test_finite_field_multivariate_poly.py": "f1929854b7b97743f6ec202e11c8202578eadaf04e0dc7b1af29e22e946962e0",
+    "python/tests/test_piecewise_fold.py": "adb9fe380167cd5c0d99c21ad2372af83db5c886f1ca7552cd1862a7e4324027",
+    "python/tests/test_piecewise_free_symbols.py": "fd40c04822460d8279e8e35af03614352a74c1979b734fb208c7bbbfb216609c",
+    "python/tests/test_reduced_polynomial_division.py": "8de59ae8e0d454209a355b052fb81d3249e210a7abce500367df914644ed3426",
+    "python/tests/test_separatevars.py": "9a7af24394cca62f46384220982d1a918c00dda740fa389309b9950d1f54c267"
+  },
+  "receipt_files": [
+    {
+      "path": "/workspace/scratch/f4c0815e01ed/reduced-native-validation-20261122-a/receipt.json",
+      "sha256": "46bf51137cd9f7fe393ca5693ef0a1bb07d59cc0a59a60be5f8feee4f91997f6"
+    },
+    {
+      "path": "/workspace/scratch/f4c0815e01ed/piecewise-fold-validation/receipt.json",
+      "sha256": "4835bbcc1273e482393e8b6c16fe0c6825c7c25bb978bf3485141ede025c7bd9"
+    },
+    {
+      "path": "/workspace/scratch/f4c0815e01ed/reduced-public-candidate-20261122-c/receipt.json",
+      "sha256": "b0731dcd5b7830280f792c686bcfe0f02c9d2d535f11f6a25aeaf4869d7c5e4b"
+    },
+    {
+      "path": "/workspace/scratch/f4c0815e01ed/reduced-public-oracle-20261122-a/receipt.json",
+      "sha256": "69dc92cb8a0b315f8b380a09d6a99cdb755efcf126cb7b4ce9c259ca8dd0abac"
+    },
+    {
+      "path": "/workspace/scratch/f4c0815e01ed/reduced-domain-selection-oracle-20261122-a/receipt.json",
+      "sha256": "219c0438396c2637f9ddeccaa145e6719844046f5d9a80dac2d98e5c4cfe068a"
+    },
+    {
+      "path": "/workspace/scratch/f4c0815e01ed/conditional-affine-verification/validation-summary.json",
+      "sha256": "891f9b3d5d72c91915c938a06411dda78a00639cbfde808231e66c0582d00c8f"
+    },
+    {
+      "path": "/tmp/conditional-affine-final-20261122/validation-summary-final.json",
+      "sha256": "98d604279fba1bbb2e4e8b92de2f63432ac27c312ff507a6fe82af98470c08fe"
+    },
+    {
+      "path": "/tmp/piecewise-free-symbols-20261122-a/reader-guard-manifest.json",
+      "sha256": "4562da23467fc27a1ca0d7809e889a42eaa63efacf0c5f432de5f3f9dc09bc49"
+    },
+    {
+      "path": "/tmp/separatevars-final-20261122-v2/receipt.json",
+      "sha256": "f0a6d98707e341e5aac090791e7275b2bea57145673bc61070cd1c129b7adb09"
+    },
+    {
+      "path": "/tmp/frankensympy-final-feature-validation-20261122/receipt.json",
+      "sha256": "d64c0badd24c5392dff6f9fe77a7f803bc04ab0a3d6fb429da54871b6bc46c5f"
+    },
+    {
+      "path": "/workspace/scratch/f4c0815e01ed/next-component-extension-status.json",
+      "sha256": "f1b583e796191dbeedbabb6b3bbd216231fd7c0819715280ab05fd456599653b"
+    },
+    {
+      "path": "/workspace/scratch/f4c0815e01ed/next-component-preparation.json",
+      "sha256": "75d948aa06282af22c2741c532d916c92ecb518ac0adebc96925b8eb6cff3124"
+    },
+    {
+      "path": "/tmp/frankensympy-concurrent-main-merge-og_by6zv/receipt.json",
+      "sha256": "569e9f34cc245ebc8cd952a7b137cbe6d7222a05ef3ce88ceb00725b1ddb33e6"
+    },
+    {
+      "path": "/tmp/frankensympy-concurrent-main-followup-qfrr96px/receipt.json",
+      "sha256": "221f43bf1e53cc9bcf777bf26228ab8206048165f4125e259615f007ad549905"
+    }
+  ]
+}
