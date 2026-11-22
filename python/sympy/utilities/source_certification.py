@@ -293,7 +293,7 @@ def optimize_box_certified(objective, args, box, *, kind="minimum",
 
     Bounded branch-and-bound search supports nonconvex objectives on a finite
     box. Independent verification reconstructs a complete dyadic partition,
-    recomputes original-source C2 bounds on every leaf, and reevaluates an
+    recomputes original-source value bounds on every leaf, and reevaluates an
     exact feasible point. Candidate values, derivatives and pruning decisions
     have no acceptance authority. No binary64 program or symbolic derivative
     compilation is required.
@@ -306,13 +306,21 @@ def optimize_box_certified(objective, args, box, *, kind="minimum",
     ``kind`` is ``"minimum"`` or ``"maximum"``, precision is 8..128 digits,
     and ``max_leaves`` is 1..1024.
 
+    Smooth cells use C2 Taylor bounds. Continuous ``Abs`` compositions also
+    admit corners through separate Lipschitz value and coordinate-slope
+    bounds; these do not assert a derivative, Hessian or stationary point at
+    the corner. Other primitives retain their strict source-domain checks,
+    including poles hidden by held zero products or zeroth powers. Singular
+    non-Lipschitz endpoints such as ``sqrt(Abs(x))`` at zero still refuse.
+
     Source assumptions apply to the full box. Piecewise guards must have
     stable selections on neighborhoods of all verified cells; unresolved or
     changing seams cannot be bypassed by the cover. Inactive branches remain
     lazy. One caller budget, or one private certification budget when omitted,
     covers exact preparation, search, independent replay and publication.
     Failed bounded search, exhausted resources or cancellation returns no
-    partial certificate. Source admission follows ``enclose_objective``.
+    partial certificate. ``enclose_objective`` and the root/stationarity
+    certifiers retain their stricter C1/C2 requirements at ``Abs`` corners.
     """
     from ._box_optimization import optimize_box_certified as check
 

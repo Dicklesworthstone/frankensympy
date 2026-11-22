@@ -49,7 +49,13 @@ pub use parametric_cover::*;
 mod parametric_sensitivity;
 pub use parametric_sensitivity::*;
 
+mod lipschitz;
 mod piecewise;
+
+// This precise internal refusal distinguishes an absolute-value corner from
+// every other domain failure. Global value bounds may retry it in the separate
+// Lipschitz lane; C1/C2 derivative and root verifiers never do so.
+const ABSOLUTE_VALUE_CORNER: &str = "absolute value argument is not strictly separated from zero";
 
 pub const MAX_ROOT_BOX_NODES: usize = 16_384;
 pub const MAX_ROOT_BOX_DEPTH: usize = 32;
@@ -820,9 +826,7 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
         self.arithmetic(&[argument], &[])?;
         let negative = argument.is_negative();
         if !positive && !negative {
-            return Err(RootBoxError::Domain(
-                "absolute value argument is not strictly separated from zero",
-            ));
+            return Err(RootBoxError::Domain(ABSOLUTE_VALUE_CORNER));
         }
         self.arithmetic(&[argument], &[])?;
         if positive {
@@ -1191,6 +1195,89 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
         Jet { value, gradient }.checked()
     }
 
+    /// Values and first derivatives of a smooth scalar primitive on its whole
+    /// argument interval. The input must already retain all original child
+    /// domains. This rule does not accept absolute-value corners or relax the
+    /// ordinary C1 domain policy; a separate caller may compose these smooth
+    /// primitives with its own Lipschitz slope bounds.
+    fn smooth_unary_rule(
+        &mut self,
+        name: &str,
+        argument: &RealBall,
+    ) -> Result<(RealBall, RealBall), RootBoxError> {
+        self.elementary(argument)?;
+        let digits = self.precision;
+        let result = match name {
+            "sin" => (argument.sin(digits)?, argument.cos(digits)?),
+            "cos" => (argument.cos(digits)?, argument.sin(digits)?.neg()),
+            "exp" => {
+                let value = self.exp(argument)?;
+                (value.clone(), value)
+            }
+            "log" | "ln" => {
+                if !argument.is_positive() {
+                    return Err(RootBoxError::Domain(
+                        "logarithm argument is not strictly positive",
+                    ));
+                }
+                (argument.ln(digits)?, self.inv(argument)?)
+            }
+            "sqrt" => {
+                if !argument.is_positive() {
+                    return Err(RootBoxError::Domain("square root is not C1 on this box"));
+                }
+                let value = argument.sqrt(digits.saturating_mul(4).saturating_add(64))?;
+                let twice = self.mul(&value, &RealBall::from_i64(2))?;
+                (value, self.inv(&twice)?)
+            }
+            "asin" | "acos" => self.inverse_circular(argument, name == "acos")?,
+            "asinh" | "acosh" | "atanh" => self.inverse_hyperbolic(argument, name)?,
+            "erf" | "erfc" => self.error_function(argument, name == "erfc")?,
+            "sinc" => {
+                let [value, slope, _] = self.sinc(argument)?;
+                (value, slope)
+            }
+            "atan" => {
+                let square = self.power(argument, 2)?;
+                let denominator = self.add(&RealBall::from_i64(1), &square)?;
+                let slope = self.inv(&denominator)?;
+                (argument.atan(digits)?, slope)
+            }
+            "tan" => {
+                let cosine = argument.cos(digits)?;
+                let inverse = self.inv(&cosine)?;
+                (
+                    self.mul(&argument.sin(digits)?, &inverse)?,
+                    self.power(&inverse, 2)?,
+                )
+            }
+            "cot" | "sec" | "csc" => self.reciprocal_circular(argument, name)?,
+            "coth" | "sech" | "csch" => self.reciprocal_hyperbolic(argument, name)?,
+            "sinh" | "cosh" | "tanh" => {
+                let plus = self.exp(argument)?;
+                let minus = self.exp(&argument.neg())?;
+                let difference = self.sub(&plus, &minus)?;
+                let sum = self.add(&plus, &minus)?;
+                let sinh = self.div(&difference, &RealBall::from_i64(2))?;
+                let cosh = self.div(&sum, &RealBall::from_i64(2))?;
+                match name {
+                    "sinh" => (sinh, cosh),
+                    "cosh" => (cosh, sinh),
+                    _ => {
+                        let inverse = self.inv(&cosh)?;
+                        (self.div(&sinh, &cosh)?, self.power(&inverse, 2)?)
+                    }
+                }
+            }
+            _ => {
+                return Err(RootBoxError::Unsupported(
+                    "function has no C1 interval rule",
+                ));
+            }
+        };
+        Ok(result)
+    }
+
     fn eval(
         &mut self,
         expression: &Expr,
@@ -1337,76 +1424,7 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
                     let (value, slope) = self.absolute_branch(&a.value)?;
                     return self.chain(a, value, slope);
                 }
-                self.elementary(&a.value)?;
-                let (value, slope) = match name.as_str() {
-                    "sin" => (a.value.sin(digits)?, a.value.cos(digits)?),
-                    "cos" => (a.value.cos(digits)?, a.value.sin(digits)?.neg()),
-                    "exp" => {
-                        let value = self.exp(&a.value)?;
-                        (value.clone(), value)
-                    }
-                    "log" | "ln" => {
-                        if !a.value.is_positive() {
-                            return Err(RootBoxError::Domain(
-                                "logarithm argument is not strictly positive",
-                            ));
-                        }
-                        (a.value.ln(digits)?, self.inv(&a.value)?)
-                    }
-                    "sqrt" => {
-                        if !a.value.is_positive() {
-                            return Err(RootBoxError::Domain("square root is not C1 on this box"));
-                        }
-                        let value = a.value.sqrt(digits.saturating_mul(4).saturating_add(64))?;
-                        let twice = self.mul(&value, &RealBall::from_i64(2))?;
-                        let slope = self.inv(&twice)?;
-                        (value, slope)
-                    }
-                    "asin" | "acos" => self.inverse_circular(&a.value, name == "acos")?,
-                    "asinh" | "acosh" | "atanh" => self.inverse_hyperbolic(&a.value, name)?,
-                    "erf" | "erfc" => self.error_function(&a.value, name == "erfc")?,
-                    "sinc" => {
-                        let [value, slope, _] = self.sinc(&a.value)?;
-                        (value, slope)
-                    }
-                    "atan" => {
-                        let square = self.power(&a.value, 2)?;
-                        let denominator = self.add(&RealBall::from_i64(1), &square)?;
-                        let slope = self.inv(&denominator)?;
-                        (a.value.atan(digits)?, slope)
-                    }
-                    "tan" => {
-                        let cosine = a.value.cos(digits)?;
-                        let inverse = self.inv(&cosine)?;
-                        (
-                            self.mul(&a.value.sin(digits)?, &inverse)?,
-                            self.power(&inverse, 2)?,
-                        )
-                    }
-                    "cot" | "sec" | "csc" => self.reciprocal_circular(&a.value, name)?,
-                    "coth" | "sech" | "csch" => self.reciprocal_hyperbolic(&a.value, name)?,
-                    "sinh" | "cosh" | "tanh" => {
-                        let plus = self.exp(&a.value)?;
-                        let minus = self.exp(&a.value.neg())?;
-                        let difference = self.sub(&plus, &minus)?;
-                        let sum = self.add(&plus, &minus)?;
-                        let sinh = self.div(&difference, &RealBall::from_i64(2))?;
-                        let cosh = self.div(&sum, &RealBall::from_i64(2))?;
-                        match name.as_str() {
-                            "sinh" => (sinh, cosh),
-                            "cosh" => (cosh, sinh),
-                            _ => {
-                                let inverse = self.inv(&cosh)?;
-                                (self.div(&sinh, &cosh)?, self.power(&inverse, 2)?)
-                            }
-                        }
-                    }
-                    _ => {
-                        return Err(RootBoxError::Unsupported(
-                            "function has no C1 interval rule",
-                        ));
-                    }
-                };
+                let (value, slope) = self.smooth_unary_rule(name, &a.value)?;
                 self.chain(a, value, slope)?
             }
         };

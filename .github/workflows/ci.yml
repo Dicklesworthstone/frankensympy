@@ -139,6 +139,10 @@ jobs:
         run: cargo test --locked -p fsym-core --test abs_certification --test objective_enclosure --test root_box_general -j1
       - name: Compiled absolute-value branches and original cusp domains
         run: cargo test --locked -p fsym-calculus --test absolute_programs --test smooth_source_domains -j1
+      - name: Global absolute-value corners and complete value-gap verification
+        run: |
+          cargo test --locked -p fsym-core --test nonsmooth_box_optimization --test box_optimization --test box_optimization_monotonicity --test box_optimization_transport -j1
+          cargo test --locked -p fsym-calculus --test nonsmooth_box_optimization --test box_optimization_search --test box_optimization_checkpoint -j1
       - name: Reciprocal elementary original-source certificates
         run: cargo test --locked -p fsym-core --test reciprocal_enclosures -j1
       - name: Exact rational polynomial partial evaluation
@@ -394,6 +398,7 @@ jobs:
               "python/tests/test_stationary_search.py",
               "python/tests/test_box_extremum.py",
               "python/tests/test_box_optimization.py",
+              "python/tests/test_absolute_box_optimization.py",
               "python/tests/test_root_isolation.py",
               "python/tests/test_parametric_root_box.py",
               "python/tests/test_parametric_root_cover.py",

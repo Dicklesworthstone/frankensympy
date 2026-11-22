@@ -89,10 +89,10 @@ fn nonstrict_signs_include_zero_at_an_endpoint_and_an_identically_zero_derivativ
     let domain = [interval(q(1, 2), q(1, 1))];
     let source = quadratic(&variables[0]);
     let decreasing = enclosure(&source, &variables, &domain);
-    assert_eq!(decreasing.gradient()[0].upper(), q(0, 1));
+    assert_eq!(decreasing.slope_bounds()[0].upper(), q(0, 1));
     assert_eq!(decreasing.range(), &interval(q(0, 1), q(1, 4)));
     let increasing = enclosure(&negative(source), &variables, &domain);
-    assert_eq!(increasing.gradient()[0].lower(), q(0, 1));
+    assert_eq!(increasing.slope_bounds()[0].lower(), q(0, 1));
     assert_eq!(increasing.range(), &interval(q(-1, 4), q(0, 1)));
 
     let flat = Expr::Add(vec![
@@ -101,7 +101,7 @@ fn nonstrict_signs_include_zero_at_an_endpoint_and_an_identically_zero_derivativ
         Expr::from_i64(7),
     ]);
     let enclosed = enclosure(&flat, &variables, &[bounds(-5, 9)]);
-    assert_eq!(enclosed.gradient()[0], RealBall::from_i64(0));
+    assert_eq!(enclosed.slope_bounds()[0], RealBall::from_i64(0));
     assert_eq!(enclosed.range(), &RealBall::from_i64(7));
 }
 
@@ -124,8 +124,8 @@ fn mixed_monotone_axes_keep_uncertain_and_fixed_coordinates_intact() {
     // Minimum: x=2,y=1,u=0. Maximum: x=1,y=2,u=+/-1. Reducing u
     // to its center with the monotone coordinates would lose the true max 6.
     assert_eq!(enclosed.range(), &bounds(1, 6));
-    assert!(enclosed.gradient()[3].lower() < q(0, 1));
-    assert!(enclosed.gradient()[3].upper() > q(0, 1));
+    assert!(enclosed.slope_bounds()[3].lower() < q(0, 1));
+    assert!(enclosed.slope_bounds()[3].upper() > q(0, 1));
     for (kind, point, expected) in [
         (
             BoxExtremumKind::Minimum,
@@ -157,7 +157,7 @@ fn a_sign_changing_derivative_cannot_replace_an_interior_extremum_with_endpoint_
     let source = quadratic(&variables[0]);
     let domain = [bounds(0, 1)];
     let enclosed = enclosure(&source, &variables, &domain);
-    assert_eq!(enclosed.gradient()[0], bounds(-1, 1));
+    assert_eq!(enclosed.slope_bounds()[0], bounds(-1, 1));
     assert!(enclosed.range().contains(&q(1, 4)));
     // Both endpoints have value zero, but the exact maximum is 1/4 at 1/2.
     assert_eq!(

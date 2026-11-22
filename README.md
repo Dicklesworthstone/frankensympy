@@ -779,10 +779,51 @@ root = certify_root_box(Abs(x) - 2, x, [(1, 3)])
 
 A box touching or crossing the argument's zero remains unsupported by these
 C1/C2 checks. Held zero products and zeroth powers do not erase that condition
-or an original source pole. This is a smooth-branch certificate, not a
-subgradient or nonsmooth-optimization claim. Source replay retains the actual
-Python `Abs` capability and typed coordinates; an undefined function named
-`abs` does not acquire the same capability.
+or an original source pole. These derivative receipts establish smooth-branch
+claims. Source replay retains the actual Python `Abs` capability and typed
+coordinates; an undefined function named `abs` does not acquire that capability.
+
+### Global optimization at absolute-value corners
+
+`optimize_box_certified` admits continuous absolute-value compositions across
+zero. It proves a global minimum or maximum value interval on the complete
+declared box and an objective-value error bound for the returned feasible
+point. This supports weighted absolute losses, nested `Abs`, and smooth outer
+functions such as `exp(Abs(x))` and `1/(1 + Abs(x))`:
+
+```python
+from sympy import Abs, Rational, Symbol, optimize_box_certified
+
+x, y = Symbol("x"), Symbol("y")
+minimum = optimize_box_certified(Abs(x) + 2*Abs(y), (x, y), [(-1, 1), (-1, 1)])
+assert minimum.point == (0, 0)
+assert minimum.value == (0, 0)
+assert minimum.gap == 0
+
+shifted = optimize_box_certified(
+    Abs(x - Rational(1, 3)), x, [(-1, 1)], tolerance=Rational(1, 1024),
+)
+assert shifted.value[0] <= 0 <= shifted.value[1]
+assert shifted.gap <= Rational(1, 1024)
+```
+
+An independent checker rebuilds the complete dyadic partition, reevaluates
+every original-source cell and the exact feasible point, and verifies the
+requested gap. Smooth cells retain second-order Taylor bounds. At an `Abs`
+corner a separate evaluator supplies interval values and bounds on coordinate
+slopes; integrating those bounds controls value changes and monotonicity.
+These slopes never enter Jacobian, Hessian, root or stationary-point receipts.
+The direct function requires no numerical derivative compilation, and compiled
+objectives expose the same operation through `program.optimize_box_certified`.
+
+The gap concerns objective values. Coordinate accuracy, uniqueness and a
+complete optimizer set require separate claims. Ordinary source domains stay
+in force: poles behind held zero factors are checked, and a zeroth power whose
+original base can be zero still refuses. Singular endpoints such as
+`sqrt(Abs(x))` at zero and unresolved Piecewise seams remain outside this
+bounded slice. Search, independent replay, checkpoint restoration and final
+publication retain cumulative work and cancellation; exhausting a leaf or
+resource limit produces no partial certificate.
 
 ---
 

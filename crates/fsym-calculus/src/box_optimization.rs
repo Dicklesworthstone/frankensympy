@@ -195,10 +195,10 @@ fn widest_axis(
     Ok(widest)
 }
 
-/// The split score is radius * sup(abs(gradient)), with a widest-coordinate
+/// The split score is radius * sup(abs(slope)), with a widest-coordinate
 /// fallback. The omitted factor two is common to every coordinate. A face
-/// proposal moves only coordinates whose whole-cell derivative has a proved
-/// sign; derivatives spanning zero leave that coordinate at the center.
+/// proposal moves only coordinates whose whole-cell Lipschitz slope has a
+/// proved sign; slopes spanning zero leave that coordinate at the center.
 fn analyze_cell(
     workspace: &mut BoxOptimizationWorkspace<'_, impl BudgetMeter>,
     domain: &[RealBall],
@@ -209,7 +209,8 @@ fn analyze_cell(
     let mut weighted = None::<(usize, BigRational)>;
     let mut face = None::<Vec<BigRational>>;
     let zero = BigRational::zero();
-    for (axis, (coordinate, derivative)) in domain.iter().zip(enclosure.gradient()).enumerate() {
+    for (axis, (coordinate, derivative)) in domain.iter().zip(enclosure.slope_bounds()).enumerate()
+    {
         workspace.account(1, 0, 0)?;
         if coordinate.radius().is_zero() {
             continue;

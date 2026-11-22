@@ -6,11 +6,12 @@
 //! Acceptance proves a value interval and an absolute suboptimality bound,
 //! not an exact optimizer, uniqueness or a complete set of optimizers.
 
+use super::lipschitz::{LipschitzEnclosure, evaluate_lipschitz};
 use super::objective::{ObjectiveJet, evaluate_objective};
 use super::{
-    Bounded, BoundedRational, BoxExtremumKind, MAX_ROOT_BOX_PRECISION, MAX_ROOT_BOX_VARIABLES,
-    RootBoxError, Work, binding_bytes, check_ball, check_rational, checked, rational_limbs,
-    validate_inputs,
+    ABSOLUTE_VALUE_CORNER, Bounded, BoundedRational, BoxExtremumKind, MAX_ROOT_BOX_PRECISION,
+    MAX_ROOT_BOX_VARIABLES, RootBoxError, Work, binding_bytes, check_ball, check_rational, checked,
+    rational_limbs, validate_inputs,
 };
 use crate::{BigRational, Expr, RealBall, Symbol};
 use fsym_budget::{BudgetMeter, Unbounded};
@@ -23,9 +24,10 @@ use thiserror::Error;
 pub const MAX_BOX_OPTIMIZATION_LEAVES: usize = 1024;
 pub const MAX_BOX_OPTIMIZATION_DEPTH: usize = 64;
 pub const MAX_BOX_OPTIMIZATION_NODES: usize = 2 * MAX_BOX_OPTIMIZATION_LEAVES - 1;
-// A search visits at most 2L-1 cells: whole box, center, two monotone
-// faces, and one incumbent proposal per cell. Independent replay uses at
-// most 4L+1 evaluations (four per leaf and the proposed feasible point).
+// Smooth search visits at most 2L-1 cells: whole box, center, two monotone
+// faces, and one incumbent proposal per cell. Independent smooth replay uses
+// at most 4L+1 evaluations. Each actual traversal, including a refused C2
+// attempt followed by Lipschitz evaluation, consumes this same fixed cap.
 // Each phase has its own workspace; cumulative Work limits remain in force.
 const MAX_EVALUATIONS: usize = 5 * MAX_BOX_OPTIMIZATION_NODES + 8;
 
@@ -99,6 +101,8 @@ type Result<T> = std::result::Result<T, BoxOptimizationError>;
 /// The global minimum/maximum value is in value. The objective value at the
 /// exact feasible point differs from that optimum by at most gap, which is
 /// no larger than absolute_tolerance. No coordinate-distance claim is made.
+/// Continuous absolute-value compositions may have corners; acceptance does
+/// not assert C1/C2 differentiability, stationarity, or a unique optimizer.
 /// All fields are private, with no unchecked constructor or deserializer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BoxOptimizationReceipt {
@@ -156,12 +160,14 @@ impl BoxOptimizationReceipt {
 
 /// Local bounds usable by a search strategy. These do not assert that the
 /// supplied cell covers the requested domain or contains a global optimizer.
+/// Coordinate slope bounds prove value changes and monotonicity on this cell;
+/// they need not be derivatives at an absolute-value corner.
 #[derive(Debug, Clone)]
 pub struct BoxCellEnclosure {
     range: RealBall,
     center: Vec<BigRational>,
     center_value: RealBall,
-    gradient: Vec<RealBall>,
+    slope_bounds: Vec<RealBall>,
 }
 
 impl BoxCellEnclosure {
@@ -174,8 +180,49 @@ impl BoxCellEnclosure {
     pub fn center_value(&self) -> &RealBall {
         &self.center_value
     }
-    pub fn gradient(&self) -> &[RealBall] {
-        &self.gradient
+    /// Bounds on the derivative almost everywhere along each absolutely
+    /// continuous coordinate slice. They establish a Lipschitz value bound,
+    /// including nonsmooth Abs corners, and are not a C1 gradient certificate.
+    pub fn slope_bounds(&self) -> &[RealBall] {
+        &self.slope_bounds
+    }
+}
+
+// The lower-regularity result never inhabits ObjectiveJet or another public
+// derivative acceptance type. Hessian tightening requires the Smooth arm at
+// both the whole cell and the center, not merely available slope intervals.
+enum CellValueEnclosure {
+    Smooth(ObjectiveJet),
+    Lipschitz(LipschitzEnclosure),
+}
+
+impl CellValueEnclosure {
+    fn value(&self) -> &RealBall {
+        match self {
+            Self::Smooth(jet) => &jet.value,
+            Self::Lipschitz(enclosure) => &enclosure.value,
+        }
+    }
+
+    fn slopes(&self) -> &[RealBall] {
+        match self {
+            Self::Smooth(jet) => &jet.gradient,
+            Self::Lipschitz(enclosure) => &enclosure.slopes,
+        }
+    }
+
+    fn into_value(self) -> RealBall {
+        match self {
+            Self::Smooth(jet) => jet.value,
+            Self::Lipschitz(enclosure) => enclosure.value,
+        }
+    }
+
+    fn into_slopes(self) -> Vec<RealBall> {
+        match self {
+            Self::Smooth(jet) => jet.gradient,
+            Self::Lipschitz(enclosure) => enclosure.slopes,
+        }
     }
 }
 
@@ -494,22 +541,39 @@ impl<'a, M: BudgetMeter> BoxOptimizationWorkspace<'a, M> {
         Ok(())
     }
 
-    fn evaluate(&mut self, domain: &[RealBall]) -> Result<ObjectiveJet> {
+    fn begin_evaluation(&mut self) -> Result<()> {
         if self.evaluations >= MAX_EVALUATIONS {
             return Err(RootBoxError::ResourceLimit("box-optimization evaluation count").into());
         }
         self.evaluations += 1;
         self.work.nodes = 0;
-        Ok(evaluate_objective(
-            self.objective,
-            self.variables,
-            domain,
-            &mut self.work,
-        )?)
+        Ok(())
     }
 
-    /// Recompute a feasible point from the original source, including C2
-    /// domain obligations hidden by held zero factors and zero powers.
+    fn evaluate(&mut self, domain: &[RealBall]) -> Result<CellValueEnclosure> {
+        self.begin_evaluation()?;
+        match evaluate_objective(self.objective, self.variables, domain, &mut self.work) {
+            Ok(jet) => Ok(CellValueEnclosure::Smooth(jet)),
+            Err(RootBoxError::Domain(reason)) if reason == ABSOLUTE_VALUE_CORNER => {
+                // Retry exactly this mathematical regularity limitation.
+                // Every original child and guard is rechecked. No resource,
+                // cancellation, other domain, or unsupported error restarts.
+                // Failed C2 work remains charged in this same workspace.
+                self.begin_evaluation()?;
+                Ok(CellValueEnclosure::Lipschitz(evaluate_lipschitz(
+                    self.objective,
+                    self.variables,
+                    domain,
+                    &mut self.work,
+                )?))
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Recompute a feasible point from the original source, retaining every
+    /// domain obligation hidden by held zero factors and zero powers. Abs
+    /// corners admit values here without asserting a derivative at the point.
     pub fn evaluate_point(&mut self, point: &[BigRational]) -> Result<RealBall> {
         if point.len() != self.variables.len() {
             return Err(RootBoxError::DimensionMismatch.into());
@@ -531,14 +595,14 @@ impl<'a, M: BudgetMeter> BoxOptimizationWorkspace<'a, M> {
             }
             domain.push(RealBall::exact(value.clone()));
         }
-        Ok(self.evaluate(&domain)?.value)
+        Ok(self.evaluate(&domain)?.into_value())
     }
 
-    /// Intersect the natural range with independent centered Taylor and
-    /// monotone-face enclosures. Diagonal displacement squares use the
-    /// even-power interval; both off-diagonal terms remain in the full Hessian
-    /// quadratic form. Only derivative signs proved on the complete original
-    /// cell can move a varying coordinate to an endpoint.
+    /// Intersect the natural range with centered and monotone-face enclosures.
+    /// Smooth cells retain the C2 Taylor quadratic form; Abs corners instead
+    /// integrate whole-cell coordinate slope bounds along coordinate segments.
+    /// Only slope signs proved on the complete original cell can move a
+    /// varying coordinate to an endpoint.
     pub fn enclose_cell(&mut self, domain: &[RealBall]) -> Result<BoxCellEnclosure> {
         self.check_domain(domain)?;
         let whole = self.evaluate(domain)?;
@@ -561,32 +625,41 @@ impl<'a, M: BudgetMeter> BoxOptimizationWorkspace<'a, M> {
                     .map_err(RootBoxError::from)?,
             );
         }
-        self.work.arithmetic(&[&at_center.value], &[])?;
-        let mut centered = at_center.value.clone();
-        for (slope, displacement) in at_center.gradient.iter().zip(&delta) {
-            let contribution = self.work.mul(slope, displacement)?;
-            centered = self.work.add(&centered, &contribution)?;
-        }
-        let half = BigRational::new(1.into(), 2.into());
-        for (i, row) in whole.hessian.iter().enumerate() {
-            for (j, entry) in row.iter().enumerate() {
-                let product = if i == j {
-                    self.work.power(&delta[i], 2)?
-                } else {
-                    self.work.mul(&delta[i], &delta[j])?
-                };
-                let contribution = self.work.mul(entry, &product)?;
-                let contribution = self.work.scale(&contribution, &half)?;
+        self.work.arithmetic(&[at_center.value()], &[])?;
+        let mut centered = at_center.value().clone();
+        if let (CellValueEnclosure::Smooth(whole), CellValueEnclosure::Smooth(at_center)) =
+            (&whole, &at_center)
+        {
+            for (slope, displacement) in at_center.gradient.iter().zip(&delta) {
+                let contribution = self.work.mul(slope, displacement)?;
+                centered = self.work.add(&centered, &contribution)?;
+            }
+            let half = BigRational::new(1.into(), 2.into());
+            for (i, row) in whole.hessian.iter().enumerate() {
+                for (j, entry) in row.iter().enumerate() {
+                    let product = if i == j {
+                        self.work.power(&delta[i], 2)?
+                    } else {
+                        self.work.mul(&delta[i], &delta[j])?
+                    };
+                    let contribution = self.work.mul(entry, &product)?;
+                    let contribution = self.work.scale(&contribution, &half)?;
+                    centered = self.work.add(&centered, &contribution)?;
+                }
+            }
+        } else {
+            for (slope, displacement) in whole.slopes().iter().zip(&delta) {
+                let contribution = self.work.mul(slope, displacement)?;
                 centered = self.work.add(&centered, &contribution)?;
             }
         }
-        self.work.arithmetic(&[&whole.value, &centered], &[])?;
+        self.work.arithmetic(&[whole.value(), &centered], &[])?;
         let mut range = whole
-            .value
+            .value()
             .intersect(&centered)
             .ok_or(BoxOptimizationError::InconsistentEnclosure)?;
         check_ball(&range)?;
-        if let Some(monotone) = self.monotone_range(domain, &whole.gradient)? {
+        if let Some(monotone) = self.monotone_range(domain, whole.slopes())? {
             self.work.arithmetic(&[&range, &monotone], &[])?;
             range = range
                 .intersect(&monotone)
@@ -596,24 +669,24 @@ impl<'a, M: BudgetMeter> BoxOptimizationWorkspace<'a, M> {
         Ok(BoxCellEnclosure {
             range,
             center,
-            center_value: at_center.value,
-            gradient: whole.gradient,
+            center_value: at_center.into_value(),
+            slope_bounds: whole.into_slopes(),
         })
     }
 
-    // The caller has already recomputed every original-source domain and C2
-    // obligation over the entire cell. A sign-definite partial derivative on
-    // that cell permits replacing its coordinate by the corresponding face
-    // for a lower/upper bound. Uncertain derivatives keep their full interval;
+    // The caller has already recomputed every original-source domain and
+    // established absolutely continuous coordinate slices on the whole cell.
+    // A sign-definite slope almost everywhere permits replacing its coordinate
+    // by the corresponding face. Uncertain slopes keep their full interval;
     // fixing several coordinates is sound because every intermediate face is
     // a subset of the box on which all of those signs were proved.
     fn monotone_range(
         &mut self,
         domain: &[RealBall],
-        gradient: &[RealBall],
+        slope_bounds: &[RealBall],
     ) -> Result<Option<RealBall>> {
         let mut faces = None::<(Vec<RealBall>, Vec<RealBall>)>;
-        for (axis, (coordinate, derivative)) in domain.iter().zip(gradient).enumerate() {
+        for (axis, (coordinate, derivative)) in domain.iter().zip(slope_bounds).enumerate() {
             self.work.step()?;
             if coordinate.radius().is_zero() {
                 continue;
@@ -664,8 +737,8 @@ impl<'a, M: BudgetMeter> BoxOptimizationWorkspace<'a, M> {
         let Some((minimum, maximum)) = faces else {
             return Ok(None);
         };
-        let minimum = self.evaluate(&minimum)?.value;
-        let maximum = self.evaluate(&maximum)?.value;
+        let minimum = self.evaluate(&minimum)?.into_value();
+        let maximum = self.evaluate(&maximum)?.into_value();
         self.work.arithmetic(&[&minimum, &maximum], &[])?;
         let lower = minimum.lower();
         let upper = maximum.upper();

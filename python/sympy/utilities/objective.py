@@ -288,11 +288,17 @@ class _ObjectiveCallable:
 
         This bounded branch-and-bound search admits nonconvex objectives.
         Native acceptance reconstructs a complete dyadic partition, checks
-        original-source C2 bounds on every leaf, and reevaluates an exact
+        original-source value bounds on every leaf, and reevaluates an exact
         feasible point. Its BoxOptimizationReceipt encloses the global
         optimum value and proves that the point's objective value is within
         "gap <= tolerance" of it. Coordinate distance to an optimizer,
         uniqueness and complete optimizer sets are not asserted.
+
+        Smooth cells retain C2 Taylor bounds. Continuous ``Abs`` compositions
+        can also cross zero, using separate Lipschitz slope bounds that make
+        no derivative or stationarity claim there. Other original domains,
+        including poles hidden by held arithmetic, remain checked. The
+        derivative and stationary-point APIs still refuse ``Abs`` corners.
 
         Bounds and tolerance are exact rational inputs. Captured assumptions
         apply to the entire box. Precision is 8..128 digits and max_leaves is
