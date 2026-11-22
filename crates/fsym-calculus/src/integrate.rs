@@ -7,6 +7,8 @@
 //! * a table of elementary antiderivatives with linear inner arguments
 //!   (`exp`, `sin`, `cos`, `tan`, `sinh`, `cosh`, `a**x`, `log`, `atan`,
 //!   `asin`, `erf` for Gaussians, arcsine/arcsinh radicals, power rule);
+//! * conditional entire-function primitives for a possibly zero parameter
+//!   slope, with a separately specialized constant-integrand branch;
 //! * rational functions: independently checked, factor-free Hermite reduction
 //!   for repeated poles, followed by exact partial fractions over the
 //!   square-free denominator over Q, `log` terms for
@@ -37,6 +39,10 @@ const MAX_DEPTH: usize = 12;
 const MAX_DOMAIN_DEPTH: usize = 64;
 const MAX_DOMAIN_NODES: usize = 16_384;
 const MAX_DEFINITE_POWER: u64 = 4_096;
+const MAX_CONDITIONAL_SOURCE_NODES: usize = 4_096;
+const MAX_CONDITIONAL_SOURCE_DEPTH: usize = 32;
+const MAX_CONDITIONAL_SOURCE_POWER: u64 = 64;
+const MAX_CONDITIONAL_LITERAL_BITS: u64 = 4_096;
 
 fn func(name: &str, arg: Expr) -> Expr {
     eval_function(name, std::slice::from_ref(&arg))
@@ -113,6 +119,134 @@ fn sum(terms: impl IntoIterator<Item = Expr>) -> Expr {
     terms.into_iter().fold(Expr::from_i64(0), |a, b| a + b)
 }
 
+/// The new conditional lane only sees an original, bounded entire source.
+/// In particular, a held zero factor or cancellation cannot erase a reciprocal,
+/// logarithm, nonfinite literal, or undefined zero power before admission.
+/// Symbols are formal finite scalar parameters; no fact about an unknown sign
+/// or nonzero value is inferred here.
+pub(crate) fn conditional_source_admitted(source: &Expr) -> bool {
+    let mut pending = vec![(source, 0usize)];
+    let mut visited = 0usize;
+    while let Some((term, depth)) = pending.pop() {
+        visited += 1;
+        if visited > MAX_CONDITIONAL_SOURCE_NODES || depth > MAX_CONDITIONAL_SOURCE_DEPTH {
+            return false;
+        }
+        match term {
+            Expr::Integer(value) if value.bits() <= MAX_CONDITIONAL_LITERAL_BITS => {}
+            Expr::Rational(value)
+                if value.numer().bits() <= MAX_CONDITIONAL_LITERAL_BITS
+                    && value.denom().bits() <= MAX_CONDITIONAL_LITERAL_BITS => {}
+            Expr::Const(Constant::Pi | Constant::E | Constant::I) => {}
+            Expr::Sym(symbol) => {
+                if fsym_core::assume::facts_of_symbol(symbol)
+                    .is_some_and(|facts| facts.is_contradictory())
+                {
+                    return false;
+                }
+            }
+            Expr::Add(args) | Expr::Mul(args) => {
+                if args.len() > MAX_CONDITIONAL_SOURCE_NODES.saturating_sub(visited + pending.len())
+                {
+                    return false;
+                }
+                pending.extend(args.iter().map(|arg| (arg, depth + 1)));
+            }
+            Expr::Pow(base, exponent) => {
+                let power = match exponent.as_ref() {
+                    Expr::Integer(value) => value.to_u64(),
+                    Expr::Rational(value) if value.is_integer() => value.numer().to_u64(),
+                    _ => None,
+                };
+                let Some(power) = power else {
+                    return false;
+                };
+                if !(1..=MAX_CONDITIONAL_SOURCE_POWER).contains(&power) {
+                    return false;
+                }
+                pending.push((base, depth + 1));
+            }
+            Expr::Function(name, args)
+                if matches!(name.as_str(), "exp" | "sin" | "cos" | "sinh" | "cosh")
+                    && args.len() == 1 =>
+            {
+                pending.push((&args[0], depth + 1));
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// Structural affinity over the already admitted entire source. Unlike
+/// `linear_coeffs`, this never divides by, or assumes anything about, the slope.
+fn conditional_affine_coeffs(source: &Expr, x: &Symbol) -> Option<(Expr, Expr)> {
+    if is_free_of(source, x) {
+        return Some((Expr::from_i64(0), source.clone()));
+    }
+    match source {
+        Expr::Sym(symbol) if symbol == x => Some((Expr::from_i64(1), Expr::from_i64(0))),
+        Expr::Add(terms) => {
+            let mut slope = Expr::from_i64(0);
+            let mut intercept = Expr::from_i64(0);
+            for term in terms {
+                let (a, b) = conditional_affine_coeffs(term, x)?;
+                slope = slope + a;
+                intercept = intercept + b;
+            }
+            Some((slope, intercept))
+        }
+        Expr::Mul(factors) => {
+            let mut slope = Expr::from_i64(0);
+            let mut intercept = Expr::from_i64(1);
+            for factor in factors {
+                let (a, b) = conditional_affine_coeffs(factor, x)?;
+                if !slope.is_zero() && !a.is_zero() {
+                    return None;
+                }
+                slope = slope * b.clone() + a * intercept.clone();
+                intercept = intercept * b;
+            }
+            Some((slope, intercept))
+        }
+        Expr::Pow(base, exponent) if exponent.as_ref().is_one() => {
+            conditional_affine_coeffs(base, x)
+        }
+        _ => None,
+    }
+}
+
+/// A rational multiple of one typed parameter has precisely one zero case.
+/// Composite symbolic slopes require a different public condition profile.
+fn single_slope_parameter(slope: &Expr) -> Option<Symbol> {
+    match slope {
+        Expr::Sym(symbol) => Some(symbol.clone()),
+        Expr::Mul(factors) => {
+            let mut parameter = None;
+            for factor in factors {
+                match factor {
+                    Expr::Sym(symbol) if parameter.is_none() => parameter = Some(symbol.clone()),
+                    other if number(other).is_some_and(|value| !value.is_zero()) => {}
+                    _ => return None,
+                }
+            }
+            parameter
+        }
+        _ => None,
+    }
+}
+
+fn entire_primitive(name: &str, argument: Expr) -> Option<Expr> {
+    Some(match name {
+        "exp" => func("exp", argument),
+        "sin" => -func("cos", argument),
+        "cos" => func("sin", argument),
+        "sinh" => func("cosh", argument),
+        "cosh" => func("sinh", argument),
+        _ => return None,
+    })
+}
+
 /// `Some((a, b))` when `e == a*x + b` with `a, b` free of `x`, `a != 0`.
 fn linear_coeffs(e: &Expr, x: &Symbol) -> Option<(Expr, Expr)> {
     let xe = Expr::Sym(x.clone());
@@ -177,6 +311,7 @@ fn split_constant(e: &Expr, x: &Symbol) -> (Expr, Vec<Expr>) {
 struct Integrator {
     x: Symbol,
     depth: usize,
+    conditional_source: bool,
 }
 
 impl Integrator {
@@ -196,6 +331,11 @@ impl Integrator {
 
     fn int_inner(&mut self, f: &Expr) -> Option<Expr> {
         let x = self.x.clone();
+        if self.conditional_source
+            && let Some(result) = self.conditional_affine(f)
+        {
+            return result;
+        }
         if is_free_of(f, &x) {
             return Some(f.clone() * self.xe());
         }
@@ -248,6 +388,64 @@ impl Integrator {
             return self.int(&expanded);
         }
         None
+    }
+
+    /// `None` means another lane may try; `Some(None)` is an intentional
+    /// refusal that must not be bypassed by splitting a shifted exponential.
+    fn conditional_affine(&self, source: &Expr) -> Option<Option<Expr>> {
+        let (coefficient, dependent) = split_constant(source, &self.x);
+        let [Expr::Function(name, args)] = dependent.as_slice() else {
+            return None;
+        };
+        if args.len() != 1 || !matches!(name.as_str(), "exp" | "sin" | "cos" | "sinh" | "cosh") {
+            return None;
+        }
+        // The pinned elementary profiles keep a trig/hyperbolic scalar
+        // outside Piecewise, while the exponential profile distributes it.
+        if name != "exp" && !coefficient.is_one() {
+            return None;
+        }
+        let argument = &args[0];
+        let (slope, intercept) = conditional_affine_coeffs(argument, &self.x)?;
+        if slope.is_zero() || provably_nonzero(&slope) {
+            return None;
+        }
+        let parameter = single_slope_parameter(&slope)?;
+        let zero = HashMap::from([(parameter.clone(), Expr::from_i64(0))]);
+        let constant_argument = intercept.subs(&zero);
+        // SymPy 1.14's shifted-exp profile drops exp(b) in its zero-slope
+        // branch. Do not reproduce that incorrect identity or silently use a
+        // different profile: retain the formal integral unless b|parameter=0
+        // is exactly zero. Proved nonzero slopes still use the ordinary table.
+        if name == "exp" && !constant_argument.is_zero() {
+            return Some(None);
+        }
+        let scale = coefficient.clone() * recip(slope);
+        let primitive = scale.clone() * entire_primitive(name, argument.clone())?;
+        // When a coefficient supplies the slope factor, cancellation gives
+        // an entire primitive valid also at zero (e.g. a*exp(a*x)). Admit
+        // that simplification only if the resulting scale has no denominator
+        // or other source-domain obligation.
+        if name == "exp" && conditional_source_admitted(&scale) {
+            return Some(Some(primitive));
+        }
+        let degenerate = coefficient * self.xe() * func(name, constant_argument);
+        Some(Some(Expr::Function(
+            "Piecewise".to_string(),
+            vec![
+                Expr::Function(
+                    "Tuple".to_string(),
+                    vec![
+                        primitive,
+                        Expr::Function(
+                            "Unequality".to_string(),
+                            vec![Expr::Sym(parameter), Expr::from_i64(0)],
+                        ),
+                    ],
+                ),
+                Expr::Function("Tuple".to_string(), vec![degenerate, Expr::symbol("True")]),
+            ],
+        )))
     }
 
     // -----------------------------------------------------------------------
@@ -377,13 +575,9 @@ impl Integrator {
                 let ia = recip(a);
                 let u = u.clone();
                 let r = match name.as_str() {
-                    "exp" => func("exp", u),
-                    "sin" => -func("cos", u),
-                    "cos" => func("sin", u),
+                    "exp" | "sin" | "cos" | "sinh" | "cosh" => entire_primitive(name, u)?,
                     "tan" => -func("log", func("cos", u)),
                     "cot" => func("log", func("sin", u)),
-                    "sinh" => func("cosh", u),
-                    "cosh" => func("sinh", u),
                     "tanh" => func("log", func("cosh", u)),
                     "sec" => {
                         let su = func("sin", u);
@@ -715,6 +909,7 @@ impl Integrator {
         let mut sub = Integrator {
             x: u.clone(),
             depth: self.depth + 1,
+            conditional_source: self.conditional_source,
         };
         let anti = sub.int(&reduced)?;
         let xk = pow(self.xe(), Expr::from_i64(i64::try_from(g).ok()?));
@@ -1493,9 +1688,20 @@ fn collect_candidates(e: &Expr, x: &Symbol, out: &mut Vec<Expr>) {
 /// Antiderivative of `f` in `x` (no constant), or `None` when no rule
 /// applies.
 pub fn antiderivative(f: &Expr, x: &Symbol) -> Option<Expr> {
+    antiderivative_in_source_scope(f, x, conditional_source_admitted(f))
+}
+
+/// Keep original-source admission when the public fallback recursively splits
+/// sums and constant factors. A normalized child cannot grant a new permission.
+pub(crate) fn antiderivative_in_source_scope(
+    f: &Expr,
+    x: &Symbol,
+    conditional_source: bool,
+) -> Option<Expr> {
     let mut it = Integrator {
         x: x.clone(),
         depth: 0,
+        conditional_source,
     };
     let r = it.int(f)?;
     // Rational integrands: upstream (ratint) reports the rational part as
@@ -2156,6 +2362,40 @@ fn merge_rational_part(out: Expr, x: &Symbol) -> Expr {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn conditional_source_admission_checks_original_size_depth_and_powers() {
+        assert!(conditional_source_admitted(&func(
+            "sin",
+            Expr::symbol("a") * Expr::symbol("x") + Expr::symbol("b"),
+        )));
+        assert!(!conditional_source_admitted(&Expr::Add(vec![
+            Expr::from_i64(0);
+            MAX_CONDITIONAL_SOURCE_NODES
+        ])));
+        let mut deep = Expr::symbol("x");
+        for _ in 0..=MAX_CONDITIONAL_SOURCE_DEPTH {
+            deep = Expr::Function("exp".to_string(), vec![deep]);
+        }
+        assert!(!conditional_source_admitted(&deep));
+        for exponent in [0, -1, 65] {
+            assert!(!conditional_source_admitted(&Expr::pow(
+                Expr::symbol("x"),
+                Expr::from_i64(exponent),
+            )));
+        }
+        let oversized = BigInt::one() << u32::try_from(MAX_CONDITIONAL_LITERAL_BITS).unwrap();
+        assert!(!conditional_source_admitted(&Expr::Integer(
+            oversized.clone()
+        )));
+        assert!(!conditional_source_admitted(&Expr::Rational(
+            BigRational::new(BigInt::one(), oversized.clone(),)
+        )));
+        assert!(!conditional_source_admitted(&Expr::pow(
+            Expr::symbol("x"),
+            Expr::Integer(oversized),
+        )));
+    }
 
     fn x() -> Symbol {
         Symbol::new("x")

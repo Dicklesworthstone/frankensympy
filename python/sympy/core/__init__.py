@@ -535,6 +535,8 @@ _closed_function_classes: tuple[type, ...] | None = None
 # Keep admission state distinct from the _function_capabilities submodule.
 # Importing that module assigns a module attribute on this package.
 _function_capability_roster = None
+_builtin_free_symbol_readers = None
+_missing_free_symbol_reader = object()
 
 
 def _is_registered_function_class(cls) -> bool:
@@ -570,15 +572,55 @@ def _require_closed_native_functions(value):
     return value
 
 
+def _builtin_free_symbol_readers_unchanged() -> bool:
+    """Admit semantic child reads without changing native lowering rules."""
+    from ._function_capabilities import _DICT, _MRO, _implementation
+
+    if _builtin_free_symbol_readers is None:
+        return False
+    try:
+        for owner, recorded_mro, expected in _builtin_free_symbol_readers:
+            current_mro = _MRO.__get__(owner)
+            if (len(current_mro) != len(recorded_mro)
+                    or any(a is not b for a, b in zip(current_mro, recorded_mro))):
+                return False
+            current = _implementation(
+                _DICT.__get__(owner).get("free_symbols", _missing_free_symbol_reader)
+            )
+            if (len(current) != len(expected)
+                    or any(a is not b for a, b in zip(current, expected))):
+                return False
+    except ValueError:
+        return False
+    return True
+
+
 def _freeze_builtin_function_classes() -> None:
     """Seal the classes imported by the package, before user extensions run."""
-    global _closed_function_classes, _function_capability_roster
+    global _closed_function_classes, _function_capability_roster, _builtin_free_symbol_readers
     if _closed_function_classes is None:
-        from ._function_capabilities import FunctionCapabilities
+        from ._function_capabilities import FunctionCapabilities, _DICT, _MRO, _implementation
+        from ..logic.boolalg import (
+            And, BooleanFalse, BooleanTrue, Equivalent, Implies, Not, Or, Xor,
+        )
 
         _closed_function_classes = tuple(_known_functions.values())
         _function_capability_roster = FunctionCapabilities(
             _closed_function_classes, _native.Expr, Basic.__dict__["_value"], Function
+        )
+        # A separate record gates only Piecewise-aware child symbol reads.
+        # Changed properties keep the old native binding path; they do not
+        # make native admission fall through to user Python properties.
+        owners = []
+        for cls in (*_exact_surface_types(), *_closed_function_classes,
+                    And, BooleanFalse, BooleanTrue, Equivalent, Implies, Not, Or, Xor):
+            for owner in _MRO.__get__(cls):
+                if not any(owner is previous for previous in owners):
+                    owners.append(owner)
+        _builtin_free_symbol_readers = tuple(
+            (owner, _MRO.__get__(owner), _implementation(
+                _DICT.__get__(owner).get("free_symbols", _missing_free_symbol_reader)
+            )) for owner in owners
         )
 _user_functions: weakref.WeakValueDictionary[str, type] = weakref.WeakValueDictionary()
 
@@ -1176,9 +1218,31 @@ class Basic:
                 syms.update(arg.free_symbols)
             return syms
         try:
+            native = _native_expr(self)
+            cls = type(self)
+            if native.has_function("Piecewise") and (
+                cls is Add or cls is Mul or cls is Pow
+                or _is_closed_function_class(cls)
+            ) and _builtin_free_symbol_readers_unchanged():
+                # Piecewise's default condition has a native symbol marker.
+                # Only its semantic branch children distinguish that marker
+                # from a genuine Symbol("True") in a value or condition.
+                from ._opaque_arithmetic import stored_args
+
+                children = stored_args(self)
+                if children is None:
+                    children = tuple(_wrap(arg) for arg in native.args)
+                # A legacy native function tag may lift to a custom owner.
+                # Keep such objects on the existing native-symbol path,
+                # without introducing calls to their Python properties.
+                if not any(_contains_opaque(arg) for arg in children):
+                    syms: set[Symbol] = set()
+                    for arg in children:
+                        syms.update(arg.free_symbols)
+                    return syms
             return {
                 _symbol_from_binding(binding)
-                for binding in _native_expr(self).free_symbol_bindings
+                for binding in native.free_symbol_bindings
             }
         except (NotImplementedError, TypeError):
             syms: set[Symbol] = set()

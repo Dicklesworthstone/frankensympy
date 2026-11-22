@@ -1408,19 +1408,31 @@ fn try_integrate_by_parts(var_parts: &[Expr], var: &Symbol) -> Option<Expr> {
 /// [`integral_term`]; anything else fails as
 /// [`CalculusError::IntegrationFailed`] rather than returning a guess.
 pub fn integrate(expr: &Expr, var: &Symbol) -> Result<Expr, CalculusError> {
-    if let Some(anti) = integrate::antiderivative(expr, var) {
+    integrate_in_source_scope(expr, var, integrate::conditional_source_admitted(expr))
+}
+
+fn integrate_in_source_scope(
+    expr: &Expr,
+    var: &Symbol,
+    conditional_source: bool,
+) -> Result<Expr, CalculusError> {
+    if let Some(anti) = integrate::antiderivative_in_source_scope(expr, var, conditional_source) {
         return Ok(anti);
     }
-    integrate_basic(expr, var)
+    integrate_basic(expr, var, conditional_source)
 }
 
 /// The original term-table integrator, kept as a fallback lane.
-fn integrate_basic(expr: &Expr, var: &Symbol) -> Result<Expr, CalculusError> {
+fn integrate_basic(
+    expr: &Expr,
+    var: &Symbol,
+    conditional_source: bool,
+) -> Result<Expr, CalculusError> {
     match expr {
         Expr::Add(terms) => {
             let mut parts = Vec::new();
             for t in terms {
-                parts.push(integrate(t, var)?);
+                parts.push(integrate_in_source_scope(t, var, conditional_source)?);
             }
             Ok(simplify(&Expr::Add(parts)))
         }
@@ -1451,7 +1463,7 @@ fn integrate_basic(expr: &Expr, var: &Symbol) -> Result<Expr, CalculusError> {
                 )));
             }
             let inner = var_parts.pop().expect("len checked");
-            let anti = integrate(&inner, var)?;
+            let anti = integrate_in_source_scope(&inner, var, conditional_source)?;
             Ok(simplify(&(c * anti)))
         }
         other => integral_term(other, var).map(|e| simplify(&e)),
@@ -2332,7 +2344,7 @@ mod tests {
         );
         assert!(matches!(
             integrate(&symbolic_slope, &x),
-            Err(CalculusError::IntegrationFailed(_))
+            Ok(Expr::Function(name, branches)) if name == "Piecewise" && branches.len() == 2
         ));
 
         let nonlinear_argument = Expr::Function(

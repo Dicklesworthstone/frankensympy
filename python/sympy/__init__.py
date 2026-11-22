@@ -174,9 +174,74 @@ def integrate(expression, *variables):
             _symbol_binding(symbol),
             _typed_symbol_facts(expression, symbol),
         )
-        return _lift_native_result(result, expression, symbol)
+        lifted = _lift_native_result(result, expression, symbol)
+        return _conditional_odd_primitive_profile(lifted, expression)
     except (ValueError, NotImplementedError, TypeError):
         return Integral(expression, symbol)
+
+
+def _conditional_odd_primitive_profile(result, source):
+    """Retain the pinned odd-function sign outside a conditional primitive.
+
+    Native sign extraction deliberately leaves balanced Add ties undecided;
+    the public expression layer owns the selected profile's exact tie-break.
+    This representation-only adjustment runs after original-source admission,
+    so it cannot erase a held source-domain obligation to enable integration.
+    """
+    from .functions.elementary.hyperbolic import sinh
+    from .functions.elementary.piecewise import Piecewise
+    from .functions.elementary.trigonometric import sin
+    from .logic.boolalg import true
+
+    if type(source) not in (sin, sinh) or type(result) is not Piecewise:
+        return result
+    pairs = result.args
+    if (len(source.args) != 1 or len(pairs) != 2
+            or type(pairs[0].cond) is not Ne
+            or type(pairs[0].cond.lhs) not in (Symbol, Dummy)
+            or pairs[0].cond.rhs is not S.Zero or pairs[1].cond is not true):
+        return result
+    _require_conditional_odd_sign_contract()
+    if not Expr.could_extract_minus_sign(source.args[0]):
+        return result
+    return -Piecewise(*[(-pair.expr, pair.cond) for pair in pairs])
+
+
+def _snapshot_conditional_odd_sign_contract():
+    """Capture method bodies and inherited resolution before extensions run."""
+    from .core import _exact_surface_types
+    from .core._function_capabilities import _implementation
+
+    mro_slot = type.__dict__["__mro__"]
+    dict_slot = type.__dict__["__dict__"]
+    classes = (*_exact_surface_types(), exp, sin, cos, sinh, cosh)
+    rows = []
+    for cls in classes:
+        owners = mro_slot.__get__(cls)
+        recorded = tuple(
+            (owner, _implementation(dict_slot.__get__(owner).get("could_extract_minus_sign")))
+            for owner in owners
+        )
+        rows.append((cls, owners, recorded))
+    return (tuple(rows), mro_slot, dict_slot, _implementation)
+
+
+def _require_conditional_odd_sign_contract():
+    """A replaced or newly shadowed sign hook requires a supervised lane."""
+    rows, mro_slot, dict_slot, implementation = _conditional_odd_sign_contract
+    for cls, owners, recorded in rows:
+        if mro_slot.__get__(cls) is not owners:
+            raise NotImplementedError("modified sign-profile resolution needs supervision")
+        for owner, expected in recorded:
+            try:
+                current = implementation(
+                    dict_slot.__get__(owner).get("could_extract_minus_sign")
+                )
+            except ValueError as error:
+                raise NotImplementedError("modified sign-profile implementation needs supervision") from error
+            if (len(current) != len(expected)
+                    or any(left is not right for left, right in zip(current, expected))):
+                raise NotImplementedError("modified sign-profile implementation needs supervision")
 
 
 def _integrate_symbolic_power(expression, x):
@@ -2887,3 +2952,5 @@ _freeze_functions()
 
 # Snapshot trusted scalar and built-in function owners before extensions run.
 from .solvers._checksol import _SolveSourceCheck, checksol as _checksol_impl  # noqa: E402
+
+_conditional_odd_sign_contract = _snapshot_conditional_odd_sign_contract()
