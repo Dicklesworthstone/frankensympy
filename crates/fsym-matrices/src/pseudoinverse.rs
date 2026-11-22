@@ -1,4 +1,6 @@
-//! Exact-rational Moore-Penrose pseudoinverses and a reference identity checker.
+//! Exact Moore-Penrose pseudoinverses and independent identity checking.
+
+mod gaussian;
 
 use super::{MAX_MATRIX_MULTIPLICATION_OPS, Matrix, MatrixError, numeric_value};
 use fsym_core::BigRational;
@@ -6,7 +8,8 @@ use num_traits::Zero;
 use serde::{Deserialize, Serialize};
 
 impl Matrix {
-    /// Computes the Moore-Penrose pseudoinverse of an exact-rational matrix.
+    /// Computes the Moore-Penrose pseudoinverse of an exact-rational or
+    /// bounded Gaussian-rational matrix.
     ///
     /// Rank factorization handles singular, rectangular, and zero matrices.
     /// If `A = C F`, the pivot columns `C` have full column rank and the
@@ -16,9 +19,20 @@ impl Matrix {
     /// The existing matrix storage, multiplication, and elimination limits
     /// apply to each sub-operation, rather than to one aggregate budget.
     /// All four Penrose identities are checked by a separate exact rational
-    /// reference calculation before a result is returned. Symbolic and
-    /// non-rational inputs retain an explicit unsupported-domain error.
+    /// reference calculation before a result is returned. Gaussian-rational
+    /// expressions use [`Self::metered_gaussian_pseudoinverse`], with a
+    /// separate realification generator and direct Hermitian checker.
+    /// Unsupported symbolic inputs retain an explicit domain error.
     pub fn pseudoinverse(&self) -> Result<Self, MatrixError> {
+        self.validate_shape()?;
+        if self.data.iter().any(|entry| {
+            !matches!(
+                entry,
+                fsym_core::Expr::Integer(_) | fsym_core::Expr::Rational(_)
+            )
+        }) {
+            return self.metered_gaussian_pseudoinverse(&mut fsym_budget::Unbounded);
+        }
         self.validate_certificate_domain()?;
         if self.data.iter().all(|entry| entry.is_zero()) {
             let inverse = Matrix::zeros(self.cols, self.rows)?;
@@ -60,7 +74,8 @@ impl Matrix {
     }
 }
 
-/// Candidate for an exact-rational Moore-Penrose pseudoinverse.
+/// Candidate for an exact-rational or bounded Gaussian-rational
+/// Moore-Penrose pseudoinverse.
 ///
 /// This is a same-crate reference-checked result, not a portable proof-kernel
 /// certificate or a claim that the full matrix compatibility gate has passed.
@@ -164,15 +179,26 @@ fn check_reference_work(operations: u128) -> Result<(), MatrixError> {
     Ok(())
 }
 
-/// Checks `A X A = A`, `X A X = X`, `(A X)^T = A X`, and `(X A)^T = X A`.
+/// Checks `A X A = A`, `X A X = X`, `(A X)* = A X`, and `(X A)* = X A`.
 ///
-/// All arithmetic is exact over the rationals; transpose therefore equals
-/// conjugate transpose. Each identity is necessary: a generalized inverse
+/// Literal rational inputs retain the rational reference lane. Expressions
+/// over Q(i) use the bounded direct Hermitian checker, where `*` is conjugate
+/// transpose. Each identity is necessary: a generalized inverse
 /// satisfying only the first one or two identities is not enough.
 pub fn verify_pseudoinverse_certificate(
     matrix: &Matrix,
     cert: &PseudoinverseCertificate,
 ) -> Result<(), MatrixError> {
+    matrix.validate_shape()?;
+    cert.inverse.validate_shape()?;
+    if matrix.data.iter().chain(&cert.inverse.data).any(|entry| {
+        !matches!(
+            entry,
+            fsym_core::Expr::Integer(_) | fsym_core::Expr::Rational(_)
+        )
+    }) {
+        return matrix.verify_gaussian_pseudoinverse(&cert.inverse, &mut fsym_budget::Unbounded);
+    }
     matrix.validate_certificate_domain()?;
     cert.inverse.validate_certificate_domain()?;
     if matrix.rows != cert.inverse.cols || matrix.cols != cert.inverse.rows {

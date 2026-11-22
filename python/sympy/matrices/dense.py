@@ -2142,8 +2142,14 @@ class Matrix(MatrixBase):
         return Matrix(self)
 
     def pinv(self):
-        """Compute the Moore-Penrose pseudoinverse of an exact-rational matrix."""
-        return self._new(self._native.pinv())
+        """Compute the checked exact Moore-Penrose pseudoinverse over Q(i).
+
+        Complex rational entries support at most 32 rows and columns, and
+        retain conjugation, original domains and cumulative request budgets.
+        Literal rational inputs retain the existing larger native bounds.
+        """
+        from ._pseudoinverse import pseudoinverse
+        return pseudoinverse(self)
 
     def pinv_solve(self, B, arbitrary_matrix=None):
         """Return the complete least-squares family for exact rational A and B.

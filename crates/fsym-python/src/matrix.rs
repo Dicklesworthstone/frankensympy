@@ -811,6 +811,24 @@ impl PyMatrix {
         }
     }
 
+    /// Bound and interpret original rectangular Q(i) cells before shell copies.
+    #[pyo3(signature = (*, session=None))]
+    pub fn validate_gaussian_pseudoinverse_source(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<()> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = self
+            .inner
+            .validate_gaussian_pseudoinverse_source_with_meter(&mut meter)
+            .map_err(matrix_err);
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
+    }
+
     /// Borrowed integer admission before any public source copying.
     pub fn validate_integer_normal_form_source(&self) -> PyResult<()> {
         self.inner
@@ -1136,10 +1154,35 @@ impl PyMatrix {
         self.inv()
     }
 
-    /// Moore-Penrose pseudoinverse, including singular exact-rational matrices.
-    pub fn pinv(&self) -> PyResult<Self> {
-        let inverse = self.inner.pseudoinverse().map_err(matrix_err)?;
-        Ok(Self { inner: inverse })
+    /// Moore-Penrose pseudoinverse, with exact conjugate identities over Q(i).
+    /// A supplied request keeps source, generation, checking and publication
+    /// on one cumulative ledger through the bounded Gaussian-rational lane.
+    #[pyo3(signature = (*, session=None))]
+    pub fn pinv(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<Self> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = (|| {
+            meter.checkpoint().map_err(to_value_error)?;
+            let inverse = if session.is_none() && self.is_exact_rational() {
+                self.inner.pseudoinverse()
+            } else {
+                self.inner.metered_gaussian_pseudoinverse(&mut meter)
+            }
+            .map_err(matrix_err)?;
+            // Move the accepted immutable native matrix into its wrapper;
+            // no Python scalar reconstruction or callback is required.
+            meter
+                .charge(Dimension::ComputeSteps, 1)
+                .map_err(to_value_error)?;
+            Ok(Self { inner: inverse })
+        })();
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
     }
 
     /// Adjugate (classical adjoint) matrix.

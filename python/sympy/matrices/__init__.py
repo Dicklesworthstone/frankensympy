@@ -42,6 +42,7 @@ from . import _definiteness
 from . import normalforms
 from . import _integer_solve
 from . import _inv_mod
+from . import _pseudoinverse
 
 __all__ = [
     "DenseMatrix",

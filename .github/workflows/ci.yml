@@ -168,6 +168,10 @@ jobs:
         run: |
           cargo test --locked -p fsym-proof-kernel --test hermitian_inertia -j1
           cargo test --locked -p fsym-matrices --test hermitian_inertia -j1
+      - name: Exact complex Moore-Penrose pseudoinverses
+        run: |
+          cargo test --locked -p fsym-matrices --test gaussian_pseudoinverse --test pseudoinverse -j1
+          cargo test --locked -p fsym-matrices --lib pseudoinverse::gaussian::tests -j1
       - name: Checked recursive polynomial pseudo-division
         run: cargo test --locked -p fsym-polys --test pseudo_division -j1
       - name: Normalized half-line transform identities
@@ -326,6 +330,8 @@ jobs:
               "python/tests/test_bernoulli_initial_conditions.py::test_consistent_overdetermined_values_select_a_particular_solution",
               "python/tests/test_matrix_definiteness.py",
               "python/tests/test_matrix_hermitian_definiteness.py",
+              "python/tests/test_matrix_complex_pseudoinverse.py",
+              "python/tests/test_matrix_pseudoinverse.py",
               "python/tests/test_matrix_definiteness_budget.py",
               "python/tests/test_hermitian_definiteness.py",
               "python/tests/test_affine_linear_systems.py",
@@ -484,6 +490,7 @@ jobs:
               "python/tests/test_prime_field_factorization.py",
               "python/tests/test_finite_field_poly.py",
               "python/tests/test_finite_field_multivariate_poly.py",
+              "python/tests/test_finite_field_composition.py",
               "python/tests/test_finite_field_evaluation.py",
               "python/tests/test_finite_field_groebner.py",
               "python/tests/test_finite_field_quotient_algebra.py",
