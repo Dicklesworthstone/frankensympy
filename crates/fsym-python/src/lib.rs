@@ -2077,6 +2077,7 @@ pub mod objective;
 mod ode;
 mod ode_system;
 mod pde;
+mod polynomial_composition;
 mod polynomial_evaluation;
 mod polynomial_laplace;
 mod polynomial_relations;
@@ -2368,6 +2369,10 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(poly_gcdex_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_compose_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_shift_native, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        polynomial_composition::polynomial_compose_native,
+        m
+    )?)?;
     polynomial_evaluation::register(m)?;
     m.add_function(wrap_pyfunction!(poly_sqf_list_native, m)?)?;
     m.add_function(wrap_pyfunction!(

@@ -26,7 +26,7 @@ from ..core import (
     _wrap,
 )
 # Eagerly retain builtin implementations before the first lazy eval import.
-from . import _evaluation_owners, _reduced
+from . import _composition, _evaluation_owners, _reduced
 
 
 _GENS_ORDER = {
@@ -612,17 +612,13 @@ class Poly(Basic):
         return s, h
 
     def compose(self, other: Any) -> "Poly":
-        """Compute polynomial composition self(other)."""
+        """Compose in the first declared axis, retaining all coefficient axes."""
         if _finitefield.is_finite(self):
             return _finitefield.operation(self, "compose", other)
         if _finitefield.is_finite(other):
             from .polyerrors import UnificationFailed
             raise UnificationFailed("cannot unify rational and prime-field polynomials")
-        other_poly = other if isinstance(other, Poly) else Poly(other, *self._gens)
-        raw = _native.poly_compose_native(
-            _native_expr(self._expr), _native_expr(other_poly._expr), _symbol_binding(self.gen)
-        )
-        return Poly(_lift_native_result(raw, self._expr, other_poly._expr, *self._gens), *self._gens)
+        return _composition.compose_entry(self, other, method=True)
 
     def shift(self, a: Any) -> "Poly":
         """Compute polynomial shift self(x + a)."""
@@ -999,6 +995,7 @@ class PurePoly(Poly):
 
 
 _reduced.register_poly_owners(Poly, PurePoly)
+_composition.register_poly_owners(Poly, PurePoly)
 
 
 def _is_rational_function(c: Any) -> bool:
@@ -4601,16 +4598,8 @@ def sturm(f: Any, *gens: Any, **kwargs: Any) -> List[Poly]:
 
 
 def compose(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Any:
-    """Compute functional composition f(g)."""
-    modular = _finitefield.binary_entry(f, g, gens, kwargs, "compose")
-    if modular is not None:
-        return modular
-    is_poly = isinstance(f, Poly) or isinstance(g, Poly)
-    p_f = f if isinstance(f, Poly) else Poly(f, *gens, **kwargs)
-    res = p_f.compose(g)
-    if is_poly or kwargs.get("polys", False):
-        return res
-    return res.as_expr()
+    """Checked first-coordinate composition over bounded QQ, ZZ or GF(p)."""
+    return _composition.compose_entry(f, g, gens, kwargs)
 
 
 def _find_candidate_h(f_poly: Poly, s: int, x: Any) -> Poly:
