@@ -2815,7 +2815,8 @@ mod tests {
 
         assert_eq!(m.det().unwrap().__str__(), "-2");
         assert_eq!(m.trace().unwrap().__str__(), "5");
-        let inv = m.inv().unwrap();
+        Python::initialize();
+        let inv = Python::attach(|py| m.inv(py, None).unwrap());
         assert_eq!(inv.shape(), (2, 2));
         let prod = m.__matmul__(&inv).unwrap();
         assert_eq!(prod.flat()[0].__str__(), "1");

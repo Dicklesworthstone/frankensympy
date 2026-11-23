@@ -1,0 +1,141 @@
+cargo test --locked --offline -p fsym-matrices --test gaussian_exact_solve --test gaussian_least_squares --test gaussian_least_squares_family --test gaussian_pseudoinverse
+
+    Blocking waiting for file lock on package cache
+   Compiling fsym-matrices v0.1.0 (/workspace/scratch/3c33a9f2c243/frankensympy/crates/fsym-matrices)
+    Finished `test` profile [unoptimized] target(s) in 51.43s
+     Running tests/gaussian_exact_solve.rs (/home/agent/frankensympy-validation-target-3c33a9f2c243/debug/build/fsym-matrices/aa69c293ffc4ac76/out/gaussian_exact_solve-aa69c293ffc4ac76)
+
+running 13 tests
+test bounded_syntax_selection_preserves_symbolic_inverse_and_domains ... ok
+test original_undefined_sources_cannot_disappear_in_zero_products ... ok
+test empty_rhs_keeps_uniqueness_and_empty_unknowns_keep_consistency ... ok
+test changes_to_original_sources_solution_and_left_inverse_are_rejected ... ok
+test unsupported_malformed_and_oversized_inputs_refuse_before_publication ... ok
+test least_squares_projection_never_satisfies_an_exact_solve_request ... ok
+test rational_coefficients_and_multiple_complex_rhs_share_the_exact_lane ... ok
+test residual_only_witnesses_cannot_claim_uniqueness ... ok
+test independently_authored_left_inverse_proves_the_exact_solution ... ok
+test ordinary_square_solve_and_inverse_accept_exact_imaginary_pivots ... ok
+test independent_checker_is_cancelled_even_at_its_final_safe_point ... ok
+test all_exact_solve_and_inverse_work_is_cumulative_through_publication ... ok
+test hand_derived_integer_corpus_exercises_complex_pivots_and_rhs ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.02s
+
+     Running tests/gaussian_least_squares.rs (/home/agent/frankensympy-validation-target-3c33a9f2c243/debug/build/fsym-matrices/4b9414189a64641c/out/gaussian_least_squares-4b9414189a64641c)
+
+running 13 tests
+test both_original_domains_are_checked_before_normal_products_or_rank_shortcuts ... ok
+test bounded_admission_never_falls_back_to_plain_transpose ... ok
+test borrowed_sparse_rhs_admission_precedes_any_dense_conversion ... ok
+test rank_deficient_wide_and_zero_sources_remain_nonunique ... ok
+test empty_rhs_keeps_full_rank_obligation_and_empty_unknowns_preserve_shape ... ok
+test isotropic_transpose_does_not_make_a_complex_full_rank_source_singular ... ok
+test incompatible_rhs_shape_is_rejected ... ok
+test held_gaussian_source_arithmetic_is_exactly_admitted ... ok
+test hermitian_metric_corrects_the_transpose_only_wrong_answer ... ok
+test every_complex_rhs_is_projected_with_the_adjoint ... ok
+test literal_rational_full_rank_behavior_is_preserved ... ok
+test tall_multiple_variable_and_rhs_systems_have_hand_derived_solutions ... ok
+test source_generation_rank_replay_residual_check_and_publication_share_one_budget ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/gaussian_least_squares_family.rs (/home/agent/frankensympy-validation-target-3c33a9f2c243/debug/build/fsym-matrices/cc92d35550e8a8e6/out/gaussian_least_squares_family-cc92d35550e8a8e6)
+
+running 18 tests
+test a_kernel_shifted_solution_is_not_the_minimum_norm_particular ... ok
+test full_column_rank_complex_families_have_no_free_directions ... ok
+test held_exact_gaussian_sources_have_normalized_immutable_receipt_snapshots ... ok
+test original_domain_holes_cannot_disappear_in_zero_products_or_witnesses ... ok
+test certificates_are_bound_to_both_original_sources_and_every_shape ... ok
+test all_four_hermitian_penrose_obligations_are_required_by_family_acceptance ... ok
+test an_independently_authored_complex_family_is_accepted_without_generation ... ok
+test source_and_witness_height_and_dimension_bounds_precede_publication ... ok
+test residual_only_zero_projector_cannot_claim_a_complete_family ... ok
+test nonzero_source_with_empty_rhs_still_requires_complete_kernel_evidence ... ok
+test each_projector_obligation_rejects_an_explicit_false_witness ... ok
+test multiple_complex_right_hand_sides_share_one_complete_family ... ok
+test rank_deficient_inconsistent_sources_keep_the_complete_complex_kernel ... ok
+test wrong_transpose_particular_and_tiny_exact_mutations_fail_original_normals ... ok
+test zero_and_empty_sources_retain_every_arbitrary_coordinate ... ok
+test complex_family_agrees_with_the_existing_exact_rational_reference ... ok
+test the_standalone_verifier_charges_and_cancels_every_phase_too ... ok
+test proposal_original_verification_and_publication_share_the_same_budget ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.29s
+
+     Running tests/gaussian_pseudoinverse.rs (/home/agent/frankensympy-validation-target-3c33a9f2c243/debug/build/fsym-matrices/c263562ee5fef568/out/gaussian_pseudoinverse-c263562ee5fef568)
+
+running 18 tests
+test original_poles_and_unsupported_children_survive_zero_simplifications ... ok
+test empty_shapes_accept_strict_recorded_budgets_without_zero_charges ... ok
+test original_source_is_rechecked_separately_from_the_candidate ... ok
+test rectangular_admission_preserves_the_square_inertia_contract ... ok
+test isotropic_complex_row_and_column_require_adjoint_not_transpose ... ok
+test all_four_penrose_identities_reject_separate_complex_mutants ... ok
+test published_gaussian_values_match_ordinary_canonical_expression_arithmetic ... ok
+test literal_rational_fast_path_and_explicit_metered_reference_agree ... ok
+test source_and_intermediate_bounds_refuse_before_expensive_work ... ok
+test tiny_exact_imaginary_mutation_cannot_pass_any_tolerance ... ok
+test symmetric_projectors_do_not_satisfy_complex_hermitian_obligations ... ok
+test scalar_complex_inverses_are_exact_and_conjugated ... ok
+test verifier_budget_and_cancellation_remain_independent_public_controls ... ok
+test zero_area_and_held_zero_sources_preserve_exact_transposed_shape ... ok
+test one_cumulative_budget_covers_proposal_replay_and_final_publication ... ok
+test full_column_and_row_rank_rectangles_have_the_expected_inverse ... ok
+test rank_one_rectangular_formula_retains_every_complex_component ... ok
+test exhaustive_small_matrices_match_cofactor_or_rank_one_closed_forms ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.47s
+
+
+cargo test --locked --offline -p fsym-core --test quadrature_certificate
+
+   Compiling serde_json v1.0.151
+   Compiling fsym-core v0.1.0 (/workspace/scratch/3c33a9f2c243/frankensympy/crates/fsym-core)
+    Finished `test` profile [unoptimized] target(s) in 19.06s
+     Running tests/quadrature_certificate.rs (/home/agent/frankensympy-validation-target-3c33a9f2c243/debug/build/fsym-core/3f3a894a48867f96/out/quadrature_certificate-3f3a894a48867f96)
+
+running 17 tests
+test bounded_transport_and_request_validation_refuse_malformed_inputs ... ok
+test centered_derivative_bound_integrates_affine_sources_exactly ... ok
+test crossing_corner_requires_the_whole_cell_slope_remainder ... ok
+test negative_non_grid_bounds_round_outward_without_losing_integral_values ... ok
+test nonconstant_curvature_uses_the_complete_cell_instead_of_a_midpoint_sample ... ok
+test corner_retry_retains_late_child_poles_and_piecewise_guard_obligations ... ok
+test original_domains_are_checked_before_cancellation_or_zero_multiplication ... ok
+test reversed_and_point_intervals_preserve_the_exact_original_claim ... ok
+test absolute_value_partitions_admit_corners_and_exact_affine_cells ... ok
+test actual_budget_is_charged_atomically_and_admits_successful_enclosures ... ok
+test partition_source_and_typed_variable_mutations_cannot_relabel_acceptance ... ok
+test complete_quartic_partition_bounds_integral_and_rejects_false_accuracy ... ok
+test second_derivative_cells_share_one_cumulative_work_reservation ... ok
+test sub_binary64_curvature_remains_exact_below_the_requested_precision_grid ... ok
+test cancellation_at_every_corner_retry_checkpoint_returns_no_receipt ... ok
+test signed_quadratic_curvature_gives_exact_single_cell_integrals ... ok
+test cancellation_at_every_c2_checkpoint_returns_no_receipt ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+
+cargo test --locked --offline -p fsym-calculus --test certified_quadrature
+
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/3c33a9f2c243/frankensympy/crates/fsym-calculus)
+    Finished `test` profile [unoptimized] target(s) in 1.65s
+     Running tests/certified_quadrature.rs (/home/agent/frankensympy-validation-target-3c33a9f2c243/debug/build/fsym-calculus/ac6d8ecca8b3b48e/out/certified_quadrature-ac6d8ecca8b3b48e)
+
+running 11 tests
+test generator_and_verifier_have_separate_metered_success_and_cancellation_paths ... ok
+test subdivision_accuracy_and_input_limits_refuse_without_partial_receipts ... ok
+test exact_quadratic_curvature_meets_sub_binary64_tolerance_with_one_cell ... ok
+test adaptive_quadratic_and_shifted_cubic_integrals_contain_independent_exact_values ... ok
+test corner_accuracy_and_original_poles_refuse_without_partial_receipts ... ok
+test nonconstant_curvature_refinement_reaches_accuracy_with_sixteen_cells ... ok
+test proper_domain_failures_and_unsupported_functions_are_never_returned_as_results ... ok
+test subdivision_resolves_range_dependency_without_cancelling_original_denominators ... ok
+test adaptive_corner_integrals_use_complete_source_bounds_and_exact_areas ... ok
+test non_elementary_gaussian_integral_agrees_with_independent_alternating_series_bounds ... ok
+test reversed_intervals_negate_the_identical_checked_enclosure ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.57s

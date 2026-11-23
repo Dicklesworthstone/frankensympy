@@ -151,7 +151,7 @@ jobs:
         run: |
           cargo test --locked -p fsym-matrices --test gaussian_pseudoinverse --test pseudoinverse -j1
           cargo test --locked -p fsym-matrices --lib pseudoinverse::gaussian::tests -j1
-          cargo test --locked -p fsym-matrices --test gaussian_least_squares --test gaussian_least_squares_family -j1
+          cargo test --locked -p fsym-matrices --test gaussian_least_squares --test gaussian_least_squares_family --test gaussian_exact_solve -j1
           cargo test --locked -p fsym-matrices --lib pseudoinverse::gaussian::least_squares::tests -j1
           cargo test --locked -p fsym-matrices --test gaussian_qr -j1
           cargo test --locked -p fsym-matrices --lib pseudoinverse::gaussian::qr::tests -j1
@@ -228,6 +228,7 @@ jobs:
           cargo test --locked -p fsym-core --test parametric_sensitivity -j1
           cargo test --locked -p fsym-core --test quadrature_certificate -j1
           cargo test --locked -p fsym-calculus --test certified_quadrature -j1
+          cargo test --locked -p frankensympy --test native_integration --test integration_session -j1
           cargo test --locked -p fsym-calculus --test certified_box_optimization -j1
           cargo test --locked -p fsym-calculus --test certified_root_isolation -j1
           cargo test --locked -p fsym-calculus --test certified_parametric_cover -j1
@@ -340,6 +341,7 @@ jobs:
               "python/tests/test_matrix_gram_schmidt.py",
               "python/tests/test_matrix_complex_least_squares.py",
               "python/tests/test_matrix_complex_least_squares_family.py",
+              "python/tests/test_matrix_complex_exact_solve.py",
               "python/tests/test_matrix_least_squares_parameter_budget.py",
               "python/tests/test_matrix_pseudoinverse.py",
               "python/tests/test_matrix_definiteness_budget.py",
@@ -410,6 +412,7 @@ jobs:
               "python/tests/test_absolute_real_solving.py",
               "python/tests/test_exact_stationary_points.py",
               "python/tests/test_certified_quadrature.py",
+              "python/tests/test_absolute_quadrature.py",
               "python/tests/test_certified_objective.py",
               "python/tests/test_stationary_search.py",
               "python/tests/test_box_extremum.py",

@@ -1,4 +1,4 @@
-"""Source-bound exact dense pseudoinverses and least squares over Q(i).
+"""Source-bound exact dense linear systems and pseudoinverses over Q(i).
 
 The complex lanes share the original Gaussian scalar admission used by matrix
 definiteness. Native results are checked against the original complex sources,
@@ -13,7 +13,8 @@ from . import _definiteness as _source
 
 _NATIVE = _source._NATIVE[_source.Matrix]
 _NAMES = ("shape", "is_exact_rational", "validate_gaussian_pseudoinverse_source",
-          "pinv", "solve_least_squares", "least_squares_family", "to_sparse", "gaussian_qr")
+          "pinv", "solve_least_squares", "least_squares_family", "to_sparse",
+          "solve", "inv", "has_gaussian_rational_syntax", "gaussian_qr")
 _METHODS = tuple(_source._DICT.__get__(_NATIVE)[name] for name in _NAMES)
 _CLASSES = (_source.Matrix, _source.ImmutableDenseMatrix)
 _SPARSE_CLASSES = (_source.SparseMatrix, _source.ImmutableSparseMatrix)
@@ -25,7 +26,9 @@ _SPARSE_METHODS = tuple(_source._DICT.__get__(_SPARSE_NATIVE)[name] for name in 
 def _interfaces(operation, context, base):
     _source._interfaces()
     namespace = _source._DICT.__get__(_NATIVE)
-    required = (0, 1, 2, operation, 6) if operation == 5 else (0, 1, 2, operation)
+    required = (0, 1, 2, operation, 6) if operation in (5, 7) else (0, 1, 2, operation)
+    if operation == 8:
+        required += (9,)
     if any(namespace.get(_NAMES[index]) is not _METHODS[index]
            for index in required):
         raise NotImplementedError("%s requires original native interfaces" % context)
@@ -75,6 +78,9 @@ def _capture(matrix, session, operation, context, *, allow_sparse=False, force_g
             or any(type(size) is not int or size < 0 for size in shape)
             or type(generation) is not int or generation < 0):
         raise ValueError("%s has an invalid source snapshot" % context)
+    if native is None and operation == 7:
+        raise NotImplementedError(
+            "matrix contains opaque Python expressions; this operation requires closed native cells")
     if (type(native) is not native_type
             or methods[0].__get__(native, native_type) != shape):
         raise ValueError("%s requires intact native matrix storage" % context)
@@ -159,6 +165,91 @@ def _publish(native, shape, cls, unchanged, context):
     return result
 
 
+def _legacy_rational_view(matrix, operation, context):
+    """Preserve inherited standalone literal-rational subclass operations.
+
+    A plain subclass keeps its original result constructor. Borrowed original
+    slots are exposed through a built-in view solely for the existing rational
+    snapshot checks. Overridden input accessors and the new complex/held
+    subclass cases cannot enter this preselected legacy lane.
+    """
+    if any(type(matrix) is cls for cls in _CLASSES + _SPARSE_CLASSES):
+        return matrix, lambda: None
+    if _active_callback_session() is not None:
+        raise NotImplementedError("custom matrix subclasses require a supervised override lane")
+    cls = type(matrix)
+    parents = _source._MRO.__get__(cls)
+    dense = any(parent is _source.Matrix for parent in parents)
+    sparse = any(parent is _source.SparseMatrix for parent in parents)
+    base = _source.Matrix if dense else _source.SparseMatrix
+    if not (dense or sparse) or type(cls) is not type(base):
+        raise NotImplementedError("custom matrix subclasses require a supervised override lane")
+    _interfaces(operation, context, base)
+    namespace = _source._DICT.__get__(base)
+    for name in (*_source._NAMES, "_native", "shape", "rows", "cols"):
+        if _source._reduction_binding(cls, name) is not namespace[name]:
+            raise NotImplementedError("custom matrix subclasses require original input accessors")
+    for name in ("__getattribute__", "__getattr__"):
+        if (_source._reduction_binding(cls, name)
+                is not _source._reduction_binding(base, name)):
+            raise NotImplementedError("custom matrix subclasses require original input accessors")
+    accesses = tuple((name, _source._reduction_binding(cls, name)) for name in
+                     (*_source._NAMES, "_native", "shape", "rows", "cols",
+                      "__getattribute__", "__getattr__"))
+    constructor = _source._implementation(_source._reduction_binding(cls, "_new"))
+    slots = _source._SLOTS[base]
+    state = tuple(slot.__get__(matrix, base) for slot in slots)
+    native, _shape, surface, _generation = state
+    native_type = _NATIVE if dense else _SPARSE_NATIVE
+    methods = _METHODS if dense else _SPARSE_METHODS
+    if type(native) is not native_type:
+        raise NotImplementedError("custom matrix subclasses require intact native matrix storage")
+    native_rows, native_columns = methods[0].__get__(native, native_type)
+    source_cells = native_rows * native_columns
+    if surface is not None and (
+            type(surface) is not (tuple if dense else dict)
+            or (len(surface) != source_cells if dense else len(surface) > source_cells)):
+        raise ValueError("custom matrix subclass retained cells do not match its native shape")
+    retained = dict(surface) if sparse and type(surface) is dict else surface
+    owners = []
+    for owner in parents:
+        if owner is base:
+            break
+        owners.append((owner, _source._owner_record(owner)))
+
+    def unchanged():
+        current = _source._MRO.__get__(cls)
+        current_constructor = _source._implementation(_source._reduction_binding(cls, "_new"))
+        if (len(current) != len(parents)
+                or any(a is not b for a, b in zip(current, parents))
+                or any(_source._reduction_binding(cls, name) is not original
+                       for name, original in accesses)
+                or len(current_constructor) != len(constructor)
+                or any(a is not b for a, b in zip(current_constructor, constructor))
+                or any(not _source._owner_matches(owner, recorded) for owner, recorded in owners)):
+            raise RuntimeError("Matrix subclass changed during exact evaluation")
+        _source._unchanged(matrix, base, state, retained)
+
+    cells = dict.values(surface) if sparse and type(surface) is dict else surface
+    literal = (type(native) is native_type
+               and methods[1].__get__(native, native_type)
+               and (surface is None or (type(surface) is (tuple if dense else dict) and all(
+                   any(type(value) is atom for atom in _source._ATOMS) for value in cells))))
+    if not literal:
+        # Preserve the previous symbolic inverse lane for a plain subclass;
+        # this syntactic decision precedes all exact algorithm execution.
+        if operation == 8 and dense and type(native) is _NATIVE:
+            exact = _METHODS[9](native, session=_active_callback_session())
+            unchanged()
+            if not exact:
+                return matrix, unchanged
+        raise NotImplementedError("custom matrix subclasses require a supervised override lane")
+    view = object.__new__(base)
+    for slot, value in zip(slots, state):
+        slot.__set__(view, value)
+    return view, unchanged
+
+
 def pseudoinverse(matrix):
     """Return a pseudoinverse only for the retained original matrix."""
     session = _active_callback_session()
@@ -187,6 +278,123 @@ def solve_least_squares(matrix, rhs):
     solution = _METHODS[4](left, right, session=session)
     unchanged()
     return _publish(solution, (columns, rhs_columns), type(matrix), unchanged, "least squares")
+
+
+def solve_exact(matrix, rhs, *, lu=False):
+    """Return the unique exact solution of both retained original sources.
+
+    The Q(i) lane checks a left inverse and the full original residual.
+    Failure is terminal, including inconsistency and request exhaustion.
+    """
+    original_matrix, original_rhs = matrix, rhs
+    if not any(parent is _source.Matrix or parent is _source.SparseMatrix
+               for parent in _source._MRO.__get__(type(rhs))):
+        raise TypeError("solve requires a built-in Matrix right-hand side")
+    _charge_nested_if_active()
+    session = _active_callback_session()
+    matrix, matrix_owner_unchanged = _legacy_rational_view(matrix, 7, "exact linear solve")
+    rhs, rhs_owner_unchanged = _legacy_rational_view(rhs, 7, "exact linear solve")
+    gaussian = session is not None or _needs_gaussian(matrix) or _needs_gaussian(rhs)
+    if gaussian and (original_matrix is not matrix or original_rhs is not rhs):
+        raise NotImplementedError("custom matrix subclasses require a supervised override lane")
+    left, (rows, columns), left_unchanged = _capture(
+        matrix, session, 7, "exact linear solve", force_gaussian=gaussian)
+    right, (rhs_rows, rhs_columns), right_unchanged = _capture(
+        rhs, session, 7, "exact linear solve", allow_sparse=True, force_gaussian=gaussian)
+    if rows != rhs_rows:
+        raise ValueError("The matrices have incompatible number of rows")
+    if rows != columns:
+        if lu and rows < columns:
+            raise NotImplementedError("Underdetermined systems not supported.")
+        if not lu and columns != 0 and rhs_columns == 0:
+            raise ValueError("Matrix det == 0; not invertible.")
+
+    def unchanged():
+        matrix_owner_unchanged()
+        rhs_owner_unchanged()
+        left_unchanged()
+        right_unchanged()
+
+    unchanged()
+    solution = _METHODS[7](left, right, session=session)
+    unchanged()
+    shape = (columns, rhs_columns)
+    # The established rectangular LU contract keeps a built-in RHS class.
+    # A custom RHS previously used the coefficient owner's constructor.
+    owner = (original_rhs if lu and rows != columns
+             and any(type(original_rhs) is known for known in _CLASSES + _SPARSE_CLASSES)
+             else original_matrix)
+    cls = type(owner)
+    if not any(cls is known for known in _CLASSES + _SPARSE_CLASSES):
+        # Keep the legacy subclass's construction hook, then recheck every
+        # original input in case that hook had effects during publication.
+        result = owner._new(solution)
+        unchanged()
+        _charge_nested_if_active()
+        return result
+    if not any(cls is candidate for candidate in _SPARSE_CLASSES):
+        return _publish(solution, shape, cls, unchanged, "exact linear solve")
+    if (type(solution) is not _NATIVE
+            or _METHODS[0].__get__(solution, _NATIVE) != shape):
+        raise RuntimeError("exact linear solve returned invalid output storage or shape")
+    _charge_nested_if_active(columns * rhs_columns + 1)
+    sparse = _METHODS[6](solution)
+    if (type(sparse) is not _SPARSE_NATIVE
+            or _SPARSE_METHODS[0].__get__(sparse, _SPARSE_NATIVE) != shape):
+        raise RuntimeError("exact linear solve returned invalid sparse output")
+    result = object.__new__(cls)
+    for slot, value in zip(_source._SLOTS[_source.SparseMatrix], (sparse, shape, None, 0)):
+        slot.__set__(result, value)
+    unchanged()
+    _charge_nested_if_active()
+    return result
+
+
+def inverse_if_exact(matrix):
+    """Preselect the closed exact inverse lane, preserving symbolic inverses.
+
+    None means the original native syntax is outside Q(i), before any
+    algorithm ran. Every error after exact selection propagates unchanged.
+    """
+    _charge_nested_if_active()
+    session = _active_callback_session()
+    context = "exact matrix inverse"
+    original_matrix = matrix
+    matrix, owner_unchanged = _legacy_rational_view(matrix, 8, context)
+    if session is not None and original_matrix is not matrix:
+        raise NotImplementedError("custom matrix subclasses require a supervised override lane")
+    _interfaces(8, context, _source.Matrix)
+    slots = _source._SLOTS[_source.Matrix]
+    state = tuple(slot.__get__(matrix, _source.Matrix) for slot in slots)
+    native, _shape, surface, _generation = state
+    if native is None:
+        return None
+    if type(native) is not _NATIVE:
+        raise ValueError("exact matrix inverse requires intact native matrix storage")
+    # Literal rational storage keeps the existing larger source bounds. A
+    # Gaussian syntax walk is needed only for the newly admitted grammar.
+    exact = not _needs_gaussian(matrix) or _METHODS[9](native, session=session)
+    owner_unchanged()
+    _source._unchanged(matrix, _source.Matrix, state, surface)
+    if not exact:
+        if session is not None:
+            raise NotImplementedError("active matrix inverse requests require closed exact Q(i) cells")
+        return None
+    source, shape, source_unchanged = _capture(matrix, session, 8, context)
+
+    def unchanged():
+        owner_unchanged()
+        source_unchanged()
+
+    unchanged()
+    inverse = _METHODS[8](source, session=session)
+    unchanged()
+    if original_matrix is not matrix:
+        result = original_matrix._new(inverse)
+        unchanged()
+        _charge_nested_if_active()
+        return result
+    return _publish(inverse, shape, type(matrix), unchanged, context)
 
 
 def pinv_solve(matrix, rhs, arbitrary_matrix=None):

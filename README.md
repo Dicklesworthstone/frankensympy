@@ -1499,6 +1499,47 @@ refuse difficult inputs. See [integer normal forms and systems](docs/INTEGER_NOR
 for the exact contracts, examples, failure semantics, and retained evidence.
 The broad WS10/WS19 and compatibility-profile gates remain open.
 
+## Exact complex dense linear solves (development API)
+
+Dense `Matrix.solve()`, `LUsolve()` and `inv()` accept bounded exact complex
+coefficients of the form `a + b*I`, with rational `a` and `b`. The result stays
+exact, including imaginary pivots and multiple right-hand sides:
+
+```python
+from sympy import I, Matrix
+
+A = Matrix([[I, 1], [0, 1]])
+B = Matrix([[1 + I], [2]])
+assert A.solve(B) == Matrix([[1 + I], [2]])
+assert A.LUsolve(B) == Matrix([[1 + I], [2]])
+assert A.inv() == Matrix([[-I, I], [0, 1]])
+```
+
+Consistent tall systems are supported when the solution is unique. A separate
+exact checker reads the original coefficient matrix, right-hand side and
+proposed result, then checks a left inverse `L*A == I`, the product `X == L*B`,
+and the complete original residual `A*X == B`. This establishes both uniqueness
+and existence; an inconsistent system cannot return its least-squares
+projection. Inverse acceptance checks both multiplication orders.
+
+Built-in mutable and immutable dense coefficient classes are preserved.
+Rectangular `LUsolve()` retains the right-hand side's built-in dense or sparse
+class. Existing literal-rational subclass operations retain their construction
+hooks, with original sources checked again before publication. Held arithmetic
+is admitted from its original expression graph, so hidden undefined children
+cannot disappear through zero multiplication or cancellation.
+
+The complex lane bounds every matrix axis by 32 and source/output rational
+components by 4096 bits. Generation and independent checking share a cumulative
+20-million-step, 256-MiB logical-allocation envelope; supervised callback
+requests also consume their caller's ledger. Cancellation and resource failures
+are terminal. Ordinary literal-rational calls retain their existing larger
+bounds, and symbolic inverse selection retains its existing path.
+
+This is synchronous in-process reference checking. It does not issue a new
+portable certificate or reserve protected verifier resources, and the broad
+matrix compatibility profile remains open.
+
 ## Exact sparse linear algebra (development API)
 
 ### Sparse selection and block assembly

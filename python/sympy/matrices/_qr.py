@@ -16,9 +16,9 @@ def gaussian_qr(matrix, *, normalize=True):
         raise TypeError("QR normalization must be a bool")
     session = _active_callback_session()
     native, (rows, columns), unchanged = _capture(
-        matrix, session, 7, "QR decomposition", force_gaussian=True)
+        matrix, session, 10, "QR decomposition", force_gaussian=True)
     unchanged()
-    q, r = _METHODS[7](native, normalize=normalize, session=session)
+    q, r = _METHODS[10](native, normalize=normalize, session=session)
     unchanged()
     if type(q) is not _NATIVE or type(r) is not _NATIVE:
         raise RuntimeError("QR decomposition returned invalid native factors")

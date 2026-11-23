@@ -1157,15 +1157,62 @@ impl PyMatrix {
         })
     }
 
-    /// Matrix inverse: A^-1.
-    pub fn inv(&self) -> PyResult<Self> {
-        let inv_m = self.inner.inverse().map_err(matrix_err)?;
-        Ok(Self { inner: inv_m })
+    /// Bound the closed Q(i) syntax before choosing an inverse lane.
+    /// False selects the existing symbolic path before any exact algorithm;
+    /// admission, budget and cancellation errors are never converted to false.
+    #[pyo3(signature = (*, session=None))]
+    pub fn has_gaussian_rational_syntax(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<bool> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = self
+            .inner
+            .has_gaussian_rational_syntax_with_meter(&mut meter)
+            .map_err(matrix_err);
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
+    }
+
+    /// Matrix inverse: A^-1, with both exact products checked over Q(i).
+    #[pyo3(signature = (*, session=None))]
+    pub fn inv(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<Self> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = (|| {
+            meter.checkpoint().map_err(to_value_error)?;
+            let inverse = if session.is_none() {
+                self.inner.inverse()
+            } else {
+                self.inner.metered_gaussian_inverse(&mut meter)
+            }
+            .map_err(matrix_err)?;
+            meter
+                .charge(Dimension::ComputeSteps, 1)
+                .map_err(to_value_error)?;
+            meter.checkpoint().map_err(to_value_error)?;
+            Ok(Self { inner: inverse })
+        })();
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
     }
 
     /// Matrix inverse alias.
-    pub fn inverse(&self) -> PyResult<Self> {
-        self.inv()
+    #[pyo3(signature = (*, session=None))]
+    pub fn inverse(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<Self> {
+        self.inv(py, session)
     }
 
     /// Moore-Penrose pseudoinverse, with exact conjugate identities over Q(i).
@@ -1366,10 +1413,34 @@ impl PyMatrix {
         Ok(Self { inner: m })
     }
 
-    /// Solves the exact linear system `self * X = B` for `X`.
-    pub fn solve(&self, b: &Self) -> PyResult<Self> {
-        let res = self.inner.solve(&b.inner).map_err(matrix_err)?;
-        Ok(Self { inner: res })
+    /// Solves `self * X = B` exactly and uniquely, including bounded Q(i).
+    /// A complex least-squares projection is never an exact solution.
+    #[pyo3(signature = (b, *, session=None))]
+    pub fn solve(
+        &self,
+        py: Python<'_>,
+        b: &Self,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<Self> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = (|| {
+            meter.checkpoint().map_err(to_value_error)?;
+            let solution = if session.is_none() {
+                self.inner.solve(&b.inner)
+            } else {
+                self.inner.metered_gaussian_solve(&b.inner, &mut meter)
+            }
+            .map_err(matrix_err)?;
+            meter
+                .charge(Dimension::ComputeSteps, 1)
+                .map_err(to_value_error)?;
+            meter.checkpoint().map_err(to_value_error)?;
+            Ok(Self { inner: solution })
+        })();
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
     }
 
     /// Complete exact-rational solution family for rectangular or singular A.

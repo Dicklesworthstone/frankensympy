@@ -462,6 +462,11 @@ class Matrix(MatrixBase):
         return _wrap(self._native.det())
 
     def inv(self, method=None, **kwargs):
+        from ._pseudoinverse import inverse_if_exact
+
+        exact = inverse_if_exact(self)
+        if exact is not None:
+            return exact
         try:
             return self._new(self._native.inv())
         except ValueError as exc:
@@ -1670,46 +1675,23 @@ class Matrix(MatrixBase):
         return self.solve(b)
 
     def solve(self, b):
-        """Solve ``self * X = b`` when the exact rational solution is unique.
+        """Solve ``self * X = b`` when its exact solution is unique.
 
         Rectangular systems use checked affine solves, including consistent
         overdetermined systems and multiple right-hand sides. The rectangular
-        lane supports at most 128 rows, unknowns, and right-hand sides.
+        rational lane supports at most 128 axes. Closed Gaussian-rational
+        systems use a checked left inverse and original residual, with at
+        most 32 rows, unknowns, and right-hand sides.
         """
         return self._solve_unique(b, lu=False)
 
     def _solve_unique(self, b, *, lu):
-        original_rhs = b
-        if hasattr(b, "to_dense"):
-            b = b.to_dense()
-        if not isinstance(b, Matrix):
-            raise TypeError(f"solve requires Matrix right-hand side, got {type(b)}")
-        coefficients, rhs = self._native, b._native
-        rows, columns = coefficients.shape
-        rhs_rows, rhs_columns = rhs.shape
-        if rows != rhs_rows:
-            raise ValueError("The matrices have incompatible number of rows")
-        if rows != columns:
-            if lu and rows < columns:
-                raise NotImplementedError("Underdetermined systems not supported.")
-            if not lu and columns != 0 and rhs_columns == 0:
-                # The pinned GJ-based solve API refuses an empty RHS, whereas
-                # LUsolve accepts its empty result after checking full rank.
-                raise ValueError("Matrix det == 0; not invertible.")
-        result = coefficients.solve(rhs)
-        if lu and rows != columns:
-            # The pinned rectangular LUsolve contract keeps the RHS class;
-            # solve instead keeps the coefficient matrix's class.
-            from .sparse import SparseMatrix
+        from ._pseudoinverse import solve_exact
 
-            if type(original_rhs) is SparseMatrix:
-                return SparseMatrix(result.to_sparse())
-            if type(original_rhs) in (Matrix, ImmutableMatrix):
-                return original_rhs._new(result)
-        return self._new(result)
+        return solve_exact(self, b, lu=lu)
 
     def LUsolve(self, b):
-        """Solve a square or overdetermined exact rational system uniquely."""
+        """Solve a square or overdetermined exact Q(i) system uniquely."""
         return self._solve_unique(b, lu=True)
 
     def gauss_jordan_solve(self, B, freevar=False):

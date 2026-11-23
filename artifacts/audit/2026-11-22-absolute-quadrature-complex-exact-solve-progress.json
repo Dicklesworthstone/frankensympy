@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "session_date": "2026-11-22",
+  "features": [
+    "proper integral enclosures across continuous absolute-value corners",
+    "unique exact Gaussian-rational linear solves and two-sided inverse checks"
+  ],
+  "beads": [
+    "fra-a5x",
+    "fra-kfo"
+  ],
+  "source_integration": {
+    "initial_main": "14516c223eee3faf964f570d014cab2c60443797",
+    "quadrature_commit": "6a3606fb1c80bf8033dc457ffc5a87b021fd3dc8",
+    "native_matrix_commit": "b44c949648478fe41e8a8c14e57f9b59d95dc07e",
+    "public_integration_parent": "422d0298153406bf4b6e2cbbb4602926bf0fbcd3",
+    "native_execution_base": "b34db3835eb54e2afc5d5f94edc7cd952b4eed22 plus the exact native matrix changes later committed as b44c949",
+    "concurrent_changes_preserved": [
+      "stable inverse-function derivatives",
+      "bracketed scalar bisection",
+      "complex QR",
+      "Hermitian Gram-Schmidt"
+    ],
+    "final_combined_head_reexecuted": false,
+    "reviewed_source_blobs": {
+      "crates/fsym-core/src/root_certificate/quadrature.rs": "1ed7395b7036a15c6b59ff5a41d8f71e00e41f74",
+      "crates/fsym-calculus/src/quadrature.rs": "0118dce6eb230659021ba43d41a7db0fdb9da530",
+      "crates/fsym-matrices/src/pseudoinverse/gaussian/exact_solve.rs": "f47031d96deb3567d90d5e4204a2252d8d70d19d",
+      "crates/fsym-matrices/tests/gaussian_exact_solve.rs": "9341913fe7623ef68802ad77b6956cc9d2427ac8",
+      "crates/fsym-python/src/lib.rs": "e1e91c07cef5843da9ad1cd088b156218c83c4bf",
+      "crates/fsym-python/src/matrix.rs": "e1ce718c032e77b3b1fa274e9558af47c952c84f",
+      "python/sympy/matrices/_pseudoinverse.py": "50a8445799111335c92785047714cc0817887f13",
+      "python/sympy/matrices/_qr.py": "55faef1c4ab002d68b9b592d34f2e1eaa6d7a2b3",
+      "python/sympy/matrices/dense.py": "02f45ccd885233cb6867714437a5065bf124a785",
+      "python/tests/test_matrix_complex_exact_solve.py": "31bd9352702800e1bfdd1ec508ebebc336af9b7d",
+      "python/tests/test_absolute_quadrature.py": "abbbbd337f5b805ac3f57396570acfd25320ce23"
+    }
+  },
+  "acceptance": {
+    "quadrature": "Only an absolute-value-corner refusal selects the existing source-bound Lipschitz evaluator. The a.e. derivative interval gives a midpoint integral remainder r*h^2/4 without asserting C1/C2 or constructing a Hessian. Original domains, independent partition replay, cumulative work and final width remain checked.",
+    "exact_solve": "Independent Gaussian arithmetic rereads original A, B, L and X, checks L*A=I for uniqueness, X=L*B for witness consistency and A*X=B for existence. Inverses check both multiplication orders. Generator rank and realification have no acceptance authority.",
+    "python_publication": "Retained source slots and native interfaces are checked before and after execution/publication. Literal-rational legacy subclasses preserve constructors and established result classes; descriptor and constructor changes refuse. New complex/held and active-request subclass cases remain explicitly unsupported.",
+    "shared_dispatch": "Existing pinv 3, least squares 4, family 5 and conversion 6 are preserved; exact solve 7, inverse 8, syntax 9 and concurrent QR 10 were independently reviewed together."
+  },
+  "validation": {
+    "native_passed": {
+      "gaussian_exact_solve": 13,
+      "gaussian_least_squares": 13,
+      "gaussian_least_squares_family": 18,
+      "gaussian_pseudoinverse": 18,
+      "quadrature_certificate": 17,
+      "certified_quadrature": 11
+    },
+    "native_total": 90,
+    "native_failures": 0,
+    "native_ignored": 0,
+    "native_transcript": "artifacts/audit/2026-11-22-absolute-quadrature-complex-native.log",
+    "native_transcript_sha256": "ee68d798cbacfb96ddc7ef90bc8d2701b055d53af8728bed38f83a474c89d6a0",
+    "native_commands": [
+      "cargo test --locked --offline -p fsym-matrices --test gaussian_exact_solve --test gaussian_least_squares --test gaussian_least_squares_family --test gaussian_pseudoinverse",
+      "cargo test --locked --offline -p fsym-core --test quadrature_certificate",
+      "cargo test --locked --offline -p fsym-calculus --test certified_quadrature"
+    ],
+    "independent_source_review": "passed, including the exact-solve theorem, held domains, cumulative budgets/cancellation, subclass hooks and final concurrent QR dispatch integration",
+    "changed_rust_format": "passed with pinned rustfmt --check --edition 2024",
+    "python_syntax_and_diff_check": "passed on final merged public sources and regression files",
+    "actual_python_runtime": "not executed; no production extension completed",
+    "root_native_integration_and_integration_session_runtime": "not executed; requires the blocked full runtime graph",
+    "full_extension_attempt": {
+      "command": "cargo build --locked --offline -p fsym-python --features extension-module",
+      "exit_code": 101,
+      "outcome": "rustc compiling unchanged fsym-polys killed with signal 9; no Rust source diagnostic preceded it"
+    },
+    "workspace_all_targets_attempt": {
+      "command": "cargo check --workspace --all-targets --locked --offline",
+      "exit_code": 137,
+      "outcome": "Cargo killed during pinned asupersync/runtime dependency checking; no bridge or all-target pass established"
+    },
+    "workspace_clippy_and_full_test_success": false,
+    "ci": "Existing actual-extension CI selectors now include complex exact solve and absolute quadrature; existing native CI additionally selects exact solve and root integration/session suites. No gate was weakened."
+  },
+  "environment": {
+    "rust_toolchain": "nightly-2026-08-20",
+    "rustc": "1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "prepared_python": "CPython 3.12.14; the full compatibility profile targets a different environment and is not certified here",
+    "pyo3": "0.27.2",
+    "build_settings": {
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "verified_donors": {
+      "asupersync": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+      "franken_numpy": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+      "frankenscipy": "213a417c739025ed865a3875c89a7d86726ecb5a"
+    },
+    "limitations": "Shared execution was interrupted, then recovered. Later single-job full compilation and metadata-only checking were both killed. Low available memory is consistent with the failures; the kernel cause was not independently confirmed. No source, dependency or feature graph was weakened to manufacture a pass."
+  },
+  "scope": {
+    "matrix_domain": "exact Q(i); each axis <=32 and source/output components <=4096 bits, with a 20M-step/256MiB cumulative intrinsic envelope",
+    "matrix_portable_certificate": false,
+    "matrix_protected_verifier_reservation": false,
+    "broad_beads_closed": false,
+    "compatibility_profile_certified": false,
+    "upstream_oracle_note": "Isolated SymPy 1.14 confirms ordinary complex square fixtures. Its LUsolve rejects some independently constructed consistent tall complex systems; the development exact lane accepts them only after independent identities. Oracle executions are not candidate runtime evidence."
+  }
+}
