@@ -1,0 +1,26 @@
+{
+  "scope": "Independent formula/reference analysis; does not execute Rust production code",
+  "mpmath_version": "1.3.0",
+  "precision_decimal_digits": 100,
+  "seed": 20261122,
+  "result": {
+    "atan": {
+      "points": 6013,
+      "maximum_ulp_error": [
+        2.0,
+        3.0
+      ],
+      "failures": [],
+      "failure_count": 0
+    },
+    "asinh": {
+      "points": 6013,
+      "maximum_ulp_error": [
+        1.0,
+        3.0
+      ],
+      "failures": [],
+      "failure_count": 0
+    }
+  }
+}

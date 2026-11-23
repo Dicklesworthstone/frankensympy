@@ -9,7 +9,9 @@ use crate::compile::{
 };
 use crate::proof::{
     reference_legacy_numeric_sub_derivative, reference_numeric_sub_derivative,
-    verified_numeric_diff, verify_legacy_numeric_diff_reduction, verify_numeric_diff_derivation,
+    reference_pre_inverse_numeric_sub_derivative, verified_numeric_diff,
+    verify_legacy_numeric_diff_reduction, verify_numeric_diff_derivation,
+    verify_pre_inverse_numeric_diff_reduction,
 };
 use fsym_budget::{BudgetMeter, Dimension, Unbounded};
 use fsym_core::{BigInt, Constant, Expr, Symbol};
@@ -1172,24 +1174,35 @@ pub fn verify_sparse_jacobian_certificate_with_meter<M: BudgetMeter + ?Sized>(
                     reason: error.to_string(),
                 });
             }
-            // Older schema-1 artifacts retain their original, mathematically
-            // exact tanh identity and bytecode. Check that complete recipe
-            // independently; never accept an arbitrary equivalent-looking RHS
-            // or silently replace a stored program. Both passes spend from the
-            // caller's ledger, and a refusal here terminates replay. The common
-            // proof envelope already passed; only the semantic rule is retried.
+            // Persisted programs retain their original, mathematically exact
+            // derivative recipe and bytecode. Check the complete pre-inverse-
+            // jet recipe first, then the older pre-tanh recipe if necessary.
+            // Never accept an arbitrary equivalent-looking RHS or silently
+            // replace a stored program. Every independent pass spends from
+            // the caller's ledger. The common proof envelope already passed;
+            // only its semantic reduction is retried.
             charge_derivative_kernel(&system.residuals[entry.row], meter)?;
             charge_expression_copy(&entry.symbolic_deriv, meter)?;
-            verify_legacy_numeric_diff_reduction(
+            if verify_pre_inverse_numeric_diff_reduction(
                 &system.residuals[entry.row],
                 &system.vars[entry.col],
                 &entry.symbolic_deriv,
             )
-            .map_err(|_| JacobianVerificationError::ProofFailed {
-                row: entry.row,
-                col: entry.col,
-                reason: error.to_string(),
-            })?;
+            .is_err()
+            {
+                charge_derivative_kernel(&system.residuals[entry.row], meter)?;
+                charge_expression_copy(&entry.symbolic_deriv, meter)?;
+                verify_legacy_numeric_diff_reduction(
+                    &system.residuals[entry.row],
+                    &system.vars[entry.col],
+                    &entry.symbolic_deriv,
+                )
+                .map_err(|_| JacobianVerificationError::ProofFailed {
+                    row: entry.row,
+                    col: entry.col,
+                    reason: error.to_string(),
+                })?;
+            }
         }
         charge_compilation_work(meter, 1, 0, 0)?;
         if !compiled_expression_matches_with_meter(
@@ -1229,23 +1242,31 @@ pub fn verify_sparse_jacobian_certificate_with_meter<M: BudgetMeter + ?Sized>(
                     reference_numeric_sub_derivative(&system.residuals[row], &system.vars[col]);
                 charge_compilation_work(meter, 1, 0, 0)?;
                 if !derivative.is_zero() {
-                    // The old tanh identity can cancel an exact reciprocal
-                    // which the stable sech representation leaves symbolic.
-                    // Historical omitted entries need the same independent
-                    // legacy check as stored entries, with fresh cumulative
-                    // charges. Only a proved literal zero may be omitted.
+                    // Historical algebraic recipes can cancel exact factors
+                    // which private jets leave symbolic. Omitted entries need
+                    // the same independently reconstructed historical recipes
+                    // as stored entries, with fresh cumulative charges. Only
+                    // a proved literal zero may be omitted.
                     charge_derivative_kernel(&system.residuals[row], meter)?;
-                    let legacy = reference_legacy_numeric_sub_derivative(
+                    let previous = reference_pre_inverse_numeric_sub_derivative(
                         &system.residuals[row],
                         &system.vars[col],
                     );
                     charge_compilation_work(meter, 1, 0, 0)?;
-                    if !legacy.is_zero() {
-                        return Err(JacobianVerificationError::OmittedNonzero {
-                            row,
-                            col,
-                            deriv: derivative.to_string(),
-                        });
+                    if !previous.is_zero() {
+                        charge_derivative_kernel(&system.residuals[row], meter)?;
+                        let legacy = reference_legacy_numeric_sub_derivative(
+                            &system.residuals[row],
+                            &system.vars[col],
+                        );
+                        charge_compilation_work(meter, 1, 0, 0)?;
+                        if !legacy.is_zero() {
+                            return Err(JacobianVerificationError::OmittedNonzero {
+                                row,
+                                col,
+                                deriv: derivative.to_string(),
+                            });
+                        }
                     }
                 }
             }
@@ -1715,6 +1736,8 @@ pub fn compiled_expression_matches_with_meter<M: BudgetMeter + ?Sized>(
                         "asin" => CompiledOp::Asin,
                         "acos" => CompiledOp::Acos,
                         "atan" => CompiledOp::Atan,
+                        "_fsym_atan_d1" => CompiledOp::AtanDerivative,
+                        "_fsym_atan_d2" => CompiledOp::AtanSecondDerivative,
                         "sinh" => CompiledOp::Sinh,
                         "cosh" => CompiledOp::Cosh,
                         "tanh" => CompiledOp::Tanh,
@@ -1722,6 +1745,8 @@ pub fn compiled_expression_matches_with_meter<M: BudgetMeter + ?Sized>(
                         "sech" => CompiledOp::Sech,
                         "csch" => CompiledOp::Csch,
                         "asinh" => CompiledOp::Asinh,
+                        "_fsym_asinh_d1" => CompiledOp::AsinhDerivative,
+                        "_fsym_asinh_d2" => CompiledOp::AsinhSecondDerivative,
                         "acosh" => CompiledOp::Acosh,
                         "atanh" => CompiledOp::Atanh,
                         "erf" => CompiledOp::Erf,

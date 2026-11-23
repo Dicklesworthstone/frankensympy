@@ -158,7 +158,7 @@ jobs:
       - name: Compiled principal-angle programs and derivative admission
         run: cargo test --locked -p fsym-calculus --test atan2_compilation -j1
       - name: Compiled elementary derivatives and integral scopes
-        run: cargo test --locked -p fsym-calculus --test reciprocal_function_programs --test tanh_programs --test tanh_legacy_artifacts --test binder_differentiation -j1
+        run: cargo test --locked -p fsym-calculus --test reciprocal_function_programs --test tanh_programs --test tanh_legacy_artifacts --test inverse_derivative_programs --test inverse_derivative_legacy --test binder_differentiation -j1
       - name: Complete finite real rational systems
         run: |
           cargo test --locked -p fsym-solvers --test real_rational --test rational_systems --test real_rur -j1
@@ -582,6 +582,7 @@ jobs:
               "python/tests/test_inverse_circular_certification.py",
               "python/tests/test_atan2_certification.py",
               "python/tests/test_inverse_hyperbolic_numeric.py",
+              "python/tests/test_inverse_derivative_numeric.py",
               "python/tests/test_error_function_numeric.py",
               "python/tests/test_sinc_numeric.py",
               "python/tests/test_absolute_numeric.py",

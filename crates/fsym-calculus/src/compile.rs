@@ -385,6 +385,14 @@ pub enum CompiledOp {
     Jump(usize),
     /// An explicit undefined branch, never a numeric zero or accepted NaN.
     NoMatchingPiecewiseBranch,
+    /// Stable real derivatives of atan. These private numerical jets avoid
+    /// overflowing x*x or underflowing (1+x*x)^-2 before multiplication by x.
+    AtanDerivative,
+    AtanSecondDerivative,
+    /// Stable real derivatives of asinh, evaluated with a scaled norm rather
+    /// than an overflowing square or prematurely underflowing inverse cube.
+    AsinhDerivative,
+    AsinhSecondDerivative,
 }
 
 /// Bounded forward-only stack program evaluating an expression to an f64 value.
@@ -626,6 +634,8 @@ impl CompiledExpr {
             | CompiledOp::Asin
             | CompiledOp::Acos
             | CompiledOp::Atan
+            | CompiledOp::AtanDerivative
+            | CompiledOp::AtanSecondDerivative
             | CompiledOp::Sinh
             | CompiledOp::Cosh
             | CompiledOp::Tanh
@@ -633,6 +643,8 @@ impl CompiledExpr {
             | CompiledOp::Sech
             | CompiledOp::Csch
             | CompiledOp::Asinh
+            | CompiledOp::AsinhDerivative
+            | CompiledOp::AsinhSecondDerivative
             | CompiledOp::Acosh
             | CompiledOp::Atanh
             | CompiledOp::Erf
@@ -964,6 +976,8 @@ impl CompiledExpr {
                     "asin" => CompiledOp::Asin,
                     "acos" => CompiledOp::Acos,
                     "atan" => CompiledOp::Atan,
+                    "_fsym_atan_d1" => CompiledOp::AtanDerivative,
+                    "_fsym_atan_d2" => CompiledOp::AtanSecondDerivative,
                     "sinh" => CompiledOp::Sinh,
                     "cosh" => CompiledOp::Cosh,
                     "tanh" => CompiledOp::Tanh,
@@ -971,6 +985,8 @@ impl CompiledExpr {
                     "sech" => CompiledOp::Sech,
                     "csch" => CompiledOp::Csch,
                     "asinh" => CompiledOp::Asinh,
+                    "_fsym_asinh_d1" => CompiledOp::AsinhDerivative,
+                    "_fsym_asinh_d2" => CompiledOp::AsinhSecondDerivative,
                     "acosh" => CompiledOp::Acosh,
                     "atanh" => CompiledOp::Atanh,
                     "erf" => CompiledOp::Erf,
@@ -1374,6 +1390,36 @@ impl CompiledExpr {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
                     stack.push(v.atan());
                 }
+                CompiledOp::AtanDerivative | CompiledOp::AtanSecondDerivative => {
+                    let value = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    charge_evaluation_steps(meter, 12)?;
+                    if !value.is_finite() {
+                        return Err(EvalError::NonFiniteValue);
+                    }
+                    let second = matches!(op, CompiledOp::AtanSecondDerivative);
+                    let derivative = if value.abs() <= 1.0 {
+                        let denominator = 1.0 + value * value;
+                        if second {
+                            (-2.0 * value / denominator) / denominator
+                        } else {
+                            denominator.recip()
+                        }
+                    } else {
+                        // With r=1/x, atan'=r^2/(1+r^2) and
+                        // atan''=-2*r^3/(1+r^2)^2. Multiply from the
+                        // largest scale so only an unrepresentable final
+                        // derivative may underflow, never an inverse fourth
+                        // power whose later x factor could restore it.
+                        let reciprocal = value.recip();
+                        let scaled = reciprocal / (1.0 + reciprocal * reciprocal);
+                        if second {
+                            (-2.0 * reciprocal * scaled) * scaled
+                        } else {
+                            reciprocal * scaled
+                        }
+                    };
+                    stack.push(derivative);
+                }
                 CompiledOp::Atan2 => {
                     let x = stack.pop().ok_or(EvalError::StackUnderflow)?;
                     let y = stack.pop().ok_or(EvalError::StackUnderflow)?;
@@ -1431,6 +1477,23 @@ impl CompiledExpr {
                 CompiledOp::Asinh => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
                     stack.push(v.asinh());
+                }
+                CompiledOp::AsinhDerivative | CompiledOp::AsinhSecondDerivative => {
+                    let value = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    charge_evaluation_steps(meter, 12)?;
+                    if !value.is_finite() {
+                        return Err(EvalError::NonFiniteValue);
+                    }
+                    let norm = value.hypot(1.0);
+                    stack.push(if matches!(op, CompiledOp::AsinhSecondDerivative) {
+                        // asinh''=-x/(1+x*x)^(3/2). x/norm is bounded;
+                        // the two subsequent divisions preserve nonzero
+                        // representable curvatures even when norm^3 would
+                        // overflow or norm^-3 would round to zero.
+                        (-(value / norm) / norm) / norm
+                    } else {
+                        norm.recip()
+                    });
                 }
                 CompiledOp::Acosh => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;

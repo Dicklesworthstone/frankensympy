@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "status": "implemented_uncertified",
+  "client_date": "2026-11-22",
+  "recorded_at_utc": "2026-11-23T03:35:08.412868+00:00",
+  "source_base": "14516c223eee3faf964f570d014cab2c60443797",
+  "publication": "Containing commit",
+  "scope": "Stable first and second binary64 derivatives for newly compiled real atan/asinh residual and objective programs, with independent derivative and original-source/opcode checks.",
+  "graph_scope": [
+    "fra-campaign-jacobian-bundle-ukp"
+  ],
+  "graph_effect": "Progress only. No campaign, profile, claim-tier or performance promotion.",
+  "implementation": [
+    "Private numeric derivative nodes use bounded reciprocal or hypot formulas instead of overflowing argument squares and prematurely underflowing inverse powers.",
+    "Independent reference rules verify the exact first and second derivative recipes, including complete mixed and nonlinear chain rules. Public symbolic forms are unchanged.",
+    "Existing opcode discriminants are preserved by appending new unary variants. Source/opcode replay rejects altered derivatives.",
+    "Historical pre-inverse-jet and pre-stable-tanh recipes are reconstructed independently, with additional cumulative charges and unchanged stored proofs and bytecode.",
+    "Original-source domain checks, cancellation, resource failures and atomic output publication remain enforced."
+  ],
+  "validation": {
+    "toolchain": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19), pinned nightly-2026-08-20",
+    "native_regressions": {
+      "outcome": "passed",
+      "passed": 66,
+      "failed": 0,
+      "test_targets": 8,
+      "new_test_functions": 10,
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "fsym-calculus",
+        "--test",
+        "inverse_derivative_programs",
+        "--test",
+        "inverse_derivative_legacy",
+        "--test",
+        "tanh_programs",
+        "--test",
+        "tanh_legacy_artifacts",
+        "--test",
+        "inverse_circular_programs",
+        "--test",
+        "inverse_hyperbolic_programs",
+        "--test",
+        "absolute_programs",
+        "--test",
+        "sinc_programs"
+      ],
+      "exit_code": 0,
+      "raw_log": "artifacts/audit/2026-11-22-inverse-derivatives/calculus-tests.log",
+      "process_status": "artifacts/audit/2026-11-22-inverse-derivatives/calculus-tests-status.json"
+    },
+    "formula_analysis": {
+      "outcome": "passed",
+      "scope": "Independent formulas compared with 100-decimal-digit mpmath references; not production code execution or exact proof.",
+      "points_per_function": 6013,
+      "maximum_observed_ulp_error": 3,
+      "raw_result": "artifacts/audit/2026-11-22-inverse-derivatives/formula-reference.json"
+    },
+    "formatting": {
+      "outcome": "passed",
+      "scope": "All four changed native source files and both new Rust tests using the pinned rustfmt."
+    },
+    "python_syntax": {
+      "outcome": "passed",
+      "scope": "AST parsing of authored Python regressions; runtime extension tests pending at this commit."
+    },
+    "whitespace": {
+      "outcome": "passed",
+      "command": "git diff --check"
+    },
+    "independent_review": {
+      "outcome": "No blocking defect found",
+      "scope": "Numeric scale and signs, protected cumulative accounting, independent derivative rules, historical proof envelopes and source/opcode replay."
+    },
+    "workspace_check": {
+      "outcome": "interrupted_without_terminal_result",
+      "command": "cargo check --locked --workspace --all-targets",
+      "reason": "Execution host disconnected; last observed compilation reached fsym-calculus without an observed compiler error."
+    },
+    "workspace_clippy_and_tests": {
+      "outcome": "pending"
+    },
+    "benchmark": {
+      "outcome": "not_run",
+      "claim": "No performance claim"
+    }
+  },
+  "limits": [
+    "Results remain approximate binary64 values. A final value below the representable range may round to zero.",
+    "This fixes primitive inverse jets; arbitrary extreme rescaled composite expressions can still overflow or underflow in other intermediates.",
+    "Historical programs retain historical numerical evaluation; recompile a source to opt into the new jet bytecode.",
+    "Original-source rational-ball certification remains a separate verifier; sampled agreement does not certify mathematical identities.",
+    "Python runtime integration and full workspace gates are not established by this commit."
+  ],
+  "source_sha256": {
+    "crates/fsym-calculus/src/lib.rs": "190b555cecb8d517c69c2f7d93fe6ad777f95718a216e70b1b11261418e2b63a",
+    "crates/fsym-calculus/src/proof.rs": "a4626b895868d630be6e0ab0aa68e15e084aa9909942faa084b01e12a164d686",
+    "crates/fsym-calculus/src/compile.rs": "dcb5b15e58cbd97887e2c659c5eecb9961ec7c33095b9869dab352f653d264e1",
+    "crates/fsym-calculus/src/sparse_jacobian.rs": "e1bfac95f983b1f81d1c5752ee10f78142bce323c52c180ed8ba4009e726f770",
+    "crates/fsym-calculus/tests/inverse_derivative_programs.rs": "429d8dbb0efc134266b67d173a12b5a902f0e5f328ffabc547977c7e7d284ab6",
+    "crates/fsym-calculus/tests/inverse_derivative_legacy.rs": "6140aa8c4bd7e7472caf128f0335adb7961131d6e4e14eca074f7767c84af76e",
+    "python/tests/test_inverse_derivative_numeric.py": "e352781a6f9cf864567ac343a91ab9c8911752b4d075ecf07377e625454be718"
+  },
+  "production_lock_sha256": "c7c208173cbc7a6643ff652b28044cdf8d07d5108e3c9b8f2bbd833ecb1d5f42"
+}

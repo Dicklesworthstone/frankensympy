@@ -1,0 +1,28 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "fsym-calculus",
+    "--test",
+    "inverse_derivative_programs",
+    "--test",
+    "inverse_derivative_legacy",
+    "--test",
+    "tanh_programs",
+    "--test",
+    "tanh_legacy_artifacts",
+    "--test",
+    "inverse_circular_programs",
+    "--test",
+    "inverse_hyperbolic_programs",
+    "--test",
+    "absolute_programs",
+    "--test",
+    "sinc_programs"
+  ],
+  "exit_code": 0,
+  "elapsed_seconds": 63.18185649399993,
+  "max_rss_kib": 492212
+}

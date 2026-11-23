@@ -1009,6 +1009,39 @@ does not publish partial output buffers or certificates.
 
 ---
 
+## Stable inverse-function derivatives (development API)
+
+Newly compiled `atan` and `asinh` residual/Jacobian and
+objective/gradient/Hessian programs use scaled first and second derivative
+formulas. They retain representable slopes when squaring a large finite
+argument would overflow, and retain representable curvatures when an
+intermediate inverse power would otherwise round to zero:
+
+```python
+from sympy import Symbol, asinh, atan, compile_objective
+
+x = Symbol("x")
+_, gradient, hessian = compile_objective(atan(x), x).evaluate(1e100)
+# gradient is approximately [1e-200]; hessian is approximately [[-2e-300]].
+
+_, gradient, hessian = compile_objective(asinh(x), x).evaluate(1e120)
+# gradient is approximately [1e-120]; hessian is approximately [[-1e-240]].
+```
+
+The same derivatives serve Jacobian and Hessian vector products. Independent
+derivative checks and source/opcode replay validate the exact derivative
+recipes, including both chain-rule terms for a nonlinear inner expression.
+Public symbolic derivative forms and original-source domain obligations
+remain unchanged. Historical artifacts replay their original proofs and
+bytecode; recompile a source to use the new numerical formulas.
+
+These are approximate binary64 evaluations. A derivative smaller than the
+representable range may still round to zero, and other intermediates in a
+composite expression may still overflow or underflow. Original-source
+rational-ball certification remains a separate check.
+
+---
+
 ## Entire sinc evaluation (development API)
 
 The unnormalized `sinc(x) = sin(x)/x`, extended by `sinc(0) = 1`, now

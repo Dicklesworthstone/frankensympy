@@ -88,7 +88,8 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
 /// The numerical derivative lane keeps tanh' and coth' away from subtraction
 /// of two rounded ones, keeps the entire sinc jets finite at their removable
 /// singularity, retains guarded absolute-value derivatives on nonzero real
-/// branches, and avoids artificial poles in literal zero/one powers.
+/// branches, uses scaled inverse-function jets across the finite real range,
+/// and avoids artificial poles in literal zero/one powers.
 /// Public symbolic derivatives retain their existing forms.
 pub(crate) fn numeric_diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
     diff_unsimplified_with_coth(expr, var, true)
@@ -279,6 +280,12 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
             } else if name == "atan" && args.len() == 1 {
                 let u = &args[0];
                 let du = diff(u, var);
+                if stable_coth {
+                    return Expr::Mul(vec![
+                        Expr::Function("_fsym_atan_d1".to_string(), vec![u.clone()]),
+                        du,
+                    ]);
+                }
                 let denom = Expr::Add(vec![
                     Expr::from_i64(1),
                     Expr::pow(u.clone(), Expr::from_i64(2)),
@@ -315,12 +322,31 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
             } else if name == "asinh" && args.len() == 1 {
                 let u = &args[0];
                 let du = diff(u, var);
+                if stable_coth {
+                    return Expr::Mul(vec![
+                        Expr::Function("_fsym_asinh_d1".to_string(), vec![u.clone()]),
+                        du,
+                    ]);
+                }
                 let one_plus_u_sq = Expr::Add(vec![
                     Expr::from_i64(1),
                     Expr::pow(u.clone(), Expr::from_i64(2)),
                 ]);
                 let neg_half = Expr::Rational(BigRational::new(BigInt::from(-1), BigInt::from(2)));
                 Expr::Mul(vec![Expr::pow(one_plus_u_sq, neg_half), du])
+            } else if stable_coth
+                && matches!(name.as_str(), "_fsym_atan_d1" | "_fsym_asinh_d1")
+                && args.len() == 1
+            {
+                let second = if name == "_fsym_atan_d1" {
+                    "_fsym_atan_d2"
+                } else {
+                    "_fsym_asinh_d2"
+                };
+                Expr::Mul(vec![
+                    Expr::Function(second.to_string(), vec![args[0].clone()]),
+                    diff(&args[0], var),
+                ])
             } else if name == "acosh" && args.len() == 1 {
                 let u = &args[0];
                 let du = diff(u, var);
