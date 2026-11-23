@@ -109,12 +109,11 @@ pub fn polynomial_compose_native(
     let accepted = checked_polynomial_composition(&left, &right, &mut generator, &mut verifier)
         .map_err(to_value_error)?;
     let result = accepted.result();
-    let nodes = 1
-        + result
-            .terms()
-            .keys()
-            .map(|powers| 2 + 4 * powers.iter().filter(|&&power| power != 0).count())
-            .sum::<usize>();
+    let nodes = 1 + result
+        .terms()
+        .keys()
+        .map(|powers| 2 + 4 * powers.iter().filter(|&&power| power != 0).count())
+        .sum::<usize>();
     if nodes > 4096 {
         return Err(PyValueError::new_err(
             "composition exceeds its bounded output expression envelope",

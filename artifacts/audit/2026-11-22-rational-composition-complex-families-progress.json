@@ -83,24 +83,92 @@
       "meaning": "Expected-fixture evidence only, not candidate execution."
     },
     "candidate_native": {
-      "status": "partial",
-      "source_commit": "43e3853c426d9b54a6e0ba033476f4ac94854789",
-      "github_job": 137415597992,
-      "gaussian_pseudoinverse": "18 passed",
-      "gaussian_least_squares": "13 passed",
-      "new_composition_and_family_suites": "Pending; now explicitly selected before heavy runtime jobs in CI."
+      "status": "passed_for_scoped_targets",
+      "source_commit": "d6828df5cc40c471f0657a789ef38c6b106952bf",
+      "github_run": 45090248300,
+      "github_job": 137419499147,
+      "command_results": [
+        {
+          "command": "cargo test --locked -p fsym-polys --test evaluation --test composition -j1",
+          "target": "composition.rs",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "command": "cargo test --locked -p fsym-matrices --test gaussian_least_squares --test gaussian_least_squares_family -j1",
+          "target": "gaussian_least_squares_family.rs",
+          "passed": 18,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "command": "cargo test --locked -p fsym-matrices --test gaussian_pseudoinverse --test pseudoinverse -j1",
+          "target": "gaussian_pseudoinverse.rs",
+          "passed": 18,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "command": "cargo test --locked -p fsym-matrices --test gaussian_least_squares --test gaussian_least_squares_family -j1",
+          "target": "gaussian_least_squares.rs",
+          "passed": 13,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "new_native_tests_passed": 29,
+      "existing_gaussian_controls_passed": 31,
+      "counting": "Counts are per named target; no repeated runs or other incidental target passes are added."
     },
     "candidate_public": {
-      "status": "pending",
-      "meaning": "No final-source production-extension pass claimed."
+      "status": "unverified_after_local_dependency_termination_and_hosted_queue",
+      "github_run": 45091253987,
+      "implementation_source_commit": "1c0f73501fb2161c0a2fbff69cd0c964c5ffde6a",
+      "observed_state": "Queued for a hosted runner after the earlier run reached the obsolete optimization fixture. No production-extension result is claimed.",
+      "local_last_observation": "Production extension build exited 101 before reaching fsym-python: rustc compiling syn 3.0.3 received SIGKILL (signal 9). The cause is not determined from the compiler output. No public candidate test ran locally.",
+      "local_transient_log": "/workspace/scratch/3f911a45fc58/fsym-production-extension.log",
+      "local_terminal_result": {
+        "exit_code": 101,
+        "dependency": "syn 3.0.3",
+        "signal": "SIGKILL (signal 9)",
+        "feature_crate_reached": false,
+        "public_tests_executed": false
+      },
+      "hosted_last_observation": "G0 planning integrity passed; G3 job 137426781752 was queued with no runner assigned."
     },
     "full_workspace": {
       "status": "uncompleted",
       "blockers": [
         "Pre-existing formatting drift prevents the dependent all-workspace test job.",
-        "An obsolete native optimization refusal expected abs(x) to be unsupported despite the existing continuous-corner value-certificate implementation; a source-bound positive/adversarial correction is included in this follow-up.",
-        "Local execution transport repeatedly disconnected; the environment recovered, but incomplete build sessions are not test results."
+        "The d6828df5 job passed all new native targets and then failed the obsolete abs(x) refusal. The corrected positive/negative fixture is committed in 1c0f7350; its execution is still pending.",
+        "Local native tests terminated before feature execution when the regex-syntax 0.8.11 compiler received SIGKILL. The subsequent production-extension build also exited 101 after the syn 3.0.3 dependency compiler received SIGKILL, before fsym-python. Single-job and low-memory settings were already in use. The hosted public job is queued; no complete Python or workspace pass is claimed."
       ]
+    },
+    "planning_integrity": {
+      "status": "passed",
+      "command": "python tools/validate_planning.py",
+      "scope": "Current124-issue graph; statuses, priorities and dependency edges preserved."
+    },
+    "scoped_bridge_formatting": {
+      "status": "passed",
+      "toolchain": "nightly-2026-08-20",
+      "scope": [
+        "crates/fsym-python/src/matrix.rs",
+        "crates/fsym-python/src/fourier.rs",
+        "crates/fsym-python/src/rational_laplace.rs",
+        "crates/fsym-python/src/polynomial_composition.rs"
+      ],
+      "note": "Only the final polynomial bridge chain layout remained to publish; no semantic tokens changed."
+    },
+    "local_native_attempt": {
+      "status": "terminated_before_feature_tests",
+      "exit_code": 101,
+      "dependency": "regex-syntax 0.8.11",
+      "observed_termination": "rustc received SIGKILL (signal 9)",
+      "cause": "not determined from the compiler output",
+      "transient_log": "/workspace/scratch/3f911a45fc58/fsym-composition-native-recovered.log",
+      "interpretation": "No local feature test result; the successful hosted exact-source runs are recorded separately."
     }
   },
   "native_optimization_followup": {
@@ -108,7 +176,8 @@
     "change": "Replace only the stale abs(x) refusal with independently derived public min/max receipts, retain all original pole/domain refusals, add Abs-path domain refusals and reject nonoptimal witnesses.",
     "production_admission_changed": false,
     "execution": "Pending",
-    "formatting": "Pinned scoped rustfmt and git diff --check passed."
+    "formatting": "Pinned scoped rustfmt and git diff --check passed.",
+    "commit": "1c0f73501fb2161c0a2fbff69cd0c964c5ffde6a"
   },
   "independent_review": [
     "Root reviewed the native polynomial generator/checker and public source binding.",
@@ -140,8 +209,8 @@
       "git_blob": "8e2a0dc6ea542dbd5b837ca1a69e2b8a7c1471f8"
     },
     "crates/fsym-python/src/polynomial_composition.rs": {
-      "sha256": "5c0301d47ef6870ceaf877ca3ca01718193ac29f7a49c5e8038adc2167a63e44",
-      "git_blob": "feaa4efc04835867a5f8ae0b73852c695cde6856"
+      "sha256": "d19a8c8680b33a7322ec2b161b37343055b03af22dfea0debfdee56b41c8bea9",
+      "git_blob": "f502a17d64f36fc5551aeb1d7ed5310227a9c49f"
     },
     "crates/fsym-python/src/lib.rs": {
       "sha256": "a2b5aba65c95ffb980e3281f29c6db2195203f915ec1ff045042db241f7b0899",
