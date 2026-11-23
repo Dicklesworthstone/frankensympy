@@ -522,9 +522,22 @@ class Matrix(MatrixBase):
         return _wrap(self._native.frobenius_norm_squared())
 
     def rank(self, iszerofunc=None):
+        from ._row_reduction import reduction_if_needed
+
+        checked = reduction_if_needed(self, "rank", iszerofunc=iszerofunc)
+        if checked is not None:
+            return checked
         return self._native.rank()
 
     def rref(self, iszerofunc=None, simplify=False, pivots=True, normalize_last=True):
+        from ._row_reduction import reduction_if_needed
+
+        checked = reduction_if_needed(
+            self, "rref", iszerofunc=iszerofunc, simplify=simplify)
+        if checked is not None:
+            if type(pivots) is not bool or type(normalize_last) is not bool:
+                raise TypeError("pivots and normalize_last must be bool values")
+            return checked if pivots else checked[0]
         m, pivs = self._native.rref()
         res_m = self._new(m)
         if pivots:
@@ -532,6 +545,11 @@ class Matrix(MatrixBase):
         return res_m
 
     def nullspace(self):
+        from ._row_reduction import reduction_if_needed
+
+        checked = reduction_if_needed(self, "nullspace")
+        if checked is not None:
+            return checked
         bases = self._native.nullspace()
         return [self._new(b) for b in bases]
 
@@ -1695,11 +1713,13 @@ class Matrix(MatrixBase):
         return self._solve_unique(b, lu=True)
 
     def gauss_jordan_solve(self, B, freevar=False):
-        """Return the complete checked exact-rational affine solution family.
+        """Return the complete checked exact-rational or Q(i) affine family.
 
         Dense and sparse inputs share one sparse elimination across all right-
         hand sides. The solution and parameter matrices keep this class; only
         the final dense representations are subject to the dense storage bound.
+        Complex systems use independently checked bounded dense reduction
+        through 32 rows, unknowns and right-hand sides.
         """
         from .sparse import _checked_gauss_jordan_solve
 

@@ -35,6 +35,9 @@ type AffineSolutionParts = (Vec<PyExpr>, Vec<Vec<PyExpr>>, Vec<usize>);
 /// Complete sparse affine values, parameter matrix, and free columns.
 type SparseAffineSolutionParts = (PySparseMatrix, PySparseMatrix, Vec<usize>);
 
+/// Complete dense Gaussian-rational family and its ordered free coordinates.
+type GaussianAffineSolutionParts = (PyMatrix, PyMatrix, Vec<usize>);
+
 /// Both inertia phases consume the same caller-owned symbolic request ledger.
 /// Native phase meters still enforce their own memory and allocation caps.
 /// Keep the original Python refusal: MeterError only stops native work, and
@@ -1281,6 +1284,96 @@ impl PyMatrix {
         Ok(bases.into_iter().map(|m| Self { inner: m }).collect())
     }
 
+    /// Independently checked reduced row echelon form over exact Q(i).
+    /// Original source admission, row-equivalence checking and publication
+    /// consume the same active request, including terminal refusal states.
+    #[pyo3(signature = (*, session=None))]
+    pub fn gaussian_rref(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<(Self, Vec<usize>)> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = (|| {
+            meter.checkpoint().map_err(to_value_error)?;
+            let (reduced, pivots) = self
+                .inner
+                .metered_gaussian_rref(&mut meter)
+                .map_err(matrix_err)?;
+            meter
+                .charge(Dimension::ComputeSteps, 1)
+                .map_err(to_value_error)?;
+            meter.checkpoint().map_err(to_value_error)?;
+            Ok((Self { inner: reduced }, pivots))
+        })();
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
+    }
+
+    /// Complete exact Q(i) kernel basis in increasing free-column order.
+    #[pyo3(signature = (*, session=None))]
+    pub fn gaussian_nullspace(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<Vec<Self>> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = (|| {
+            meter.checkpoint().map_err(to_value_error)?;
+            let basis = self
+                .inner
+                .metered_gaussian_nullspace(&mut meter)
+                .map_err(matrix_err)?;
+            meter
+                .charge(Dimension::ComputeSteps, basis.len() as u64 + 1)
+                .map_err(to_value_error)?;
+            let result = basis.into_iter().map(|inner| Self { inner }).collect();
+            meter.checkpoint().map_err(to_value_error)?;
+            Ok(result)
+        })();
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
+    }
+
+    /// Complete Q(i) affine family, or an independently checked inconsistency.
+    /// Parameters and all right-hand sides share the original request ledger.
+    #[pyo3(signature = (rhs, *, session=None))]
+    pub fn gaussian_gauss_jordan_solve(
+        &self,
+        rhs: &Self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<Option<GaussianAffineSolutionParts>> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = (|| {
+            meter.checkpoint().map_err(to_value_error)?;
+            let family = self
+                .inner
+                .metered_gaussian_gauss_jordan_solve(&rhs.inner, &mut meter)
+                .map_err(matrix_err)?;
+            meter
+                .charge(Dimension::ComputeSteps, 2)
+                .map_err(to_value_error)?;
+            let result = family.map(|(solution, parameters, free_columns)| {
+                (
+                    Self { inner: solution },
+                    Self { inner: parameters },
+                    free_columns,
+                )
+            });
+            meter.checkpoint().map_err(to_value_error)?;
+            Ok(result)
+        })();
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
+    }
+
     /// Exact eigenvalues of the matrix.
     pub fn eigenvalues(&self) -> PyResult<Vec<PyExpr>> {
         let evals = self.inner.eigenvalues().map_err(matrix_err)?;
@@ -1866,6 +1959,24 @@ impl PySparseMatrix {
             .iter()
             .map(|(&coordinate, value)| (coordinate, PyExpr::from_expr(value.clone())))
             .collect()
+    }
+
+    /// Inspect stored original syntax without densifying symbolic sparse inputs.
+    #[pyo3(signature = (*, session=None))]
+    pub fn has_gaussian_rational_syntax(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<bool> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = self
+            .inner
+            .has_gaussian_rational_syntax_with_meter(&mut meter)
+            .map_err(matrix_err);
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
     }
 
     /// Admit bounded original rectangular sparse Q(i) cells before dense copying.

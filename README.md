@@ -1685,10 +1685,53 @@ RHS and source-bound rank evidence, or use separate
 least-squares result is immutable in-process evidence; its rank witness uses
 the existing portable RREF checker.
 
+### Exact complex row reduction and affine systems
+
+Dense and sparse matrices with closed exact Gaussian-rational entries now
+support checked `rref()`, `rank()`, `nullspace()` and complete
+`gauss_jordan_solve()` families. Rational real and imaginary parts stay exact,
+including tiny nonzero imaginary pivots. Multiple right-hand sides share one
+reduction; an inconsistent column rejects the entire solve.
+
+```python
+from sympy import I, Matrix
+
+A = Matrix([[I, 1, 0], [2*I, 2, 0]])
+reduced, pivots = A.rref()
+assert reduced == Matrix([[1, -I, 0], [0, 0, 0]])
+assert pivots == (0,) and A.rank() == 1
+assert A.nullspace() == [Matrix([I, 1, 0]), Matrix([0, 0, 1])]
+
+solution, parameters, free = A.gauss_jordan_solve(Matrix([1, 2]), freevar=True)
+assert free == [1, 2] and parameters.shape == (2, 1)
+# Every solution is [-I + I*tau0, tau0, tau1].T.
+```
+
+An independent exact checker verifies the row transform and both inverse
+products, canonical pivot columns, original residuals and the identity block
+on free coordinates. A residual-only check cannot substitute for this
+completeness evidence. Native callers can retain untrusted
+`GaussianRrefCandidate` / `GaussianAffineCandidate` values for independent
+verification, or accepted `VerifiedGaussianAffineSolution` parts.
+
+Complex results preserve the coefficient matrix's dense/sparse and
+mutable/immutable class, including every basis vector and parameter matrix.
+The established literal-rational sparse RREF still returns a mutable dense
+matrix. Ordinary symbolic/Float reduction keeps its existing path; admitted
+exact errors never trigger a fallback. Custom complex subclasses and
+zero-testing callbacks require a supervised override lane.
+
+The complex path bounds rows, unknown columns and RHS columns separately at
+32, with 4096-bit rational components and the existing cumulative work/storage
+limits. Original held poles remain errors even behind zero multiplication or
+zeroth powers. Active callback cancellation and budgets cover source admission,
+elimination, checking, rendering and publication. These are bounded implemented
+development operations; they do not close a compatibility profile.
+
 ### Complete exact affine solution families
 
-Both dense and sparse `gauss_jordan_solve()` use one checked sparse elimination
-for all right-hand sides. Consistent singular and underdetermined systems
+For literal rational entries, dense and sparse `gauss_jordan_solve()` use one
+checked sparse elimination for all right-hand sides. Consistent singular and underdetermined systems
 return the complete family of solutions, including every free variable.
 The solution and parameter matrices retain the coefficient matrix's
 mutable/immutable and dense/sparse class:

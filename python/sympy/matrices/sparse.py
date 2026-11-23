@@ -648,6 +648,11 @@ def _checked_gauss_jordan_solve(matrix, rhs, freevar=False):
         raise NotImplementedError("custom matrix subclasses require a supervised override lane")
     if not any(type(rhs) is cls for cls in accepted):
         raise TypeError("gauss_jordan_solve requires a built-in Matrix right-hand side")
+    from ._row_reduction import affine_if_needed
+
+    checked = affine_if_needed(matrix, rhs, freevar)
+    if checked is not None:
+        return checked
     dense_left = type(matrix) is Matrix or type(matrix) is ImmutableDenseMatrix
     dense_right = type(rhs) is Matrix or type(rhs) is ImmutableDenseMatrix
     left = _rational_source_snapshot(matrix, dense=dense_left, context="exact affine solve")
@@ -1149,6 +1154,11 @@ class SparseMatrix(MatrixBase):
         _reduction_options(iszerofunc, simplify)
         if type(pivots) is not bool or type(normalize_last) is not bool:
             raise TypeError("pivots and normalize_last must be bool values")
+        from ._row_reduction import reduction_if_needed
+
+        complex_result = reduction_if_needed(self, "rref", simplify=simplify)
+        if complex_result is not None:
+            return complex_result if pivots else complex_result[0]
         checked = _checked_sparse_reduction(self, "rref")
         if checked is not None:
             reduced, pivot_columns = checked
@@ -1165,12 +1175,22 @@ class SparseMatrix(MatrixBase):
     def rank(self, iszerofunc=None, simplify=False):
         """Return exact rational rank without materializing implicit zeros."""
         _reduction_options(iszerofunc, simplify)
+        from ._row_reduction import reduction_if_needed
+
+        checked = reduction_if_needed(self, "rank", simplify=simplify)
+        if checked is not None:
+            return checked
         checked = _checked_sparse_reduction(self, "rank")
         return self.to_dense().rank() if checked is None else checked
 
     def nullspace(self, simplify=False, iszerofunc=None):
         """Return a complete sparse basis in increasing free-column order."""
         _reduction_options(iszerofunc, simplify)
+        from ._row_reduction import reduction_if_needed
+
+        checked = reduction_if_needed(self, "nullspace", simplify=simplify)
+        if checked is not None:
+            return checked
         checked = _checked_sparse_reduction(self, "nullspace")
         if checked is not None:
             return [_checked_sparse_lift(vector, type(self)) for vector in checked]
