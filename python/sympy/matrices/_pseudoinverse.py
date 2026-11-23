@@ -13,7 +13,7 @@ from . import _definiteness as _source
 
 _NATIVE = _source._NATIVE[_source.Matrix]
 _NAMES = ("shape", "is_exact_rational", "validate_gaussian_pseudoinverse_source",
-          "pinv", "solve_least_squares", "least_squares_family", "to_sparse")
+          "pinv", "solve_least_squares", "least_squares_family", "to_sparse", "gaussian_qr")
 _METHODS = tuple(_source._DICT.__get__(_NATIVE)[name] for name in _NAMES)
 _CLASSES = (_source.Matrix, _source.ImmutableDenseMatrix)
 _SPARSE_CLASSES = (_source.SparseMatrix, _source.ImmutableSparseMatrix)

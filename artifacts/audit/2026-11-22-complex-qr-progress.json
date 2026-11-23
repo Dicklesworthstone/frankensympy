@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-22",
+  "feature": "exact thin Hermitian QR over bounded Gaussian-rational matrices",
+  "bead": "fra-kfo",
+  "source_base": "b44c949648478fe41e8a8c14e57f9b59d95dc07e",
+  "source_blobs": {
+    "crates/fsym-matrices/src/pseudoinverse/gaussian.rs": "c30287d3a03922112248216847081d3464161539",
+    "crates/fsym-matrices/src/pseudoinverse.rs": "f12ea0953044735ba9eb728b5e7a652bfe8894c9",
+    "crates/fsym-matrices/src/lib.rs": "3bf26f4c437ffcad661457cdfe1f7d22f48a1408",
+    "crates/fsym-python/src/matrix.rs": "ff3e3538a40779ec667deb2934f4553e10da97d3",
+    "python/sympy/matrices/_pseudoinverse.py": "f1af275c2517f4943827107d10a10229d612693c",
+    "python/sympy/matrices/_qr.py": "7bcabcdb011c4a47a172d4b912416ce880c8af23",
+    "python/sympy/matrices/dense.py": "b6ca99b57df7c88722d3d57495e47bc6438f5490",
+    "python/tests/test_matrix_qr.py": "62b2444774dd1299d84d79474783357cccf455c8",
+    "crates/fsym-matrices/src/pseudoinverse/gaussian/qr.rs": "a7ce72ea7b7adc5e4783d5c62be8fd7734c2f988",
+    "crates/fsym-matrices/tests/gaussian_qr.rs": "c81108a63cc10fa6b686aa20a0312d94c708ec2b",
+    "python/tests/test_matrix_complex_qr.py": "41f16d8e7d5fc10745aff4082625b7ab0e482bba"
+  },
+  "implementation": {
+    "proposal": "modified Gram-Schmidt over Q(i), with dependent columns retained in R",
+    "reference": "original-source reread; full exact complex Gram matrix; positive squared norms; ordered unit pivot minor; exact A=QR",
+    "normalization": "positive finite scalar grammar independently squared; bounded expression multiplication and size-dependent arithmetic/allocation/formatting precharges",
+    "public_api": [
+      "Matrix.QRdecomposition()",
+      "Matrix.qr()"
+    ],
+    "matrix_shapes": [
+      "tall",
+      "wide",
+      "rank deficient",
+      "empty",
+      "rank zero"
+    ],
+    "scope": "synchronous same-crate reference checking; no portable proof-kernel certificate"
+  },
+  "validation": {
+    "independent_source_review": "passed after resource-accounting and normalization-witness corrections",
+    "pinned_toolchain": "nightly-2026-08-20; rustfmt 1.10.0-nightly (f7d782a3be 2026-08-19)",
+    "cargo_check_matrices": "passed",
+    "cargo_clippy_matrices_all_targets": "passed again on combined QR and concurrent exact-solve sources with -D warnings",
+    "cargo_fmt_workspace": "passed again after merging concurrent exact-solve sources",
+    "python_compilation": "passed for every new/changed QR Python source and final nsolve implementation/tests",
+    "native_integration": {
+      "qr": 16,
+      "complex_pseudoinverse": 18,
+      "complex_unique_least_squares": 13,
+      "complex_least_squares_families": 18,
+      "failures": 0,
+      "ignored": 0,
+      "rank_oracle_cases_inside_qr_suite": 256,
+      "concurrent_exact_complex_solve": 13,
+      "total": 78
+    },
+    "native_private": {
+      "new_normalization_tests": 3,
+      "existing_gaussian_controls": 3,
+      "failures": 0
+    },
+    "oracle": {
+      "version": "SymPy 1.14.0",
+      "ordinary_qr_cases_passed": 30,
+      "native_contract_cases_skipped": 22,
+      "candidate_runtime": false
+    },
+    "actual_extension": {
+      "status": "blocked before execution",
+      "attempts": 2,
+      "blocker": "rustc received SIGKILL while compiling pinned external asupersync; the focused retry used package-specific codegen-units=1024 without changing features or dependencies",
+      "candidate_public_tests_passed": false
+    },
+    "full_workspace_gates": "Blocked: online cargo check --workspace --all-targets was killed with SIGKILL compiling pinned external asupersync. Full workspace clippy/tests and actual extension execution are not recorded as passing.",
+    "authored_public_cases": 52,
+    "raw_logs": [
+      "artifacts/audit/2026-11-22-complex-qr-native.log",
+      "artifacts/audit/2026-11-22-complex-qr-private.log",
+      "artifacts/audit/2026-11-22-complex-qr-oracle.log"
+    ],
+    "validation_checkout_head": "b34db3835eb54e2afc5d5f94edc7cd952b4eed22",
+    "concurrent_changes_applied_before_joint_tests": "b44c949648478fe41e8a8c14e57f9b59d95dc07e"
+  },
+  "bounds": {
+    "axes": 32,
+    "original_and_unnormalized_component_bits": 4096,
+    "reference_temporary_bits": 8192,
+    "normalized_nodes": 16,
+    "normalized_depth": 4,
+    "normalized_radicals": 1,
+    "normalized_radicand_bits": 8192,
+    "normalized_aggregate_coefficient_bits": 16384,
+    "compute_steps": 20000000,
+    "cumulative_logical_bytes": 268435456,
+    "conservative_refusals_possible": true
+  },
+  "claims": {
+    "bead_closed": false,
+    "profile_certified": false,
+    "portable_certificate": false,
+    "protected_verifier_reservation": false
+  },
+  "observations": {
+    "initial_test_corrections": [
+      "Clarified the new pivot-minor diagnostic to name its pivot witness, preserving the strict rejection assertion.",
+      "Corrected a private-test BigInt shift literal to the API's u32 type."
+    ]
+  }
+}

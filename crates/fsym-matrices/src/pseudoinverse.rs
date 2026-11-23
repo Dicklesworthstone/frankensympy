@@ -2,7 +2,7 @@
 
 mod gaussian;
 pub use gaussian::{
-    GaussianLeastSquaresCandidate, GaussianLinearSystemCandidate,
+    GaussianLeastSquaresCandidate, GaussianLinearSystemCandidate, GaussianQrCandidate,
     VerifiedGaussianLeastSquaresFamily,
 };
 

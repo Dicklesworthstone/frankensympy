@@ -19,6 +19,8 @@ mod least_squares;
 pub use least_squares::{GaussianLeastSquaresCandidate, VerifiedGaussianLeastSquaresFamily};
 mod exact_solve;
 pub use exact_solve::GaussianLinearSystemCandidate;
+mod qr;
+pub use qr::GaussianQrCandidate;
 
 use crate::{Matrix, MatrixError, SparseMatrix, generate_sparse_pseudoinverse_candidate};
 use fsym_budget::{BudgetError, BudgetMeter, Dimension, MeterError};
@@ -160,6 +162,7 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
                 ld.saturating_add(rd),
             ),
             Operation::Multiply => (ln.saturating_add(rn), ld.saturating_add(rd)),
+            Operation::Divide => (ln.saturating_add(rd), ld.saturating_add(rn)),
         };
         // Check uncancelled cross-products before allocating their limbs.
         if numerator > MAX_WORK_BITS || denominator > MAX_WORK_BITS {
@@ -170,6 +173,7 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
             Operation::Add => left.metered_add(right, self),
             Operation::Subtract => left.metered_sub(right, self),
             Operation::Multiply => left.metered_mul(right, self),
+            Operation::Divide => left.metered_div(right, self),
         }
         .map_err(arithmetic_error)?;
         check_bits(&value, MAX_WORK_BITS)?;
@@ -253,6 +257,7 @@ enum Operation {
     Add,
     Subtract,
     Multiply,
+    Divide,
 }
 
 fn check_bits(value: &BigRational, maximum: u64) -> Result<()> {

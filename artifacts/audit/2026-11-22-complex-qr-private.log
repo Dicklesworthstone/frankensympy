@@ -1,0 +1,14 @@
+   Compiling fsym-matrices v0.1.0 (/workspace/scratch/00f9b4f7c532/frankensympy-validation/crates/fsym-matrices)
+    Finished `test` profile [unoptimized] target(s) in 4.74s
+     Running unittests src/lib.rs (/workspace/scratch/00f9b4f7c532/fsym-target/debug/build/fsym-matrices/7cecd40312fda94b/out/fsym_matrices-7cecd40312fda94b)
+
+running 6 tests
+test pseudoinverse::gaussian::qr::tests::independent_scale_checker_rejects_wrong_branches_and_unknown_scalar_shapes ... ok
+test pseudoinverse::gaussian::qr::tests::normalization_products_bound_coefficients_radicals_and_grammar_before_arithmetic ... ok
+test pseudoinverse::gaussian::tests::malformed_private_storage_is_rejected_before_rectangular_indexing ... ok
+test pseudoinverse::gaussian::tests::hermitian_reference_checks_diagonal_reality_and_conjugate_pairs ... ok
+test pseudoinverse::gaussian::qr::tests::independent_scale_checker_accepts_exact_nonsquare_and_fractional_anchors ... ok
+test pseudoinverse::gaussian::least_squares::tests::original_hermitian_residual_rejects_the_transpose_only_answer ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 58 filtered out; finished in 0.00s
+

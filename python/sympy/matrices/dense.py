@@ -1590,13 +1590,20 @@ class Matrix(MatrixBase):
         return self._new(p), self._new(l), self._new(u)
 
     def QRdecomposition(self):
-        """Return an exact thin QR decomposition for rational matrices.
+        """Return an exact thin QR decomposition over rationals or Q(i).
 
-        The columns of Q are orthonormal. Dependent columns are omitted from
-        Q and retained through R, so rectangular and rank-deficient inputs
-        return shapes (rows, rank) and (rank, cols).
+        The columns of Q are Hermitian-orthonormal. Dependent columns are
+        omitted from Q and retained through R, so rectangular and deficient
+        inputs return shapes (rows, rank) and (rank, cols). Complex inputs and
+        active requests share a checked, cumulative-budget lane bounded to
+        32 axes and 4096-bit input components.
         """
-        from ..core import Integer, _exact_ratio, sqrt
+        from ..core import Integer, _active_callback_session, _exact_ratio, sqrt
+        from ._pseudoinverse import _needs_gaussian
+
+        if _active_callback_session() is not None or _needs_gaussian(self):
+            from ._qr import gaussian_qr
+            return gaussian_qr(self)
 
         native = self._native
         rows, cols = native.shape

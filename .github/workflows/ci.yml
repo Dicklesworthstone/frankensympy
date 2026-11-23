@@ -153,6 +153,8 @@ jobs:
           cargo test --locked -p fsym-matrices --lib pseudoinverse::gaussian::tests -j1
           cargo test --locked -p fsym-matrices --test gaussian_least_squares --test gaussian_least_squares_family -j1
           cargo test --locked -p fsym-matrices --lib pseudoinverse::gaussian::least_squares::tests -j1
+          cargo test --locked -p fsym-matrices --test gaussian_qr -j1
+          cargo test --locked -p fsym-matrices --lib pseudoinverse::gaussian::qr::tests -j1
       - name: Principal-angle interval and original-source certificates
         run: cargo test --locked -p fsym-core --test atan2_enclosures --test atan2_certification -j1
       - name: Compiled principal-angle programs and derivative admission
@@ -333,6 +335,8 @@ jobs:
               "python/tests/test_matrix_definiteness.py",
               "python/tests/test_matrix_hermitian_definiteness.py",
               "python/tests/test_matrix_complex_pseudoinverse.py",
+              "python/tests/test_matrix_qr.py",
+              "python/tests/test_matrix_complex_qr.py",
               "python/tests/test_matrix_complex_least_squares.py",
               "python/tests/test_matrix_complex_least_squares_family.py",
               "python/tests/test_matrix_least_squares_parameter_budget.py",

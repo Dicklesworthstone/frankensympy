@@ -1405,6 +1405,45 @@ Explicit custom commutativity or equality/hash protocols require their own
 supported algebra. Arithmetic graphs and formal differentiation are bounded; arbitrary non-cooperative
 Python hooks retain the existing supervised-boundary limitations.
 
+## Exact complex QR decomposition (development API)
+
+Dense `Matrix.QRdecomposition()` and its `qr()` alias now admit bounded exact
+Gaussian-rational entries: rational real and imaginary components, including
+defined held expressions in that domain.
+
+```python
+from sympy import I, Matrix
+
+A = Matrix([[1, 1 + I], [I, 2]])
+Q, R = A.QRdecomposition()
+# Exact factors satisfy A = Q*R and Q.H*Q = eye(2).
+```
+
+The complex route uses the Hermitian inner product. In particular, the nonzero
+column `Matrix([1, I])` has squared norm 2 and is retained. Tall, wide and
+rank-deficient sources return thin factors with one basis column per independent
+source column; zero and dependent columns remain represented in `R`. Empty
+and rank-zero inputs preserve their original row and column dimensions.
+
+A native proposal is checked against the complete original source by exact
+reconstruction, the full Hermitian Gram matrix and an ordered unit pivot minor.
+A separate positive-scalar checker validates every normalization scale by exact
+squaring. These synchronous checks provide same-crate reference evidence;
+they do not export a portable proof-kernel certificate or certify a compatibility
+profile.
+
+Source interpretation, factor generation, checking and normalized publication
+share cumulative resource limits and the active supervised callback request.
+The complex lane admits at most 32 rows and columns and 4096-bit original
+and unnormalized rational components. Normalized expressions have separate
+finite-grammar and coefficient-size checks. An intrinsic 20-million-step and
+256-MiB logical allocation envelope applies throughout; conservative charges
+can refuse an otherwise valid input before normalization completes. Excessive intermediate growth, cancellation, undefined
+original cells and unsupported symbolic or floating inputs fail explicitly.
+Retained Python source mutations cannot publish stale factors. Actual-extension
+and native regression suites cover these contracts; execution status is recorded
+in `artifacts/audit/2026-11-22-complex-qr-progress.json`.
+
 ## Exact integer linear algebra (development API)
 
 The bounded integer lane computes Smith forms and complete integer solutions

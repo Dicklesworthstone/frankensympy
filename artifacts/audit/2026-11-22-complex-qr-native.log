@@ -1,0 +1,110 @@
+   Compiling fsym-matrices v0.1.0 (/workspace/scratch/00f9b4f7c532/frankensympy-validation/crates/fsym-matrices)
+    Finished `test` profile [unoptimized] target(s) in 12.11s
+     Running tests/gaussian_exact_solve.rs (/workspace/scratch/00f9b4f7c532/fsym-target/debug/build/fsym-matrices/1ce9832dfe305bd2/out/gaussian_exact_solve-1ce9832dfe305bd2)
+
+running 13 tests
+test empty_rhs_keeps_uniqueness_and_empty_unknowns_keep_consistency ... ok
+test bounded_syntax_selection_preserves_symbolic_inverse_and_domains ... ok
+test original_undefined_sources_cannot_disappear_in_zero_products ... ok
+test changes_to_original_sources_solution_and_left_inverse_are_rejected ... ok
+test unsupported_malformed_and_oversized_inputs_refuse_before_publication ... ok
+test independently_authored_left_inverse_proves_the_exact_solution ... ok
+test independent_checker_is_cancelled_even_at_its_final_safe_point ... ok
+test residual_only_witnesses_cannot_claim_uniqueness ... ok
+test ordinary_square_solve_and_inverse_accept_exact_imaginary_pivots ... ok
+test least_squares_projection_never_satisfies_an_exact_solve_request ... ok
+test rational_coefficients_and_multiple_complex_rhs_share_the_exact_lane ... ok
+test all_exact_solve_and_inverse_work_is_cumulative_through_publication ... ok
+test hand_derived_integer_corpus_exercises_complex_pivots_and_rhs ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+     Running tests/gaussian_least_squares.rs (/workspace/scratch/00f9b4f7c532/fsym-target/debug/build/fsym-matrices/1ebbfd9f0b28cb4a/out/gaussian_least_squares-1ebbfd9f0b28cb4a)
+
+running 13 tests
+test bounded_admission_never_falls_back_to_plain_transpose ... ok
+test borrowed_sparse_rhs_admission_precedes_any_dense_conversion ... ok
+test both_original_domains_are_checked_before_normal_products_or_rank_shortcuts ... ok
+test empty_rhs_keeps_full_rank_obligation_and_empty_unknowns_preserve_shape ... ok
+test incompatible_rhs_shape_is_rejected ... ok
+test isotropic_transpose_does_not_make_a_complex_full_rank_source_singular ... ok
+test held_gaussian_source_arithmetic_is_exactly_admitted ... ok
+test every_complex_rhs_is_projected_with_the_adjoint ... ok
+test rank_deficient_wide_and_zero_sources_remain_nonunique ... ok
+test literal_rational_full_rank_behavior_is_preserved ... ok
+test hermitian_metric_corrects_the_transpose_only_wrong_answer ... ok
+test tall_multiple_variable_and_rhs_systems_have_hand_derived_solutions ... ok
+test source_generation_rank_replay_residual_check_and_publication_share_one_budget ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/gaussian_least_squares_family.rs (/workspace/scratch/00f9b4f7c532/fsym-target/debug/build/fsym-matrices/398e1f439cfa9a5f/out/gaussian_least_squares_family-398e1f439cfa9a5f)
+
+running 18 tests
+test a_kernel_shifted_solution_is_not_the_minimum_norm_particular ... ok
+test certificates_are_bound_to_both_original_sources_and_every_shape ... ok
+test original_domain_holes_cannot_disappear_in_zero_products_or_witnesses ... ok
+test nonzero_source_with_empty_rhs_still_requires_complete_kernel_evidence ... ok
+test held_exact_gaussian_sources_have_normalized_immutable_receipt_snapshots ... ok
+test full_column_rank_complex_families_have_no_free_directions ... ok
+test source_and_witness_height_and_dimension_bounds_precede_publication ... ok
+test an_independently_authored_complex_family_is_accepted_without_generation ... ok
+test all_four_hermitian_penrose_obligations_are_required_by_family_acceptance ... ok
+test each_projector_obligation_rejects_an_explicit_false_witness ... ok
+test residual_only_zero_projector_cannot_claim_a_complete_family ... ok
+test rank_deficient_inconsistent_sources_keep_the_complete_complex_kernel ... ok
+test wrong_transpose_particular_and_tiny_exact_mutations_fail_original_normals ... ok
+test multiple_complex_right_hand_sides_share_one_complete_family ... ok
+test complex_family_agrees_with_the_existing_exact_rational_reference ... ok
+test the_standalone_verifier_charges_and_cancels_every_phase_too ... ok
+test zero_and_empty_sources_retain_every_arbitrary_coordinate ... ok
+test proposal_original_verification_and_publication_share_the_same_budget ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+     Running tests/gaussian_pseudoinverse.rs (/workspace/scratch/00f9b4f7c532/fsym-target/debug/build/fsym-matrices/cace2a7f65e4bdd4/out/gaussian_pseudoinverse-cace2a7f65e4bdd4)
+
+running 18 tests
+test original_poles_and_unsupported_children_survive_zero_simplifications ... ok
+test empty_shapes_accept_strict_recorded_budgets_without_zero_charges ... ok
+test original_source_is_rechecked_separately_from_the_candidate ... ok
+test literal_rational_fast_path_and_explicit_metered_reference_agree ... ok
+test isotropic_complex_row_and_column_require_adjoint_not_transpose ... ok
+test all_four_penrose_identities_reject_separate_complex_mutants ... ok
+test source_and_intermediate_bounds_refuse_before_expensive_work ... ok
+test rectangular_admission_preserves_the_square_inertia_contract ... ok
+test published_gaussian_values_match_ordinary_canonical_expression_arithmetic ... ok
+test tiny_exact_imaginary_mutation_cannot_pass_any_tolerance ... ok
+test verifier_budget_and_cancellation_remain_independent_public_controls ... ok
+test symmetric_projectors_do_not_satisfy_complex_hermitian_obligations ... ok
+test zero_area_and_held_zero_sources_preserve_exact_transposed_shape ... ok
+test scalar_complex_inverses_are_exact_and_conjugated ... ok
+test one_cumulative_budget_covers_proposal_replay_and_final_publication ... ok
+test full_column_and_row_rank_rectangles_have_the_expected_inverse ... ok
+test rank_one_rectangular_formula_retains_every_complex_component ... ok
+test exhaustive_small_matrices_match_cofactor_or_rank_one_closed_forms ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.93s
+
+     Running tests/gaussian_qr.rs (/workspace/scratch/00f9b4f7c532/fsym-target/debug/build/fsym-matrices/6cbc51c9cae46e5f/out/gaussian_qr-6cbc51c9cae46e5f)
+
+running 16 tests
+test dimensions_and_exact_bit_growth_remain_bounded ... ok
+test complete_hermitian_gram_check_rejects_imaginary_cross_terms ... ok
+test isotropic_columns_require_the_hermitian_inner_product ... ok
+test empty_and_zero_rank_shapes_are_thin_without_false_basis_vectors ... ok
+test unit_pivot_minor_rejects_rank_inflation_even_when_reconstruction_and_gram_pass ... ok
+test independent_replay_has_its_own_cancellation_and_budget_controls ... ok
+test zero_rank_outputs_work_with_exact_recorded_no_zero_charge_budgets ... ok
+test zero_shortcuts_never_discard_original_poles_or_unsupported_children ... ok
+test nonorthogonal_complex_columns_have_hand_computed_exact_projections ... ok
+test zero_and_dependent_columns_are_retained_in_rectangular_r ... ok
+test nonsquare_normalization_reserves_repeated_arithmetic_allocations ... ok
+test normalized_pythagorean_columns_and_scalar_phases_are_exact ... ok
+test original_tall_source_and_its_conjugation_keep_the_expected_rank ... ok
+test source_norm_pivot_and_factor_mutants_are_rejected_exactly ... ok
+test generation_verification_normalization_and_publication_share_one_meter ... ok
+test exhaustive_small_complex_ranks_match_the_independent_determinant ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.42s
+

@@ -118,8 +118,15 @@ class ExactQRTests(unittest.TestCase):
                             self.assertEqual(r.shape, (rank, 2))
                             self.assert_qr_identities(matrix, q, r)
 
+    def test_imaginary_scalar_keeps_its_exact_phase(self):
+        matrix = Matrix([[I]])
+        q, r = matrix.QRdecomposition()
+        self.assertEqual(q, Matrix([[I]]))
+        self.assertEqual(r, Matrix([[1]]))
+        self.assert_qr_identities(matrix, q, r)
+
     def test_unsupported_domains_remain_explicit(self):
-        for entry in (Symbol("x"), Symbol("q", rational=True), I, Float("1.2")):
+        for entry in (Symbol("x"), Symbol("q", rational=True), Float("1.2")):
             with self.subTest(entry=entry):
                 with self.assertRaisesRegex(ValueError, "exact rational entries only"):
                     Matrix([[entry]]).QRdecomposition()

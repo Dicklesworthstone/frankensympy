@@ -1319,6 +1319,41 @@ impl PyMatrix {
         Ok((Self { inner: cert.q }, Self { inner: cert.r }))
     }
 
+    /// Checked exact thin Q(i) QR, optionally normalized to orthonormal columns.
+    /// The original source, reference pass and output share the active request.
+    #[pyo3(signature = (*, normalize=true, session=None))]
+    pub fn gaussian_qr(
+        &self,
+        py: Python<'_>,
+        normalize: bool,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<(Self, Self)> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = (|| {
+            meter.checkpoint().map_err(to_value_error)?;
+            let (q, r) = if normalize {
+                self.inner
+                    .metered_gaussian_qr_normalized(&mut meter)
+                    .map_err(matrix_err)?
+            } else {
+                let candidate = self
+                    .inner
+                    .metered_gaussian_qr(&mut meter)
+                    .map_err(matrix_err)?;
+                (candidate.q, candidate.r)
+            };
+            meter
+                .charge(Dimension::ComputeSteps, 2)
+                .map_err(to_value_error)?;
+            meter.checkpoint().map_err(to_value_error)?;
+            Ok((Self { inner: q }, Self { inner: r }))
+        })();
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
+    }
+
     /// Exact LDL^T decomposition for symmetric matrix returning `(L, D)`.
     pub fn ldl(&self) -> PyResult<(Self, Self)> {
         let cert = self.inner.ldl().map_err(matrix_err)?;
