@@ -6,8 +6,8 @@ use fsym_budget::{
     Budget, BudgetError, BudgetLimits, BudgetMeter, DIMENSION_COUNT, Dimension, MeterError,
 };
 use fsym_core::real_roots::{
-    MAX_REAL_ROOT_DEGREE, MAX_REAL_ROOT_INPUT_BITS, RealRootQuery,
-    isolate_real_roots_in_interval, refine_real_root_interval,
+    MAX_REAL_ROOT_DEGREE, MAX_REAL_ROOT_INPUT_BITS, RealRootQuery, isolate_real_roots_in_interval,
+    refine_real_root_interval,
 };
 use fsym_core::{BigRational, Expr};
 use num_traits::{Signed, Zero};
@@ -148,7 +148,9 @@ pub fn real_root_analysis_native(
     let output = (|| {
         generator.checkpoint().map_err(crate::to_value_error)?;
         if !matches!(operation, "count" | "intervals" | "refine") {
-            return Err(PyValueError::new_err("unknown real-root analysis operation"));
+            return Err(PyValueError::new_err(
+                "unknown real-root analysis operation",
+            ));
         }
         if operation != "refine" && steps.is_some() {
             return Err(PyValueError::new_err("steps apply only to root refinement"));
@@ -163,25 +165,35 @@ pub fn real_root_analysis_native(
         if let (Some(lower), Some(upper)) = (&query.lower, &query.upper)
             && lower > upper
         {
-            return Err(PyValueError::new_err("root interval endpoints must be ordered"));
+            return Err(PyValueError::new_err(
+                "root interval endpoints must be ordered",
+            ));
         }
-        if query.max_width.as_ref().is_some_and(|eps| !eps.is_positive()) {
+        if query
+            .max_width
+            .as_ref()
+            .is_some_and(|eps| !eps.is_positive())
+        {
             return Err(PyValueError::new_err("'eps' must be a positive rational"));
         }
-        let polynomial = fsym_polys::bounded_polynomial_from_expr(
-            &expression.inner,
-            &[symbol],
-            &mut generator,
-        )
-        .map_err(crate::to_value_error)?;
+        let polynomial =
+            fsym_polys::bounded_polynomial_from_expr(&expression.inner, &[symbol], &mut generator)
+                .map_err(crate::to_value_error)?;
         let degree = polynomial.degree_in(0) as usize;
         if degree > MAX_REAL_ROOT_DEGREE {
-            return Err(PyValueError::new_err("exact root queries support degree at most 64"));
+            return Err(PyValueError::new_err(
+                "exact root queries support degree at most 64",
+            ));
         }
         if integral_coefficients
-            && polynomial.terms().values().any(|coefficient| !coefficient.denom().is_one())
+            && polynomial
+                .terms()
+                .values()
+                .any(|coefficient| !coefficient.denom().is_one())
         {
-            return Err(PyValueError::new_err("polynomial coefficients are not in declared ZZ"));
+            return Err(PyValueError::new_err(
+                "polynomial coefficients are not in declared ZZ",
+            ));
         }
         charge(&mut generator, degree + 1, (degree + 1) * 96)?;
         let mut coefficients = vec![BigRational::zero(); degree + 1];
@@ -199,13 +211,9 @@ pub fn real_root_analysis_native(
             return Ok(Vec::new());
         }
         let roots = if operation == "refine" {
-            refine_real_root_interval(
-                &coefficients, &query, steps, &mut generator, &mut verifier,
-            )
+            refine_real_root_interval(&coefficients, &query, steps, &mut generator, &mut verifier)
         } else {
-            isolate_real_roots_in_interval(
-                &coefficients, &query, &mut generator, &mut verifier,
-            )
+            isolate_real_roots_in_interval(&coefficients, &query, &mut generator, &mut verifier)
         }
         .map_err(crate::to_value_error)?;
         charge(

@@ -9,8 +9,8 @@
 use super::integer_system::{IntegerMatrixRef, same_source};
 use super::{
     BigInt, IntegerMatrix, MAX_INPUT_BITS, Matrix, MatrixError, RationalArithmeticError,
-    RationalSparseMatrix, Result, SparseMatrix, SparseRrefError, Work, coefficient,
-    generate, limit, stopped, verification,
+    RationalSparseMatrix, Result, SparseMatrix, SparseRrefError, Work, coefficient, generate,
+    limit, stopped, verification,
 };
 use fsym_budget::{BudgetMeter, Unbounded};
 use fsym_core::arith::{metered_gcd, metered_mod_inverse};
@@ -73,7 +73,9 @@ fn inputs(
 ) -> Result<RationalSparseMatrix> {
     work.tick(1)?;
     if !modulus.is_positive() || modulus.is_one() {
-        return Err(MatrixError::InvalidModulus("must be an integer at least two"));
+        return Err(MatrixError::InvalidModulus(
+            "must be an integer at least two",
+        ));
     }
     coefficient(modulus, MAX_INTEGER_MODULAR_MODULUS_BITS)?;
     source.admit(work)?;
@@ -229,9 +231,8 @@ pub fn verify_integer_modular_inverse_candidate(
             "modular inverse candidate differs from the original modulus".into(),
         ));
     }
-    let receipt =
-        verify_integer_modular_inverse(&original, modulus, &candidate.witness, &mut work)
-            .map_err(refused)?;
+    let receipt = verify_integer_modular_inverse(&original, modulus, &candidate.witness, &mut work)
+        .map_err(refused)?;
     work.tick(1)?;
     Ok(VerifiedIntegerModularInverse {
         source: original,
@@ -250,8 +251,7 @@ pub fn metered_inverse_mod(
 ) -> Result<VerifiedIntegerModularInverse> {
     let candidate = generate_integer_modular_inverse_candidate(source, modulus, generator)?;
     generator.checkpoint().map_err(stopped)?;
-    let accepted =
-        verify_integer_modular_inverse_candidate(source, modulus, candidate, verifier)?;
+    let accepted = verify_integer_modular_inverse_candidate(source, modulus, candidate, verifier)?;
     generator.checkpoint().map_err(stopped)?;
     verifier.checkpoint().map_err(stopped)?;
     Ok(accepted)

@@ -79,10 +79,16 @@ fn fixture() -> (RationalSparseMatrix, IntegerLllWitness) {
 fn receipt_binds_complete_lattice_source_basis_transforms_and_exact_delta() {
     let (source, witness) = fixture();
     let receipt = verify_integer_lll(&source, &delta(), &witness, &mut Unbounded).unwrap();
-    assert_eq!((receipt.rows(), receipt.columns(), receipt.rank()), (3, 3, 3));
+    assert_eq!(
+        (receipt.rows(), receipt.columns(), receipt.rank()),
+        (3, 3, 3)
+    );
     assert_eq!(receipt.delta(), &delta());
     assert_ne!(receipt.source_digest(), receipt.basis_digest());
-    assert_ne!(receipt.transform_digest(), receipt.transform_inverse_digest());
+    assert_ne!(
+        receipt.transform_digest(),
+        receipt.transform_inverse_digest()
+    );
 
     let bytes = serde_json::to_vec(&witness).unwrap();
     let decoded: IntegerLllWitness = serde_json::from_slice(&bytes).unwrap();
@@ -111,12 +117,17 @@ fn receipt_binds_complete_lattice_source_basis_transforms_and_exact_delta() {
 #[test]
 fn rectangular_and_maximum_shape_bases_keep_all_row_directions() {
     let source = matrix(2, 4, &[1, 0, 0, 0, 0, 1, 0, 0]);
-    let receipt = verify_integer_lll(&source, &delta(), &unchanged(&source), &mut Unbounded).unwrap();
-    assert_eq!((receipt.rows(), receipt.columns(), receipt.rank()), (2, 4, 2));
+    let receipt =
+        verify_integer_lll(&source, &delta(), &unchanged(&source), &mut Unbounded).unwrap();
+    assert_eq!(
+        (receipt.rows(), receipt.columns(), receipt.rank()),
+        (2, 4, 2)
+    );
 
     let mut source = identity(MAX_INTEGER_LLL_ROWS);
     source.columns = MAX_INTEGER_LLL_COLUMNS;
-    let receipt = verify_integer_lll(&source, &delta(), &unchanged(&source), &mut Unbounded).unwrap();
+    let receipt =
+        verify_integer_lll(&source, &delta(), &unchanged(&source), &mut Unbounded).unwrap();
     assert_eq!(receipt.rank(), MAX_INTEGER_LLL_ROWS);
     assert_eq!(receipt.columns(), MAX_INTEGER_LLL_COLUMNS);
 }
@@ -127,7 +138,10 @@ fn empty_and_one_zero_row_bases_have_explicit_rank_zero() {
         let source = matrix(rows, columns, &vec![0; rows * columns]);
         let witness = unchanged(&source);
         let receipt = verify_integer_lll(&source, &delta(), &witness, &mut Unbounded).unwrap();
-        assert_eq!((receipt.rows(), receipt.columns(), receipt.rank()), (rows, columns, 0));
+        assert_eq!(
+            (receipt.rows(), receipt.columns(), receipt.rank()),
+            (rows, columns, 0)
+        );
         if rows == 1 {
             let mut bad = witness;
             bad.transform.entries.clear();
@@ -158,7 +172,9 @@ fn dependent_multirow_sources_and_more_rows_than_columns_are_rejected() {
         matrix(2, 1, &[1, 2]),
         matrix(1, 0, &[]),
     ] {
-        assert!(verify_integer_lll(&source, &delta(), &unchanged(&source), &mut Unbounded).is_err());
+        assert!(
+            verify_integer_lll(&source, &delta(), &unchanged(&source), &mut Unbounded).is_err()
+        );
     }
 }
 
@@ -215,7 +231,9 @@ fn authoritative_delta_cannot_be_weakened_or_substituted_by_a_witness() {
     for invalid in [q(-1), q(0), ratio(1, 4), q(1), q(2)] {
         assert!(matches!(
             verify_integer_lll(&source, &invalid, &witness, &mut Unbounded),
-            Err(IntegerLllError::Invalid("delta must lie strictly between 1/4 and 1"))
+            Err(IntegerLllError::Invalid(
+                "delta must lie strictly between 1/4 and 1"
+            ))
         ));
     }
     let oversized = BigRational::new(
@@ -231,9 +249,7 @@ fn authoritative_delta_cannot_be_weakened_or_substituted_by_a_witness() {
 #[test]
 fn coefficients_beyond_machine_integer_and_float_precision_remain_exact() {
     let mut source = matrix(1, 2, &[1, 1]);
-    source.entries[0].value = BigRational::from_integer(
-        (BigInt::one() << 200u32) + BigInt::one(),
-    );
+    source.entries[0].value = BigRational::from_integer((BigInt::one() << 200u32) + BigInt::one());
     let witness = unchanged(&source);
     let receipt = verify_integer_lll(&source, &delta(), &witness, &mut Unbounded).unwrap();
     assert_eq!(receipt.rank(), 1);
@@ -354,11 +370,9 @@ fn portable_decoder_bounds_nested_values_shapes_entries_and_unknown_fields() {
             serde_json::to_value((BigInt::from(2), BigInt::from(2))).unwrap();
         assert!(serde_json::from_value::<IntegerLllWitness>(noncanonical).is_err());
         let mut oversized = value.clone();
-        oversized[field]["entries"][0]["value"] = serde_json::to_value(
-            BigRational::from_integer(
-                BigInt::one() << MAX_INTEGER_LLL_COEFFICIENT_BITS as u32,
-            ),
-        )
+        oversized[field]["entries"][0]["value"] = serde_json::to_value(BigRational::from_integer(
+            BigInt::one() << MAX_INTEGER_LLL_COEFFICIENT_BITS as u32,
+        ))
         .unwrap();
         assert!(serde_json::from_value::<IntegerLllWitness>(oversized).is_err());
         let mut unknown = value.clone();
@@ -366,10 +380,11 @@ fn portable_decoder_bounds_nested_values_shapes_entries_and_unknown_fields() {
         assert!(serde_json::from_value::<IntegerLllWitness>(unknown).is_err());
         let mut too_many = value.clone();
         let entry = too_many[field]["entries"][0].clone();
-        too_many[field]["entries"] = serde_json::Value::Array(vec![
-            entry;
-            MAX_INTEGER_LLL_ROWS * MAX_INTEGER_LLL_COLUMNS + 1
-        ]);
+        too_many[field]["entries"] =
+            serde_json::Value::Array(vec![
+                entry;
+                MAX_INTEGER_LLL_ROWS * MAX_INTEGER_LLL_COLUMNS + 1
+            ]);
         assert!(serde_json::from_value::<IntegerLllWitness>(too_many).is_err());
     }
 }
@@ -438,12 +453,7 @@ fn all_resource_dimensions_are_terminal_and_shared_work_remains_cumulative() {
             let mut limits = BudgetLimits::uniform(allowance, 0);
             limits.dimensions[dimension.index()] = remaining;
             assert!(matches!(
-                verify_integer_lll(
-                    &source,
-                    &delta(),
-                    &witness,
-                    &mut Budget::new(limits),
-                ),
+                verify_integer_lll(&source, &delta(), &witness, &mut Budget::new(limits),),
                 Err(IntegerLllError::Reference(SparseRrefError::Meter(
                     MeterError::Budget(_)
                 )))

@@ -174,12 +174,21 @@ fn dense_original_and_derivative_domains_are_strict_and_atomic() {
                 Expr::Function("log".into(), vec![Expr::Sym(x.clone())]),
             ]),
             -1.0,
+            EvalError::NonFiniteValue,
         ),
-        (Expr::Function("log".into(), vec![Expr::from_i64(-1)]), 2.0),
-        (parse("x^(1/2)").unwrap(), 0.0),
-        (parse("x^2").unwrap(), f64::MAX),
+        (
+            Expr::Function("log".into(), vec![Expr::from_i64(-1)]),
+            2.0,
+            EvalError::NonFiniteValue,
+        ),
+        (
+            parse("x^(1/2)").unwrap(),
+            0.0,
+            EvalError::NonsmoothSource("power"),
+        ),
+        (parse("x^2").unwrap(), f64::MAX, EvalError::NonFiniteValue),
     ];
-    for (source, point) in sources {
+    for (source, point, expected) in sources {
         let system =
             VerifiedResidualSystem::try_compile(&[source], std::slice::from_ref(&x)).unwrap();
         let mut residual = [901.0];
@@ -188,11 +197,25 @@ fn dense_original_and_derivative_domains_are_strict_and_atomic() {
             system
                 .try_eval_dense_into(&[point], &mut residual, &mut jacobian)
                 .unwrap_err(),
-            ResidualEvaluationError::Evaluation(EvalError::NonFiniteValue),
+            ResidualEvaluationError::Evaluation(expected),
         );
         assert_eq!(residual, [901.0]);
         assert_eq!(jacobian, [902.0]);
     }
+
+    // sqrt(0) is a finite scalar value, but its derivative has no finite
+    // smooth neighborhood there. Interior evaluation must remain available.
+    let square_root =
+        VerifiedResidualSystem::try_compile(&[parse("x^(1/2)").unwrap()], std::slice::from_ref(&x))
+            .unwrap();
+    assert_eq!(
+        square_root.residual_programs()[0].try_eval_finite(&[0.0]),
+        Ok(0.0),
+    );
+    let interior = square_root.try_eval_dense(&[4.0]).unwrap();
+    assert_eq!(interior.residuals, [2.0]);
+    assert_eq!(interior.jacobian, [0.25]);
+
     let no_derivatives = VerifiedResidualSystem::try_compile(
         &[Expr::Function("log".into(), vec![Expr::from_i64(-1)])],
         &[x],

@@ -309,7 +309,8 @@ pub fn refine_real_root_interval(
     let certificate = RealRootIsolationCertificate {
         intervals: vec![root],
     };
-    let result = verify_real_root_query(coefficients, &accepted_query, &certificate, verifier_meter)?;
+    let result =
+        verify_real_root_query(coefficients, &accepted_query, &certificate, verifier_meter)?;
     work.meter.checkpoint()?;
     verifier_meter.checkpoint()?;
     Ok(result)

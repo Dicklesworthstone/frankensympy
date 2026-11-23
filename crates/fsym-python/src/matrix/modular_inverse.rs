@@ -1,8 +1,7 @@
 //! Source-bound modular matrix inversion with cumulative request accounting.
 
 use super::{
-    NormalFormRequestMeter, PyMatrix, PySupervisedCallbackSession, integer_dense_output,
-    matrix_err,
+    NormalFormRequestMeter, PyMatrix, PySupervisedCallbackSession, integer_dense_output, matrix_err,
 };
 use crate::expr::{PyExpr, exact_python_integer};
 use crate::to_value_error;
@@ -24,21 +23,29 @@ fn modulus(
         let integer = match &atom.inner {
             Expr::Integer(integer) => integer,
             Expr::Rational(rational) if rational.is_integer() => rational.numer(),
-            _ => return Err(PyTypeError::new_err("inv_mod: modulus m must be an integer")),
+            _ => {
+                return Err(PyTypeError::new_err(
+                    "inv_mod: modulus m must be an integer",
+                ));
+            }
         };
         if integer.bits() > 4096 {
             return Err(PyValueError::new_err("inv_mod: modulus exceeds 4096 bits"));
         }
         let limbs = integer.limb_count().max(1);
-        meter.charge_batch(&[
-            (Dimension::ComputeSteps, limbs + 1),
-            (Dimension::MemoryBytes, limbs * 8),
-            (Dimension::AllocationCount, 1),
-        ]).map_err(to_value_error)?;
+        meter
+            .charge_batch(&[
+                (Dimension::ComputeSteps, limbs + 1),
+                (Dimension::MemoryBytes, limbs * 8),
+                (Dimension::AllocationCount, 1),
+            ])
+            .map_err(to_value_error)?;
         return Ok(integer.clone());
     }
     if !value.is_exact_instance_of::<PyInt>() {
-        return Err(PyTypeError::new_err("inv_mod: modulus m must be an integer"));
+        return Err(PyTypeError::new_err(
+            "inv_mod: modulus m must be an integer",
+        ));
     }
     let bits = value.call_method0("bit_length")?.extract::<u64>()?;
     if bits > 4096 {
@@ -46,11 +53,13 @@ fn modulus(
     }
     let limbs = bits.div_ceil(64).max(1);
     // Cover the exact built-in-int transport before its byte conversion.
-    meter.charge_batch(&[
-        (Dimension::ComputeSteps, limbs + 1),
-        (Dimension::MemoryBytes, limbs * 16 + 256),
-        (Dimension::AllocationCount, 4),
-    ]).map_err(to_value_error)?;
+    meter
+        .charge_batch(&[
+            (Dimension::ComputeSteps, limbs + 1),
+            (Dimension::MemoryBytes, limbs * 16 + 256),
+            (Dimension::AllocationCount, 4),
+        ])
+        .map_err(to_value_error)?;
     exact_python_integer(value, "modulus")
 }
 
@@ -64,9 +73,8 @@ pub(super) fn inverse(
     let mut verifier = NormalFormRequestMeter::new(py, session);
     let result = (|| {
         let modulus = modulus(original_modulus, &mut generator)?;
-        let accepted = metered_inverse_mod(
-            source, &modulus, &mut generator, &mut verifier,
-        ).map_err(matrix_err)?;
+        let accepted = metered_inverse_mod(source, &modulus, &mut generator, &mut verifier)
+            .map_err(matrix_err)?;
         let (_, witness, _) = accepted.into_parts();
         let result = match witness.outcome {
             IntegerModularInverseOutcome::Invertible { inverse } => {
@@ -74,7 +82,9 @@ pub(super) fn inverse(
             }
             IntegerModularInverseOutcome::NonUnit { .. } => None,
         };
-        generator.charge(Dimension::ComputeSteps, 1).map_err(to_value_error)?;
+        generator
+            .charge(Dimension::ComputeSteps, 1)
+            .map_err(to_value_error)?;
         generator.checkpoint().map_err(to_value_error)?;
         verifier.checkpoint().map_err(to_value_error)?;
         Ok(result)

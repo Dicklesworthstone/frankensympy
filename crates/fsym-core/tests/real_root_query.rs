@@ -55,7 +55,8 @@ fn complete_closed_queries_count_distinct_roots_and_keep_original_multiplicity()
         p = product(&p, &factor);
     }
     let request = query(Some(-2), Some(1));
-    let roots = isolate_real_roots_in_interval(&p, &request, &mut Unbounded, &mut Unbounded).unwrap();
+    let roots =
+        isolate_real_roots_in_interval(&p, &request, &mut Unbounded, &mut Unbounded).unwrap();
     assert_eq!(roots.distinct_count(), 3);
     assert_eq!(roots.intervals()[0], point(-2, 2));
     assert_eq!(roots.intervals()[1].multiplicity, 1);
@@ -136,13 +137,9 @@ fn close_roots_and_rational_boundary_are_not_merged() {
     let delta = BigRational::new(BigInt::one(), BigInt::from(10).pow(20));
     let other = q(1) + delta;
     let p = product(&polynomial(&[-1, 1]), &[-other, q(1)]);
-    let all = isolate_real_roots_in_interval(
-        &p,
-        &query(None, None),
-        &mut Unbounded,
-        &mut Unbounded,
-    )
-    .unwrap();
+    let all =
+        isolate_real_roots_in_interval(&p, &query(None, None), &mut Unbounded, &mut Unbounded)
+            .unwrap();
     assert_eq!(all.distinct_count(), 2);
     let one = isolate_real_roots_in_interval(
         &p,
@@ -184,10 +181,18 @@ fn checker_rejects_missing_duplicate_outside_and_wrong_multiplicity_roots() {
     };
     verify_real_root_query(&p, &request, &good, &mut Unbounded).unwrap();
     let mutants = [
-        RealRootIsolationCertificate { intervals: vec![point(1, 1)] },
-        RealRootIsolationCertificate { intervals: vec![point(1, 1), point(1, 1)] },
-        RealRootIsolationCertificate { intervals: vec![point(-1, 2), point(1, 1)] },
-        RealRootIsolationCertificate { intervals: vec![point(-2, 1), point(1, 1)] },
+        RealRootIsolationCertificate {
+            intervals: vec![point(1, 1)],
+        },
+        RealRootIsolationCertificate {
+            intervals: vec![point(1, 1), point(1, 1)],
+        },
+        RealRootIsolationCertificate {
+            intervals: vec![point(-1, 2), point(1, 1)],
+        },
+        RealRootIsolationCertificate {
+            intervals: vec![point(-2, 1), point(1, 1)],
+        },
     ];
     for mutant in mutants {
         assert!(verify_real_root_query(&p, &request, &mutant, &mut Unbounded).is_err());
@@ -195,16 +200,18 @@ fn checker_rejects_missing_duplicate_outside_and_wrong_multiplicity_roots() {
     assert!(
         verify_real_root_query(&polynomial(&[-2, 0, 1]), &request, &good, &mut Unbounded).is_err()
     );
-    assert!(
-        verify_real_root_query(&p, &query(Some(0), Some(2)), &good, &mut Unbounded).is_err()
-    );
+    assert!(verify_real_root_query(&p, &query(Some(0), Some(2)), &good, &mut Unbounded).is_err());
 }
 
 #[test]
 fn checker_enforces_interval_width_and_closed_domain() {
     let p = polynomial(&[-2, 0, 1]);
     let certificate = RealRootIsolationCertificate {
-        intervals: vec![RealRootInterval { lower: q(1), upper: q(2), multiplicity: 1 }],
+        intervals: vec![RealRootInterval {
+            lower: q(1),
+            upper: q(2),
+            multiplicity: 1,
+        }],
     };
     let mut request = query(Some(0), Some(2));
     verify_real_root_query(&p, &request, &certificate, &mut Unbounded).unwrap();
@@ -219,9 +226,13 @@ fn checker_enforces_interval_width_and_closed_domain() {
 fn supplied_isolators_refine_by_steps_and_by_precision() {
     let p = polynomial(&[-2, 0, 1]);
     let request = query(Some(1), Some(2));
-    let one = refine_real_root_interval(&p, &request, None, &mut Unbounded, &mut Unbounded).unwrap();
+    let one =
+        refine_real_root_interval(&p, &request, None, &mut Unbounded, &mut Unbounded).unwrap();
     assert_eq!(one.intervals()[0].lower, q(1));
-    assert_eq!(one.intervals()[0].upper, BigRational::new(3.into(), 2.into()));
+    assert_eq!(
+        one.intervals()[0].upper,
+        BigRational::new(3.into(), 2.into())
+    );
     let precise = RealRootQuery {
         max_width: Some(BigRational::new(1.into(), 1000.into())),
         ..request.clone()
@@ -269,7 +280,10 @@ fn supplied_isolator_must_contain_exactly_one_distinct_root() {
 fn oversized_requests_and_nonpositive_precision_are_terminal() {
     let p = polynomial(&[-2, 0, 1]);
     for width in [q(0), q(-1)] {
-        let request = RealRootQuery { max_width: Some(width), ..query(None, None) };
+        let request = RealRootQuery {
+            max_width: Some(width),
+            ..query(None, None)
+        };
         assert!(
             isolate_real_roots_in_interval(&p, &request, &mut Unbounded, &mut Unbounded).is_err()
         );

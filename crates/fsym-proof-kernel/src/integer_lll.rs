@@ -189,10 +189,7 @@ fn bounded_matrix<'de, D: Deserializer<'de>>(
     })
 }
 
-fn admit(
-    matrix: &RationalSparseMatrix,
-    work: &mut Reference<'_, impl BudgetMeter>,
-) -> Result<()> {
+fn admit(matrix: &RationalSparseMatrix, work: &mut Reference<'_, impl BudgetMeter>) -> Result<()> {
     work.tick(1)?;
     if matrix.rows > MAX_INTEGER_LLL_ROWS
         || matrix.columns > MAX_INTEGER_LLL_COLUMNS
@@ -297,7 +294,9 @@ fn check_reduced(
             if rows.len() == 1 && norm.is_zero() {
                 return Ok(0);
             }
-            return Err(IntegerLllError::Invalid("basis rows are linearly dependent"));
+            return Err(IntegerLllError::Invalid(
+                "basis rows are linearly dependent",
+            ));
         }
         if i > 0 {
             let previous_mu = &current[i - 1];
@@ -374,7 +373,9 @@ pub fn verify_integer_lll(
             };
             work.tick(value.numer().limb_count() + entry.value.numer().limb_count())?;
             if (row, *column) != (entry.row, entry.column) || value != &entry.value {
-                return Err(IntegerLllError::Invalid("T A differs from the reduced basis"));
+                return Err(IntegerLllError::Invalid(
+                    "T A differs from the reduced basis",
+                ));
             }
         }
     }

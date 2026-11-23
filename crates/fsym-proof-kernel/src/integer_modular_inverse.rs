@@ -13,8 +13,8 @@ use crate::integer_normal_form::{
 };
 use crate::sparse_rref::{RationalSparseMatrix, Reference, SparseRrefError};
 use fsym_budget::{BudgetMeter, MeterError};
-use fsym_core::arith::{metered_div_rem, metered_mul, metered_subtract};
 use fsym_core::BigInt;
+use fsym_core::arith::{metered_div_rem, metered_mul, metered_subtract};
 use thiserror::Error;
 
 pub const INTEGER_MODULAR_INVERSE_SCHEMA_VERSION: u32 = 1;
@@ -140,7 +140,11 @@ fn check_product(
                 sum = residue(&next, modulus, work)?;
             }
             work.tick(1)?;
-            if !(if row == column { sum.is_one() } else { sum.is_zero() }) {
+            if !(if row == column {
+                sum.is_one()
+            } else {
+                sum.is_zero()
+            }) {
                 return Err(IntegerModularInverseError::Invalid(
                     "original modular inverse residual is nonzero",
                 ));
@@ -161,10 +165,14 @@ pub fn verify_integer_modular_inverse(
     let mut work = Reference::new(verifier);
     work.tick(1)?;
     if witness.schema_version != INTEGER_MODULAR_INVERSE_SCHEMA_VERSION {
-        return Err(IntegerModularInverseError::Invalid("unknown witness schema"));
+        return Err(IntegerModularInverseError::Invalid(
+            "unknown witness schema",
+        ));
     }
     if !modulus.is_positive() || modulus.is_one() {
-        return Err(IntegerModularInverseError::Invalid("modulus must be at least two"));
+        return Err(IntegerModularInverseError::Invalid(
+            "modulus must be at least two",
+        ));
     }
     if modulus.bits() > MAX_INTEGER_MODULAR_MODULUS_BITS {
         return Err(SparseRrefError::Limit("modular inverse modulus height").into());
@@ -176,11 +184,12 @@ pub fn verify_integer_modular_inverse(
     for entry in &source.entries {
         work.tick(1)?;
         if entry.value.numer().bits() > 4096 {
-            return Err(SparseRrefError::Limit("modular inverse original coefficient height").into());
+            return Err(
+                SparseRrefError::Limit("modular inverse original coefficient height").into(),
+            );
         }
     }
-    let normal_form =
-        verify_integer_smith_with_work(source, &witness.normal_form, &mut work)?;
+    let normal_form = verify_integer_smith_with_work(source, &witness.normal_form, &mut work)?;
     let (inverse_digest, nonunit_index) = match &witness.outcome {
         IntegerModularInverseOutcome::Invertible { inverse } => {
             admit_integer_matrix(inverse, &mut work)?;
@@ -204,7 +213,9 @@ pub fn verify_integer_modular_inverse(
         }
         IntegerModularInverseOutcome::NonUnit { index, divisor } => {
             if *index >= source.rows || !divisor.is_positive() || divisor.is_one() {
-                return Err(IntegerModularInverseError::Invalid("nonunit divisor or index"));
+                return Err(IntegerModularInverseError::Invalid(
+                    "nonunit divisor or index",
+                ));
             }
             if divisor.bits() > MAX_INTEGER_MODULAR_MODULUS_BITS {
                 return Err(SparseRrefError::Limit("nonunit divisor height").into());

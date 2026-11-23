@@ -80,7 +80,10 @@ impl IntegerMatrixRef<'_> {
         Ok(())
     }
 
-    pub(super) fn snapshot(self, work: &mut Work<'_, impl BudgetMeter>) -> Result<RationalSparseMatrix> {
+    pub(super) fn snapshot(
+        self,
+        work: &mut Work<'_, impl BudgetMeter>,
+    ) -> Result<RationalSparseMatrix> {
         match self {
             Self::Dense(matrix) => snapshot(
                 matrix.rows,
