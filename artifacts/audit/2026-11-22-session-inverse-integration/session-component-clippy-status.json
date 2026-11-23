@@ -1,0 +1,20 @@
+{
+  "scope": "Complete original root library and actual cancellation integration target with five whole runtime and fourteen pinned donor modules; full async runtime graph omitted",
+  "command": [
+    "/workspace/scratch/78afbd38037e/rust-nightly-2026-08-20/bin/cargo-clippy",
+    "clippy",
+    "--offline",
+    "--locked",
+    "-p",
+    "frankensympy-session-source-component-check",
+    "--lib",
+    "--test",
+    "session_cancellation",
+    "--",
+    "-D",
+    "warnings"
+  ],
+  "exit_code": 101,
+  "elapsed_seconds": 99.2482067699998,
+  "max_rss_kib": 401592
+}

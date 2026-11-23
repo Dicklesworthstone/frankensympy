@@ -1,0 +1,331 @@
+{
+  "schema_version": 1,
+  "status": "implemented_uncertified",
+  "client_date": "2026-11-22",
+  "recorded_at_utc": "2026-11-23T04:20:15.143697+00:00",
+  "source_base": "3e18dee8d97d623daed7103d9334c3d9c992ce3b",
+  "publication": "Containing commit",
+  "implementation_commits": {
+    "native_host_cancellation": "14516c223eee3faf964f570d014cab2c60443797",
+    "stable_inverse_derivatives": "9d33d12a040255573ec4b80f25600a3fd5bf409d",
+    "scalar_nsolve_integration": "Containing commit"
+  },
+  "graph_scope": [
+    "fra-campaign-jacobian-bundle-ukp",
+    "fra-rc-cli-gate-0jr"
+  ],
+  "graph_effect": "Progress only; statuses, priorities, dependency edges, claim tiers and profile gates are unchanged.",
+  "scope": [
+    "Host-owned cooperative checkpoints throughout synchronous Session certification, including ordinary and protected verification lanes and final admission, on the original cumulative ledger and verifier lease.",
+    "Stable real atan/asinh first and second numerical derivatives in new checked residual/Jacobian and objective/Hessian programs, with independent derivative and source/opcode replay and unchanged historical artifact bytes.",
+    "The bounded scalar nsolve Newton derivative selector now admits atan/asinh to the same checked native jet route. Existing expression-size, integer-precision, power and derivative-growth bounds remain enforced.",
+    "Held original domains, exact-zero numerical residual stopping, distinct budget/cancellation failures, and refusal without symbolic fallback are retained."
+  ],
+  "concurrent_main_integration": {
+    "preserved_commits": [
+      "5edbd2fb08ddb784c7cd27da0058e528cb51280e",
+      "6a3606fb1c80bf8033dc457ffc5a87b021fd3dc8",
+      "b34db3835eb54e2afc5d5f94edc7cd952b4eed22",
+      "b44c949648478fe41e8a8c14e57f9b59d95dc07e",
+      "c2a2a2f13bff37c8664f3a6469843f7637c36a3f",
+      "422d0298153406bf4b6e2cbbb4602926bf0fbcd3",
+      "3e18dee8d97d623daed7103d9334c3d9c992ce3b"
+    ],
+    "method": "Fast-forward with saved local changes; no force update or history rewrite. Unrelated formatting, Abs quadrature, bisection, exact complex matrix and GramSchmidt work is preserved.",
+    "validated_unchanged_closures": {
+      "calculus_source_files": 193,
+      "session_source_files": 764,
+      "record": "artifacts/audit/2026-11-22-session-inverse-integration/final-unchanged-source-closures.json",
+      "latest_python_only_merge_record": "artifacts/audit/2026-11-22-session-inverse-integration/final-python-only-merge-closures.json",
+      "final_main_merge_record": "artifacts/audit/2026-11-22-session-inverse-integration/final-main-merge-source-comparison.json",
+      "final_source_base": "3e18dee8d97d623daed7103d9334c3d9c992ce3b"
+    },
+    "python": "Rebuilt the retained current PyO3 bridge on c2a2a2f, then reran all 247 selected cases after the Python-only 422d029 merge against the current checked-out Python package and the same hash-verified native binary. Only matrices/dense.py and its new GramSchmidt test changed in the recorded source inventory; native and harness sources are unchanged. The new GramSchmidt tests are outside this selected suite. A later concurrent exact-complex solve merge, 3e18dee, changes matrix bridge sources and Python matrix dispatch. Those changes are preserved, but the combined final PyO3 tree was not rebuilt or reexecuted; the 247-case pass remains scoped to the recorded 422d029 working sources."
+  },
+  "validation": {
+    "toolchain": "Pinned nightly-2026-08-20; rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "production_calculus": {
+      "outcome": "passed",
+      "passed": 66,
+      "failed": 0,
+      "test_targets": 8,
+      "new_test_functions": 10,
+      "exit_code": 0,
+      "command": [
+        "/workspace/scratch/78afbd38037e/rust-nightly-2026-08-20/bin/cargo",
+        "test",
+        "--locked",
+        "-p",
+        "fsym-calculus",
+        "--test",
+        "inverse_derivative_programs",
+        "--test",
+        "inverse_derivative_legacy",
+        "--test",
+        "tanh_programs",
+        "--test",
+        "tanh_legacy_artifacts",
+        "--test",
+        "inverse_circular_programs",
+        "--test",
+        "inverse_hyperbolic_programs",
+        "--test",
+        "absolute_programs",
+        "--test",
+        "sinc_programs"
+      ],
+      "status_record": "artifacts/audit/2026-11-22-session-inverse-integration/merged-calculus-tests-status.json",
+      "raw_log": "artifacts/audit/2026-11-22-session-inverse-integration/merged-calculus-tests.log"
+    },
+    "session_source_component": {
+      "outcome": "passed",
+      "library_unit_tests": 22,
+      "public_cancellation_tests": 7,
+      "failed": 0,
+      "scope": "Complete actual root library and test source; five complete production runtime modules plus fourteen complete pinned codec/support modules. No substituted function implementations; full async runtime graph omitted.",
+      "source_scope": "artifacts/audit/2026-11-22-session-inverse-integration/merged-session-source-scope.json",
+      "source_stability": "artifacts/audit/2026-11-22-session-inverse-integration/merged-session-source-stability.json",
+      "exit_code": 0,
+      "command": [
+        "/workspace/scratch/78afbd38037e/rust-nightly-2026-08-20/bin/cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "frankensympy-session-source-component-check",
+        "--lib",
+        "--test",
+        "session_cancellation",
+        "-j1"
+      ],
+      "status_record": "artifacts/audit/2026-11-22-session-inverse-integration/merged-session-tests-status.json",
+      "raw_log": "artifacts/audit/2026-11-22-session-inverse-integration/merged-session-tests.log"
+    },
+    "python_source_component": {
+      "outcome": "passed",
+      "passed": 247,
+      "failed": 0,
+      "skipped": 0,
+      "targets": 7,
+      "original_source_files_hashed": 1173,
+      "bridge_files_retained_unchanged": 46,
+      "omitted_helpers": [
+        "lib.rs::eval_error",
+        "lib.rs::eval_region",
+        "lib.rs::simplify_expr",
+        "lib.rs::expand_expr",
+        "expr.rs::PyExpr.simplify",
+        "expr.rs::PyExpr.expand"
+      ],
+      "scope": "Actual retained PyO3 numerical implementations and checked-out Python shell; six simplify/expand helpers and full async runtime graph omitted. No upstream production fallback or replacement function implementations.",
+      "binary_sha256": "d741239caaad6f6be7eed61e980d6135f5cdbd0eee53900e3b7b119265cc7443",
+      "binary_receipt": "artifacts/audit/2026-11-22-session-inverse-integration/final-python-binary.json",
+      "source_scope": "artifacts/audit/2026-11-22-session-inverse-integration/final-python-source-scope.json",
+      "build_stability": "artifacts/audit/2026-11-22-session-inverse-integration/final-python-build-stability.json",
+      "test_stability": "artifacts/audit/2026-11-22-session-inverse-integration/final-python-test-stability.json",
+      "runner": "artifacts/audit/2026-11-22-session-inverse-integration/final-python-tests.py",
+      "exit_code": 0,
+      "command": [
+        "/workspace/scratch/78afbd38037e/python-validation/bin/python",
+        "/workspace/scratch/78afbd38037e/validation-components-c2a2a2f/python/run_focused_tests.py"
+      ],
+      "status_record": "artifacts/audit/2026-11-22-session-inverse-integration/final-python-tests-status.json",
+      "raw_log": "artifacts/audit/2026-11-22-session-inverse-integration/final-python-tests.log",
+      "test_source_base": "422d0298153406bf4b6e2cbbb4602926bf0fbcd3",
+      "native_build_base": "c2a2a2f13bff37c8664f3a6469843f7637c36a3f",
+      "final_merged_tree_reexecuted": false,
+      "final_merge_comparison": "artifacts/audit/2026-11-22-session-inverse-integration/final-main-merge-source-comparison.json"
+    },
+    "python_component_build": {
+      "outcome": "passed",
+      "exit_code": 0,
+      "command": [
+        "/workspace/scratch/78afbd38037e/rust-nightly-2026-08-20/bin/cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--lib",
+        "--features",
+        "extension-module",
+        "-j1"
+      ],
+      "status_record": "artifacts/audit/2026-11-22-session-inverse-integration/final-python-build-status.json",
+      "raw_log": "artifacts/audit/2026-11-22-session-inverse-integration/final-python-build.log"
+    },
+    "production_calculus_clippy": {
+      "outcome": "passed",
+      "scope": "All calculus targets with -D warnings; source closure unchanged on final base.",
+      "exit_code": 0,
+      "command": [
+        "/workspace/scratch/78afbd38037e/rust-nightly-2026-08-20/bin/cargo-clippy",
+        "clippy",
+        "--locked",
+        "-p",
+        "fsym-calculus",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "status_record": "artifacts/audit/2026-11-22-session-inverse-integration/merged-calculus-clippy-status.json",
+      "raw_log": "artifacts/audit/2026-11-22-session-inverse-integration/merged-calculus-clippy.log"
+    },
+    "root_only_clippy": {
+      "outcome": "passed",
+      "scope": "Explicit --no-deps diagnostic on actual root library and cancellation target with -D warnings, through the documented component. This is not a full dependency or workspace lint pass.",
+      "stability": "artifacts/audit/2026-11-22-session-inverse-integration/final-root-clippy-stability.json",
+      "exit_code": 0,
+      "command": [
+        "/workspace/scratch/78afbd38037e/rust-nightly-2026-08-20/bin/cargo-clippy",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--no-deps",
+        "-p",
+        "frankensympy-session-source-component-check",
+        "--lib",
+        "--test",
+        "session_cancellation",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "status_record": "artifacts/audit/2026-11-22-session-inverse-integration/final-root-clippy-status.json",
+      "raw_log": "artifacts/audit/2026-11-22-session-inverse-integration/final-root-clippy.log"
+    },
+    "workspace_formatting": {
+      "outcome": "passed",
+      "command": "Pinned cargo-fmt --check, equivalent to cargo fmt --check",
+      "record": "artifacts/audit/2026-11-22-session-inverse-integration/final-workspace-format-status.json",
+      "note": "The earlier baseline formatting failures were resolved by concurrent commit 5edbd2f; original failure inventory is retained. The final formatter pass ran on c2a2a2f; no Rust source or manifest changed in the subsequent 422d029 Python-only merge. Later merge 3e18dee changes matrix bridge Rust sources; this recorded full formatter pass is not extended to those later inputs."
+    },
+    "static_checks": {
+      "outcome": "passed",
+      "checks": [
+        "Changed Python AST parsing",
+        "Workflow target existence and selection",
+        "git diff --check"
+      ],
+      "source_base": "3e18dee8d97d623daed7103d9334c3d9c992ce3b plus containing changes"
+    },
+    "dependency_identity": {
+      "session_registry_packages": 58,
+      "python_registry_packages": 56,
+      "all_selected_registry_versions_sources_checksums_match_production": true,
+      "records": [
+        "artifacts/audit/2026-11-22-session-inverse-integration/session-lock-comparison.json",
+        "artifacts/audit/2026-11-22-session-inverse-integration/python-lock-comparison.json"
+      ],
+      "production_manifests_or_lock_modified": false
+    },
+    "full_production_session": {
+      "outcome": "compiler_terminated_before_tests",
+      "reason": "Unchanged pinned asupersync rustc process terminated by signal 9 (SIGKILL); no Rust diagnostic or executed Session test result.",
+      "exit_code": 101,
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "frankensympy",
+        "--test",
+        "session_cancellation"
+      ],
+      "status_record": "artifacts/audit/2026-11-22-session-inverse-integration/full-session-build-status.json",
+      "raw_log": "artifacts/audit/2026-11-22-session-inverse-integration/full-session-build.log"
+    },
+    "strict_component_dependency_clippy": {
+      "outcome": "failed_before_root",
+      "reason": "Thirty diagnostics in the selected unchanged pinned codec composition: five unused-member, five collapsible-if, two too-many-arguments, seventeen chunks-exact-to-as-chunks and one needless-range-loop. No suppressions or source edits.",
+      "exit_code": 101,
+      "command": [
+        "/workspace/scratch/78afbd38037e/rust-nightly-2026-08-20/bin/cargo-clippy",
+        "clippy",
+        "--offline",
+        "--locked",
+        "-p",
+        "frankensympy-session-source-component-check",
+        "--lib",
+        "--test",
+        "session_cancellation",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "status_record": "artifacts/audit/2026-11-22-session-inverse-integration/session-component-clippy-status.json",
+      "raw_log": "artifacts/audit/2026-11-22-session-inverse-integration/session-component-clippy.log"
+    },
+    "full_workspace_check": {
+      "outcome": "interrupted_without_terminal_result",
+      "command": "cargo check --locked --workspace --all-targets",
+      "reason": "Initial executor disconnected after reaching fsym-calculus; no pass or compiler error was observed."
+    },
+    "full_workspace_clippy_and_tests": {
+      "outcome": "not_completed",
+      "reason": "Full production graph remains blocked; scoped passes are not substitutes for these release gates."
+    },
+    "benchmark": {
+      "outcome": "not_run",
+      "claim": "No performance claim"
+    }
+  },
+  "bisection_fixture_correction": {
+    "initial_merged_run": {
+      "passed": 245,
+      "failed": 1,
+      "raw_log": "artifacts/audit/2026-11-22-session-inverse-integration/bisect-initial-tests.log"
+    },
+    "cause": "The unheld expression canonicalized to 10^20*x - 100000000000000010000. Both evaluators produced endpoint residuals [-16384,0], so the documented numerical-zero endpoint shortcut applied before stagnation.",
+    "correction": "Hold subtraction before scaling, assert nonzero opposite endpoint signs, and exercise both math and budgeted native lanes. The expected stagnation ValueError and production solver semantics are unchanged.",
+    "held_endpoint_residuals": [
+      -10000.0,
+      12204.46049250313
+    ],
+    "diagnostic": "artifacts/audit/2026-11-22-session-inverse-integration/bisect-stagnation-diagnostic.json",
+    "test_only_change_receipt": "artifacts/audit/2026-11-22-session-inverse-integration/bisect-fixture-only-change.json",
+    "corrected_run": {
+      "passed": 247,
+      "failed": 0,
+      "raw_log": "artifacts/audit/2026-11-22-session-inverse-integration/bisect-corrected-tests.log"
+    }
+  },
+  "reproduction": {
+    "script": "artifacts/audit/2026-11-22-session-inverse-integration/prepare_components.py",
+    "layout": "Place an unchanged copy of prepare_components.py in a fresh sibling directory beside a checkout named frankensympy and the three pinned donor checkouts. Run it with Python 3.11+; it reconstructs the existing audited manifests and extraction recipe without overwriting an existing component.",
+    "preparation": "artifacts/audit/2026-11-22-session-inverse-integration/final-component-preparation.json",
+    "python_omissions": "artifacts/audit/2026-11-22-session-inverse-integration/python-bridge-omissions.json",
+    "commands": "Use the exact pinned commands recorded in status files. The saved Python runner is an invocation snapshot: copy it into the prepared Python component as run_focused_tests.py and set its checkout path for the new location. Generate a fresh native-binary.json receipt for that build, retain all import/hash assertions, and run with PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 and PYTHONDONTWRITEBYTECODE=1. Metadata/record_scope commands must use the same feature flags as their builds.",
+    "restriction": "These source-component recipes are validation boundaries, not production dependency replacements."
+  },
+  "limits": [
+    "No complete campaign, compatibility profile, CLI release gate, asynchronous runtime or packaging gate is closed.",
+    "The new Session API is cooperative and synchronous; legacy Bind/Diff/Eval cancellation and an asynchronous NDJSON cancellation endpoint remain outside its scope.",
+    "Full production dependency graph and the six omitted Python helpers are not validated by component execution.",
+    "Numerical jets and nsolve candidates remain approximate binary64 results. Other extreme composite intermediates may overflow or underflow, and final unrepresentable derivatives may round to zero.",
+    "Historical derivative artifacts retain their original evaluation; recompile a source to use new stable jets.",
+    "The final concurrent 3e18dee matrix bridge/public solve integration is preserved but was not rebuilt or reexecuted here. The 247 Python cases describe the recorded 422d029 source tree and retained C2 native binary, not all code on the containing commit."
+  ],
+  "source_sha256": {
+    "src/request_budget.rs": "63b066c08aee1169bc1f1145ce402aca3442b5513ad61bfaee38e5c5d8bd43a9",
+    "src/session.rs": "52f86f6bd25cf2e87461738abe61c25714b065a6bfa3e9a1a50b03220c0c218d",
+    "src/certification_session.rs": "d4f4efe59cedc232b2409718116ed18ee2ae7ab3aa4a77f7418f743d4de1d088",
+    "src/certification_session/compiled.rs": "91795986053434f7f46e22208fc348e558e4267adb8333a7c531ed955d42c19d",
+    "src/certification_session/compiled_objective.rs": "696c0dade612f3b856e06218f8d77dcf67e00492934cd4ac6aa2da413a779117",
+    "src/certification_session/compiled_solvers.rs": "5926ddaec7130811cd5d1286864d17bef4bdc17935e8c3f65991b0e9b1a52657",
+    "src/certification_session/parametric.rs": "a014a1a2e562ba43c8b29310074c70dcd970922e2ad1a9df2c246ef09cae6857",
+    "src/certification_session/polynomial_solver.rs": "c9ec3f4380aa4912fef410603d0282d1ae32991d6fb1901c5511c83de5976271",
+    "src/certification_session/real_solver.rs": "0a55904066e747c92765c96b3d90463036d0387aeea5f92b411aa3ef6623aca1",
+    "tests/session_cancellation.rs": "e47d822306a09b328054c7591fe253348f24d7d90ae17f4e045301b5856b996a",
+    "crates/fsym-calculus/src/lib.rs": "190b555cecb8d517c69c2f7d93fe6ad777f95718a216e70b1b11261418e2b63a",
+    "crates/fsym-calculus/src/proof.rs": "a4626b895868d630be6e0ab0aa68e15e084aa9909942faa084b01e12a164d686",
+    "crates/fsym-calculus/src/compile.rs": "dcb5b15e58cbd97887e2c659c5eecb9961ec7c33095b9869dab352f653d264e1",
+    "crates/fsym-calculus/src/sparse_jacobian.rs": "e1bfac95f983b1f81d1c5752ee10f78142bce323c52c180ed8ba4009e726f770",
+    "crates/fsym-calculus/tests/inverse_derivative_programs.rs": "429d8dbb0efc134266b67d173a12b5a902f0e5f328ffabc547977c7e7d284ab6",
+    "crates/fsym-calculus/tests/inverse_derivative_legacy.rs": "6140aa8c4bd7e7472caf128f0335adb7961131d6e4e14eca074f7767c84af76e",
+    "python/sympy/solvers/numerical.py": "6778dd2597aa247705d7d899430ef8a55e4cc32c01b98aa142547ceb17af950a",
+    "python/tests/test_inverse_derivative_numeric.py": "e352781a6f9cf864567ac343a91ab9c8911752b4d075ecf07377e625454be718",
+    "python/tests/test_nsolve_inverse_jets.py": "001940200656d1ae1bc4ff4a4b89309c041f36b7aebe0b002fb440d157cafce3",
+    "python/tests/test_nsolve_bisect.py": "a2404840e54c0d6e603991c23d5fab8f9a3d1b8bf600381914d700e4a1c55908"
+  },
+  "production_lock_sha256": "c7c208173cbc7a6643ff652b28044cdf8d07d5108e3c9b8f2bbd833ecb1d5f42"
+}

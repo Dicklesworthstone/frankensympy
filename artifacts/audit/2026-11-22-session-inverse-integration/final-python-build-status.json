@@ -1,0 +1,16 @@
+{
+  "scope": "Current retained mathematical PyO3 bridge after matrix-only main update; six simplify/expand helpers and full async runtime omitted",
+  "command": [
+    "/workspace/scratch/78afbd38037e/rust-nightly-2026-08-20/bin/cargo",
+    "build",
+    "--offline",
+    "--locked",
+    "--lib",
+    "--features",
+    "extension-module",
+    "-j1"
+  ],
+  "exit_code": 0,
+  "elapsed_seconds": 28.669969913000386,
+  "max_rss_kib": 888388
+}

@@ -1,0 +1,14 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "frankensympy",
+    "--test",
+    "session_cancellation"
+  ],
+  "exit_code": 101,
+  "elapsed_seconds": 335.2335384320004,
+  "max_rss_kib": 1951304
+}

@@ -1,0 +1,59 @@
+{
+  "command": [
+    "/workspace/scratch/78afbd38037e/rust-nightly-2026-08-20/bin/cargo-fmt",
+    "--check"
+  ],
+  "equivalent_to": "cargo fmt --check with explicit pinned cargo-fmt/rustfmt executables",
+  "exit_code": 1,
+  "files": [
+    {
+      "path": "crates/fsym-core/src/real_roots.rs",
+      "unchanged_from_session_base": true
+    },
+    {
+      "path": "crates/fsym-core/src/real_roots/query.rs",
+      "unchanged_from_session_base": true
+    },
+    {
+      "path": "crates/fsym-core/tests/real_root_query.rs",
+      "unchanged_from_session_base": true
+    },
+    {
+      "path": "crates/fsym-matrices/src/lib.rs",
+      "unchanged_from_session_base": true
+    },
+    {
+      "path": "crates/fsym-matrices/src/normal_forms/integer_system.rs",
+      "unchanged_from_session_base": true
+    },
+    {
+      "path": "crates/fsym-matrices/src/normal_forms/modular_inverse.rs",
+      "unchanged_from_session_base": true
+    },
+    {
+      "path": "crates/fsym-matrices/tests/modular_inverse.rs",
+      "unchanged_from_session_base": true
+    },
+    {
+      "path": "crates/fsym-proof-kernel/src/integer_lll.rs",
+      "unchanged_from_session_base": true
+    },
+    {
+      "path": "crates/fsym-proof-kernel/src/integer_modular_inverse.rs",
+      "unchanged_from_session_base": true
+    },
+    {
+      "path": "crates/fsym-proof-kernel/tests/integer_lll.rs",
+      "unchanged_from_session_base": true
+    },
+    {
+      "path": "crates/fsym-python/src/algebraic_roots/query.rs",
+      "unchanged_from_session_base": true
+    },
+    {
+      "path": "crates/fsym-python/src/matrix/modular_inverse.rs",
+      "unchanged_from_session_base": true
+    }
+  ],
+  "changed_files_implicated": 0
+}

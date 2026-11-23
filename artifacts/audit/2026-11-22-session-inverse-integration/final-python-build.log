@@ -1,0 +1,6 @@
+   Compiling fsym-matrices v0.1.0 (/workspace/scratch/78afbd38037e/frankensympy/crates/fsym-matrices)
+   Compiling fsym-budget-source-component v0.1.0 (/workspace/scratch/78afbd38037e/validation-components-c2a2a2f/python/runtime)
+   Compiling fsym-python-math-source-component v0.1.0 (/workspace/scratch/78afbd38037e/validation-components-c2a2a2f/python)
+    Finished `dev` profile [unoptimized] target(s) in 28.61s
+
+Recorded process exit code: 0

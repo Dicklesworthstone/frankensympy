@@ -1,0 +1,10 @@
+{
+  "command": [
+    "/workspace/scratch/78afbd38037e/rust-nightly-2026-08-20/bin/cargo-fmt",
+    "--check"
+  ],
+  "equivalent_to": "cargo fmt --check with pinned subcommand",
+  "source_base": "c2a2a2f13bff37c8664f3a6469843f7637c36a3f",
+  "exit_code": 0,
+  "output_bytes": 0
+}

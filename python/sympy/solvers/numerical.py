@@ -210,7 +210,7 @@ def _scalar_uses_checked_jets(instructions):
     """
     from ..utilities.lambdify import _math_coth, _math_sinc
 
-    intrinsics = (abs, _math_sinc, math.tanh, _math_coth)
+    intrinsics = (abs, _math_sinc, math.tanh, _math_coth, math.atan, math.asinh)
     if len(instructions) > 128 or not any(
         instruction[0] == "function" and any(instruction[1] is function for function in intrinsics)
         for instruction in instructions
@@ -699,8 +699,9 @@ def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False, budget=Non
     """Find a finite real numerical candidate for an equation or residual system.
 
     ``backend="python"`` uses independently checked native derivatives for a
-    bounded scalar subset containing Abs, sinc, tanh or coth. This includes
-    nonzero Abs branches and the analytic sinc extension at zero. Scalar
+    bounded scalar subset containing Abs, sinc, tanh, coth, atan or asinh.
+    This includes nonzero Abs branches, the analytic sinc extension at zero,
+    and inverse-function slopes that avoid overflowing argument squares. Scalar
     residuals retain math-backend arithmetic. Other scalar sources, Piecewise,
     math-only functions, large exact integer arithmetic and sources with
     noninteger/dynamic powers retain typed symbolic differentiation.

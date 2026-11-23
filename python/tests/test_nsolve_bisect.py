@@ -179,18 +179,29 @@ def test_bisection_only_evaluates_inside_the_captured_bracket(monkeypatch):
     assert len(evaluated) > 2 and all(1 <= value <= 4 for value in evaluated)
 
 
-def test_iteration_exhaustion_and_binary64_stagnation_do_not_publish_candidates():
+@pytest.mark.parametrize("budgeted", [False, True])
+def test_iteration_exhaustion_and_binary64_stagnation_do_not_publish_candidates(budgeted):
     x = s.Symbol("bracketed_stagnation")
+    budget = s.EvaluationBudget() if budgeted else None
     assert float(s.nsolve(x-s.Rational(1, 2), x, (0, 1),
-                         solver="bisect", maxiter=1)) == 0.5
+                         solver="bisect", maxiter=1, budget=budget)) == 0.5
     with pytest.raises(ValueError, match="failed to converge"):
-        s.nsolve(x*x-2, x, (0, 2), solver="bisect", maxiter=1)
+        s.nsolve(x*x-2, x, (0, 2), solver="bisect", maxiter=1, budget=budget)
     left = 1.0
     right = math.nextafter(left, math.inf)
     # An unrepresentable root lies strictly between adjacent binary64 inputs.
-    source = 10**20*(x-1)-10000
+    # Hold subtraction before scaling: expansion rounds the right endpoint's
+    # residual to zero and would exercise the numerical-zero shortcut instead.
+    source = s.Add(
+        s.Mul(10**20, s.Add(x, -1, evaluate=False), evaluate=False),
+        -10000,
+        evaluate=False,
+    )
+    evaluate = (s.compile_numeric(x, source) if budgeted
+                else s.lambdify(x, source, modules="math"))
+    assert evaluate(left) < 0 < evaluate(right)
     with pytest.raises(ValueError, match="stagnat"):
-        s.nsolve(source, x, (left, right), solver="bisect", tol=1e-30)
+        s.nsolve(source, x, (left, right), solver="bisect", tol=1e-30, budget=budget)
 
 
 @pytest.mark.parametrize("bounds", [(), (0,), (0, 1, 2), (1, 0), (1, 1),

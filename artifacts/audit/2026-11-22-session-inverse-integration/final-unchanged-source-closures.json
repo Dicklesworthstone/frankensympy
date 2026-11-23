@@ -1,0 +1,23 @@
+{
+  "repository_head": "c2a2a2f13bff37c8664f3a6469843f7637c36a3f",
+  "checks": {
+    "calculus_tests": {
+      "prior_receipt": "/workspace/scratch/78afbd38037e/validation-logs/calculus-regressions-merged.status.json",
+      "source_files_compared": 193,
+      "changed_or_missing": [],
+      "identical": true
+    },
+    "calculus_clippy": {
+      "prior_receipt": "/workspace/scratch/78afbd38037e/validation-logs/calculus-clippy-merged.status.json",
+      "source_files_compared": 193,
+      "changed_or_missing": [],
+      "identical": true
+    },
+    "session_tests": {
+      "prior_receipt": "/workspace/scratch/78afbd38037e/validation-components-merged/session/post-run.json",
+      "source_files_compared": 764,
+      "changed_or_missing": [],
+      "identical": true
+    }
+  }
+}

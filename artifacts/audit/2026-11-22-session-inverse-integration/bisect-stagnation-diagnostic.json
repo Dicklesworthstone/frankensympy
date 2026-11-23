@@ -1,0 +1,108 @@
+{
+  "bounds": [
+    1.0,
+    1.0000000000000002
+  ],
+  "results": [
+    {
+      "name": "ordinary",
+      "repr": "100000000000000000000*bracketed_stagnation - 100000000000000010000",
+      "str": "100000000000000000000*bracketed_stagnation - 100000000000000010000",
+      "args": [
+        "-100000000000000010000",
+        "100000000000000000000*bracketed_stagnation"
+      ],
+      "instructions": [
+        [
+          "constant",
+          -100000000000000010000
+        ],
+        [
+          "constant",
+          100000000000000000000
+        ],
+        [
+          "variable",
+          0
+        ],
+        [
+          "multiply",
+          2
+        ],
+        [
+          "add",
+          2
+        ]
+      ],
+      "math": {
+        "endpoint_values": [
+          -16384.0,
+          0.0
+        ],
+        "candidate": 1.0000000000000002
+      },
+      "native": {
+        "endpoint_values": [
+          -16384.0,
+          0.0
+        ],
+        "candidate": 1.0000000000000002
+      }
+    },
+    {
+      "name": "held",
+      "repr": "100000000000000000000*(bracketed_stagnation - 1) - 10000",
+      "str": "100000000000000000000*(bracketed_stagnation - 1) - 10000",
+      "args": [
+        "100000000000000000000*(bracketed_stagnation - 1)",
+        "-10000"
+      ],
+      "instructions": [
+        [
+          "constant",
+          100000000000000000000
+        ],
+        [
+          "variable",
+          0
+        ],
+        [
+          "constant",
+          -1
+        ],
+        [
+          "add",
+          2
+        ],
+        [
+          "multiply",
+          2
+        ],
+        [
+          "constant",
+          -10000
+        ],
+        [
+          "add",
+          2
+        ]
+      ],
+      "math": {
+        "endpoint_values": [
+          -10000.0,
+          12204.46049250313
+        ],
+        "error_type": "ValueError",
+        "error": "nsolve bisection stagnated before meeting the interval and residual tolerances"
+      },
+      "native": {
+        "endpoint_values": [
+          -10000.0,
+          12204.46049250313
+        ],
+        "error_type": "ValueError",
+        "error": "nsolve bisection stagnated before meeting the interval and residual tolerances"
+      }
+    }
+  ]
+}

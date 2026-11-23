@@ -1077,6 +1077,14 @@ representable range may still round to zero, and other intermediates in a
 composite expression may still overflow or underflow. Original-source
 rational-ball certification remains a separate check.
 
+Scalar `nsolve` also selects these checked slopes for its bounded native
+derivative subset containing `atan` or `asinh`, including with an
+`EvaluationBudget`. For example, `nsolve(asinh(x) - 461, x, 1e200)` can
+iterate without overflowing the square of its finite initial argument.
+Source admission, held-domain checks, large exact-integer handling, and
+terminal cancellation/resource errors retain their existing behavior.
+The returned root remains an approximate numerical candidate.
+
 ---
 
 ## Entire sinc evaluation (development API)

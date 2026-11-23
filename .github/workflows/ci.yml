@@ -623,6 +623,7 @@ jobs:
               "python/tests/test_nsolve_convergence.py",
               "python/tests/test_nsolve_systems.py",
               "python/tests/test_scalar_numeric_derivatives.py",
+              "python/tests/test_nsolve_inverse_jets.py",
               "python/tests/test_verified_program_transport.py",
               "python/tests/test_portable_program_transport.py",
               "python/tests/test_callback_effects_and_ownership.py",

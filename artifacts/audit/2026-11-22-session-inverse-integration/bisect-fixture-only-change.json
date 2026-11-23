@@ -1,0 +1,8 @@
+{
+  "source_changes_since_native_build": [
+    "/workspace/scratch/78afbd38037e/frankensympy/python/tests/test_nsolve_bisect.py"
+  ],
+  "production_bridge_and_harness_unchanged": true,
+  "old_sha256": "bb77adfed5362a9ea700f0901e60211b03ac923378a248492a6b9f7666dde3ac",
+  "new_sha256": "a2404840e54c0d6e603991c23d5fab8f9a3d1b8bf600381914d700e4a1c55908"
+}

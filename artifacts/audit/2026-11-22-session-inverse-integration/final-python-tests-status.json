@@ -1,0 +1,11 @@
+{
+  "scope": "Current checked-out Python shell after GramSchmidt-only update with byte-identical retained native PyO3 component; no rebuild",
+  "command": [
+    "/workspace/scratch/78afbd38037e/python-validation/bin/python",
+    "/workspace/scratch/78afbd38037e/validation-components-c2a2a2f/python/run_focused_tests.py"
+  ],
+  "runner_sha256": "3267f123e9924be378d0863726b726a7a4e75177d62319bef7f06f887da4b49b",
+  "exit_code": 0,
+  "elapsed_seconds": 6.3371542510003565,
+  "max_rss_kib": 74388
+}

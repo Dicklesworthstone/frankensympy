@@ -104,5 +104,6 @@
     "crates/fsym-calculus/tests/inverse_derivative_legacy.rs": "6140aa8c4bd7e7472caf128f0335adb7961131d6e4e14eca074f7767c84af76e",
     "python/tests/test_inverse_derivative_numeric.py": "e352781a6f9cf864567ac343a91ab9c8911752b4d075ecf07377e625454be718"
   },
-  "production_lock_sha256": "c7c208173cbc7a6643ff652b28044cdf8d07d5108e3c9b8f2bbd833ecb1d5f42"
+  "production_lock_sha256": "c7c208173cbc7a6643ff652b28044cdf8d07d5108e3c9b8f2bbd833ecb1d5f42",
+  "follow_up_evidence": "artifacts/audit/2026-11-22-session-inverse-integration-progress.json"
 }

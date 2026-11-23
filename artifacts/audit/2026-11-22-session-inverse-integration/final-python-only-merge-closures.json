@@ -1,0 +1,30 @@
+{
+  "repository_head": "422d0298153406bf4b6e2cbbb4602926bf0fbcd3",
+  "python_changes_since_c2": [
+    "/workspace/scratch/78afbd38037e/frankensympy/python/sympy/matrices/dense.py",
+    "/workspace/scratch/78afbd38037e/frankensympy/python/tests/test_matrix_gram_schmidt.py"
+  ],
+  "native_sources_and_harness_unchanged": true,
+  "retained_rust_validation_closures": {
+    "calculus_tests": {
+      "prior_receipt": "/workspace/scratch/78afbd38037e/validation-logs/calculus-regressions-merged.status.json",
+      "source_files_compared": 193,
+      "identical": true
+    },
+    "calculus_clippy": {
+      "prior_receipt": "/workspace/scratch/78afbd38037e/validation-logs/calculus-clippy-merged.status.json",
+      "source_files_compared": 193,
+      "identical": true
+    },
+    "session_tests": {
+      "prior_receipt": "/workspace/scratch/78afbd38037e/validation-components-merged/session/post-run.json",
+      "source_files_compared": 764,
+      "identical": true
+    },
+    "session_root_clippy": {
+      "prior_receipt": "/workspace/scratch/78afbd38037e/validation-components-merged/session/post-root-clippy-c2a2a2f.json",
+      "source_files_compared": 764,
+      "identical": true
+    }
+  }
+}

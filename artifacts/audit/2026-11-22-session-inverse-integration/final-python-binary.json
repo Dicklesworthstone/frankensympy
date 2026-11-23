@@ -1,0 +1,7 @@
+{
+  "built_binary": "/workspace/scratch/78afbd38037e/frankensympy/target/debug/libfsym_python.so",
+  "preserved_binary": "/workspace/scratch/78afbd38037e/validation-components-c2a2a2f/python/extension/fsym_python.so",
+  "size_bytes": 68608184,
+  "sha256": "d741239caaad6f6be7eed61e980d6135f5cdbd0eee53900e3b7b119265cc7443",
+  "identical_copy": true
+}

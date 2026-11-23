@@ -1,0 +1,21 @@
+{
+  "scope": "Root-only strict lint diagnostic of complete actual root library and public session_cancellation integration target; --no-deps excludes dependency linting; full component donor lint failure remains separately recorded",
+  "command": [
+    "/workspace/scratch/78afbd38037e/rust-nightly-2026-08-20/bin/cargo-clippy",
+    "clippy",
+    "--offline",
+    "--locked",
+    "--no-deps",
+    "-p",
+    "frankensympy-session-source-component-check",
+    "--lib",
+    "--test",
+    "session_cancellation",
+    "--",
+    "-D",
+    "warnings"
+  ],
+  "exit_code": 0,
+  "elapsed_seconds": 22.589455082000313,
+  "max_rss_kib": 437620
+}

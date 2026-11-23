@@ -1,0 +1,16 @@
+{
+  "command": [
+    "/workspace/scratch/78afbd38037e/rust-nightly-2026-08-20/bin/cargo-clippy",
+    "clippy",
+    "--locked",
+    "-p",
+    "fsym-calculus",
+    "--all-targets",
+    "--",
+    "-D",
+    "warnings"
+  ],
+  "exit_code": 0,
+  "elapsed_seconds": 40.5737368340001,
+  "max_rss_kib": 434024
+}

@@ -1,0 +1,8 @@
+{"scope": "Retained mathematical PyO3 component; six unrelated simplify/expand helpers and full async runtime omitted", "native": "/workspace/scratch/78afbd38037e/frankensympy/target/debug/libfsym_python.so", "native_sha256": "d741239caaad6f6be7eed61e980d6135f5cdbd0eee53900e3b7b119265cc7443", "sympy": "/workspace/scratch/78afbd38037e/frankensympy/python/sympy/__init__.py", "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]", "pytest": "8.4.2", "targets": ["python/tests/test_inverse_derivative_numeric.py", "python/tests/test_nsolve_inverse_jets.py", "python/tests/test_scalar_numeric_derivatives.py", "python/tests/test_inverse_circular_numeric.py", "python/tests/test_inverse_hyperbolic_numeric.py", "python/tests/test_nsolve_certified.py", "python/tests/test_nsolve_bisect.py"]}
+........................................................................ [ 29%]
+........................................................................ [ 58%]
+........................................................................ [ 87%]
+...............................                                          [100%]
+247 passed in 5.35s
+
+Recorded process exit code: 0

@@ -1,0 +1,18 @@
+{
+  "scope": "Merged actual complete root library plus five complete runtime and fourteen pinned donor modules; full async runtime omitted",
+  "command": [
+    "/workspace/scratch/78afbd38037e/rust-nightly-2026-08-20/bin/cargo",
+    "test",
+    "--offline",
+    "--locked",
+    "-p",
+    "frankensympy-session-source-component-check",
+    "--lib",
+    "--test",
+    "session_cancellation",
+    "-j1"
+  ],
+  "exit_code": 0,
+  "elapsed_seconds": 236.68800628999998,
+  "max_rss_kib": 654696
+}

@@ -1,0 +1,10 @@
+    Checking fsym-core v0.1.0 (/workspace/scratch/78afbd38037e/frankensympy/crates/fsym-core)
+    Checking fsym-assumptions v0.1.0 (/workspace/scratch/78afbd38037e/frankensympy/crates/fsym-assumptions)
+    Checking fsym-proof-kernel v0.1.0 (/workspace/scratch/78afbd38037e/frankensympy/crates/fsym-proof-kernel)
+    Checking fsym-evidence v0.1.0 (/workspace/scratch/78afbd38037e/frankensympy/crates/fsym-evidence)
+    Checking fsym-polys v0.1.0 (/workspace/scratch/78afbd38037e/frankensympy/crates/fsym-polys)
+    Checking fsym-simplify v0.1.0 (/workspace/scratch/78afbd38037e/frankensympy/crates/fsym-simplify)
+    Checking fsym-calculus v0.1.0 (/workspace/scratch/78afbd38037e/frankensympy/crates/fsym-calculus)
+    Finished `dev` profile [unoptimized] target(s) in 23.78s
+
+Recorded process exit code: 0

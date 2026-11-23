@@ -1,0 +1,158 @@
+{
+  "comparison_only": true,
+  "build_or_tests_run": false,
+  "previous_validated_python_working_base": "422d0298153406bf4b6e2cbbb4602926bf0fbcd3",
+  "current_working_base": "3e18dee8d97d623daed7103d9334c3d9c992ce3b",
+  "exact_commit_delta": [
+    {
+      "status": "M",
+      "path": ".beads/issues.jsonl"
+    },
+    {
+      "status": "M",
+      "path": ".github/workflows/ci.yml"
+    },
+    {
+      "status": "M",
+      "path": "README.md"
+    },
+    {
+      "status": "A",
+      "path": "artifacts/audit/2026-11-22-absolute-quadrature-complex-exact-solve-progress.json"
+    },
+    {
+      "status": "A",
+      "path": "artifacts/audit/2026-11-22-absolute-quadrature-complex-native.log"
+    },
+    {
+      "status": "M",
+      "path": "crates/fsym-python/src/lib.rs"
+    },
+    {
+      "status": "M",
+      "path": "crates/fsym-python/src/matrix.rs"
+    },
+    {
+      "status": "M",
+      "path": "python/sympy/matrices/_pseudoinverse.py"
+    },
+    {
+      "status": "M",
+      "path": "python/sympy/matrices/_qr.py"
+    },
+    {
+      "status": "M",
+      "path": "python/sympy/matrices/dense.py"
+    },
+    {
+      "status": "A",
+      "path": "python/tests/test_matrix_complex_exact_solve.py"
+    }
+  ],
+  "retained_rust_results": {
+    "production_calculus_tests": {
+      "prior_receipt": "/workspace/scratch/78afbd38037e/validation-logs/calculus-regressions-merged.status.json",
+      "files_compared": 193,
+      "changed_files": [],
+      "unchanged_source_result_retained": true,
+      "rerun": false
+    },
+    "production_calculus_clippy": {
+      "prior_receipt": "/workspace/scratch/78afbd38037e/validation-logs/calculus-clippy-merged.status.json",
+      "files_compared": 193,
+      "changed_files": [],
+      "unchanged_source_result_retained": true,
+      "rerun": false
+    },
+    "session_component_tests": {
+      "prior_receipt": "/workspace/scratch/78afbd38037e/validation-components-merged/session/post-run.json",
+      "files_compared": 764,
+      "changed_files": [],
+      "unchanged_source_result_retained": true,
+      "rerun": false
+    },
+    "session_root_only_clippy": {
+      "prior_receipt": "/workspace/scratch/78afbd38037e/validation-components-merged/session/post-root-clippy-c2a2a2f.json",
+      "files_compared": 764,
+      "changed_files": [],
+      "unchanged_source_result_retained": true,
+      "rerun": false
+    }
+  },
+  "python": {
+    "previous_pass": 247,
+    "previous_pass_scope": "/workspace/scratch/78afbd38037e/validation-components-c2a2a2f/python/post-tests-422d029.json",
+    "pass_extended_to_current_main": false,
+    "changed_inputs": [
+      {
+        "path": "crates/fsym-python/src/lib.rs",
+        "old_blob": "3c6a489915715c0645da038de6beefa608565986",
+        "new_blob": "e1e91c07cef5843da9ad1cd088b156218c83c4bf",
+        "previous_validated_sha256": "a2b5aba65c95ffb980e3281f29c6db2195203f915ec1ff045042db241f7b0899",
+        "current_sha256": "4b3ae0e855588a8bf09cd2c66baa3661eeea1e8f69546ad04b67fdb777149791"
+      },
+      {
+        "path": "crates/fsym-python/src/matrix.rs",
+        "old_blob": "ff3e3538a40779ec667deb2934f4553e10da97d3",
+        "new_blob": "e1ce718c032e77b3b1fa274e9558af47c952c84f",
+        "previous_validated_sha256": "e28d71138a19ab3cf39f31f91aa4909ea96f80e15b4f932b37236a7ba9bebedc",
+        "current_sha256": "750b05702041ea50637ad54a7d4b60996c78c670f0ae37404fa6030bf3e4bf2a"
+      },
+      {
+        "path": "python/sympy/matrices/_pseudoinverse.py",
+        "old_blob": "f1af275c2517f4943827107d10a10229d612693c",
+        "new_blob": "50a8445799111335c92785047714cc0817887f13",
+        "previous_validated_sha256": "0e053f248ac755a38b0313aebfaeb3b7840fb902f2d1f031740bf163c17205f5",
+        "current_sha256": "2a0b6c5af32a5874fe45c3140697feba2b68cd4d5bea8455f286c998acbe8e29"
+      },
+      {
+        "path": "python/sympy/matrices/_qr.py",
+        "old_blob": "7bcabcdb011c4a47a172d4b912416ce880c8af23",
+        "new_blob": "55faef1c4ab002d68b9b592d34f2e1eaa6d7a2b3",
+        "previous_validated_sha256": "27a0549ab221d56a095871d5acbb3546bafe9b69cad5a16a42dfe720ec853724",
+        "current_sha256": "e85e2b896bb98816dbbe45e1c057d2d7ed14b4fb7b43b09205f348fed623d001"
+      },
+      {
+        "path": "python/sympy/matrices/dense.py",
+        "old_blob": "bab30fb312e7601f9e986567dd068e105fa01aab",
+        "new_blob": "02f45ccd885233cb6867714437a5065bf124a785",
+        "previous_validated_sha256": "4728f5376e1c3102dda11def8873bdd1e251133d31111f3e52fd8bab4708ed57",
+        "current_sha256": "285d5293eb314dfb60fa4a53645efbd1579b3af9d606f093c311f94f3c5022c4"
+      },
+      {
+        "path": "python/tests/test_matrix_complex_exact_solve.py",
+        "old_blob": null,
+        "new_blob": "31bd9352702800e1bfdd1ec508ebebc336af9b7d",
+        "previous_validated_sha256": null,
+        "current_sha256": "beab36a3eea015225b36b976e0c382c284792afd97f576d916931ca7e47146ea"
+      }
+    ],
+    "native_composition_changed_files": [
+      "lib.rs",
+      "matrix.rs"
+    ],
+    "numerical_objective_and_budget_bridge_files_unchanged": [
+      "numeric.rs",
+      "numeric/program_artifact.rs",
+      "numeric/root_artifact.rs",
+      "numeric_budget.rs",
+      "numeric_budget/tests.rs",
+      "objective.rs"
+    ],
+    "preserved_binary_sha256": "d741239caaad6f6be7eed61e980d6135f5cdbd0eee53900e3b7b119265cc7443",
+    "preserved_binary_matches_current_complete_bridge": false,
+    "implication": "The 247-case Python pass remains scoped to the recorded 422d029 working sources. New matrix bridge signatures and captured Python interfaces were not rebuilt or executed after this final merge. Unchanged numerical source hashes do not establish integrated Python coverage for the current complete bridge.",
+    "original_source_files_compared": 1173,
+    "unchanged_existing_source_files": 1168,
+    "changed_existing_source_files": [
+      "crates/fsym-python/src/lib.rs",
+      "crates/fsym-python/src/matrix.rs",
+      "python/sympy/matrices/_pseudoinverse.py",
+      "python/sympy/matrices/_qr.py",
+      "python/sympy/matrices/dense.py"
+    ],
+    "harness_files_compared": 56,
+    "harness_unchanged": true,
+    "numerical_python_selector_unchanged": true
+  }
+}

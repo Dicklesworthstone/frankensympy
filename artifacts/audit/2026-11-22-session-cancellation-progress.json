@@ -84,5 +84,6 @@
     "src/certification_session/real_solver.rs": "0a55904066e747c92765c96b3d90463036d0387aeea5f92b411aa3ef6623aca1",
     "tests/session_cancellation.rs": "e47d822306a09b328054c7591fe253348f24d7d90ae17f4e045301b5856b996a"
   },
-  "production_lock_sha256": "c7c208173cbc7a6643ff652b28044cdf8d07d5108e3c9b8f2bbd833ecb1d5f42"
+  "production_lock_sha256": "c7c208173cbc7a6643ff652b28044cdf8d07d5108e3c9b8f2bbd833ecb1d5f42",
+  "follow_up_evidence": "artifacts/audit/2026-11-22-session-inverse-integration-progress.json"
 }

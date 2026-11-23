@@ -1,0 +1,28 @@
+{"scope": "Retained mathematical PyO3 component; six unrelated simplify/expand helpers and full async runtime omitted", "native": "/workspace/scratch/78afbd38037e/frankensympy/target/debug/libfsym_python.so", "native_sha256": "e4c096fabb18ce5e173397e6a2fd5e1c388bd141e199a4cc06f771f95f9c7224", "sympy": "/workspace/scratch/78afbd38037e/frankensympy/python/sympy/__init__.py", "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]", "pytest": "8.4.2", "targets": ["python/tests/test_inverse_derivative_numeric.py", "python/tests/test_nsolve_inverse_jets.py", "python/tests/test_scalar_numeric_derivatives.py", "python/tests/test_inverse_circular_numeric.py", "python/tests/test_inverse_hyperbolic_numeric.py", "python/tests/test_nsolve_certified.py", "python/tests/test_nsolve_bisect.py"]}
+........................................................................ [ 29%]
+........................................................................ [ 58%]
+................................................................F....... [ 87%]
+..............................                                           [100%]
+=================================== FAILURES ===================================
+_ test_iteration_exhaustion_and_binary64_stagnation_do_not_publish_candidates __
+
+    def test_iteration_exhaustion_and_binary64_stagnation_do_not_publish_candidates():
+        x = s.Symbol("bracketed_stagnation")
+        assert float(s.nsolve(x-s.Rational(1, 2), x, (0, 1),
+                             solver="bisect", maxiter=1)) == 0.5
+        with pytest.raises(ValueError, match="failed to converge"):
+            s.nsolve(x*x-2, x, (0, 2), solver="bisect", maxiter=1)
+        left = 1.0
+        right = math.nextafter(left, math.inf)
+        # An unrepresentable root lies strictly between adjacent binary64 inputs.
+        source = 10**20*(x-1)-10000
+>       with pytest.raises(ValueError, match="stagnat"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE <class 'ValueError'>
+
+python/tests/test_nsolve_bisect.py:192: Failed
+=========================== short test summary info ============================
+FAILED python/tests/test_nsolve_bisect.py::test_iteration_exhaustion_and_binary64_stagnation_do_not_publish_candidates
+1 failed, 245 passed in 5.18s
+
+Recorded process exit code: 1

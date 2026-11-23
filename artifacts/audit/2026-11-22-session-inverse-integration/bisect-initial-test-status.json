@@ -1,0 +1,11 @@
+{
+  "scope": "Merged retained mathematical PyO3 bridge and checked-out Python shell; six simplify/expand helpers and full runtime omitted",
+  "command": [
+    "/workspace/scratch/78afbd38037e/python-validation/bin/python",
+    "/workspace/scratch/78afbd38037e/validation-components-merged/python/run_focused_tests.py"
+  ],
+  "runner_sha256": "3267f123e9924be378d0863726b726a7a4e75177d62319bef7f06f887da4b49b",
+  "exit_code": 1,
+  "elapsed_seconds": 5.982235110000147,
+  "max_rss_kib": 69844
+}

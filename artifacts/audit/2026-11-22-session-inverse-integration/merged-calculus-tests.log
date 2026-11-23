@@ -1,0 +1,123 @@
+   Compiling fsym-core v0.1.0 (/workspace/scratch/78afbd38037e/frankensympy/crates/fsym-core)
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/78afbd38037e/frankensympy/crates/fsym-assumptions)
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/78afbd38037e/frankensympy/crates/fsym-proof-kernel)
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/78afbd38037e/frankensympy/crates/fsym-evidence)
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/78afbd38037e/frankensympy/crates/fsym-polys)
+   Compiling fsym-simplify v0.1.0 (/workspace/scratch/78afbd38037e/frankensympy/crates/fsym-simplify)
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/78afbd38037e/frankensympy/crates/fsym-calculus)
+    Finished `test` profile [unoptimized] target(s) in 27.49s
+     Running tests/absolute_programs.rs (target/debug/build/fsym-calculus/27ec05f7b490988c/out/absolute_programs-27ec05f7b490988c)
+
+running 12 tests
+test jets_preserve_exact_sign_across_the_finite_range_and_refuse_zero ... ok
+test failed_evaluations_consume_one_ledger_and_never_publish_partial_buffers ... ok
+test numeric_branch_rules_do_not_change_public_symbolic_receipts ... ok
+test shared_numeric_evaluation_keeps_jet_identity_and_lazy_inactive_cusps ... ok
+test nested_absolute_values_keep_inner_and_outer_cusps_distinct ... ok
+test same_named_typed_coordinates_remain_independent_in_both_derivative_stages ... ok
+test source_opcode_admission_distinguishes_value_first_and_second_derivatives ... ok
+test original_inner_poles_cannot_be_hidden_by_absolute_value_or_zero_arithmetic ... ok
+test source_cusps_survive_constant_zero_rules_masks_and_zero_directions ... ok
+test portable_programs_replay_and_reject_forged_sign_curvature_and_omissions ... ok
+test squared_absolute_residual_has_two_smooth_minima_and_no_cusp_gradient ... ok
+test nonlinear_chain_rule_retains_both_signs_and_all_sparse_products ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/inverse_circular_programs.rs (target/debug/build/fsym-calculus/51c21f49ccdd8bfe/out/inverse_circular_programs-51c21f49ccdd8bfe)
+
+running 8 tests
+test inverse_opcodes_roundtrip_and_require_a_real_operand_stack ... ok
+test inverse_functions_keep_cancellation_and_cumulative_resource_accounting ... ok
+test singular_endpoint_derivatives_do_not_publish_partial_outputs ... ok
+test principal_values_and_closed_value_endpoints_compile ... ok
+test inverse_opcodes_obey_lazy_forward_branch_execution ... ok
+test source_checker_rejects_another_well_formed_inverse_function ... ok
+test finite_domain_errors_cannot_be_hidden_by_zero_or_later_arithmetic ... ok
+test verified_jacobians_hessians_and_products_keep_all_chain_factors ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/inverse_derivative_legacy.rs (target/debug/build/fsym-calculus/95dcc6df745c4c4c/out/inverse_derivative_legacy-95dcc6df745c4c4c)
+
+running 4 tests
+test historical_exact_zero_omissions_survive_the_new_inverse_nodes ... ok
+test historical_replay_checks_every_recipe_without_resetting_the_budget ... ok
+test historical_inverse_recipes_keep_the_already_stable_tanh_sinc_and_abs_rules ... ok
+test historical_inverse_residual_and_objective_programs_preserve_their_original_bytes ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/inverse_derivative_programs.rs (target/debug/build/fsym-calculus/70c63702e4ebb6d8/out/inverse_derivative_programs-70c63702e4ebb6d8)
+
+running 6 tests
+test public_symbolic_receipts_remain_ordinary_inverse_function_rules ... ok
+test scaled_inverse_evaluation_keeps_atomic_outputs_and_the_caller_meter ... ok
+test inverse_jets_keep_finite_gradients_and_curvatures_through_the_binary64_range ... ok
+test inverse_jets_retain_mixed_and_inner_second_derivatives ... ok
+test independent_proof_and_opcode_checks_reject_inverse_jet_mutants ... ok
+test scaled_inverse_programs_replay_without_changing_bytes_or_derivatives ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/inverse_hyperbolic_programs.rs (target/debug/build/fsym-calculus/e2a2591c50171bc0/out/inverse_hyperbolic_programs-e2a2591c50171bc0)
+
+running 10 tests
+test new_operations_preserve_cumulative_accounting_and_cancellation ... ok
+test equal_printed_names_keep_their_distinct_inverse_hyperbolic_coordinates ... ok
+test acosh_derivative_endpoint_failure_is_atomic_and_the_program_remains_reusable ... ok
+test nonlinear_chain_keeps_inner_curvature_in_the_checked_objective ... ok
+test opcodes_roundtrip_and_source_checkers_reject_function_substitution ... ok
+test real_principal_values_cover_signed_inputs_and_the_closed_acosh_endpoint ... ok
+test independent_rule_admission_rejects_wrong_denominators_powers_and_missing_chain_factors ... ok
+test acosh_complex_chain_retains_the_principal_branch_in_its_derivative_receipt ... ok
+test original_undefined_values_survive_zero_products_and_zero_directions ... ok
+test rational_anchors_have_the_exact_chain_gradient_hessian_and_products ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/sinc_programs.rs (target/debug/build/fsym-calculus/73b8f627da4b4dbf/out/sinc_programs-73b8f627da4b4dbf)
+
+running 14 tests
+test entire_value_and_two_jets_match_independent_decimal_anchors ... ok
+test jet_opcodes_have_exact_source_binding_and_lossless_transport ... ok
+test cancellation_in_a_later_sinc_residual_leaves_both_output_buffers_unchanged ... ok
+test finite_large_arguments_do_not_create_square_overflow_or_wrong_parity ... ok
+test nested_sinc_preserves_the_second_chain_rule_at_an_inner_stationary_point ... ok
+test entire_sinc_cannot_erase_an_original_inner_pole ... ok
+test held_constant_inner_sources_keep_zero_derivatives_and_original_domains ... ok
+test origin_and_near_zero_keep_the_analytic_extension_and_tiny_slopes ... ok
+test sinc_jets_keep_cumulative_budgets_and_cancel_inside_taylor_work ... ok
+test shared_evaluation_distinguishes_jets_and_keeps_inactive_poles_lazy ... ok
+test public_symbolic_receipts_retain_the_original_quotient_form ... ok
+test typed_coordinates_with_equal_names_remain_independent ... ok
+test checked_nonlinear_origin_has_the_exact_gradient_hessian_and_products ... ok
+test portable_programs_replay_jets_and_reject_forged_first_and_second_derivatives ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/tanh_legacy_artifacts.rs (target/debug/build/fsym-calculus/d40927e862e792fb/out/tanh_legacy_artifacts-d40927e862e792fb)
+
+running 6 tests
+test legacy_verification_uses_one_cumulative_budget_for_the_complete_replay ... ok
+test compound_legacy_recipe_retains_stable_coth_inside_the_old_tanh_rule ... ok
+test historical_zero_omission_survives_the_changed_tanh_recipe ... ok
+test historical_tanh_bundle_preserves_its_exact_derivative_program_and_bytes ... ok
+test self_consistent_but_false_legacy_rhs_is_rejected_after_both_rule_checks ... ok
+test old_objective_gradient_and_hessian_replay_as_one_unchanged_artifact ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/tanh_programs.rs (target/debug/build/fsym-calculus/3aec20b268de7323/out/tanh_programs-3aec20b268de7323)
+
+running 6 tests
+test caller_budget_and_cancellation_still_govern_stable_evaluation ... ok
+test saturated_tanh_keeps_nonzero_gradient_curvature_and_directional_products ... ok
+test stable_programs_roundtrip_and_original_domain_failures_remain_terminal ... ok
+test symbolic_receipts_keep_their_form_and_numeric_mutants_are_rejected ... ok
+test stable_tanh_products_preserve_the_piecewise_certification_boundary ... ok
+test nonlinear_nested_arguments_retain_the_complete_mixed_hessian ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+Recorded process exit code: 0
