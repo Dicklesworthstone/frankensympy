@@ -232,10 +232,7 @@ fn power_base_ring(base: &Expr, meter: &mut impl BudgetMeter) -> PyResult<Option
     Ok(Some(symbols.into_iter().cloned().collect()))
 }
 
-fn check_original_domains(
-    shape: &OriginalShape<'_>,
-    meter: &mut impl BudgetMeter,
-) -> PyResult<()> {
+fn check_original_domains(shape: &OriginalShape<'_>, meter: &mut impl BudgetMeter) -> PyResult<()> {
     // Exponent grammar is a transform-routing question. Only an unadmitted
     // inverse or zeroth-power base leaves this source-domain check undecided.
     let mut unresolved = false;

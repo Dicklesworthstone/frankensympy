@@ -199,8 +199,17 @@ fn untrusted_partition_point_and_accuracy_claims_are_independently_rejected() {
 }
 
 #[test]
-fn original_poles_and_nonsmooth_sources_cannot_be_discarded() {
-    for source in ["0*(1/x)", "log(x)-log(x)", "(1/x)^0", "sqrt(x)", "abs(x)"] {
+fn original_poles_and_invalid_domains_cannot_be_discarded() {
+    for source in [
+        "0*(1/x)",
+        "log(x)-log(x)",
+        "(1/x)^0",
+        "sqrt(x)",
+        "abs(1/x)",
+        "0*abs(1/x)",
+        "abs(x)^0",
+        "sqrt(abs(x))",
+    ] {
         let objective = problem(source, &["x"]);
         let domain = [interval(-1, 1)];
         let tolerance = q(1, 1000);
@@ -235,6 +244,53 @@ fn original_poles_and_nonsmooth_sources_cannot_be_discarded() {
                 .is_err(),
             "{source}"
         );
+    }
+}
+
+#[test]
+fn continuous_absolute_corners_have_source_bound_global_value_receipts() {
+    // |x| >= 0 and -|x| <= 0, with equality at x = 0. On [-1, 2],
+    // |x| <= 2, with equality at x = 2. These are value claims and do not
+    // assert differentiability or stationarity at the corner.
+    for (source, kind, domain, point, value, nonoptimal) in [
+        ("abs(x)", BoxExtremumKind::Minimum, interval(-1, 1), 0, 0, 1),
+        (
+            "-abs(x)",
+            BoxExtremumKind::Maximum,
+            interval(-1, 1),
+            0,
+            0,
+            1,
+        ),
+        ("abs(x)", BoxExtremumKind::Maximum, interval(-1, 2), 2, 2, 0),
+    ] {
+        let objective = problem(source, &["x"]);
+        let tolerance = q(1, 1000);
+        let domain = [domain];
+        let receipt = checked(&objective, &domain, kind, &tolerance);
+        assert_eq!(receipt.point(), &[q(point, 1)]);
+        assert_eq!(receipt.value(), &RealBall::from_i64(value));
+        assert_eq!(receipt.point_value(), &RealBall::from_i64(value));
+        assert_eq!(receipt.gap(), &q(0, 1));
+
+        // A feasible but nonoptimal point must not gain a receipt merely
+        // because the complete original objective has a supported Abs corner.
+        assert!(matches!(
+            objective.verify_box_optimization(
+                &domain,
+                kind,
+                &tolerance,
+                &BoxOptimizationWitness {
+                    partition: vec![BoxPartitionStep::Leaf],
+                    point: vec![q(nonoptimal, 1)],
+                    precision_digits: 16,
+                },
+                &mut Unbounded,
+            ),
+            Err(OptimizationError::Optimization(
+                BoxOptimizationError::AccuracyNotReached
+            ))
+        ));
     }
 }
 

@@ -1,0 +1,239 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-22",
+  "scope": "Bounded QQ/ZZ polynomial composition and complete exact Q(i) least-squares families",
+  "base_commit": "fbb350451543f102005cd3055569cefcabb4cb8b",
+  "implementation_commits": {
+    "native_polynomial_composition": "2c128791e238bc5fdc4f205936afeba53638e931",
+    "native_gaussian_families": "43e3853c426d9b54a6e0ba033476f4ac94854789",
+    "public_polynomial_composition": "f17f1b4e639d1146311a210020ac9c9bc820f433",
+    "public_gaussian_families": "d6828df5cc40c471f0657a789ef38c6b106952bf"
+  },
+  "priority_rationale": [
+    "Existing multivariate prime-field composition had no equivalent checked public QQ/ZZ path; ordinary coefficient axes fell into univariate refusal.",
+    "Existing complex pseudoinverses and unique least squares did not expose complete complex least-squares families through PINV."
+  ],
+  "polynomial_composition": {
+    "interfaces": [
+      "checked_polynomial_composition",
+      "verify_polynomial_composition",
+      "Poly.compose",
+      "PurePoly.compose",
+      "compose"
+    ],
+    "semantics": "Substitute the first declared generator and retain every other ordered typed axis as a coefficient variable. Preserve original coefficient domains, PurePoly ordinal mapping, result classes and polys=False.",
+    "independent_check": "Sparse Horner generation and separately implemented ascending-power coefficient identity checking; both original inputs admitted even for zero or constant outer sources.",
+    "bounds": {
+      "variables": 8,
+      "degree": 256,
+      "terms": 4096,
+      "coefficient_bits": 4096,
+      "compute_steps_per_phase": 20000000,
+      "logical_memory_bytes_per_phase": 134217728
+    },
+    "limitation": "Public bridge retains separate cumulative per-call budgets but does not forward an active CallbackSession or reserve a protected verifier pool."
+  },
+  "complex_families": {
+    "interfaces": [
+      "Matrix::metered_gaussian_least_squares_family",
+      "Matrix::verify_gaussian_least_squares_candidate",
+      "Matrix.pinv_solve",
+      "Matrix.solve_least_squares(method=PINV)"
+    ],
+    "semantics": "For exact Q(i) A and B, return X=A+ B and P=I-A+ A, and render the complete family X+P W. Includes rank deficiency, inconsistent systems, rectangular and empty shapes, multiple RHS and immutable class promotion.",
+    "independent_check": [
+      "Original-source admission",
+      "All four Hermitian Penrose identities",
+      "Original normal residual",
+      "Hermitian and idempotent projector",
+      "A P=0 and P=I-A+ A completeness",
+      "P X=0 and X=A+ B minimum norm"
+    ],
+    "bounds": {
+      "axes": 32,
+      "component_bits": 4096,
+      "compute_steps": 20000000,
+      "logical_memory_bytes": 268435456
+    },
+    "parameter_admission": "Actual retained-source, simplification and held-domain arithmetic spends the active request budget; original supplied W is checked even when P is zero.",
+    "limitation": "Same-crate exact reference checking and immutable in-process receipts, not portable proof-kernel certificates."
+  },
+  "regressions_authored": {
+    "native_composition": 11,
+    "independent_binomial_corpus_cases": 360,
+    "native_gaussian_family": 18,
+    "public_composition": 38,
+    "public_complex_family": 51,
+    "public_parameter_budget": 8
+  },
+  "validation": {
+    "python_syntax": {
+      "status": "passed",
+      "command": "python -m py_compile <10 changed Python implementation/test files>",
+      "source": "Current working files, including updated accessor diagnostic regression."
+    },
+    "whitespace": {
+      "status": "passed",
+      "command": "git diff --check"
+    },
+    "isolated_upstream_oracle": {
+      "implementation": "SymPy 1.14.0",
+      "complex_family": "43 passed; 8 candidate-only cases skipped",
+      "polynomial_composition": "22 passed; 16 candidate-only cases deselected",
+      "meaning": "Expected-fixture evidence only, not candidate execution."
+    },
+    "candidate_native": {
+      "status": "partial",
+      "source_commit": "43e3853c426d9b54a6e0ba033476f4ac94854789",
+      "github_job": 137415597992,
+      "gaussian_pseudoinverse": "18 passed",
+      "gaussian_least_squares": "13 passed",
+      "new_composition_and_family_suites": "Pending; now explicitly selected before heavy runtime jobs in CI."
+    },
+    "candidate_public": {
+      "status": "pending",
+      "meaning": "No final-source production-extension pass claimed."
+    },
+    "full_workspace": {
+      "status": "uncompleted",
+      "blockers": [
+        "Pre-existing formatting drift prevents the dependent all-workspace test job.",
+        "An obsolete native optimization refusal expected abs(x) to be unsupported despite the existing continuous-corner value-certificate implementation; a source-bound positive/adversarial correction is included in this follow-up.",
+        "Local execution transport repeatedly disconnected; the environment recovered, but incomplete build sessions are not test results."
+      ]
+    }
+  },
+  "native_optimization_followup": {
+    "implementation_reference": "f5b196dfa7038c1ff7b0a95d8d40e9c9df769fb4",
+    "change": "Replace only the stale abs(x) refusal with independently derived public min/max receipts, retain all original pole/domain refusals, add Abs-path domain refusals and reject nonoptimal witnesses.",
+    "production_admission_changed": false,
+    "execution": "Pending",
+    "formatting": "Pinned scoped rustfmt and git diff --check passed."
+  },
+  "independent_review": [
+    "Root reviewed the native polynomial generator/checker and public source binding.",
+    "Root reviewed the native Gaussian family checker.",
+    "Solver agent independently reviewed the public matrix integration and identified/fixed the unmetered parameter-admission work.",
+    "Root reviewed the Abs test correction against independently derived values."
+  ],
+  "claim_effect": {
+    "beads": [
+      "fra-o4g",
+      "fra-kfo"
+    ],
+    "statuses_priorities_dependencies_changed": false,
+    "workstream_or_profile_gate_closed": false,
+    "portable_proof_claim": false,
+    "performance_claim": false
+  },
+  "source_manifest": {
+    "crates/fsym-polys/src/composition.rs": {
+      "sha256": "a4f4851d9ac09a95dd42d72a9e1dfb6805aacad47d6fc08471b66a78cae07af3",
+      "git_blob": "4fe976d0b5dd4cd85838a3cebace40e74f17e422"
+    },
+    "crates/fsym-polys/src/lib.rs": {
+      "sha256": "b13a61c89ae3964b9b6e4709bd6b2f14d0f61330681010a2a958489e388c6857",
+      "git_blob": "c143caf0ec6b551053432cb421e8805731ec27b0"
+    },
+    "crates/fsym-polys/tests/composition.rs": {
+      "sha256": "fa0fbf9e5a0f5d69723da13800425289885ce11b4de512defa26d54b8205a53b",
+      "git_blob": "8e2a0dc6ea542dbd5b837ca1a69e2b8a7c1471f8"
+    },
+    "crates/fsym-python/src/polynomial_composition.rs": {
+      "sha256": "5c0301d47ef6870ceaf877ca3ca01718193ac29f7a49c5e8038adc2167a63e44",
+      "git_blob": "feaa4efc04835867a5f8ae0b73852c695cde6856"
+    },
+    "crates/fsym-python/src/lib.rs": {
+      "sha256": "a2b5aba65c95ffb980e3281f29c6db2195203f915ec1ff045042db241f7b0899",
+      "git_blob": "3c6a489915715c0645da038de6beefa608565986"
+    },
+    "python/sympy/polys/_composition.py": {
+      "sha256": "7a4556871967f4257def2055c3a691a76c580e4c44800ff090760842d832da3e",
+      "git_blob": "640f3c8136851afd1cbd3df084076da160145357"
+    },
+    "python/sympy/polys/polytools.py": {
+      "sha256": "a7833b4b6a0e05a8b9647c2e94d877c6f7e0bfa418b8a93b436744c7eef1d97d",
+      "git_blob": "8780c2baf17c9a32d72b7da13ac91584db1cbcab"
+    },
+    "python/tests/test_polynomial_composition.py": {
+      "sha256": "84cd7b8a69ea04318483bbb7928481c47f0854840354c20460cf9a7e7c004acc",
+      "git_blob": "9bb6371b24ea44db80e3c9085c372900cc9c573c"
+    },
+    "crates/fsym-matrices/src/lib.rs": {
+      "sha256": "df67cea9e4a5b642493f9acb1fc23564b14d5d3182b9411a095ca6a5cdd493f9",
+      "git_blob": "10fb9325db9c9851598a6fb7a9b5f686b040e7bc"
+    },
+    "crates/fsym-matrices/src/pseudoinverse.rs": {
+      "sha256": "290344aef92c3a1551a9c7ce87f5b6d5ca312e5fb35ba33b4ef72b6fcc946a1d",
+      "git_blob": "5c757ad78920d713bea438b11d749d8035927aa8"
+    },
+    "crates/fsym-matrices/src/pseudoinverse/gaussian.rs": {
+      "sha256": "282e73c499db8dbf99f1ebd8f5b5670ba5e2eab62182498a52954bc18a380e9a",
+      "git_blob": "e5af569300520e0298ed3dc7046287a74c770b29"
+    },
+    "crates/fsym-matrices/src/pseudoinverse/gaussian/least_squares.rs": {
+      "sha256": "323882c4c50a0653d02591b43d8e88bcfd5069c3cde22072d3936a1f11b210a1",
+      "git_blob": "960acc7f3152c6fb412357d1dd1bda1f754f94d8"
+    },
+    "crates/fsym-matrices/tests/gaussian_least_squares_family.rs": {
+      "sha256": "cfc296ba6700454cdadb7bc963ecbb450ae329e3b1f4a4a16f9716fe90a0692c",
+      "git_blob": "7ee40260b72bd75c54c34b9b264aa60e5b18d4ae"
+    },
+    "crates/fsym-matrices/tests/gaussian_least_squares.rs": {
+      "sha256": "3a6791947e8bae2e10283ba56a6b67e81b1637bb0ddf0a0308791ada9f24bca0",
+      "git_blob": "8be9c95eb2df63bd17d6bc1b99972ff66daa2202"
+    },
+    "crates/fsym-matrices/tests/gaussian_pseudoinverse.rs": {
+      "sha256": "9d5b352ea5a0780c0c8944bebca6af072bf78723c6d71d76e6c360d398f038c9",
+      "git_blob": "d37fa2fe7c85c7db73586f3d2de127109119e29c"
+    },
+    "crates/fsym-python/src/matrix.rs": {
+      "sha256": "fb9aea695694958da2ba31d7b450b50aefa15d97716696d3dae08d12f576a976",
+      "git_blob": "95db95d9ab1d5edc60a2833fddc40ef6f3b6a880"
+    },
+    "crates/fsym-python/src/fourier.rs": {
+      "sha256": "4549fc92f61f4e32428ae97703aba33fa9b6b7ba9890bfd8a3e6fe03fef9c37c",
+      "git_blob": "a6882bc86cfda829db5c011a83155d0ded2223a8"
+    },
+    "crates/fsym-python/src/rational_laplace.rs": {
+      "sha256": "dc28d4d09ba880c99809caa031cfb9c83de09baca641cc9df63aa6e6698f42f9",
+      "git_blob": "c951cfd2c122d8ef4992564bc099b765a99f8c79"
+    },
+    "python/sympy/matrices/_pseudoinverse.py": {
+      "sha256": "ff61178fbc71cc92dda28153dc6bfa03f82f2875f162f13716057eaf7b280f2d",
+      "git_blob": "ef6c43f5677c26d17a238b20194badfcbdd39ac6"
+    },
+    "python/sympy/matrices/_sparse_family.py": {
+      "sha256": "659bfac1f5d8c6518c062014df8b471aa103724e75719b1e6e30128ceb532627",
+      "git_blob": "1d9bb38013f8470c2b383baacd4d0c304e2701ab"
+    },
+    "python/sympy/matrices/dense.py": {
+      "sha256": "e792cb2409519b2df1c3d54734f91a813ca842d1c71d061ef168c17385521152",
+      "git_blob": "696ea091e65e87192e065ecbde8aeac06d015b93"
+    },
+    "python/tests/test_matrix_complex_least_squares_family.py": {
+      "sha256": "d2a7a86a1082083324c10f2c6debc6cd48906a2bcef4f04bd5af21595e7c4b79",
+      "git_blob": "ac35d3bec7bad267cfbba3b773912e31b7dde8ec"
+    },
+    "python/tests/test_matrix_least_squares_parameter_budget.py": {
+      "sha256": "8f26846c653ed46d0175df1f89c0e81b6abad69ea6290cf6ad0feeda70e2bc17",
+      "git_blob": "c39cb0c9e2cbfdfb9648dde378a8d6f5b374d8f5"
+    },
+    "python/tests/test_matrix_complex_least_squares.py": {
+      "sha256": "3a5af39fc02bb47be62022d4a349e3b5a11bba3ed3713d172a777eb2634839a4",
+      "git_blob": "f493c6e8879b8e232a9682e3268cfd114f0755dd"
+    },
+    "python/tests/test_matrix_least_squares.py": {
+      "sha256": "555332c030886c2acb379a9778b916185b34f6f0ef5c63621a27acbfbc394ae9",
+      "git_blob": "2cc17651916bc799999cc5c8e5175091b02c7332"
+    },
+    "tests/native_optimization.rs": {
+      "sha256": "0ddef98663e664c52ea4241e83ea261f23f87c258dbb25204465f33384da6882",
+      "git_blob": "b5ab321947b61595a62829f8d53ab023843a3a76"
+    },
+    ".github/workflows/ci.yml": {
+      "sha256": "65ea66b129f1b0d480d07d1363a4c9b05aee27f5c684b2e606ee6bda611749ac",
+      "git_blob": "b4a873e7c2c2472e07a09cbb811c896197f3b713"
+    }
+  }
+}
