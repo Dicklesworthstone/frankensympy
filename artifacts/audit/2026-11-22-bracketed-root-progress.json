@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-22",
+  "feature": "bounded derivative-free scalar bisection",
+  "bead": "fra-7kf",
+  "source_base": "5edbd2fb08ddb784c7cd27da0058e528cb51280e",
+  "implementation": {
+    "path": "python/sympy/solvers/numerical.py",
+    "git_blob": "f5320ab8d2925485582cc85218cce7161db769de"
+  },
+  "regressions": {
+    "path": "python/tests/test_nsolve_bisect.py",
+    "git_blob": "b0951a81d9109147173f33ff678c3be053954b84",
+    "functions": 29,
+    "parameterized_cases": 59
+  },
+  "validation": {
+    "independent_source_review": "passed; original-source semantics, finite arithmetic, residual/interval convergence, cumulative budgets, cancellation and terminal failures reviewed separately",
+    "python_compilation": "passed on the implementation and first 27 test functions; final two added regression functions source-reviewed only after executor disconnected",
+    "diff_check": "passed for local implementation and initial regression suite",
+    "actual_candidate_runtime": "pending; no compiled extension available before executor loss",
+    "ci": "existing full-extension job selects new bisection plus existing convergence and system regressions",
+    "oracle": {
+      "version": "1.14.0",
+      "ordinary_numeric_expectations_passed": 8,
+      "dict_fixture_passed": true,
+      "profile_parity": false,
+      "right_endpoint_discrepancy": "Upstream nsolve(x-2,x,(0,2),solver='bisect') raises ValueError; this development route accepts the original evaluated zero at the right endpoint."
+    }
+  },
+  "scope": {
+    "arithmetic": "approximate binary64",
+    "root_existence_certificate": false,
+    "continuity_certificate": false,
+    "systems": false,
+    "arbitrary_precision": false,
+    "custom_numeric_callbacks": false,
+    "bead_closed": false,
+    "profile_certified": false
+  },
+  "validation_environment": {
+    "pinned_rust": "nightly-2026-08-20",
+    "format_check": "passed before concurrent inverse-derivative feature and new QR work",
+    "native_attempt": "cargo test --offline --locked -p fsym-calculus --test verified_sparse_storage --test smooth_source_domains",
+    "native_attempt_outcome": "rustc was killed with SIGKILL while building fsym-calculus; tests did not execute",
+    "execution_service": "repeated disconnects; no failure is recorded as a pass"
+  }
+}

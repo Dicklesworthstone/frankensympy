@@ -610,6 +610,40 @@ bytecode. Saved acceptance flags and Python callbacks carry no proof authority.
 
 ---
 
+## Bracketed scalar roots (development API)
+
+Scalar `nsolve` has a derivative-free bisection route for a known finite real
+bracket. It can handle a starting interval even when Newton iteration encounters
+a zero derivative or cycles between guesses:
+
+```python
+from sympy import Symbol, nsolve
+
+x = Symbol("x")
+root = nsolve(x**3 - 2*x + 2, x, (-2, 0), solver="bisect")
+# Approximately -1.7692923542386.
+```
+
+Pass a built-in pair of increasing bounds. Both original endpoint residuals
+must be finite, and their signs must differ unless an endpoint evaluates to
+zero. Every new evaluation stays inside the bracket. The solver returns only
+when the numerical residual is zero, or both its magnitude and the enclosing
+interval radius meet `tol`. A small interval around a pole is insufficient.
+`maxiter` bounds the work; `dict=True` returns the typed coordinate mapping.
+
+With an `EvaluationBudget`, compilation, residual evaluation and bisection work
+consume the same cumulative ledger. Cancellation and resource exhaustion stop
+the request without switching numerical backends. This scalar route does not
+differentiate the source or accept systems; default and explicit
+`solver="newton"` calls retain the existing Newton path.
+
+The returned `Float` is an approximate binary64 candidate. Use
+`nsolve_certified` when an independently checked local root enclosure is
+required. This development route deliberately accepts an exactly evaluated
+right-endpoint root, where the pinned SymPy 1.14 bisection wrapper can instead
+raise. Its new regression suite is registered for actual-extension CI; a full
+compatibility profile is not certified.
+
 ## Compiled scalar objectives (development API)
 
 The checked-out Python shell and native extension expose `compile_objective`

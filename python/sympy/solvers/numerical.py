@@ -317,6 +317,83 @@ def _scalar_newton_functions(expr, var, budget):
     return residual, derivative
 
 
+def _bisect_bounds(initial):
+    """Capture exactly two finite ordered bounds without invoking user hooks."""
+    if type(initial) not in (list, tuple):
+        raise TypeError("nsolve bisection requires a built-in pair of bracket bounds")
+    if len(initial) != 2:
+        raise ValueError("nsolve bisection requires exactly two bracket bounds")
+    lower = _finite_real(initial[0], "lower bracket bound")
+    upper = _finite_real(initial[1], "upper bracket bound")
+    if lower >= upper:
+        raise ValueError("nsolve bisection requires lower < upper")
+    return lower, upper
+
+
+def _bisect_scalar(expr, var, lower, upper, tolerance, maxiter, budget):
+    """Generate a bracketed candidate from the complete original residual.
+
+    No derivative, denominator cancellation or alternative solver is used.
+    A sign change and a narrow interval are not root-existence evidence; the
+    original numerical residual must satisfy the requested tolerance too.
+    Native compilation, every evaluation and iteration share the caller's
+    optional ledger. Terminal errors propagate without a fallback.
+    """
+    residual = (lambdify(var, expr, modules="math") if budget is None
+                else compile_numeric(var, expr, budget=budget))
+
+    def evaluate(value):
+        _check_evaluation_budget(budget)
+        try:
+            result = residual(value) if budget is None else residual(value, budget=budget)
+            result = _finite_real(result, "bisection residual")
+        except (OverflowError, ZeroDivisionError, TypeError) as error:
+            raise ValueError("nsolve bisection residual left the finite real domain") from error
+        _check_evaluation_budget(budget)
+        return result
+
+    # Admit both endpoint evaluations before returning an endpoint candidate.
+    # Numerical zero does not require a derivative or a sign-changing neighbor.
+    left_value, right_value = evaluate(lower), evaluate(upper)
+    if left_value == 0.0:
+        return lower
+    if right_value == 0.0:
+        return upper
+    # Multiplying endpoint residuals can overflow or underflow to signed zero.
+    if (left_value < 0.0) == (right_value < 0.0):
+        raise ValueError("nsolve bisection requires opposite signs at the bracket endpoints")
+
+    for _ in range(maxiter):
+        if budget is not None:
+            budget._charge(8)
+        # Same-sign differences cannot overflow. Across zero, halve before
+        # adding so neither a+b nor b-a must fit in binary64.
+        middle = (lower * 0.5 + upper * 0.5 if lower < 0.0 < upper
+                  else lower + (upper - lower) * 0.5)
+        if not lower < middle < upper:
+            # Adjacent floating-point bounds have no interior representable
+            # value. Only an already evaluated endpoint meeting BOTH tests
+            # can terminate; a tiny interval around a pole cannot succeed.
+            best, value = ((lower, left_value) if abs(left_value) <= abs(right_value)
+                           else (upper, right_value))
+            if upper - lower <= tolerance and abs(value) <= tolerance:
+                return best
+            raise ValueError(
+                "nsolve bisection stagnated before meeting the interval and residual tolerances"
+            )
+        value = evaluate(middle)
+        if value == 0.0 or (
+            max(middle - lower, upper - middle) <= tolerance and abs(value) <= tolerance
+        ):
+            return middle
+        if (value < 0.0) == (left_value < 0.0):
+            lower, left_value = middle, value
+        else:
+            upper, right_value = middle, value
+
+    raise ValueError(f"nsolve bisection failed to converge in {maxiter} iterations")
+
+
 def _iterate_system(program, values, tolerance, maxiter, budget=None):
     """Generate candidates using one captured native residual/Jacobian program.
 
@@ -618,8 +695,8 @@ def nsolve_certified(expr, var, initial, *, tol=None, maxiter=None,
 
 
 def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False, budget=None,
-           backend="python", max_step_norm=None):
-    """Find a finite real Newton candidate for an equation or residual system.
+           backend="python", max_step_norm=None, solver=None):
+    """Find a finite real numerical candidate for an equation or residual system.
 
     ``backend="python"`` uses independently checked native derivatives for a
     bounded scalar subset containing Abs, sinc, tanh or coth. This includes
@@ -640,6 +717,19 @@ def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False, budget=Non
     guards. A small or damped step alone never establishes convergence.
     ``maxiter`` remains a built-in integer from 1 through 10,000, and
     ``max_step_norm`` must be omitted.
+
+    ``solver="bisect"`` selects derivative-free scalar bisection on the Python
+    route. ``initial`` must be a built-in list/tuple of two finite increasing
+    bounds. Both endpoint residuals must be finite, and must have opposite
+    signs unless one is numerically zero. Every new point stays inside the
+    bracket. Convergence requires an exactly zero numerical residual, or both
+    residual magnitude and the enclosing interval radius <= tol. Invalid
+    source domains, iteration exhaustion and binary64 stagnation raise;
+    narrowing a bracket alone never returns a pole as a root. This is still
+    an approximate candidate, not a certificate of continuity or existence.
+    The default and ``solver="newton"`` retain the Newton route. An explicit
+    scalar solver cannot be combined with the sparse backend, and bisection
+    does not accept residual systems or invoke symbolic differentiation.
 
     ``backend="sparse"`` selects native damped LSQR for square systems with
     1..256 variables, including a scalar equation. It keeps checked sparse
@@ -665,8 +755,10 @@ def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False, budget=Non
     line-search trials. Exhaustion and cooperative cancellation raise distinct
     ``RuntimeError`` subclasses and are never retried as domain failures.
     With a budget, the Python scalar path uses the finite-real native compiler;
-    unsupported native functions refuse explicitly. Compilation, certification
-    and CPython allocation overhead are outside this evaluation ledger.
+    unsupported native functions refuse explicitly. Bisection also charges
+    native compilation to this same ledger. On the existing Newton routes,
+    compilation and certification remain outside the evaluation ledger;
+    CPython allocation overhead is outside it on all routes.
     """
     if type(dict) is not bool:
         raise TypeError("nsolve dict must be a built-in boolean")
@@ -674,6 +766,13 @@ def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False, budget=Non
         raise TypeError("nsolve backend must be an exact built-in string")
     if backend not in ("python", "sparse"):
         raise ValueError("nsolve backend must be python or sparse")
+    if solver is not None:
+        if type(solver) is not str:
+            raise TypeError("nsolve solver must be an exact built-in string or None")
+        if solver not in ("newton", "bisect"):
+            raise ValueError("nsolve solver must be newton or bisect")
+        if backend != "python":
+            raise ValueError("the sparse backend does not accept a scalar solver")
     if backend == "sparse":
         tolerance, iterations, step_limit = _candidate_options(
             backend, tol, maxiter, max_step_norm, allow_python=False,
@@ -718,6 +817,8 @@ def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False, budget=Non
     tolerance = _newton_options(tol, maxiter)
 
     if _is_vector(expr) or _is_vector(var):
+        if solver == "bisect":
+            raise ValueError("nsolve bisection requires one scalar equation and one variable")
         from ..matrices import Matrix
 
         variables, values = _solve_system(expr, var, initial, tolerance, maxiter, budget=budget)
@@ -729,7 +830,10 @@ def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False, budget=Non
         return result
 
     var = _require_symbol(var)
-    x_value = _finite_real(initial, "initial value")
+    if solver == "bisect":
+        lower, upper = _bisect_bounds(initial)
+    else:
+        x_value = _finite_real(initial, "initial value")
     expr = _equation_residual(expr)
 
     def solution(value):
@@ -738,6 +842,9 @@ def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False, budget=Non
         if budget is not None:
             budget._checkpoint()
         return result
+
+    if solver == "bisect":
+        return solution(_bisect_scalar(expr, var, lower, upper, tolerance, maxiter, budget))
 
     residual, derivative = _scalar_newton_functions(expr, var, budget)
 
