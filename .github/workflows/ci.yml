@@ -226,8 +226,8 @@ jobs:
           cargo test --locked -p fsym-core --test parametric_root -j1
           cargo test --locked -p fsym-core --test parametric_cover -j1
           cargo test --locked -p fsym-core --test parametric_sensitivity -j1
-          cargo test --locked -p fsym-core --test quadrature_certificate -j1
-          cargo test --locked -p fsym-calculus --test certified_quadrature -j1
+          cargo test --locked -p fsym-core --test quadrature_certificate --test scalar_bracket_certificate -j1
+          cargo test --locked -p fsym-calculus --test certified_quadrature --test scalar_bracket -j1
           cargo test --locked -p frankensympy --test native_integration --test integration_session -j1
           cargo test --locked -p fsym-calculus --test certified_box_optimization -j1
           cargo test --locked -p fsym-calculus --test certified_root_isolation -j1

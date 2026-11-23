@@ -5,9 +5,9 @@
 //! along coordinate segments proves a centered value bound and monotonicity.
 //! At an absolute-value corner this is a Lipschitz slope enclosure, not a C1
 //! derivative, a subgradient certificate, or a Hessian. This distinct type is
-//! consumed by global value-gap optimization and proper-integral bounds;
-//! it never constructs `Jet`, `ObjectiveJet`, root receipts, or derivative
-//! enclosures.
+//! consumed by global value-gap optimization, proper-integral bounds and
+//! scalar sign-bracket existence checks. It never constructs `Jet`,
+//! `ObjectiveJet`, unique-root Krawczyk receipts or derivative enclosures.
 //!
 //! All ordinary smooth primitives keep their strict original domains. Visited
 //! Piecewise guards retain the independent neighborhood-stability policy.

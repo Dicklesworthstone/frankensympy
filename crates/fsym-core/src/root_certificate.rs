@@ -40,6 +40,9 @@ pub use box_optimization::*;
 mod root_isolation;
 pub use root_isolation::*;
 
+mod scalar_bracket;
+pub use scalar_bracket::*;
+
 mod parametric_root;
 pub use parametric_root::*;
 
@@ -54,7 +57,7 @@ mod piecewise;
 
 // This precise internal refusal distinguishes an absolute-value corner from
 // every other domain failure. Global value bounds may retry it in the separate
-// Lipschitz lane; C1/C2 derivative and root verifiers never do so.
+// Lipschitz lane; C1/C2 derivative and Krawczyk verifiers never do so.
 const ABSOLUTE_VALUE_CORNER: &str = "absolute value argument is not strictly separated from zero";
 
 pub const MAX_ROOT_BOX_NODES: usize = 16_384;

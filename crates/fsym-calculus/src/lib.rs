@@ -24,6 +24,7 @@ pub mod rational_mellin;
 pub mod rational_product;
 pub mod rational_sum;
 pub mod root_isolation;
+pub mod scalar_bracket;
 pub mod series;
 pub mod summation;
 
