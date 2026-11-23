@@ -2473,31 +2473,76 @@ def casoratian(seqs, n):
 
 
 def GramSchmidt(vlist, orthonormal=False):
-    """Apply the Gram-Schmidt orthogonalization process to a list of vectors."""
-    from ..core import simplify, sqrt
+    """Return Hermitian-orthogonal vectors in the supplied order.
+
+    Proven zero or dependent vectors raise ValueError. Matrices are flattened
+    column by column; the first input selects row or column output orientation,
+    and every result is a mutable dense Matrix. As in the formal symbolic
+    interface, undecided symbolic norms remain expressions, not rank proofs.
+    Known undefined original entries are rejected before simplification.
+
+    If orthonormal is true, divide each final vector by its positive Hermitian
+    norm. Orthogonalization itself keeps unnormalized vectors, avoiding radical
+    denominators in subsequent projections.
+    """
+    from ..core import _charge_nested_if_active, simplify, sqrt
+    from ..solvers._checksol import _Work, _check_with_work
+    from .exceptions import ShapeError
+
+    columns = []
+    length = None
+    row_output = False
+    source_work = _Work()
+    for vector in vlist:
+        _charge_nested_if_active()
+        if not isinstance(vector, MatrixBase):
+            vector = Matrix(vector)
+        if length is None:
+            length = len(vector)
+            row_output = vector.rows == 1
+        elif len(vector) != length:
+            raise ShapeError("GramSchmidt vectors must have the same number of entries")
+        _charge_nested_if_active(length + 1)
+        entries = [vector[row, column]
+                   for column in range(vector.cols) for row in range(vector.rows)]
+        # Inspect the original retained cells, including children of held
+        # zero products, before arithmetic can erase an undefined source.
+        for entry in entries:
+            domain = _check_with_work(entry, {}, None, source_work, domain_only=True)
+            if source_work.exhausted:
+                raise ValueError("GramSchmidt source exceeds its domain-check envelope")
+            if domain is False:
+                raise ValueError("GramSchmidt requires finite, defined vector entries")
+        columns.append(Matrix(length, 1, entries))
+
+    def inner(left, right):
+        _charge_nested_if_active(len(left) + 1)
+        return simplify(sum(left[i].conjugate() * right[i] for i in range(len(left))))
+
+    orthogonal = []
+    for vector in columns:
+        residual = vector
+        for basis, norm_squared in orthogonal:
+            numerator = inner(basis, residual)
+            if numerator.is_zero is not True:
+                residual = (residual - basis * (numerator / norm_squared)).applyfunc(simplify)
+        residual = residual.applyfunc(simplify)
+        # An unknown coordinate is not evidence of dependence. Symbolic
+        # projections retain their denominator conditions in the expression.
+        if all(residual[i].is_zero is True for i in range(len(residual))):
+            raise ValueError("GramSchmidt: vector set not linearly independent")
+        norm_squared = inner(residual, residual)
+        if norm_squared.is_zero is True:
+            raise ValueError("GramSchmidt: vector set not linearly independent")
+        orthogonal.append((residual, norm_squared))
 
     out = []
-    for v in vlist:
-        if not isinstance(v, MatrixBase):
-            v = Matrix(v)
-        w = v
-        for u in out:
-            # projection of v onto u: (u.T * v)[0, 0] / (u.T * u)[0, 0] * u
-            numerator = (u.T * v)[0, 0]
-            denominator = (u.T * u)[0, 0]
-            w = w - (numerator / denominator) * u
-        w = w.applyfunc(simplify)
-        is_zero_vec = True
-        for i in range(len(w)):
-            if w[i] != 0:
-                is_zero_vec = False
-                break
-        if not is_zero_vec:
-            if orthonormal:
-                norm_sq = (w.T * w)[0, 0]
-                w = w / sqrt(norm_sq)
-                w = w.applyfunc(simplify)
-            out.append(w)
+    for vector, norm_squared in orthogonal:
+        _charge_nested_if_active(len(vector) + 1)
+        if orthonormal:
+            vector = (vector / sqrt(norm_squared)).applyfunc(simplify)
+        out.append(vector.T if row_output else vector)
+    _charge_nested_if_active()
     return out
 
 

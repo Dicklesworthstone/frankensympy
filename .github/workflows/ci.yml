@@ -337,6 +337,7 @@ jobs:
               "python/tests/test_matrix_complex_pseudoinverse.py",
               "python/tests/test_matrix_qr.py",
               "python/tests/test_matrix_complex_qr.py",
+              "python/tests/test_matrix_gram_schmidt.py",
               "python/tests/test_matrix_complex_least_squares.py",
               "python/tests/test_matrix_complex_least_squares_family.py",
               "python/tests/test_matrix_least_squares_parameter_budget.py",

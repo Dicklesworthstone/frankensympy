@@ -1444,6 +1444,28 @@ Retained Python source mutations cannot publish stale factors. Actual-extension
 and native regression suites cover these contracts; execution status is recorded
 in `artifacts/audit/2026-11-22-complex-qr-progress.json`.
 
+### Hermitian Gram-Schmidt
+
+`GramSchmidt(vectors, orthonormal=False)` uses conjugate-first Hermitian
+projections and keeps intermediate vectors unnormalized until all projections
+finish. Nonzero complex columns such as `Matrix([1, I])` are retained;
+proved zero or dependent inputs raise `ValueError`.
+
+```python
+from sympy import GramSchmidt, I, Matrix
+
+basis = GramSchmidt([Matrix([1, I]), Matrix([1, -I])], orthonormal=True)
+```
+
+Symbolic and floating-point inputs remain supported. Undecided symbolic norms
+and source-domain conditions remain formal, without a generic rank certificate.
+Known undefined original entries are rejected before simplification.
+Matrix inputs flatten column by column, the first input selects row or column
+output orientation, and results are fresh mutable dense matrices. Different
+vector lengths raise `ShapeError`. The new focused suite contains 21 tests;
+actual-extension execution remains subject to the build limitations recorded in
+`artifacts/audit/2026-11-22-gram-schmidt-progress.json`.
+
 ## Exact integer linear algebra (development API)
 
 The bounded integer lane computes Smith forms and complete integer solutions

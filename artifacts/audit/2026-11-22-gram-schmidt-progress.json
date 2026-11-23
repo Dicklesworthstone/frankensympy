@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-22",
+  "feature": "Hermitian GramSchmidt and complete vector-shape semantics",
+  "bead": "fra-kfo",
+  "source_base": "c2a2a2f13bff37c8664f3a6469843f7637c36a3f",
+  "source_blobs": {
+    "python/sympy/matrices/dense.py": "bab30fb312e7601f9e986567dd068e105fa01aab",
+    "python/tests/test_matrix_gram_schmidt.py": "16b67818994c85f9e69905e81369fd6b1b48ea21"
+  },
+  "behavior": [
+    "conjugate-first Hermitian inner product",
+    "unnormalized intermediate basis, optional final normalization",
+    "explicit proved-dependence errors",
+    "formal symbolic and approximate Float support retained",
+    "known original poles and nonfinite inputs refused before simplification",
+    "column-major flattening and first-vector output orientation",
+    "fresh mutable dense outputs for dense, immutable and sparse inputs"
+  ],
+  "validation": {
+    "independent_source_review": "passed; diff confirmed confined to GramSchmidt and preserves QR implementation",
+    "python_compilation": "passed on final full dense module and test module",
+    "authored_test_methods": 21,
+    "oracle": {
+      "version": "SymPy 1.14.0",
+      "ordinary_methods_passed": 17,
+      "candidate_specific_methods_excluded": 4,
+      "excluded": [
+        "test_list_input_extension_and_generator_are_retained",
+        "test_original_held_pole_cannot_disappear_through_zero_product",
+        "test_all_original_vectors_are_admitted_before_dependence",
+        "test_nonfinite_original_entries_are_refused"
+      ],
+      "candidate_execution": false
+    },
+    "candidate_public_execution": "blocked: full production extension could not be built after two SIGKILLs in pinned external asupersync; no surrogate implementation or pass claim",
+    "ci": "focused new test module added to existing full-production-extension job"
+  },
+  "scope": {
+    "generic_symbolic_rank_certificate": false,
+    "unknown_domains": "remain formal",
+    "new_hard_budget_claim": false,
+    "bead_closed": false,
+    "profile_certified": false
+  },
+  "shared_session_followup": {
+    "baseline_derivative_controls": "19 actual native tests passed after executor recovery (9 smooth_source_domains, 10 verified_sparse_storage), including the earlier source-domain/atomic-publication repair",
+    "native_log": "artifacts/audit/2026-11-22-sparse-source-validation.log",
+    "oracle_log": "artifacts/audit/2026-11-22-gram-schmidt-oracle.log"
+  }
+}

@@ -1,0 +1,33 @@
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/00f9b4f7c532/frankensympy-validation/crates/fsym-calculus)
+    Finished `test` profile [unoptimized] target(s) in 2.04s
+     Running tests/smooth_source_domains.rs (/workspace/scratch/00f9b4f7c532/fsym-target/debug/build/fsym-calculus/c62e951ec448914c/out/smooth_source_domains-c62e951ec448914c)
+
+running 9 tests
+test rejected_boundary_work_keeps_one_ledger_and_cancellation_remains_terminal ... ok
+test literal_exponent_bounds_preserve_nonintegral_source_status ... ok
+test scalar_values_keep_closed_endpoints_while_derivative_bundles_require_open_domains ... ok
+test literal_identity_derivatives_do_not_erase_original_base_domains ... ok
+test shared_source_memo_never_promotes_scalar_endpoints_or_leaks_between_calls ... ok
+test integer_powers_remain_smooth_at_zero_and_on_negative_bases ... ok
+test legacy_literal_power_proofs_and_artifacts_replay_but_coordinated_mutants_fail ... ok
+test inactive_piecewise_boundaries_are_not_hoisted_into_derivative_evaluation ... ok
+test zero_products_powers_and_vectors_cannot_publish_erased_source_boundaries ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/verified_sparse_storage.rs (/workspace/scratch/00f9b4f7c532/fsym-target/debug/build/fsym-calculus/924d157710e3ac27/out/verified_sparse_storage-924d157710e3ac27)
+
+running 10 tests
+test empty_axes_are_shape_correct_and_original_constant_sources_still_run ... ok
+test dense_dimension_and_nonfinite_point_errors_preserve_both_outputs ... ok
+test dense_budgets_are_cumulative_and_one_short_refuses_without_publication ... ok
+test explicit_dense_values_and_legacy_program_match_hand_derivatives ... ok
+test every_dense_cancellation_checkpoint_precedes_atomic_publication ... ok
+test dense_original_and_derivative_domains_are_strict_and_atomic ... ok
+test dense_shape_refusal_precedes_meter_activity_and_preserves_caller_buffers ... ok
+test untrusted_retained_nonzeros_and_bytecode_are_bounded_before_proof_replay ... ok
+test sparse_storage_transport_and_products_exceed_the_dense_shape_cap ... ok
+test aggregate_source_and_candidate_coordinate_limits_precede_derivative_generation ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+

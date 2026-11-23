@@ -16,9 +16,9 @@
   },
   "validation": {
     "independent_source_review": "passed; original-source semantics, finite arithmetic, residual/interval convergence, cumulative budgets, cancellation and terminal failures reviewed separately",
-    "python_compilation": "passed on the implementation and first 27 test functions; final two added regression functions source-reviewed only after executor disconnected",
+    "python_compilation": "passed on the complete final implementation and all 29 test functions after executor recovery",
     "diff_check": "passed for local implementation and initial regression suite",
-    "actual_candidate_runtime": "pending; no compiled extension available before executor loss",
+    "actual_candidate_runtime": "blocked: two full-feature extension builds were killed with SIGKILL in pinned external asupersync; no candidate pass is claimed",
     "ci": "existing full-extension job selects new bisection plus existing convergence and system regressions",
     "oracle": {
       "version": "1.14.0",
@@ -43,6 +43,8 @@
     "format_check": "passed before concurrent inverse-derivative feature and new QR work",
     "native_attempt": "cargo test --offline --locked -p fsym-calculus --test verified_sparse_storage --test smooth_source_domains",
     "native_attempt_outcome": "rustc was killed with SIGKILL while building fsym-calculus; tests did not execute",
-    "execution_service": "repeated disconnects; no failure is recorded as a pass"
+    "execution_service": "repeated disconnects; no failure is recorded as a pass",
+    "recovery": "Executor recovered; final Python source compilation passed. Both native derivative-control suites then executed successfully: 19 tests, no failures or ignored tests.",
+    "recovery_log": "artifacts/audit/2026-11-22-sparse-source-validation.log"
   }
 }
