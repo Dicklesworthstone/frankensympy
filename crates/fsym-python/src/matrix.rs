@@ -475,30 +475,45 @@ fn nonfinite(expression: &Expr) -> bool {
 
 /// Inspect the complete borrowed parameter forest before normalization. This
 /// guard runs even when the accepted kernel projector will annihilate W.
-fn admit_least_squares_parameters(matrix: &Matrix) -> PyResult<()> {
+fn admit_least_squares_parameters(matrix: &Matrix, meter: &mut impl BudgetMeter) -> PyResult<()> {
+    meter.checkpoint().map_err(to_value_error)?;
     if matrix.rows() > 32 || matrix.cols() > 32 {
         return Err(PyValueError::new_err(
             "least-squares parameter dimensions exceed 32",
         ));
     }
-    admit_least_squares_parameter_roots(matrix.data().iter(), None).map(|_| ())
+    admit_least_squares_parameter_roots(matrix.data().iter(), None, meter).map(|_| ())
+}
+
+fn least_squares_parameter_meter<'py, 'session>(
+    py: Python<'py>,
+    session: Option<&'session PySupervisedCallbackSession>,
+) -> NormalFormRequestMeter<'py, 'session> {
+    let mut limits = BudgetLimits::uniform(512 * 1024 * 1024, 0);
+    limits.dimensions[Dimension::ComputeSteps.index()] = 200_000_000;
+    // Reuse the atomic composition of a private envelope and the supplied
+    // request. Node counts alone cannot account for retained-graph equality,
+    // symbolic simplification or original held-domain arithmetic.
+    NormalFormRequestMeter {
+        request: InertiaRequestMeter::new(py, session),
+        budget: Budget::new(limits),
+    }
 }
 
 fn admit_least_squares_parameter_roots<'a>(
     entries: impl ExactSizeIterator<Item = &'a Expr> + Clone,
     retained: Option<&Bound<'_, PyList>>,
+    meter: &mut impl BudgetMeter,
 ) -> PyResult<Vec<usize>> {
     const MAX_NODES: usize = 4096;
+    meter.checkpoint().map_err(to_value_error)?;
     if entries.len() > MAX_NODES {
         return Err(PyValueError::new_err(
             "least-squares parameters exceed their bounded expression envelope",
         ));
     }
-    let mut limits = BudgetLimits::uniform(512 * 1024 * 1024, 0);
-    limits.dimensions[Dimension::ComputeSteps.index()] = 200_000_000;
-    let mut meter = Budget::new(limits);
     meter
-        .try_charge_batch(&[
+        .charge_batch(&[
             (
                 Dimension::MemoryBytes,
                 (MAX_NODES
@@ -528,8 +543,9 @@ fn admit_least_squares_parameter_roots<'a>(
                 "least-squares parameters exceed their bounded expression envelope",
             ));
         }
+        meter.checkpoint().map_err(to_value_error)?;
         meter
-            .try_charge_batch(&[(Dimension::ComputeSteps, 1)])
+            .charge(Dimension::ComputeSteps, 1)
             .map_err(to_value_error)?;
         if nonfinite(node) {
             return Err(PyValueError::new_err(
@@ -591,14 +607,13 @@ fn admit_least_squares_parameter_roots<'a>(
     // Original retained child identities must agree with these native roots
     // before either algebra or a zero projector can erase a supplied node.
     if let Some(retained) = retained {
-        crate::fourier::check_retained(retained, &mut meter)?;
+        crate::fourier::check_retained(retained, meter)?;
     }
     // Inspect original function nodes separately, before a parent zero could
     // erase a known pole such as held log(0) or log(x-x). Unknown symbolic
     // function values remain formal parameters; this is not a domain solver.
     for function in functions.into_iter().rev() {
-        let evaluated =
-            fsym_simplify::simplify_with(function, &mut meter).map_err(to_value_error)?;
+        let evaluated = fsym_simplify::simplify_with(function, meter).map_err(to_value_error)?;
         // The algebraic simplifier deliberately retains log(0), rather than
         // choosing an extended-real/complex infinity convention. It can still
         // prove that a held argument such as x - x is zero. That is already
@@ -620,11 +635,12 @@ fn admit_least_squares_parameter_roots<'a>(
     // general symbolic base this checker cannot otherwise resolve. Preserve
     // every raw inverse/zeroth-power child and its polynomial zero obligation.
     for entry in entries {
-        validate_held_transform_domains(entry, &mut meter)?;
+        validate_held_transform_domains(entry, meter)?;
     }
     meter
-        .try_charge_batch(&[(Dimension::ComputeSteps, 1)])
+        .charge(Dimension::ComputeSteps, 1)
         .map_err(to_value_error)?;
+    meter.checkpoint().map_err(to_value_error)?;
     Ok(root_sizes)
 }
 
@@ -917,9 +933,7 @@ impl PyMatrix {
         py: Python<'_>,
         session: Option<PyRef<'_, PySupervisedCallbackSession>>,
     ) -> PyResult<Option<PyMatrix>> {
-        modular_inverse::inverse(
-            (&self.inner).into(), modulus, py, session.as_deref(),
-        )
+        modular_inverse::inverse((&self.inner).into(), modulus, py, session.as_deref())
     }
 
     /// Complete integer family `(particular, kernel)` or checked inconsistency.
@@ -1350,7 +1364,7 @@ impl PyMatrix {
         })
     }
 
-    /// Solves the exact least-squares system `A^T A X = A^T B` for `X`.
+    /// Solves the exact Hermitian least-squares system `A* A X = A* B` for `X`.
     #[pyo3(signature = (b, *, session=None))]
     pub fn solve_least_squares(
         &self,
@@ -1382,39 +1396,86 @@ impl PyMatrix {
 
     /// Checked minimum-norm particular and complete orthogonal kernel projector.
     /// All least-squares solutions are `particular + projector * arbitrary`.
-    pub fn least_squares_family(&self, b: &Self) -> PyResult<(Self, Self)> {
-        let checked = self
-            .inner
-            .least_squares_family(&b.inner)
-            .map_err(matrix_err)?;
-        let (minimum_norm, projector) = checked.into_parts();
-        Ok((
-            Self {
-                inner: minimum_norm,
-            },
-            Self { inner: projector },
-        ))
+    #[pyo3(signature = (b, *, session=None))]
+    pub fn least_squares_family(
+        &self,
+        py: Python<'_>,
+        b: &Self,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<(Self, Self)> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = (|| {
+            meter.checkpoint().map_err(to_value_error)?;
+            let (minimum_norm, projector) =
+                if session.is_none() && self.is_exact_rational() && b.is_exact_rational() {
+                    self.inner
+                        .least_squares_family(&b.inner)
+                        .map_err(matrix_err)?
+                        .into_parts()
+                } else {
+                    self.inner
+                        .metered_gaussian_least_squares_family(&b.inner, &mut meter)
+                        .map_err(matrix_err)?
+                        .into_parts()
+                };
+            // Source admission, generation, independent Hermitian checking
+            // and both result wrappers share the active request's ledger.
+            meter
+                .charge(Dimension::ComputeSteps, 2)
+                .map_err(to_value_error)?;
+            meter.checkpoint().map_err(to_value_error)?;
+            Ok((
+                Self {
+                    inner: minimum_norm,
+                },
+                Self { inner: projector },
+            ))
+        })();
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
     }
 
     /// Bound and inspect original supplied parameters before any projection.
-    pub fn validate_least_squares_parameters(&self) -> PyResult<()> {
-        admit_least_squares_parameters(&self.inner)
+    #[pyo3(signature = (*, session=None))]
+    pub fn validate_least_squares_parameters(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<()> {
+        let mut meter = least_squares_parameter_meter(py, session.as_deref());
+        let result = admit_least_squares_parameters(&self.inner, &mut meter);
+        match meter.request.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
     }
 
     /// Borrow original dense W before exporting cells or converting to sparse.
     /// The sparse family admits large thin dense parameter matrices within the
     /// same stored-forest bound, independently of the dense solver's 32 cap.
-    #[pyo3(signature = (retained=None))]
+    #[pyo3(signature = (retained=None, *, session=None))]
     pub fn validate_sparse_least_squares_parameters(
         &self,
+        py: Python<'_>,
         retained: Option<&Bound<'_, PyList>>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
     ) -> PyResult<Vec<usize>> {
-        if self.inner.rows() > 8192 || self.inner.cols() > 8192 {
-            return Err(PyValueError::new_err(
-                "sparse least-squares parameter dimensions exceed 8192",
-            ));
+        let mut meter = least_squares_parameter_meter(py, session.as_deref());
+        let result = (|| {
+            meter.checkpoint().map_err(to_value_error)?;
+            if self.inner.rows() > 8192 || self.inner.cols() > 8192 {
+                return Err(PyValueError::new_err(
+                    "sparse least-squares parameter dimensions exceed 8192",
+                ));
+            }
+            admit_least_squares_parameter_roots(self.inner.data().iter(), retained, &mut meter)
+        })();
+        match meter.request.failure {
+            Some(error) => Err(error),
+            None => result,
         }
-        admit_least_squares_parameter_roots(self.inner.data().iter(), retained)
     }
 
     pub fn __richcmp__(&self, other: &Bound<'_, PyAny>, op: CompareOp) -> PyResult<bool> {
@@ -1892,9 +1953,7 @@ impl PySparseMatrix {
         py: Python<'_>,
         session: Option<PyRef<'_, PySupervisedCallbackSession>>,
     ) -> PyResult<Option<PyMatrix>> {
-        modular_inverse::inverse(
-            (&self.inner).into(), modulus, py, session.as_deref(),
-        )
+        modular_inverse::inverse((&self.inner).into(), modulus, py, session.as_deref())
     }
 
     /// Complete integer family with dense or sparse RHS, preserving sparse output.
@@ -1988,17 +2047,27 @@ impl PySparseMatrix {
     }
 
     /// Admit original stored parameter roots without visiting implicit zeros.
-    #[pyo3(signature = (retained=None))]
+    #[pyo3(signature = (retained=None, *, session=None))]
     pub fn validate_least_squares_parameters(
         &self,
+        py: Python<'_>,
         retained: Option<&Bound<'_, PyList>>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
     ) -> PyResult<Vec<usize>> {
-        if self.inner.rows() > 8192 || self.inner.cols() > 8192 {
-            return Err(PyValueError::new_err(
-                "sparse least-squares parameter dimensions exceed 8192",
-            ));
+        let mut meter = least_squares_parameter_meter(py, session.as_deref());
+        let result = (|| {
+            meter.checkpoint().map_err(to_value_error)?;
+            if self.inner.rows() > 8192 || self.inner.cols() > 8192 {
+                return Err(PyValueError::new_err(
+                    "sparse least-squares parameter dimensions exceed 8192",
+                ));
+            }
+            admit_least_squares_parameter_roots(self.inner.entries().values(), retained, &mut meter)
+        })();
+        match meter.request.failure {
+            Some(error) => Err(error),
+            None => result,
         }
-        admit_least_squares_parameter_roots(self.inner.entries().values(), retained)
     }
 
     /// Complete checked affine family, rendered under the same native budget.

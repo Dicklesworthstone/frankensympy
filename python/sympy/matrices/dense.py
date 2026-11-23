@@ -1721,7 +1721,7 @@ class Matrix(MatrixBase):
 
         The default checks the unique full-column-rank Hermitian solution
         for rational or bounded Gaussian-rational inputs. ``method='PINV'``
-        retains the rational complete-family route through ``pinv_solve``,
+        returns the complete Q(i) family through ``pinv_solve``,
         including singular, wide, and inconsistent systems.
         """
         if method == "PINV":
@@ -2153,94 +2153,22 @@ class Matrix(MatrixBase):
         return pseudoinverse(self)
 
     def pinv_solve(self, B, arbitrary_matrix=None):
-        """Return the complete least-squares family for exact rational A and B.
+        """Return the complete least-squares family for exact Q(i) A and B.
 
         The native checker accepts a minimum-norm particular X and the
-        orthogonal projector P onto ker(A). This method returns X + P*W,
+        Hermitian projector P onto ker(A). This method returns X + P*W,
         where W is the supplied ``arbitrary_matrix`` or a fresh matrix of
         Dummy parameters. Supplying a zero W selects the unique minimum-norm
         solution. Exact consistent systems are included.
 
         A and B admit at most 32 rows, unknowns, and right-hand sides, with
-        4096-bit literal rational inputs. Supplied parameter matrices retain
-        their public scalar owners within a bounded built-in expression lane.
+        4096-bit real and imaginary rational components. Supplied parameter
+        matrices retain their public scalar owners within a bounded built-in
+        expression lane. Original A, B and W are rechecked before publication,
+        and an active request's budget covers checking and output construction.
         """
-        from ..core import (Dummy, Function, Integer, _exact_surface_types,
-                            _require_closed_function_class)
-        from .sparse import SparseMatrix
-
-        if type(self) not in (Matrix, ImmutableMatrix):
-            raise NotImplementedError("custom matrix subclasses require a supervised override lane")
-        if type(B) not in (Matrix, ImmutableMatrix, SparseMatrix):
-            raise TypeError("pinv_solve requires a built-in Matrix right-hand side")
-        rows, columns = self.shape
-        rhs_rows, rhs_columns = B.shape
-        if rows != rhs_rows:
-            raise ValueError("The matrices have incompatible number of rows")
-        if max(rows, columns, rhs_columns) > 32:
-            raise ValueError("exact least squares supports at most 32 rows, variables, and right-hand sides")
-        output_class = ImmutableMatrix if type(self) is ImmutableMatrix or type(B) is ImmutableMatrix else Matrix
-        if type(B) is SparseMatrix:
-            B = B.to_dense()
-        # Capture the immutable coefficient snapshots before constructing any
-        # parameters or public arithmetic. Native admission checks every entry.
-        coefficients, rhs = self._native, B._native
-
-        parameter_entries = None
-        if arbitrary_matrix is not None:
-            if type(arbitrary_matrix) not in (Matrix, ImmutableMatrix, SparseMatrix):
-                raise TypeError("arbitrary_matrix must be a built-in Matrix")
-            if arbitrary_matrix.shape != (columns, rhs_columns):
-                raise ValueError("arbitrary_matrix must have shape (A.cols, B.cols)")
-            if type(arbitrary_matrix) is ImmutableMatrix:
-                output_class = ImmutableMatrix
-            if type(arbitrary_matrix) is SparseMatrix:
-                arbitrary_matrix = arbitrary_matrix.to_dense()
-            parameter_entries = tuple(arbitrary_matrix[index] for index in range(columns * rhs_columns))
-            pending = [(entry, 0) for entry in parameter_entries]
-            visited = 0
-            exact_types = _exact_surface_types()
-            while pending:
-                entry, depth = pending.pop()
-                visited += 1
-                if visited > 4096 or depth > 64:
-                    raise ValueError("least-squares parameters exceed their bounded expression envelope")
-                cls = type(entry)
-                if not any(cls is builtin for builtin in exact_types):
-                    if not any(base is Function for base in type.__dict__["__mro__"].__get__(cls)):
-                        raise NotImplementedError("custom symbolic subclasses require a supervised override lane")
-                    _require_closed_function_class(cls)
-                children = _least_squares_stored_children(entry)
-                if children:
-                    if len(children) > 4096 - visited - len(pending):
-                        raise ValueError("least-squares parameters exceed their bounded expression envelope")
-                    pending.extend((child, depth + 1) for child in children)
-            # The entire borrowed forest has now passed shape and ownership
-            # admission. Only now access native roots and check held domains.
-            for entry in parameter_entries:
-                _native_expr(entry)
-            arbitrary_matrix._native.validate_least_squares_parameters()
-
-        raw_minimum, raw_projector = coefficients.least_squares_family(rhs)
-        minimum = [_wrap(entry) for entry in raw_minimum.flat()]
-        projector = [_wrap(entry) for entry in raw_projector.flat()]
-        if parameter_entries is None:
-            # Pinned SymPy builds a (B.cols, A.cols) matrix from the row-major
-            # w-grid, then transposes it. Preserve its multi-RHS name ordering.
-            parameters = [Dummy(f"w{row}_{column}")
-                          for row in range(columns) for column in range(rhs_columns)]
-            parameter_entries = tuple(parameters[column * columns + row]
-                                      for row in range(columns) for column in range(rhs_columns))
-        entries = []
-        for row in range(columns):
-            for column in range(rhs_columns):
-                value = minimum[row * rhs_columns + column]
-                for inner in range(columns):
-                    coefficient = projector[row * columns + inner]
-                    if coefficient != Integer(0):
-                        value = value + coefficient * parameter_entries[inner * rhs_columns + column]
-                entries.append(value)
-        return output_class(columns, rhs_columns, entries)
+        from ._pseudoinverse import pinv_solve
+        return pinv_solve(self, B, arbitrary_matrix)
 
     def dot(self, other):
         """Compute the inner (dot) product with another matrix/vector."""

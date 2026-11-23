@@ -4,6 +4,7 @@
 use crate::binding::PySymbolBinding;
 use crate::expr::PyExpr;
 use crate::to_value_error;
+use fsym_budget::BudgetMeter;
 use fsym_calculus::delayed_laplace::distributional::metered_inverse_delayed_distributional_laplace;
 use fsym_calculus::rational_laplace::RationalLaplaceError;
 use fsym_calculus::rational_laplace::distributional::metered_inverse_distributional_laplace;
@@ -29,9 +30,10 @@ fn budget() -> Budget {
     Budget::new(limits)
 }
 
-fn charge(meter: &mut Budget, nodes: usize, bytes: usize) -> PyResult<()> {
+fn charge(meter: &mut impl BudgetMeter, nodes: usize, bytes: usize) -> PyResult<()> {
+    meter.checkpoint().map_err(to_value_error)?;
     meter
-        .try_charge_batch(&[
+        .charge_batch(&[
             (Dimension::ComputeSteps, nodes.max(1) as u64),
             (Dimension::MemoryBytes, bytes.max(1) as u64),
             (Dimension::AllocationCount, 1),
@@ -60,7 +62,7 @@ struct OriginalShape<'a> {
 fn original_shape<'a>(
     source: &'a Expr,
     variable: Option<&Symbol>,
-    meter: &mut Budget,
+    meter: &mut impl BudgetMeter,
 ) -> PyResult<OriginalShape<'a>> {
     charge(
         meter,
@@ -188,7 +190,7 @@ fn original_shape<'a>(
 /// Admit one power base as a polynomial in its complete typed symbol ring.
 /// All nodes already passed original_shape; this bounded second walk preserves
 /// identity and prepays every retained name before polynomial construction.
-fn power_base_ring(base: &Expr, meter: &mut Budget) -> PyResult<Option<Vec<Symbol>>> {
+fn power_base_ring(base: &Expr, meter: &mut impl BudgetMeter) -> PyResult<Option<Vec<Symbol>>> {
     charge(
         meter,
         1,
@@ -230,7 +232,10 @@ fn power_base_ring(base: &Expr, meter: &mut Budget) -> PyResult<Option<Vec<Symbo
     Ok(Some(symbols.into_iter().cloned().collect()))
 }
 
-fn check_original_domains(shape: &OriginalShape<'_>, meter: &mut Budget) -> PyResult<()> {
+fn check_original_domains(
+    shape: &OriginalShape<'_>,
+    meter: &mut impl BudgetMeter,
+) -> PyResult<()> {
     // Exponent grammar is a transform-routing question. Only an unadmitted
     // inverse or zeroth-power base leaves this source-domain check undecided.
     let mut unresolved = false;
@@ -266,7 +271,10 @@ fn check_original_domains(shape: &OriginalShape<'_>, meter: &mut Budget) -> PyRe
 /// Check original held literal inverse and zeroth-power bases before legacy
 /// processing. Other exponents remain the caller's routing decision.
 /// This performs no expansion and never converts unknown bases to zero.
-pub(crate) fn validate_held_transform_domains(source: &Expr, meter: &mut Budget) -> PyResult<()> {
+pub(crate) fn validate_held_transform_domains(
+    source: &Expr,
+    meter: &mut impl BudgetMeter,
+) -> PyResult<()> {
     let shape = original_shape(source, None, meter)?;
     check_original_domains(&shape, meter)
 }

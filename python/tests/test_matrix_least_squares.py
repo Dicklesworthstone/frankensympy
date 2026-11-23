@@ -150,11 +150,13 @@ def test_invalid_shapes_are_rejected_even_when_the_kernel_projector_is_zero():
 def test_all_original_coefficients_and_later_rhs_entries_are_admitted_before_zero():
     x = s.Symbol("least_squares_coefficient")
     hidden = s.Mul(0, x, evaluate=False)
-    for bad in (x, hidden, s.I, s.Float(1.0)):
+    for bad in (x, hidden, s.Float(1.0)):
         with pytest.raises(ValueError):
             s.Matrix([[bad]]).pinv_solve(s.zeros(1, 1))
         with pytest.raises(ValueError):
             s.zeros(1, 1).pinv_solve(s.Matrix([[0, bad]]))
+    # Q(i) is now an admitted exact domain, including a purely imaginary cell.
+    assert s.Matrix([[s.I]]).pinv_solve(s.Matrix([[1]])) == s.Matrix([[-s.I]])
 
 
 def test_opaque_parameters_and_custom_matrix_overrides_stay_outside_the_native_lane():
@@ -191,7 +193,10 @@ def test_parameter_preflight_rejects_modified_accessors_without_calling_them(
                    else property(forbidden_accessor))
     with monkeypatch.context() as patch:
         patch.setattr(owner, attribute, replacement)
-        with pytest.raises(NotImplementedError, match="modified symbolic accessors"):
+        # The shared exact-source guard may reject the altered owner before
+        # parameter admission; neither path may invoke the replacement.
+        with pytest.raises(NotImplementedError, match=(
+                "modified symbolic accessors|requires original built-in implementations")):
             a.pinv_solve(b, parameters)
     assert calls == []
     assert parameters[0] is held

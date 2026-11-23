@@ -145,8 +145,14 @@ jobs:
           cargo test --locked -p fsym-calculus --test nonsmooth_box_optimization --test box_optimization_search --test box_optimization_checkpoint -j1
       - name: Reciprocal elementary original-source certificates
         run: cargo test --locked -p fsym-core --test reciprocal_enclosures -j1
-      - name: Exact rational polynomial partial evaluation
-        run: cargo test --locked -p fsym-polys --test evaluation -j1
+      - name: Exact rational polynomial evaluation and composition
+        run: cargo test --locked -p fsym-polys --test evaluation --test composition -j1
+      - name: Exact complex Moore-Penrose pseudoinverses
+        run: |
+          cargo test --locked -p fsym-matrices --test gaussian_pseudoinverse --test pseudoinverse -j1
+          cargo test --locked -p fsym-matrices --lib pseudoinverse::gaussian::tests -j1
+          cargo test --locked -p fsym-matrices --test gaussian_least_squares --test gaussian_least_squares_family -j1
+          cargo test --locked -p fsym-matrices --lib pseudoinverse::gaussian::least_squares::tests -j1
       - name: Principal-angle interval and original-source certificates
         run: cargo test --locked -p fsym-core --test atan2_enclosures --test atan2_certification -j1
       - name: Compiled principal-angle programs and derivative admission
@@ -168,12 +174,6 @@ jobs:
         run: |
           cargo test --locked -p fsym-proof-kernel --test hermitian_inertia -j1
           cargo test --locked -p fsym-matrices --test hermitian_inertia -j1
-      - name: Exact complex Moore-Penrose pseudoinverses
-        run: |
-          cargo test --locked -p fsym-matrices --test gaussian_pseudoinverse --test pseudoinverse -j1
-          cargo test --locked -p fsym-matrices --lib pseudoinverse::gaussian::tests -j1
-          cargo test --locked -p fsym-matrices --test gaussian_least_squares -j1
-          cargo test --locked -p fsym-matrices --lib pseudoinverse::gaussian::least_squares::tests -j1
       - name: Checked recursive polynomial pseudo-division
         run: cargo test --locked -p fsym-polys --test pseudo_division -j1
       - name: Normalized half-line transform identities
@@ -334,6 +334,8 @@ jobs:
               "python/tests/test_matrix_hermitian_definiteness.py",
               "python/tests/test_matrix_complex_pseudoinverse.py",
               "python/tests/test_matrix_complex_least_squares.py",
+              "python/tests/test_matrix_complex_least_squares_family.py",
+              "python/tests/test_matrix_least_squares_parameter_budget.py",
               "python/tests/test_matrix_pseudoinverse.py",
               "python/tests/test_matrix_definiteness_budget.py",
               "python/tests/test_hermitian_definiteness.py",
@@ -494,6 +496,7 @@ jobs:
               "python/tests/test_finite_field_poly.py",
               "python/tests/test_finite_field_multivariate_poly.py",
               "python/tests/test_finite_field_composition.py",
+              "python/tests/test_polynomial_composition.py",
               "python/tests/test_finite_field_evaluation.py",
               "python/tests/test_finite_field_groebner.py",
               "python/tests/test_finite_field_quotient_algebra.py",

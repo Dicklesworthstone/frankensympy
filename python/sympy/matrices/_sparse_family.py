@@ -3,7 +3,7 @@
 from ..core import (
     Add, Atom, AtomicExpr, Basic, ComplexInfinity, Dummy, Expr, Float, Function, Half, Integer,
     Mul, NegativeOne, Number, One, Pow, Rational, Symbol, Zero,
-    _native_expr, _require_closed_function_class, _wrap,
+    _charge_nested_if_active, _native_expr, _require_closed_function_class, _wrap,
 )
 from ..core._function_capabilities import _implementation, _owner_matches, _owner_record
 from . import sparse as _s
@@ -78,7 +78,7 @@ def _parameter_forest(entries):
 class _ParameterMatrix:
     """A bounded sparse view of W, bound to the original public storage."""
 
-    def __init__(self, matrix, shape):
+    def __init__(self, matrix, shape, *, session=None):
         accepted = (_s.Matrix, _s.ImmutableDenseMatrix, _s.SparseMatrix, _s.ImmutableSparseMatrix)
         if not any(type(matrix) is cls for cls in accepted):
             raise TypeError("arbitrary_matrix must be a built-in Matrix")
@@ -133,7 +133,8 @@ class _ParameterMatrix:
         # even if A has full column rank and the projector will erase W.
         validate = (members["validate_sparse_least_squares_parameters"] if dense else
                     members["validate_least_squares_parameters"])
-        sizes = validate(native, None if self.forest is None else self.forest.records())
+        sizes = validate(native, None if self.forest is None else self.forest.records(),
+                         session=session)
         native = members["to_sparse"](native) if dense else native
         raw = _s._REDUCTION_NATIVE_MEMBERS["todok"](native)
         if len(sizes) != (count if dense else len(raw)):
@@ -206,6 +207,25 @@ def pinv_solve(matrix, rhs, arbitrary_matrix=None):
     _s._check_rational_source(source)
     _s._check_rational_source(rhs_source)
     minimum, projector = _s._REDUCTION_NATIVE_MEMBERS["least_squares_family"](coefficients, rhs_native)
+
+    def unchanged():
+        _s._check_rational_source(source)
+        _s._check_rational_source(rhs_source)
+
+    return _render_family(minimum, projector, (unknowns, columns), result_type, supplied, unchanged)
+
+
+def _render_family(minimum, projector, shape, result_type, supplied, unchanged):
+    """Render an accepted family while retaining every original parameter owner.
+
+    Dense Q(i) and sparse QQ generators share this bounded publication path.
+    The matrices supplied here are already checked; this layer preserves the
+    public parameter forest and rechecks sources before returning the result.
+    """
+    unknowns, columns = shape
+    unchanged()
+    _original_scalar_interfaces()
+    _charge_nested_if_active(unknowns * max(columns, 1) + 1)
     shape_slot = _s._REDUCTION_NATIVE_MEMBERS["shape"]
     if (shape_slot.__get__(minimum, _s._NativeSparseMatrix) != (unknowns, columns)
             or shape_slot.__get__(projector, _s._NativeSparseMatrix) != (unknowns, unknowns)):
@@ -243,11 +263,16 @@ def pinv_solve(matrix, rhs, arbitrary_matrix=None):
             output_sizes[coordinate] = size
     if render_nodes > _MAX_RENDER_NODES:
         raise ValueError("least-squares family exceeds the rendered expression limit")
+    # Include the entire bounded output forest in the active request rather
+    # than restarting its accounting after the native checker has returned.
+    _charge_nested_if_active(render_nodes + products + 1)
+    unchanged()
     output = {coordinate: _wrap(value) for coordinate, value in raw_minimum.items()}
     for (row, inner), raw_coefficient in raw_projector.items():
         coefficient = _wrap(raw_coefficient)
         identity = _s._REDUCTION_NATIVE_EQUAL(raw_coefficient, _NATIVE_ONE) is True
         for column, value in by_row.get(inner, ()):
+            _charge_nested_if_active()
             coordinate = (row, column)
             term = value if identity else coefficient*value
             previous = output.get(coordinate)
@@ -272,10 +297,10 @@ def pinv_solve(matrix, rhs, arbitrary_matrix=None):
     else:
         surface = output
     slots[2].__set__(result, surface)
-    _s._check_rational_source(source)
-    _s._check_rational_source(rhs_source)
+    unchanged()
     forest.unchanged()
     if supplied is not None:
         supplied.unchanged()
     _original_scalar_interfaces()
+    _charge_nested_if_active()
     return result

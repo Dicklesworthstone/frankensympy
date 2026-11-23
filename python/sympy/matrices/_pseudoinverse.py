@@ -1,4 +1,4 @@
-"""Source-bound exact dense pseudoinverses and unique least squares over Q(i).
+"""Source-bound exact dense pseudoinverses and least squares over Q(i).
 
 The complex lanes share the original Gaussian scalar admission used by matrix
 definiteness. Native results are checked against the original complex sources,
@@ -13,7 +13,7 @@ from . import _definiteness as _source
 
 _NATIVE = _source._NATIVE[_source.Matrix]
 _NAMES = ("shape", "is_exact_rational", "validate_gaussian_pseudoinverse_source",
-          "pinv", "solve_least_squares")
+          "pinv", "solve_least_squares", "least_squares_family", "to_sparse")
 _METHODS = tuple(_source._DICT.__get__(_NATIVE)[name] for name in _NAMES)
 _CLASSES = (_source.Matrix, _source.ImmutableDenseMatrix)
 _SPARSE_CLASSES = (_source.SparseMatrix, _source.ImmutableSparseMatrix)
@@ -25,8 +25,9 @@ _SPARSE_METHODS = tuple(_source._DICT.__get__(_SPARSE_NATIVE)[name] for name in 
 def _interfaces(operation, context, base):
     _source._interfaces()
     namespace = _source._DICT.__get__(_NATIVE)
+    required = (0, 1, 2, operation, 6) if operation == 5 else (0, 1, 2, operation)
     if any(namespace.get(_NAMES[index]) is not _METHODS[index]
-           for index in (0, 1, 2, operation)):
+           for index in required):
         raise NotImplementedError("%s requires original native interfaces" % context)
     if base is _source.SparseMatrix:
         namespace = _source._DICT.__get__(_SPARSE_NATIVE)
@@ -186,3 +187,56 @@ def solve_least_squares(matrix, rhs):
     solution = _METHODS[4](left, right, session=session)
     unchanged()
     return _publish(solution, (columns, rhs_columns), type(matrix), unchanged, "least squares")
+
+
+def pinv_solve(matrix, rhs, arbitrary_matrix=None):
+    """Return the complete checked Q(i) family X + P*W for original A/B.
+
+    X is the unique minimum-norm least-squares solution; P is the Hermitian
+    projector onto the complete kernel of A. Both are independently checked
+    natively before the common bounded parameter renderer sees them.
+    """
+    from ._sparse_family import _ParameterMatrix, _render_family
+
+    if not any(type(matrix) is cls for cls in _CLASSES):
+        raise NotImplementedError("custom matrix subclasses require a supervised override lane")
+    if not any(type(rhs) is cls for cls in _CLASSES + _SPARSE_CLASSES):
+        raise TypeError("pinv_solve requires a built-in Matrix right-hand side")
+    _charge_nested_if_active()
+    session = _active_callback_session()
+    context = "least-squares family"
+    # The entire family lane, including literal rational sources, has the same
+    # 32-axis bound. Admit both originals before sparse conversion or solving.
+    left, (rows, columns), left_unchanged = _capture(
+        matrix, session, 5, context, force_gaussian=True)
+    right, (rhs_rows, rhs_columns), right_unchanged = _capture(
+        rhs, session, 5, context, allow_sparse=True, force_gaussian=True)
+    if rows != rhs_rows:
+        raise ValueError("The matrices have incompatible number of rows")
+
+    def unchanged():
+        left_unchanged()
+        right_unchanged()
+
+    unchanged()
+    shape = (columns, rhs_columns)
+    supplied = (None if arbitrary_matrix is None else
+                _ParameterMatrix(arbitrary_matrix, shape, session=session))
+    if supplied is not None:
+        _charge_nested_if_active(sum(supplied.sizes.values()) + 1)
+    kinds = (type(matrix), type(rhs), type(arbitrary_matrix))
+    result_type = (_source.ImmutableSparseMatrix if _source.ImmutableSparseMatrix in kinds else
+                   _source.ImmutableDenseMatrix if _source.ImmutableDenseMatrix in kinds else
+                   _source.Matrix)
+    unchanged()
+    minimum, projector = _METHODS[5](left, right, session=session)
+    unchanged()
+    if (type(minimum) is not _NATIVE or type(projector) is not _NATIVE
+            or _METHODS[0].__get__(minimum, _NATIVE) != shape
+            or _METHODS[0].__get__(projector, _NATIVE) != (columns, columns)):
+        raise RuntimeError("native least-squares family has invalid output shapes")
+    _charge_nested_if_active(columns * (columns + rhs_columns) + 1)
+    minimum = _METHODS[6](minimum)
+    projector = _METHODS[6](projector)
+    unchanged()
+    return _render_family(minimum, projector, shape, result_type, supplied, unchanged)

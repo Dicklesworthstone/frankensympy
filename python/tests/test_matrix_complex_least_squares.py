@@ -2,7 +2,7 @@
 
 Positive fixtures and result classes were independently checked with isolated
 SymPy 1.14.0. Native-only cases exercise the bounded source and request contract;
-the separate PINV family remains an explicitly rational-only interface.
+the PINV family additionally supports singular Gaussian-rational systems.
 """
 
 import pytest
@@ -81,10 +81,14 @@ def test_unique_ch_lane_refuses_rank_deficiency(entries):
 
 
 @native_only
-def test_complex_pinv_family_remains_an_explicit_domain_refusal():
+def test_complex_pinv_family_returns_the_complete_singular_family():
     matrix = Matrix([[1, 2], [I, 2*I]])
-    with pytest.raises(ValueError, match="exact rational|rational entries|domain"):
-        matrix.solve_least_squares(Matrix([[1], [0]]), method="PINV")
+    rhs = Matrix([[1], [0]])
+    family = matrix.solve_least_squares(rhs, method="PINV")
+    assert len(family.free_symbols) == 2
+    assert_exact(matrix.H*(matrix*family-rhs), zeros(2, 1))
+    assert_exact(matrix.pinv_solve(rhs, zeros(2, 1)),
+                 Matrix([[Rational(1, 10)], [Rational(1, 5)]]))
 
 
 @native_only

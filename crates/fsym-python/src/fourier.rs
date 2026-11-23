@@ -3,6 +3,7 @@
 use crate::binding::PySymbolBinding;
 use crate::expr::PyExpr;
 use crate::to_value_error;
+use fsym_budget::BudgetMeter;
 use fsym_calculus::fourier::{
     FourierDirection, FourierError, HalfLineKernel, metered_fourier_transform_l1,
     metered_half_line_transform, metered_inverse_fourier_transform_l1,
@@ -13,17 +14,19 @@ use pyo3::exceptions::{PyNotImplementedError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyString, PyTuple};
 
-fn charge_steps(budget: &mut Budget, steps: u64) -> PyResult<()> {
+fn charge_steps(budget: &mut impl BudgetMeter, steps: u64) -> PyResult<()> {
+    budget.checkpoint().map_err(to_value_error)?;
     budget
-        .try_charge_batch(&[(Dimension::ComputeSteps, steps.max(1))])
+        .charge(Dimension::ComputeSteps, steps.max(1))
         .map_err(to_value_error)?;
     Ok(())
 }
 
 /// Compare borrowed immutable payloads, with no recursively unbounded Eq call.
-fn retained_equal(left: &Expr, right: &Expr, budget: &mut Budget) -> PyResult<bool> {
+fn retained_equal(left: &Expr, right: &Expr, budget: &mut impl BudgetMeter) -> PyResult<bool> {
+    budget.checkpoint().map_err(to_value_error)?;
     budget
-        .try_charge_batch(&[
+        .charge_batch(&[
             (Dimension::MemoryBytes, 4096 * 32),
             (Dimension::AllocationCount, 1),
         ])
@@ -120,7 +123,11 @@ fn retained_equal(left: &Expr, right: &Expr, budget: &mut Budget) -> PyResult<bo
 
 // Also used by the Mellin bridge: this compares source storage, independently
 // of the transform catalog, without copying native expression subtrees.
-pub(crate) fn check_retained(records: &Bound<'_, PyList>, budget: &mut Budget) -> PyResult<()> {
+pub(crate) fn check_retained(
+    records: &Bound<'_, PyList>,
+    budget: &mut impl BudgetMeter,
+) -> PyResult<()> {
+    budget.checkpoint().map_err(to_value_error)?;
     if records.len() > 4096 {
         return Err(PyValueError::new_err(
             "Fourier retained source exceeds its node bound",
@@ -207,6 +214,7 @@ pub(crate) fn check_retained(records: &Bound<'_, PyList>, budget: &mut Budget) -
             }
         }
     }
+    budget.checkpoint().map_err(to_value_error)?;
     Ok(())
 }
 
