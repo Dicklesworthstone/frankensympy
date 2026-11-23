@@ -21,6 +21,8 @@ mod exact_solve;
 pub use exact_solve::GaussianLinearSystemCandidate;
 mod qr;
 pub use qr::GaussianQrCandidate;
+mod rref;
+pub use rref::{GaussianAffineCandidate, GaussianRrefCandidate, VerifiedGaussianAffineSolution};
 
 use crate::{Matrix, MatrixError, SparseMatrix, generate_sparse_pseudoinverse_candidate};
 use fsym_budget::{BudgetError, BudgetMeter, Dimension, MeterError};

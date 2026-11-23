@@ -24,8 +24,10 @@ pub use sparse_rref::{
 };
 mod pseudoinverse;
 pub use pseudoinverse::{
-    GaussianLeastSquaresCandidate, GaussianLinearSystemCandidate, GaussianQrCandidate,
-    PseudoinverseCertificate, VerifiedGaussianLeastSquaresFamily, verify_pseudoinverse_certificate,
+    GaussianAffineCandidate, GaussianLeastSquaresCandidate, GaussianLinearSystemCandidate,
+    GaussianQrCandidate, GaussianRrefCandidate, PseudoinverseCertificate,
+    VerifiedGaussianAffineSolution, VerifiedGaussianLeastSquaresFamily,
+    verify_pseudoinverse_certificate,
 };
 mod least_squares;
 pub use least_squares::{
@@ -1668,6 +1670,14 @@ impl Matrix {
     /// Computes the Reduced Row Echelon Form (RREF) and returns `(rref_matrix, pivot_columns)`.
     pub fn rref(&self) -> Result<(Matrix, Vec<usize>), MatrixError> {
         let mut meter = fsym_budget::Unbounded;
+        if self
+            .data
+            .iter()
+            .any(|entry| !matches!(entry, Expr::Integer(_) | Expr::Rational(_)))
+            && self.has_gaussian_rational_syntax_with_meter(&mut meter)?
+        {
+            return self.metered_gaussian_rref(&mut meter);
+        }
         self.rref_with_meter(&mut meter)
     }
 
@@ -1776,6 +1786,15 @@ impl Matrix {
 
     /// Computes basis vectors spanning the nullspace (kernel) of this matrix: $A \cdot v = 0$.
     pub fn nullspace(&self) -> Result<Vec<Matrix>, MatrixError> {
+        let mut meter = fsym_budget::Unbounded;
+        if self
+            .data
+            .iter()
+            .any(|entry| !matches!(entry, Expr::Integer(_) | Expr::Rational(_)))
+            && self.has_gaussian_rational_syntax_with_meter(&mut meter)?
+        {
+            return self.metered_gaussian_nullspace(&mut meter);
+        }
         let (rref_mat, pivot_cols) = self.rref()?;
         let n_cols = self.cols;
         let pivot_set: std::collections::HashSet<usize> = pivot_cols.iter().cloned().collect();

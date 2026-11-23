@@ -153,7 +153,7 @@ jobs:
           cargo test --locked -p fsym-matrices --lib pseudoinverse::gaussian::tests -j1
           cargo test --locked -p fsym-matrices --test gaussian_least_squares --test gaussian_least_squares_family --test gaussian_exact_solve -j1
           cargo test --locked -p fsym-matrices --lib pseudoinverse::gaussian::least_squares::tests -j1
-          cargo test --locked -p fsym-matrices --test gaussian_qr -j1
+          cargo test --locked -p fsym-matrices --test gaussian_qr --test gaussian_rref -j1
           cargo test --locked -p fsym-matrices --lib pseudoinverse::gaussian::qr::tests -j1
       - name: Principal-angle interval and original-source certificates
         run: cargo test --locked -p fsym-core --test atan2_enclosures --test atan2_certification -j1

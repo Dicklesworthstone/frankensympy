@@ -162,7 +162,7 @@ fn original_domains_shapes_and_aggregate_bounds_are_checked() {
     ));
     for entry in [
         Expr::symbol("parameter"),
-        Expr::Const(Constant::I),
+        Expr::Const(Constant::Pi),
         Expr::Mul(vec![Expr::from_i64(0), Expr::symbol("hidden")]),
     ] {
         let rhs = Matrix::new(

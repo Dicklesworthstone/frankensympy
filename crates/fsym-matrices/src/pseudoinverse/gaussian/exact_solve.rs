@@ -112,6 +112,63 @@ fn check(
     Ok(ExactCheck::Accepted)
 }
 
+fn gaussian_source_syntax<'a>(
+    roots: impl IntoIterator<Item = &'a Expr>,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<bool> {
+    let mut visited = 0usize;
+    let mut pending = work.vector::<(&Expr, usize)>(1)?;
+    for original in roots {
+        pending.push((original, 0));
+        while let Some((expression, depth)) = pending.pop() {
+            work.tick(1)?;
+            visited += 1;
+            if visited > MAX_GAUSSIAN_SOURCE_NODES || depth > MAX_GAUSSIAN_SOURCE_DEPTH {
+                return Err(limit("Gaussian-rational source syntax envelope"));
+            }
+            match expression {
+                Expr::Integer(_) | Expr::Rational(_) | Expr::Const(Constant::I) => {}
+                Expr::Add(children) | Expr::Mul(children) => {
+                    if children.len() > MAX_GAUSSIAN_SOURCE_NODES - visited - pending.len() {
+                        return Err(limit("Gaussian-rational source syntax envelope"));
+                    }
+                    work.storage((children.len() * std::mem::size_of::<(&Expr, usize)>()) as u64)?;
+                    pending
+                        .try_reserve(children.len())
+                        .map_err(|_| limit("Gaussian source syntax allocation refused"))?;
+                    pending.extend(children.iter().map(|child| (child, depth + 1)));
+                }
+                Expr::Pow(base, exponent) if matches!(exponent.as_ref(), Expr::Integer(_)) => {
+                    if pending.len() + 2 > MAX_GAUSSIAN_SOURCE_NODES - visited {
+                        return Err(limit("Gaussian-rational source syntax envelope"));
+                    }
+                    work.storage((2 * std::mem::size_of::<(&Expr, usize)>()) as u64)?;
+                    pending
+                        .try_reserve(2)
+                        .map_err(|_| limit("Gaussian source syntax allocation refused"))?;
+                    pending.push((base, depth + 1));
+                    pending.push((exponent, depth + 1));
+                }
+                _ => return Ok(false),
+            }
+        }
+    }
+    work.tick(1)?;
+    Ok(true)
+}
+
+impl super::SparseMatrix {
+    /// Inspect stored syntax without densifying or imposing Gaussian axis
+    /// limits on symbolic sparse matrices. True selects a candidate lane;
+    /// independent source admission still checks dimensions and all domains.
+    pub fn has_gaussian_rational_syntax_with_meter(
+        &self,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<bool> {
+        gaussian_source_syntax(self.entries().values(), &mut Work::new(meter))
+    }
+}
+
 impl Matrix {
     /// Select closed rational/I arithmetic before an inverse algorithm runs.
     /// This only inspects bounded syntax; it never grants mathematical
@@ -121,48 +178,7 @@ impl Matrix {
         meter: &mut impl BudgetMeter,
     ) -> Result<bool> {
         self.validate_shape()?;
-        let mut work = Work::new(meter);
-        let mut visited = 0usize;
-        let mut pending = work.vector::<(&Expr, usize)>(1)?;
-        for original in self.data() {
-            pending.push((original, 0));
-            while let Some((expression, depth)) = pending.pop() {
-                work.tick(1)?;
-                visited += 1;
-                if visited > MAX_GAUSSIAN_SOURCE_NODES || depth > MAX_GAUSSIAN_SOURCE_DEPTH {
-                    return Err(limit("Gaussian-rational source syntax envelope"));
-                }
-                match expression {
-                    Expr::Integer(_) | Expr::Rational(_) | Expr::Const(Constant::I) => {}
-                    Expr::Add(children) | Expr::Mul(children) => {
-                        if children.len() > MAX_GAUSSIAN_SOURCE_NODES - visited - pending.len() {
-                            return Err(limit("Gaussian-rational source syntax envelope"));
-                        }
-                        work.storage(
-                            (children.len() * std::mem::size_of::<(&Expr, usize)>()) as u64,
-                        )?;
-                        pending
-                            .try_reserve(children.len())
-                            .map_err(|_| limit("Gaussian source syntax allocation refused"))?;
-                        pending.extend(children.iter().map(|child| (child, depth + 1)));
-                    }
-                    Expr::Pow(base, exponent) if matches!(exponent.as_ref(), Expr::Integer(_)) => {
-                        if pending.len() + 2 > MAX_GAUSSIAN_SOURCE_NODES - visited {
-                            return Err(limit("Gaussian-rational source syntax envelope"));
-                        }
-                        work.storage((2 * std::mem::size_of::<(&Expr, usize)>()) as u64)?;
-                        pending
-                            .try_reserve(2)
-                            .map_err(|_| limit("Gaussian source syntax allocation refused"))?;
-                        pending.push((base, depth + 1));
-                        pending.push((exponent, depth + 1));
-                    }
-                    _ => return Ok(false),
-                }
-            }
-        }
-        work.tick(1)?;
-        Ok(true)
+        gaussian_source_syntax(self.data(), &mut Work::new(meter))
     }
 
     /// Generate an untrusted bounded Q(i) linear-system proposal. Only the

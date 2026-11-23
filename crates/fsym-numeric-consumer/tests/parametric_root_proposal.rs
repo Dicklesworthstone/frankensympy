@@ -48,7 +48,7 @@ fn meter_cause(error: &(dyn Error + 'static)) -> Option<MeterError> {
     let mut cause = Some(error);
     while let Some(current) = cause {
         if let Some(meter) = current.downcast_ref::<MeterError>() {
-            return Some(meter.clone());
+            return Some(*meter);
         }
         cause = current.source();
     }
