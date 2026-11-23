@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 pub mod checked_groebner;
+pub mod composition;
 pub mod division;
 pub mod evaluation;
 pub mod factorization;
@@ -50,6 +51,7 @@ pub mod syzygy;
 pub mod univariate;
 
 pub use checked_groebner::*;
+pub use composition::*;
 pub use division::*;
 pub use evaluation::*;
 pub use factorization::*;
