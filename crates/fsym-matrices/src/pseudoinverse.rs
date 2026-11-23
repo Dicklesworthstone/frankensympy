@@ -1,7 +1,10 @@
 //! Exact Moore-Penrose pseudoinverses and independent identity checking.
 
 mod gaussian;
-pub use gaussian::{GaussianLeastSquaresCandidate, VerifiedGaussianLeastSquaresFamily};
+pub use gaussian::{
+    GaussianLeastSquaresCandidate, GaussianLinearSystemCandidate,
+    VerifiedGaussianLeastSquaresFamily,
+};
 
 use super::{MAX_MATRIX_MULTIPLICATION_OPS, Matrix, MatrixError, numeric_value};
 use fsym_core::BigRational;

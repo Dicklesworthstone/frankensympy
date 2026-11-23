@@ -17,6 +17,8 @@
 
 mod least_squares;
 pub use least_squares::{GaussianLeastSquaresCandidate, VerifiedGaussianLeastSquaresFamily};
+mod exact_solve;
+pub use exact_solve::GaussianLinearSystemCandidate;
 
 use crate::{Matrix, MatrixError, SparseMatrix, generate_sparse_pseudoinverse_candidate};
 use fsym_budget::{BudgetError, BudgetMeter, Dimension, MeterError};
