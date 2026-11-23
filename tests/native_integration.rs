@@ -11,7 +11,7 @@ use fsym_budget::{
 use fsym_calculus::quadrature::QuadratureOptions;
 use fsym_core::{
     BigInt, BigRational, Expr, IntegralEnclosureReceipt, MAX_QUADRATURE_INPUT_BITS,
-    MAX_QUADRATURE_INTERVALS, QuadratureError, QuadratureWitness, RootBoxError, Symbol,
+    MAX_QUADRATURE_INTERVALS, QuadratureError, QuadratureWitness, RealBall, RootBoxError, Symbol,
     SymbolIdentity,
 };
 use serde::Serialize;
@@ -103,6 +103,93 @@ fn exact_quadratic_integral_has_independent_value_and_original_source() {
     assert_eq!(accepted.interval_count(), 1);
     assert_eq!(accepted.absolute_tolerance(), &tolerance);
     assert_eq!(accepted.integrand(), &problem.residuals()[0]);
+}
+
+#[test]
+fn continuous_absolute_value_integrals_preserve_exact_values_and_orientation() {
+    // These values follow from integrating the ordinary polynomials on each
+    // side of their corners, independently of the interval implementation.
+    for (source, lower, upper, exact) in [
+        ("abs(x-1/3)", q(0, 1), q(1, 1), q(5, 18)),
+        ("abs(abs(x)-1/2)", q(-1, 1), q(1, 1), q(1, 2)),
+        ("x*abs(x)", q(-1, 1), q(1, 1), q(0, 1)),
+    ] {
+        let problem = problem(source);
+        let tolerance = q(1, 1000);
+        let forward = checked(&problem, &lower, &upper, &tolerance);
+        let reverse = checked(&problem, &upper, &lower, &tolerance);
+        assert!(forward.enclosure().contains(&exact), "{source}");
+        assert!(forward.enclosure().width() <= tolerance, "{source}");
+        assert_eq!(reverse.enclosure(), &forward.enclosure().neg());
+        assert_eq!(reverse.witness(), forward.witness());
+        assert_eq!(forward.integrand(), &problem.residuals()[0]);
+    }
+}
+
+#[test]
+fn absolute_value_integral_transport_rechecks_partition_accuracy() {
+    let source = "abs(x-1/3)";
+    let problem = problem(source);
+    let accepted = checked(&problem, &q(0, 1), &q(1, 1), &q(1, 1000));
+    let bytes = export_integral_certificate(&problem, &accepted, [7; 32], &mut Unbounded).unwrap();
+    let fresh = self::problem(source);
+    let replayed = replay(&bytes, &fresh).unwrap();
+    assert_eq!(replayed, accepted);
+    assert!(replayed.enclosure().contains(&q(5, 18)));
+    assert_eq!(
+        export_integral_certificate(&fresh, &replayed, [7; 32], &mut Unbounded).unwrap(),
+        bytes
+    );
+
+    // A valid source/context envelope cannot make a coarse partition prove a
+    // tight tolerance. There is no transported value or acceptance flag to trust.
+    let coarse = proposed_bytes(
+        &problem,
+        &q(0, 1),
+        &q(1, 1),
+        &q(1, 1000),
+        &QuadratureWitness {
+            partition: vec![q(0, 1), q(1, 1)],
+            precision_digits: 16,
+        },
+    );
+    assert!(matches!(
+        replay(&coarse, &fresh),
+        Err(IntegrationError::Quadrature(
+            QuadratureError::AccuracyNotReached
+        ))
+    ));
+    assert!(replay(&bytes, &self::problem("abs(x-1/2)")).is_err());
+}
+
+#[test]
+fn absolute_value_integration_does_not_grant_jacobians_or_erase_original_poles() {
+    let absolute = problem("abs(x)");
+    let point = checked(&absolute, &q(0, 1), &q(0, 1), &q(1, 1000));
+    assert_eq!(point.enclosure(), &RealBall::from_i64(0));
+    assert!(
+        absolute
+            .enclose(
+                &[RealBall::new(q(0, 1), q(1, 1)).unwrap()],
+                16,
+                &mut Unbounded,
+            )
+            .is_err()
+    );
+    for source in [
+        "abs(x)+0*(1/x)",
+        "abs(x)+(1/x)^0",
+        "abs(x)+log(x)-log(x)",
+        "abs(1/x)",
+    ] {
+        let problem = problem(source);
+        assert!(
+            problem
+                .propose_integral(&q(-1, 1), &q(1, 1), &q(1, 1000), options(), &mut Unbounded)
+                .is_err(),
+            "{source}"
+        );
+    }
 }
 
 fn gaussian_partial_sum(last: i64) -> BigRational {

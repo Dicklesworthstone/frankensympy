@@ -34,7 +34,9 @@ impl Default for QuadratureOptions {
 
 /// Certified enclosure of a proper integral on finite exact real bounds.
 /// Reversed endpoints negate the accepted enclosure. At equal endpoints
-/// the original expression must still be admitted and C2 at that point.
+/// the original expression must still be admitted and defined at that point.
+/// Continuous Abs corners use independently checked Lipschitz slope bounds;
+/// they do not assert pointwise derivatives or C2 regularity.
 pub fn certified_integral(
     expression: &Expr,
     variable: &Symbol,
@@ -67,10 +69,11 @@ fn subdivision_can_resolve(error: &QuadratureError) -> bool {
     )
 }
 
-/// Deterministic adaptive partitioning with intersected C1/C2 local bounds.
+/// Deterministic adaptive partitioning with independently intersected bounds.
 /// A cell receives tolerance proportional to its length; all accepted cells
 /// therefore fit within the total tolerance. Exact quadratic curvature can
-/// meet any admitted tolerance in one cell. Domain overestimation can trigger
+/// meet any admitted tolerance in one cell. Continuous Abs corners retain
+/// a centered absolutely-continuous bound without curvature. Domain overestimation can trigger
 /// subdivision, but unsupported syntax, cancellation and resource failures
 /// never restart with a fresh or unbounded meter.
 #[allow(clippy::too_many_arguments)]

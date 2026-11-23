@@ -1194,13 +1194,25 @@ bounds, requested tolerance, precision and interval count accompany the result.
 The accepted receipt is available through `Session::integral_certificate`.
 
 The generator proposes a partition using ordinary resources. A separate core
-checker verifies complete coverage and original-source C2 bounds on every closed
-cell, including endpoints, using the protected verifier pool. This lane admits
-one finite real interval and supported twice-continuously-differentiable sources;
-improper integrals, principal values and complex contours are outside its claim.
+checker verifies complete coverage and original-source bounds on every closed
+cell, including endpoints, using the protected verifier pool. Smooth cells use
+C2 bounds. Supported continuous absolute-value compositions also admit cells
+crossing corners: independently computed Lipschitz slopes bound the integral
+without asserting a derivative or Hessian at the corner. This lane admits one
+finite real interval; improper integrals, principal values and complex contours
+are outside its claim.
 Reversed endpoints negate the enclosure. Equal endpoints still require the
 original source to be admitted at that point. Thus `0*(1/x)` at zero cannot
 become a certified zero integral by cancellation.
+
+For example, registering `abs(x-1)` and integrating from zero to three with the
+same options produces an enclosure containing the exact area `5/2`, with width
+at most `1/1000`. Nested absolute values and supported smooth compositions use
+the same public request and portable partition format. An integral certificate
+does not authorize C1/C2 derivative or root claims for these corners. Unstable
+`Piecewise` boundaries and original poles, including `abs(x)+0*(1/x)` across
+zero, still refuse. The failed smooth attempt and the Lipschitz evaluation share
+one cumulative resource budget; neither resets accounting.
 
 `max_intervals` is between 1 and 1,024. Exhausting subdivision before attaining
 the tolerance returns `inconclusive`, with no accepted integral handle. Invalid
@@ -1667,7 +1679,8 @@ resources, then `verify_integral(lower, upper, absolute_tolerance, witness, mete
 with the protected meter from the same `Budget`. The arguments are exact
 `BigRational` values; `QuadratureOptions` contains `precision_digits` and
 `max_intervals`. The first call returns only a `QuadratureWitness`. The second
-independently checks original-source C2 domains, coverage and enclosure width
+independently checks original-source domains, smooth or admitted Lipschitz bounds,
+coverage and enclosure width
 before returning an `IntegralEnclosureReceipt`.
 
 `export_integral_certificate(problem, receipt, context_digest, meter)` emits

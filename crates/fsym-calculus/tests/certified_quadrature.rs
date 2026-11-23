@@ -18,6 +18,98 @@ fn options() -> QuadratureOptions {
     }
 }
 
+fn abs(value: Expr) -> Expr {
+    Expr::Function("abs".into(), vec![value])
+}
+
+#[test]
+fn adaptive_corner_integrals_use_complete_source_bounds_and_exact_areas() {
+    let x = Symbol::new("adaptive_corner_x");
+    let sx = Expr::Sym(x.clone());
+    let tolerance = q(1, 10_000);
+    for (source, lower, upper, expected) in [
+        (abs(sx.clone()), q(-1, 1), q(1, 1), q(1, 1)),
+        (
+            abs(Expr::Add(vec![sx.clone(), Expr::Rational(q(-1, 3))])),
+            q(0, 1),
+            q(1, 1),
+            q(5, 18),
+        ),
+        (
+            abs(Expr::Add(vec![abs(sx.clone()), Expr::Rational(q(-1, 2))])),
+            q(-1, 1),
+            q(1, 1),
+            q(1, 2),
+        ),
+        // Product/chain slopes retain the corner under nonlinear arithmetic.
+        (
+            Expr::Mul(vec![abs(sx.clone()), power(sx.clone(), 2)]),
+            q(-1, 1),
+            q(1, 1),
+            q(1, 2),
+        ),
+    ] {
+        let receipt =
+            certified_integral(&source, &x, &lower, &upper, &tolerance, options()).unwrap();
+        assert!(receipt.enclosure().contains(&expected));
+        assert!(receipt.enclosure().width() <= tolerance);
+        assert!(receipt.interval_count() > 1);
+        assert_eq!(receipt.integrand(), &source);
+        let reversed =
+            certified_integral(&source, &x, &upper, &lower, &tolerance, options()).unwrap();
+        assert_eq!(reversed.enclosure(), &receipt.enclosure().neg());
+        assert_eq!(reversed.witness(), receipt.witness());
+    }
+    let point =
+        certified_integral(&abs(sx), &x, &q(0, 1), &q(0, 1), &tolerance, options()).unwrap();
+    assert_eq!(point.enclosure().lower(), q(0, 1));
+    assert_eq!(point.interval_count(), 0);
+}
+
+#[test]
+fn corner_accuracy_and_original_poles_refuse_without_partial_receipts() {
+    let x = Symbol::new("refused_corner_x");
+    let sx = Expr::Sym(x.clone());
+    assert!(matches!(
+        certified_integral(
+            &abs(sx.clone()),
+            &x,
+            &q(-1, 1),
+            &q(1, 1),
+            &q(1, 100),
+            QuadratureOptions {
+                max_intervals: 1,
+                ..options()
+            },
+        ),
+        Err(QuadratureError::AccuracyNotReached)
+    ));
+    for source in [
+        Expr::Mul(vec![abs(sx.clone()), power(sx.clone(), -1)]),
+        Expr::Mul(vec![
+            abs(sx.clone()),
+            Expr::from_i64(0),
+            power(sx.clone(), -1),
+        ]),
+        abs(power(sx, -1)),
+    ] {
+        assert!(
+            certified_integral(
+                &source,
+                &x,
+                &q(-1, 1),
+                &q(1, 1),
+                &q(1, 100),
+                QuadratureOptions {
+                    max_intervals: 8,
+                    ..options()
+                },
+            )
+            .is_err()
+        );
+    }
+}
+
 #[test]
 fn adaptive_quadratic_and_shifted_cubic_integrals_contain_independent_exact_values() {
     let x = Symbol::new("x");

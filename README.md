@@ -186,8 +186,11 @@ shows the asupersync context adapter and the synchronous API's scope.
 `CertifyIntegral` also computes a proper finite real definite integral from one
 registered scalar source and one variable. Exact rational endpoints and a
 positive absolute enclosure-width tolerance define the request. Adaptive
-partitioning spends ordinary resources; an independent C2 interval checker
+partitioning spends ordinary resources; an independent interval checker
 uses the protected verifier pool before publishing `certified_numeric` evidence.
+Smooth cells use C2 bounds; supported continuous absolute-value compositions
+use checked Lipschitz bounds across corners. For example, `abs(x-1)` on `[0,3]`
+can produce a certified enclosure of `5/2` without claiming a derivative at its corner.
 Reversed limits negate the enclosure, while endpoint poles and unresolved
 domains refuse. `ExportIntegralCertificate` and `ReplayIntegralCertificate`
 bind the original source, axis, ordered bounds, tolerance and context, and

@@ -1,8 +1,9 @@
 use fsym_budget::{Budget, BudgetLimits, BudgetMeter, Dimension, MeterError, Unbounded};
 use fsym_core::{
     BigInt, BigRational, Expr, IntegralEnclosureWorkspace, MAX_QUADRATURE_INTERVALS,
-    QuadratureError, QuadratureWitness, RootBoxError, Symbol, SymbolIdentity,
-    certify_integral_enclosure, verify_integral_enclosure,
+    QuadratureError, QuadratureWitness, RealBall, RootBoxError, Symbol, SymbolIdentity,
+    certify_integral_enclosure, enclose_objective, enclose_residual_jacobian,
+    verify_integral_enclosure,
 };
 use std::sync::Arc;
 
@@ -17,6 +18,140 @@ fn witness(points: Vec<BigRational>) -> QuadratureWitness {
         partition: points,
         precision_digits: 24,
     }
+}
+
+fn abs(value: Expr) -> Expr {
+    Expr::Function("abs".into(), vec![value])
+}
+
+#[test]
+fn absolute_value_partitions_admit_corners_and_exact_affine_cells() {
+    let x = Symbol::new("absolute_integral_x");
+    let sx = Expr::Sym(x.clone());
+    let tolerance = BigRational::new(1.into(), BigInt::from(10).pow(100));
+    for (source, points, expected) in [
+        (abs(sx.clone()), vec![q(-1, 1), q(0, 1), q(1, 1)], q(1, 1)),
+        (
+            abs(Expr::Add(vec![sx.clone(), Expr::Rational(q(-1, 3))])),
+            vec![q(0, 1), q(1, 3), q(1, 1)],
+            q(5, 18),
+        ),
+        (
+            abs(Expr::Add(vec![abs(sx.clone()), Expr::Rational(q(-1, 2))])),
+            vec![q(-1, 1), q(-1, 2), q(0, 1), q(1, 2), q(1, 1)],
+            q(1, 2),
+        ),
+    ] {
+        // The values are the exact sums of triangle areas, computed without
+        // symbolic differentiation or either integral implementation.
+        let lower = points[0].clone();
+        let upper = points.last().unwrap().clone();
+        let proposed = witness(points);
+        let receipt =
+            certify_integral_enclosure(&source, &x, &lower, &upper, &tolerance, &proposed).unwrap();
+        assert_eq!(receipt.enclosure(), &RealBall::exact(expected.clone()));
+        assert_eq!(receipt.integrand(), &source);
+        let reversed =
+            certify_integral_enclosure(&source, &x, &upper, &lower, &tolerance, &proposed).unwrap();
+        assert_eq!(reversed.enclosure(), &RealBall::exact(-expected));
+    }
+    let point = certify_integral_enclosure(
+        &abs(sx),
+        &x,
+        &q(0, 1),
+        &q(0, 1),
+        &tolerance,
+        &witness(vec![q(0, 1)]),
+    )
+    .unwrap();
+    assert_eq!(point.enclosure(), &RealBall::from_i64(0));
+    assert_eq!(point.interval_count(), 0);
+}
+
+#[test]
+fn crossing_corner_requires_the_whole_cell_slope_remainder() {
+    let x = Symbol::new("corner_integral_x");
+    let source = abs(Expr::Sym(x.clone()));
+    let proposed = witness(vec![q(-1, 1), q(1, 1)]);
+    let receipt =
+        certify_integral_enclosure(&source, &x, &q(-1, 1), &q(1, 1), &q(1, 1), &proposed).unwrap();
+    // The midpoint value is zero. Treating the missing Hessian as zero, or
+    // evaluating a single branch's derivative, would falsely certify zero.
+    assert_eq!(receipt.enclosure().lower(), q(0, 1));
+    assert_eq!(receipt.enclosure().upper(), q(1, 1));
+    assert!(receipt.enclosure().contains(&q(1, 1)));
+    assert!(matches!(
+        certify_integral_enclosure(&source, &x, &q(-1, 1), &q(1, 1), &q(1, 100), &proposed,),
+        Err(QuadratureError::AccuracyNotReached)
+    ));
+    let domain = [RealBall::new(q(0, 1), q(1, 1)).unwrap()];
+    assert!(enclose_objective(&source, std::slice::from_ref(&x), &domain, 24).is_err());
+    assert!(enclose_residual_jacobian(&[source], &[x], &domain, 24).is_err());
+}
+
+#[test]
+fn corner_retry_retains_late_child_poles_and_piecewise_guard_obligations() {
+    let x = Symbol::new("corner_original_domain_x");
+    let sx = Expr::Sym(x.clone());
+    let reciprocal = power(sx.clone(), -1);
+    let proposed = witness(vec![q(-1, 1), q(0, 1), q(1, 1)]);
+    for source in [
+        Expr::Mul(vec![abs(sx.clone()), reciprocal.clone()]),
+        Expr::Mul(vec![Expr::from_i64(0), abs(sx.clone()), reciprocal.clone()]),
+        Expr::Add(vec![abs(sx.clone()), power(reciprocal.clone(), 0)]),
+        abs(Expr::Mul(vec![Expr::from_i64(0), reciprocal])),
+        Expr::Add(vec![
+            abs(sx.clone()),
+            Expr::Function("gamma".into(), vec![sx.clone()]),
+        ]),
+    ] {
+        assert!(
+            certify_integral_enclosure(&source, &x, &q(-1, 1), &q(1, 1), &q(10, 1), &proposed,)
+                .is_err()
+        );
+        assert!(
+            certify_integral_enclosure(
+                &source,
+                &x,
+                &q(0, 1),
+                &q(0, 1),
+                &q(10, 1),
+                &witness(vec![q(0, 1)]),
+            )
+            .is_err()
+        );
+    }
+    let piecewise = |condition| {
+        Expr::Function(
+            "Piecewise".into(),
+            vec![
+                Expr::Function("Tuple".into(), vec![abs(sx.clone()), condition]),
+                Expr::Function(
+                    "Tuple".into(),
+                    vec![
+                        Expr::Function("log".into(), vec![Expr::from_i64(0)]),
+                        Expr::symbol("True"),
+                    ],
+                ),
+            ],
+        )
+    };
+    let stable = piecewise(Expr::Function(
+        "StrictLessThan".into(),
+        vec![sx.clone(), Expr::from_i64(2)],
+    ));
+    let receipt =
+        certify_integral_enclosure(&stable, &x, &q(-1, 1), &q(1, 1), &q(1, 100), &proposed)
+            .unwrap();
+    assert_eq!(receipt.enclosure(), &RealBall::from_i64(1));
+    let unstable = piecewise(Expr::Function(
+        "StrictLessThan".into(),
+        vec![sx.clone(), Expr::from_i64(0)],
+    ));
+    assert!(
+        certify_integral_enclosure(&unstable, &x, &q(-1, 1), &q(1, 1), &q(10, 1), &proposed,)
+            .is_err()
+    );
 }
 
 #[test]
@@ -466,4 +601,59 @@ fn cancellation_at_every_c2_checkpoint_returns_no_receipt() {
         )
         .is_ok()
     );
+}
+
+#[test]
+fn cancellation_at_every_corner_retry_checkpoint_returns_no_receipt() {
+    let x = Symbol::new("cancel_corner_integral_x");
+    let source = abs(Expr::Sym(x.clone()));
+    let proposed = witness(vec![q(-1, 1), q(0, 1), q(1, 1)]);
+    let mut observed = StopAt {
+        calls: 0,
+        stop: usize::MAX,
+    };
+    verify_integral_enclosure(
+        &source,
+        &x,
+        &q(-1, 1),
+        &q(1, 1),
+        &q(1, 100),
+        &proposed,
+        &mut observed,
+    )
+    .unwrap();
+    for stop in 1..=observed.calls {
+        assert!(matches!(
+            verify_integral_enclosure(
+                &source,
+                &x,
+                &q(-1, 1),
+                &q(1, 1),
+                &q(1, 100),
+                &proposed,
+                &mut StopAt { calls: 0, stop },
+            ),
+            Err(QuadratureError::Enclosure(RootBoxError::Meter(
+                MeterError::Cancelled
+            )))
+        ));
+    }
+    let limit = 96 * 1024 * 1024;
+    let mut budget = Budget::new(BudgetLimits::uniform(limit, 0));
+    let receipt = verify_integral_enclosure(
+        &source,
+        &x,
+        &q(-1, 1),
+        &q(1, 1),
+        &q(1, 100),
+        &proposed,
+        &mut budget,
+    )
+    .unwrap();
+    assert_eq!(receipt.enclosure(), &RealBall::from_i64(1));
+    // A second work reservation cannot fit: the corner retry and both cells
+    // share the first reservation rather than replenishing the caller ledger.
+    let consumed = budget.snapshot();
+    assert!(IntegralEnclosureWorkspace::new(&source, &x, 24, &mut budget).is_err());
+    assert_eq!(budget.snapshot(), consumed);
 }

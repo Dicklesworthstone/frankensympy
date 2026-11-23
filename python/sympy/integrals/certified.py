@@ -119,15 +119,18 @@ def certified_integral(integrand, limits, *, tolerance=Fraction(1, 10000),
 
     The supported exact source consists of the declared real variable,
     rational constants, pi/E, arithmetic, real powers on a verified smooth
-    domain and the native C2 elementary functions. Unknown parameters,
-    original poles, nonsmooth endpoints, nonreal branches and custom
+    domain and the native C2 elementary functions. Continuous Abs compositions
+    also admit interior and endpoint corners through independent Lipschitz
+    slope bounds, without claiming pointwise derivatives there. Unknown parameters,
+    original poles, unstable Piecewise guards, nonreal branches and custom
     symbolic objects refuse. Reversed limits negate the enclosure; equal
     limits return zero only after checking the original source at the point.
 
     Whole-cell second derivatives refine the signed midpoint remainder,
     retaining exact rational quadratic integrals in one cell. The verifier
     intersects this bound with the independent range and first-derivative
-    bounds; a midpoint curvature sample never supplies the remainder.
+    bounds; a midpoint curvature sample never supplies the remainder. At an
+    Abs corner, an absolutely-continuous bound replaces curvature tightening.
 
     Refinement is deterministic and bounded at 1..1024 intervals, with
     precision 8..128 decimal digits. Exhaustion raises ValueError and

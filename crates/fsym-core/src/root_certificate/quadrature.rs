@@ -11,10 +11,18 @@
 //! intersects both bounds with h*f([a,b]), checks a complete partition,
 //! and adds all bounds exactly. A partition proposal never supplies trusted
 //! function values, derivatives, error estimates or totals.
+//!
+//! Continuous Abs compositions may instead supply independently evaluated
+//! Lipschitz slopes enclosing f' almost everywhere. Absolute continuity
+//! proves the same centered integral bound, including cells crossing a
+//! corner. These cells never supply a Hessian or a C1/C2 claim. Other source
+//! domain failures, unstable Piecewise guards and unsupported forms refuse.
 
 use super::{
-    Bounded, BoundedRational, RootBoxError, Work, check_ball, check_rational, checked, objective,
-    validate_inputs,
+    ABSOLUTE_VALUE_CORNER, Bounded, BoundedRational, RootBoxError, Work, check_ball,
+    check_rational, checked,
+    lipschitz::{LipschitzEnclosure, evaluate_lipschitz},
+    objective, validate_inputs,
 };
 use crate::{BigInt, BigRational, Expr, RealBall, Symbol};
 use fsym_budget::{BudgetMeter, Unbounded};
@@ -86,8 +94,9 @@ impl<'de> Deserialize<'de> for QuadratureWitness {
 }
 
 /// Accepted proper real integral with an absolute enclosure-width bound.
-/// C2 domain checks include every original source child on every closed
-/// cell, including endpoints. Improper integrals, principal values and
+/// Domain checks include every original source child on every closed cell,
+/// including endpoints. Admitted continuous Abs corners use Lipschitz bounds,
+/// without asserting C1/C2 regularity. Improper integrals, principal values and
 /// complex contours are outside this claim. No unchecked constructor or
 /// Deserialize implementation exists.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,6 +174,36 @@ pub struct IntegralEnclosureWorkspace<'a, M> {
     evaluations: usize,
 }
 
+// An almost-everywhere slope enclosure cannot inhabit a derivative jet.
+// Curvature tightening is available only after a separate C2 evaluation.
+enum IntegralCellEnclosure {
+    Smooth(objective::ObjectiveJet),
+    Lipschitz(LipschitzEnclosure),
+}
+
+impl IntegralCellEnclosure {
+    fn value(&self) -> &RealBall {
+        match self {
+            Self::Smooth(jet) => &jet.value,
+            Self::Lipschitz(enclosure) => &enclosure.value,
+        }
+    }
+
+    fn slope(&self) -> &RealBall {
+        match self {
+            Self::Smooth(jet) => &jet.gradient[0],
+            Self::Lipschitz(enclosure) => &enclosure.slopes[0],
+        }
+    }
+
+    fn curvature(&self) -> Option<&RealBall> {
+        match self {
+            Self::Smooth(jet) => Some(&jet.hessian[0][0]),
+            Self::Lipschitz(_) => None,
+        }
+    }
+}
+
 impl<'a, M: BudgetMeter> IntegralEnclosureWorkspace<'a, M> {
     pub fn new(
         source: &'a Expr,
@@ -190,7 +229,7 @@ impl<'a, M: BudgetMeter> IntegralEnclosureWorkspace<'a, M> {
         })
     }
 
-    fn evaluate(&mut self, domain: &RealBall) -> Result<objective::ObjectiveJet> {
+    fn begin_evaluation(&mut self) -> Result<()> {
         if self.evaluations >= MAX_QUADRATURE_EVALUATIONS {
             return Err(QuadratureError::ResourceLimit("interval evaluation count"));
         }
@@ -198,12 +237,33 @@ impl<'a, M: BudgetMeter> IntegralEnclosureWorkspace<'a, M> {
         // Each evaluation retains the ordinary source node/depth limits.
         // Only this per-traversal count restarts; work/bytes never reset.
         self.work.nodes = 0;
-        Ok(objective::evaluate_objective(
+        Ok(())
+    }
+
+    fn evaluate(&mut self, domain: &RealBall) -> Result<IntegralCellEnclosure> {
+        self.begin_evaluation()?;
+        match objective::evaluate_objective(
             self.source,
             std::slice::from_ref(self.variable),
             std::slice::from_ref(domain),
             &mut self.work,
-        )?)
+        ) {
+            Ok(jet) => Ok(IntegralCellEnclosure::Smooth(jet)),
+            Err(RootBoxError::Domain(reason)) if reason == ABSOLUTE_VALUE_CORNER => {
+                // Retry only the identified regularity limitation. All
+                // original children and guards are rechecked, and the
+                // unsuccessful C2 evaluation remains charged. Cancellation,
+                // resources and every other error never trigger this lane.
+                self.begin_evaluation()?;
+                Ok(IntegralCellEnclosure::Lipschitz(evaluate_lipschitz(
+                    self.source,
+                    std::slice::from_ref(self.variable),
+                    std::slice::from_ref(domain),
+                    &mut self.work,
+                )?))
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 
     pub fn midpoint(&mut self, lower: &BigRational, upper: &BigRational) -> Result<BigRational> {
@@ -233,7 +293,8 @@ impl<'a, M: BudgetMeter> IntegralEnclosureWorkspace<'a, M> {
         Ok(width)
     }
 
-    /// Intersect whole-cell range, centered C1 and signed C2 integral bounds.
+    /// Intersect whole-cell range and centered absolutely-continuous bounds.
+    /// A C2 source evaluation additionally admits signed curvature tightening.
     /// A point cell still checks the original integrand before returning zero.
     pub fn enclose_cell(&mut self, lower: &BigRational, upper: &BigRational) -> Result<RealBall> {
         validate_number(lower)?;
@@ -254,9 +315,9 @@ impl<'a, M: BudgetMeter> IntegralEnclosureWorkspace<'a, M> {
             return Ok(RealBall::from_i64(0));
         }
         let midpoint = self.evaluate(&RealBall::exact(domain.midpoint().clone()))?;
-        let rectangle = self.work.scale(&range.value, &width)?;
-        let center = self.work.scale(&midpoint.value, &width)?;
-        let derivative_radius = RealBall::exact(range.gradient[0].radius().clone());
+        let rectangle = self.work.scale(range.value(), &width)?;
+        let center = self.work.scale(midpoint.value(), &width)?;
+        let derivative_radius = RealBall::exact(range.slope().radius().clone());
         let width_ball = RealBall::exact(width.clone());
         let square = self.work.mul(&width_ball, &width_ball)?;
         let remainder = self.work.mul(&derivative_radius, &square)?;
@@ -266,24 +327,27 @@ impl<'a, M: BudgetMeter> IntegralEnclosureWorkspace<'a, M> {
         let error = RealBall::new(BigRational::zero(), remainder.midpoint().clone())
             .map_err(RootBoxError::from)?;
         let centered = self.work.add(&center, &error)?;
-        // Taylor's integral remainder has a nonnegative kernel on either
-        // side of the midpoint. Its total mass is h^3/24, so the complete
-        // cell's signed Hessian interval bounds the integrated remainder.
-        // A midpoint-only curvature sample would be unsound here.
-        let cube = self.work.mul(&square, &width_ball)?;
-        let curvature = self.work.mul(&range.hessian[0][0], &cube)?;
-        let curvature = self
-            .work
-            .scale(&curvature, &BigRational::new(1.into(), 24.into()))?;
-        let second_order = self.work.add(&center, &curvature)?;
         self.work.arithmetic(&[&rectangle, &centered], &[])?;
-        let intersection = rectangle
+        let mut intersection = rectangle
             .intersect(&centered)
             .ok_or(QuadratureError::InconsistentEnclosure)?;
-        self.work.arithmetic(&[&intersection, &second_order], &[])?;
-        let intersection = intersection
-            .intersect(&second_order)
-            .ok_or(QuadratureError::InconsistentEnclosure)?;
+        if let Some(curvature) = range.curvature() {
+            // Taylor's integral remainder has a nonnegative kernel on either
+            // side of the midpoint. Its total mass is h^3/24, so the complete
+            // cell's signed Hessian bounds the integrated remainder. A corner
+            // has no Hessian; using a midpoint derivative or treating absent
+            // curvature as zero would falsely make some cusp integrals exact.
+            let cube = self.work.mul(&square, &width_ball)?;
+            let curvature = self.work.mul(curvature, &cube)?;
+            let curvature = self
+                .work
+                .scale(&curvature, &BigRational::new(1.into(), 24.into()))?;
+            let second_order = self.work.add(&center, &curvature)?;
+            self.work.arithmetic(&[&intersection, &second_order], &[])?;
+            intersection = intersection
+                .intersect(&second_order)
+                .ok_or(QuadratureError::InconsistentEnclosure)?;
+        }
         self.round_outward(intersection)
     }
 

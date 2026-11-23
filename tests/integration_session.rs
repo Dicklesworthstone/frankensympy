@@ -135,12 +135,73 @@ fn transcendental_enclosure_has_requested_width_and_independent_reference_bounds
 }
 
 #[test]
+fn absolute_value_integral_is_published_and_reverified_in_a_fresh_session() {
+    let mut sender = registered("abs(x-1)");
+    let response = sender
+        .certification_request(certify("corner", "0", "3"))
+        .unwrap();
+    let CertificationResponse::IntegralCertified {
+        evidence, claim, ..
+    } = response
+    else {
+        panic!("integral response");
+    };
+    assert_eq!(evidence, "certified_numeric");
+    assert_eq!(
+        claim,
+        "proper_real_definite_integral_with_absolute_enclosure_width_bound"
+    );
+    let result = sender.integral_certificate(&integral("corner")).unwrap();
+    // Two triangles of areas 1/2 and 2.
+    assert!(
+        result
+            .enclosure()
+            .contains(&BigRational::new(5.into(), 2.into()))
+    );
+    assert!(result.enclosure().width() <= BigRational::new(1.into(), 1000.into()));
+    let artifact = export(&mut sender, "corner");
+    let mut receiver = registered("abs(x-1)");
+    let remaining = receiver.budget_snapshot().verifier_pool;
+    receiver
+        .certification_request(replay("copy", &artifact))
+        .unwrap();
+    assert!(receiver.budget_snapshot().verifier_pool < remaining);
+    assert_eq!(
+        sender.integral_certificate(&integral("corner")),
+        receiver.integral_certificate(&integral("copy")),
+    );
+}
+
+#[test]
+fn absolute_value_integral_cannot_publish_without_protected_verification() {
+    let mut budget = limits();
+    budget.verifier_pool = 0;
+    let mut session = Session::with_budget_limits(budget, 256);
+    session
+        .certification_request(registration("abs(x-1)"))
+        .unwrap();
+    assert_eq!(
+        session
+            .certification_request(certify("unverified", "0", "3"))
+            .unwrap_err()
+            .code(),
+        "budget_exhausted"
+    );
+    assert!(
+        session
+            .integral_certificate(&integral("unverified"))
+            .is_none()
+    );
+}
+
+#[test]
 fn original_poles_cannot_be_erased_and_refusals_publish_no_certificate() {
     for (source, lower, upper) in [
         ("0*(1/x)", "-1", "1"),
         ("log(x)-log(x)", "0", "1"),
         ("1/x", "0", "0"),
         ("sqrt(x)", "-1", "1"),
+        ("abs(x)+0*(1/x)", "-1", "1"),
     ] {
         let mut session = registered(source);
         assert!(
