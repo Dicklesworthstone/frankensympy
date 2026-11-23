@@ -12,7 +12,8 @@ use super::{
 };
 use crate::objective::ObjectiveProblem;
 use crate::program_transport::{decode_objective_program, export_objective_program};
-use fsym_budget::{Budget, BudgetError, BudgetMeter, MeterError, VerifierLease};
+use crate::request_budget::RequestBudget;
+use fsym_budget::{BudgetError, BudgetMeter, MeterError, VerifierLease};
 use fsym_calculus::compile::EvalError;
 use fsym_calculus::program_artifact::admit_objective_candidate;
 use fsym_calculus::sparse_hessian::{
@@ -95,7 +96,7 @@ impl CompiledObjectiveState {
         id: CompiledObjectiveId,
         problem: &ObjectiveProblem,
         context_digest: [u8; 32],
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
         lease: Option<&VerifierLease>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         self.admit_id(&id, budget)?;
@@ -118,7 +119,7 @@ impl CompiledObjectiveState {
     pub(super) fn replay(
         &mut self,
         request: ObjectiveReplay<'_>,
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
         lease: Option<&VerifierLease>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         self.admit_id(&request.id, budget)?;
@@ -143,7 +144,7 @@ impl CompiledObjectiveState {
     fn admit_id(
         &self,
         id: &CompiledObjectiveId,
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<(), CertificationSessionError> {
         budget.checkpoint()?;
         if self.programs.contains_key(id) {
@@ -161,7 +162,7 @@ impl CompiledObjectiveState {
         id: CompiledObjectiveId,
         program: VerifiedObjective,
         context_digest: [u8; 32],
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         charge(
             budget,
@@ -203,7 +204,7 @@ impl CompiledObjectiveState {
     pub(super) fn export_bytes(
         &self,
         id: &CompiledObjectiveId,
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<Vec<u8>, CertificationSessionError> {
         budget.checkpoint()?;
         let resident = self
@@ -220,7 +221,7 @@ impl CompiledObjectiveState {
     pub(super) fn export(
         &self,
         id: CompiledObjectiveId,
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         let bytes = self.export_bytes(&id, budget)?;
         if bytes.len() > MAX_SESSION_ROOT_ARTIFACT_BYTES {
@@ -251,7 +252,7 @@ impl CompiledObjectiveState {
         id: CompiledObjectiveId,
         initial: &[String],
         options: &CompiledStationarityOptions,
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         budget.checkpoint()?;
         let resident = self
@@ -285,7 +286,7 @@ impl CompiledObjectiveState {
         &self,
         id: CompiledObjectiveId,
         point: &[String],
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         budget.checkpoint()?;
         let resident = self
@@ -321,7 +322,7 @@ impl CompiledObjectiveState {
         id: CompiledObjectiveId,
         point: &[String],
         direction: &[String],
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         budget.checkpoint()?;
         let resident = self
@@ -356,7 +357,7 @@ impl CompiledObjectiveState {
     pub(super) fn release(
         &mut self,
         id: CompiledObjectiveId,
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         budget.checkpoint()?;
         if !self.programs.contains_key(&id) {
@@ -377,7 +378,7 @@ pub(super) fn numeric_values(
     values: &[String],
     expected: usize,
     lane: &'static str,
-    budget: &mut Budget,
+    budget: &mut RequestBudget<'_>,
 ) -> Result<Vec<f64>, CertificationSessionError> {
     charge(budget, 1, 0)?;
     if values.len() != expected {

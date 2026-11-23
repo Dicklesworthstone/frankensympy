@@ -9,7 +9,8 @@
 use super::compiled::numeric_values;
 use super::compiled_objective;
 use super::{CertificationSessionError, charge, parse_scalar};
-use fsym_budget::{Budget, BudgetMeter};
+use crate::request_budget::RequestBudget;
+use fsym_budget::BudgetMeter;
 use fsym_calculus::{VerifiedObjective, VerifiedResidualSystem};
 use fsym_core::{BigRational, ParametricRootBoxWitness, RealBall, RootBoxWitness};
 use fsym_numeric_consumer::{
@@ -102,7 +103,7 @@ pub(super) fn propose_root_witness(
     options: &CompiledRootSolveOptions,
     radii: &[String],
     precision_digits: u32,
-    budget: &mut Budget,
+    budget: &mut RequestBudget<'_>,
 ) -> Result<RootBoxWitness, CertificationSessionError> {
     budget.checkpoint()?;
     let variables = system.num_vars();
@@ -158,7 +159,7 @@ pub(super) fn solve_root(
     initial: &[String],
     backend: CompiledRootBackend,
     options: &CompiledRootSolveOptions,
-    budget: &mut Budget,
+    budget: &mut RequestBudget<'_>,
 ) -> Result<RootProposal, CertificationSessionError> {
     budget.checkpoint()?;
     if matches!(
@@ -218,7 +219,7 @@ pub(super) fn solve_parametric_root(
     initial: &[String],
     parameters: &[String],
     options: &CompiledRootSolveOptions,
-    budget: &mut Budget,
+    budget: &mut RequestBudget<'_>,
 ) -> Result<(RootProposal, Vec<f64>), CertificationSessionError> {
     budget.checkpoint()?;
     let unknowns = system.num_residuals();
@@ -248,7 +249,7 @@ pub(super) fn propose_parametric_witness(
     options: &CompiledRootSolveOptions,
     radii: &[String],
     precision_digits: u32,
-    budget: &mut Budget,
+    budget: &mut RequestBudget<'_>,
 ) -> Result<ParametricRootBoxWitness, CertificationSessionError> {
     budget.checkpoint()?;
     let unknowns = system.num_residuals();
@@ -315,7 +316,7 @@ pub(super) fn propose_parametric_witness(
 
 fn root_controls(
     options: &CompiledRootSolveOptions,
-    budget: &mut Budget,
+    budget: &mut RequestBudget<'_>,
 ) -> Result<NewtonGuards, CertificationSessionError> {
     let mut guards = NewtonGuards::default();
     if let Some(iterations) = options.max_iterations {
@@ -359,7 +360,7 @@ pub(super) fn solve_least_squares(
     initial: &[String],
     backend: CompiledLeastSquaresBackend,
     options: &CompiledStationarityOptions,
-    budget: &mut Budget,
+    budget: &mut RequestBudget<'_>,
 ) -> Result<LeastSquaresProposal, CertificationSessionError> {
     budget.checkpoint()?;
     let variables = system.num_vars();
@@ -437,7 +438,7 @@ pub(super) fn minimize(
     objective: &VerifiedObjective,
     initial: &[String],
     options: &CompiledStationarityOptions,
-    budget: &mut Budget,
+    budget: &mut RequestBudget<'_>,
 ) -> Result<MinimizationProposal, CertificationSessionError> {
     budget.checkpoint()?;
     let variables = objective.variables().len();
@@ -495,7 +496,7 @@ pub(super) fn propose_stationary_witness(
     options: &CompiledStationarityOptions,
     radii: &[String],
     precision_digits: u32,
-    budget: &mut Budget,
+    budget: &mut RequestBudget<'_>,
 ) -> Result<RootBoxWitness, CertificationSessionError> {
     budget.checkpoint()?;
     let variables = objective.variables().len();
@@ -546,7 +547,7 @@ fn numeric_option(
     value: Option<&String>,
     default: f64,
     name: &'static str,
-    budget: &mut Budget,
+    budget: &mut RequestBudget<'_>,
 ) -> Result<f64, CertificationSessionError> {
     match value {
         Some(value) => Ok(numeric_values(std::slice::from_ref(value), 1, name, budget)?[0]),
@@ -558,7 +559,7 @@ fn objective_numeric_option(
     value: Option<&String>,
     default: f64,
     name: &'static str,
-    budget: &mut Budget,
+    budget: &mut RequestBudget<'_>,
 ) -> Result<f64, CertificationSessionError> {
     match value {
         Some(value) => {

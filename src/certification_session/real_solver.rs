@@ -12,7 +12,8 @@ use super::{
     ResidualSystemId, admit_response, charge, render_scalar,
 };
 use crate::certification::ResidualProblem;
-use fsym_budget::{Budget, BudgetError, BudgetMeter, Dimension, MeterError, VerifierLease};
+use crate::request_budget::RequestBudget;
+use fsym_budget::{BudgetError, BudgetMeter, Dimension, MeterError, VerifierLease};
 use fsym_core::real_roots::{RealRootError, VerifiedRealRoots};
 use fsym_solvers::inequality::IneqOp;
 use fsym_solvers::real_equation::{
@@ -70,12 +71,12 @@ pub struct ExactRealSolutionSet {
 /// them concurrently or calls arbitrary user code. Each borrow lasts only
 /// for one charge/checkpoint. A failed borrow refuses access rather than
 /// panicking or falling back to a fresh/unbounded meter.
-pub(super) struct LedgerView<'a, 'budget> {
-    pub(super) ledger: &'a RefCell<&'budget mut Budget>,
+pub(super) struct LedgerView<'a, 'budget, 'policy> {
+    pub(super) ledger: &'a RefCell<&'budget mut RequestBudget<'policy>>,
     pub(super) verifier: Option<&'a VerifierLease>,
 }
 
-impl BudgetMeter for LedgerView<'_, '_> {
+impl BudgetMeter for LedgerView<'_, '_, '_> {
     fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
         self.charge_batch(&[(dimension, amount)])
     }
@@ -145,7 +146,7 @@ pub(super) fn solve(
     problem: &ResidualProblem,
     relation: Option<RealInequalityRelation>,
     context_digest: [u8; 32],
-    budget: &mut Budget,
+    budget: &mut RequestBudget<'_>,
     lease: Option<&VerifierLease>,
 ) -> Result<CertificationResponse, CertificationSessionError> {
     if problem.residuals().len() != 1 || problem.variables().len() != 1 {
@@ -287,7 +288,7 @@ pub(super) fn solve_constraints(
     relations: Vec<RealRelation>,
     formula: RealFormula,
     context_digest: [u8; 32],
-    budget: &mut Budget,
+    budget: &mut RequestBudget<'_>,
     lease: Option<&VerifierLease>,
 ) -> Result<CertificationResponse, CertificationSessionError> {
     if problem.variables().len() != 1
@@ -371,7 +372,7 @@ pub(super) fn solve_constraints(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fsym_budget::{BudgetLimits, Unbounded};
+    use fsym_budget::{Budget, BudgetLimits, Unbounded};
 
     #[test]
     fn scoped_lanes_keep_atomic_shared_charges_and_disjoint_compute_pools() {
@@ -381,7 +382,9 @@ mod tests {
         let mut budget = Budget::new(limits);
         let lease = budget.verifier_lease().unwrap();
         {
-            let ledger = RefCell::new(&mut budget);
+            let mut ready = || Ok(());
+            let mut request = RequestBudget::new(&mut budget, &mut ready);
+            let ledger = RefCell::new(&mut request);
             let mut generator = LedgerView {
                 ledger: &ledger,
                 verifier: None,
@@ -422,7 +425,9 @@ mod tests {
         let foreign_lease = foreign.verifier_lease().unwrap();
         let before = budget.snapshot();
         {
-            let ledger = RefCell::new(&mut budget);
+            let mut ready = || Ok(());
+            let mut request = RequestBudget::new(&mut budget, &mut ready);
+            let ledger = RefCell::new(&mut request);
             let mut verifier = LedgerView {
                 ledger: &ledger,
                 verifier: Some(&foreign_lease),
@@ -458,7 +463,7 @@ mod tests {
                 &problem,
                 None,
                 [0; 32],
-                &mut budget,
+                &mut RequestBudget::new(&mut budget, &mut || Ok(())),
                 lease,
             );
             assert!(matches!(

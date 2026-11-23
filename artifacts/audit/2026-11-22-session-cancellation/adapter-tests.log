@@ -1,0 +1,14 @@
+rustc 1.100.0-nightly (f7d782a3b 2026-08-19)
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized] target(s) in 7.03s
+     Running unittests src/lib.rs (/workspace/scratch/78afbd38037e/request-budget-validation/target/debug/build/fsym-request-budget-validation/c8647f5310b719b1/out/fsym_request_budget_validation-c8647f5310b719b1)
+
+running 3 tests
+test request_budget::tests::foreign_authority_and_failed_atomic_verifier_batches_preserve_the_ledger ... ok
+test request_budget::tests::a_single_cancellation_is_latched_across_both_lanes_without_new_charges ... ok
+test request_budget::tests::ordinary_and_protected_work_share_one_policy_and_persistent_ledger ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+Recorded process exit code: 0

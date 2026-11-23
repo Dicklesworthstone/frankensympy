@@ -28,6 +28,7 @@ pub mod parametric;
 pub mod parametric_transport;
 pub mod program_transport;
 pub mod repairable_search;
+mod request_budget;
 pub mod search_checkpoint;
 pub mod session;
 

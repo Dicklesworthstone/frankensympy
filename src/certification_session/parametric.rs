@@ -15,7 +15,8 @@ use crate::certification::CertificationError;
 pub use crate::parametric::ParametricFamilyReceipt;
 use crate::parametric::{ParametricError, ParametricProblem};
 use crate::parametric_transport::{export_parametric_family, replay_parametric_family};
-use fsym_budget::{Budget, BudgetError, BudgetMeter, MeterError, VerifierLease};
+use crate::request_budget::RequestBudget;
+use fsym_budget::{BudgetError, BudgetMeter, MeterError, VerifierLease};
 use fsym_calculus::VerifiedResidualSystem;
 use fsym_calculus::parametric_cover::ParametricRootCoverOptions;
 use fsym_calculus::program_artifact::check_program_source_binding;
@@ -196,7 +197,7 @@ impl ParametricState {
         request: FamilyReplay,
         bytes: &[u8],
         context_digest: [u8; 32],
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
         lease: Option<&VerifierLease>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         self.admit_family(&request.family, budget)?;
@@ -233,7 +234,7 @@ impl ParametricState {
         &mut self,
         request: CompiledFamilyRequest<'_>,
         context_digest: [u8; 32],
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
         lease: Option<&VerifierLease>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         self.admit_family(&request.family, budget)?;
@@ -341,7 +342,7 @@ impl ParametricState {
         &mut self,
         request: CertificationRequest,
         context_digest: [u8; 32],
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
         lease: Option<&VerifierLease>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         match request {

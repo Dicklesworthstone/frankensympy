@@ -12,7 +12,8 @@ use super::{
 };
 use crate::certification::ResidualProblem;
 use crate::program_transport::{decode_residual_program, export_residual_program};
-use fsym_budget::{Budget, BudgetError, BudgetMeter, MeterError, VerifierLease};
+use crate::request_budget::RequestBudget;
+use fsym_budget::{BudgetError, BudgetMeter, MeterError, VerifierLease};
 use fsym_calculus::VerifiedResidualSystem;
 use fsym_calculus::compile::{CompileError, EvalError};
 use fsym_calculus::program_artifact::admit_residual_candidate;
@@ -92,7 +93,7 @@ impl CompiledState {
         id: CompiledResidualSystemId,
         problem: &ResidualProblem,
         context_digest: [u8; 32],
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
         lease: Option<&VerifierLease>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         self.admit_id(&id, budget)?;
@@ -111,7 +112,7 @@ impl CompiledState {
     pub(super) fn replay(
         &mut self,
         request: ResidualReplay<'_>,
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
         lease: Option<&VerifierLease>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         self.admit_id(&request.id, budget)?;
@@ -138,7 +139,7 @@ impl CompiledState {
     fn admit_id(
         &self,
         id: &CompiledResidualSystemId,
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<(), CertificationSessionError> {
         budget.checkpoint()?;
         if self.programs.contains_key(id) {
@@ -156,7 +157,7 @@ impl CompiledState {
         id: CompiledResidualSystemId,
         program: VerifiedResidualSystem,
         context_digest: [u8; 32],
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         charge(
             budget,
@@ -198,7 +199,7 @@ impl CompiledState {
     pub(super) fn export_bytes(
         &self,
         id: &CompiledResidualSystemId,
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<Vec<u8>, CertificationSessionError> {
         budget.checkpoint()?;
         let resident = self
@@ -216,7 +217,7 @@ impl CompiledState {
     pub(super) fn export(
         &self,
         id: CompiledResidualSystemId,
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         let bytes = self.export_bytes(&id, budget)?;
         if bytes.len() > MAX_SESSION_ROOT_ARTIFACT_BYTES {
@@ -248,7 +249,7 @@ impl CompiledState {
         initial: &[String],
         backend: CompiledRootBackend,
         options: &CompiledRootSolveOptions,
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         budget.checkpoint()?;
         let resident = self
@@ -289,7 +290,7 @@ impl CompiledState {
         initial: &[String],
         parameters: &[String],
         options: &CompiledRootSolveOptions,
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         budget.checkpoint()?;
         let resident = self
@@ -337,7 +338,7 @@ impl CompiledState {
         initial: &[String],
         backend: CompiledLeastSquaresBackend,
         options: &CompiledStationarityOptions,
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         budget.checkpoint()?;
         let resident = self
@@ -378,7 +379,7 @@ impl CompiledState {
         &self,
         id: CompiledResidualSystemId,
         point: &[String],
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         budget.checkpoint()?;
         let resident = self
@@ -419,7 +420,7 @@ impl CompiledState {
         point: &[String],
         vector: &[String],
         transpose: bool,
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         budget.checkpoint()?;
         let resident = self
@@ -475,7 +476,7 @@ impl CompiledState {
     pub(super) fn release(
         &mut self,
         id: CompiledResidualSystemId,
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         budget.checkpoint()?;
         if !self.programs.contains_key(&id) {
@@ -496,7 +497,7 @@ pub(super) fn numeric_values(
     values: &[String],
     expected: usize,
     lane: &'static str,
-    budget: &mut Budget,
+    budget: &mut RequestBudget<'_>,
 ) -> Result<Vec<f64>, CertificationSessionError> {
     charge(budget, 1, 0)?;
     if values.len() != expected {

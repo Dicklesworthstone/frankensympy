@@ -29,6 +29,7 @@ use crate::repairable_search::{
     RepairableRootSearchCheckpoint, RepairableRootSearchCheckpointStore, RepairableSearchError,
     RootSearchRepairReport,
 };
+use crate::request_budget::RequestBudget;
 use crate::search_checkpoint::{export_root_search_checkpoint, restore_root_search_checkpoint};
 use fsym_budget::{Budget, BudgetError, BudgetMeter, Dimension, MeterError, VerifierLease};
 use fsym_calculus::box_optimization::{
@@ -2583,7 +2584,7 @@ impl CertificationState {
         optimization: BoxOptimizationId,
         receipt: BoxOptimizationReceipt,
         context_digest: [u8; 32],
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         let response = optimization_response(
             &receipt,
@@ -2640,7 +2641,7 @@ impl CertificationState {
         certificate: StationaryPointId,
         receipt: StationaryPointReceipt,
         context_digest: [u8; 32],
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         let response = stationary_response(
             &receipt,
@@ -2706,7 +2707,7 @@ impl CertificationState {
         integral: IntegralCertificateId,
         receipt: IntegralEnclosureReceipt,
         context_digest: [u8; 32],
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         self.admit_integral_id(&integral)?;
         charge(budget, 1, 4096)?;
@@ -2779,7 +2780,7 @@ impl CertificationState {
         isolation: RootIsolationId,
         receipt: RootIsolationReceipt,
         context_digest: [u8; 32],
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         self.admit_isolation_id(&isolation)?;
         let count = receipt.root_count();
@@ -2893,7 +2894,7 @@ impl CertificationState {
         id: BoxOptimizationSearchId,
         search: BoxOptimizationSearch,
         context_digest: [u8; 32],
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         let response = CertificationResponse::BoxOptimizationSearchRestored {
             schema_version: CERTIFICATION_REQUEST_SCHEMA,
@@ -2946,7 +2947,7 @@ impl CertificationState {
         id: RootIsolationSearchId,
         search: RootIsolationSearch,
         context_digest: [u8; 32],
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         self.publish_resumed_search(system, id, search, context_digest, budget, None)
     }
@@ -2957,7 +2958,7 @@ impl CertificationState {
         id: RootIsolationSearchId,
         search: RootIsolationSearch,
         context_digest: [u8; 32],
-        budget: &mut Budget,
+        budget: &mut RequestBudget<'_>,
         repair: Option<RootSearchRepairReport>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
         let response = if let Some(repair) = repair {
@@ -3010,11 +3011,40 @@ impl CertificationState {
         budget: &mut Budget,
         lease: Option<&VerifierLease>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
+        self.handle_with_checkpoint(request, context_digest, budget, lease, &mut || Ok(()))
+    }
+
+    /// Both execution lanes observe the host's request-scoped safe points.
+    /// The ordinary ledger and protected capability remain owned by Session.
+    pub(crate) fn handle_with_checkpoint(
+        &mut self,
+        request: CertificationRequest,
+        context_digest: [u8; 32],
+        budget: &mut Budget,
+        lease: Option<&VerifierLease>,
+        checkpoint: &mut dyn FnMut() -> Result<(), MeterError>,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        self.handle_budget(
+            request,
+            context_digest,
+            &mut RequestBudget::new(budget, checkpoint),
+            lease,
+        )
+    }
+
+    fn handle_budget(
+        &mut self,
+        request: CertificationRequest,
+        context_digest: [u8; 32],
+        budget: &mut RequestBudget<'_>,
+        lease: Option<&VerifierLease>,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
         if request.schema_version() != CERTIFICATION_REQUEST_SCHEMA {
             return Err(CertificationSessionError::UnsupportedVersion(
                 request.schema_version(),
             ));
         }
+        budget.checkpoint()?;
         match request {
             CertificationRequest::SolveRealPolynomialSystem { system, .. } => {
                 let problem = self

@@ -13,7 +13,8 @@ use super::{
     ResidualSystemId, admit_response, charge, render_scalar,
 };
 use crate::certification::ResidualProblem;
-use fsym_budget::{Budget, BudgetError, BudgetMeter, Dimension, MeterError, VerifierLease};
+use crate::request_budget::RequestBudget;
+use fsym_budget::{BudgetError, BudgetMeter, Dimension, MeterError, VerifierLease};
 use fsym_core::real_roots::RealRootInterval;
 use fsym_core::{BigRational, Symbol};
 use fsym_solvers::real_rational::{VerifiedRealRationalSystem, metered_solve_real_rational_system};
@@ -185,7 +186,7 @@ pub(super) fn solve(
     system: ResidualSystemId,
     problem: &ResidualProblem,
     context_digest: [u8; 32],
-    budget: &mut Budget,
+    budget: &mut RequestBudget<'_>,
     lease: Option<&VerifierLease>,
 ) -> Result<CertificationResponse, CertificationSessionError> {
     solve_system(
@@ -202,7 +203,7 @@ pub(super) fn solve_rational(
     system: ResidualSystemId,
     problem: &ResidualProblem,
     context_digest: [u8; 32],
-    budget: &mut Budget,
+    budget: &mut RequestBudget<'_>,
     lease: Option<&VerifierLease>,
 ) -> Result<CertificationResponse, CertificationSessionError> {
     solve_system(
@@ -219,7 +220,7 @@ fn solve_system(
     system: ResidualSystemId,
     problem: &ResidualProblem,
     context_digest: [u8; 32],
-    budget: &mut Budget,
+    budget: &mut RequestBudget<'_>,
     lease: Option<&VerifierLease>,
     kind: SourceKind,
 ) -> Result<CertificationResponse, CertificationSessionError> {
@@ -328,7 +329,7 @@ fn solve_system(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fsym_budget::{BudgetLimits, Unbounded};
+    use fsym_budget::{Budget, BudgetLimits, Unbounded};
     use fsym_core::{Expr, SymbolIdentity};
 
     struct CancelAt {
@@ -427,7 +428,7 @@ mod tests {
                     ResidualSystemId::new("system:polynomial").unwrap(),
                     &problem,
                     [0; 32],
-                    &mut budget,
+                    &mut RequestBudget::new(&mut budget, &mut || Ok(())),
                     lease,
                     kind,
                 );
@@ -461,7 +462,7 @@ mod tests {
             ResidualSystemId::new("system:typed").unwrap(),
             &problem,
             [43; 32],
-            &mut budget,
+            &mut RequestBudget::new(&mut budget, &mut || Ok(())),
             Some(&lease),
         )
         .unwrap();

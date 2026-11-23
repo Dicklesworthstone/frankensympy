@@ -520,6 +520,42 @@ impl Session {
         )
     }
 
+    /// Runs one certification request with the host's cooperative safe-point check.
+    ///
+    /// The host can bind this callback to its owning asupersync context. The
+    /// same check runs during ordinary work, protected independent verification,
+    /// and final response admission before a new resident object is published.
+    /// Return [`fsym_budget::MeterError::Cancelled`] to stop the request. The
+    /// first checkpoint failure is terminal for this invocation, even if the
+    /// callback would subsequently return `Ok(())`.
+    ///
+    /// All resource charges remain on this session's existing cumulative ledger;
+    /// cancellation and a later retry never replenish either compute pool.
+    /// Completed cells of an incremental search remain available for inspection,
+    /// checkpointing, and resumption through a subsequent request. A cancelled
+    /// request cannot publish a newly accepted certificate or compiled program.
+    ///
+    /// This method executes synchronously and does not spawn work. The callback
+    /// should be inexpensive and nonblocking; cancellation is observed at
+    /// cooperative safe points, not by forcibly interrupting arbitrary code.
+    pub fn certification_request_with_checkpoint<F>(
+        &mut self,
+        request: CertificationRequest,
+        mut checkpoint: F,
+    ) -> Result<CertificationResponse, CertificationSessionError>
+    where
+        F: FnMut() -> Result<(), fsym_budget::MeterError>,
+    {
+        let context = self.context_digest();
+        self.certification.handle_with_checkpoint(
+            request,
+            context,
+            &mut self.budget,
+            self.verifier_lease.as_ref(),
+            &mut checkpoint,
+        )
+    }
+
     pub fn residual_problem(&self, id: &ResidualSystemId) -> Option<&crate::ResidualProblem> {
         self.certification.problem(id)
     }

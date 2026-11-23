@@ -175,6 +175,14 @@ recomputing a transported claim. Verification draws from a protected cumulative
 budget, and source parsing retains original domain obligations such as
 `0*(1/x)`.
 
+Native hosts can pass their owning request's cancellation check to
+`Session::certification_request_with_checkpoint`. Generation, protected
+verification, and final publication admission observe the same check. Cancelled
+work retains spent resources and resumable candidate-search progress; a fresh
+request can resume it on the same ledger. Newly accepted results publish only
+after the final successful checkpoint. The [session guide](docs/NATIVE_CERTIFICATION_SESSION.md#host-controlled-cooperative-cancellation)
+shows the asupersync context adapter and the synchronous API's scope.
+
 `CertifyIntegral` also computes a proper finite real definite integral from one
 registered scalar source and one variable. Exact rational endpoints and a
 positive absolute enclosure-width tolerance define the request. Adaptive

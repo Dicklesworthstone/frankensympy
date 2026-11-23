@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "status": "implemented_uncertified",
+  "client_date": "2026-11-22",
+  "recorded_at_utc": "2026-11-23T03:19:40.843882+00:00",
+  "source_base": "db05701b5ae43ad647f4b57193ffb000835e9283",
+  "publication": "Containing commit",
+  "scope": "Host-owned cooperative cancellation for synchronous native Session certification requests, retaining the original cumulative ledger and protected verifier authority.",
+  "graph_scope": [
+    "fra-campaign-jacobian-bundle-ukp",
+    "fra-rc-cli-gate-0jr"
+  ],
+  "graph_effect": "Progress only. No status, priority, dependency, claim-tier or profile-gate promotion.",
+  "implementation": [
+    "Session::certification_request_with_checkpoint accepts the owning host checkpoint policy and routes it through all certification helpers.",
+    "A borrowed RequestBudget shares one terminal checkpoint latch with ordinary and protected verifier work. It creates no ledger, lease, runtime, task or budget reset.",
+    "Registered sources, programs, accepted results and releases retain final response admission before publication. No post-publication callback can misreport a committed operation as cancelled.",
+    "Incremental search keeps previously completed candidate work and a valid frontier; later requests can resume on the same cumulative ledger."
+  ],
+  "validation": {
+    "toolchain": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19), pinned nightly-2026-08-20",
+    "adapter_tests": {
+      "outcome": "passed",
+      "passed": 3,
+      "failed": 0,
+      "exit_code": 0,
+      "command": "cargo test --offline --manifest-path /workspace/scratch/78afbd38037e/request-budget-validation/Cargo.toml --lib",
+      "scope": "Source-direct scratch harness includes the actual src/request_budget.rs and depends on the actual crates/fsym-budget. All eight dependency identity/source/checksum records match production Cargo.lock.",
+      "reproduction": "Create a scratch edition-2024 package with an empty [workspace], fsym-budget path dependency to this repository, and a lib.rs #[path] module referencing this repository src/request_budget.rs. Resolve the versions in adapter-lock-verification.json; use pinned nightly and run cargo test --lib.",
+      "raw_log": "artifacts/audit/2026-11-22-session-cancellation/adapter-tests.log",
+      "lock_verification": "artifacts/audit/2026-11-22-session-cancellation/adapter-lock-verification.json"
+    },
+    "formatting": {
+      "outcome": "passed",
+      "scope": "Changed Rust source and Session regression target using pinned rustfmt"
+    },
+    "whitespace": {
+      "outcome": "passed",
+      "command": "git diff --check"
+    },
+    "independent_source_review": {
+      "outcome": "no blocking defect found",
+      "focus": [
+        "shared ledger and lease authority",
+        "latched errors in both lanes",
+        "publication and durable commit ordering",
+        "valid candidate frontier after interruption"
+      ],
+      "test_strengthening": "Public regression additionally requires cancelled protected work to be nonzero and strictly less than a completed verification."
+    },
+    "public_session_regressions": {
+      "outcome": "authored_execution_pending",
+      "target": "tests/session_cancellation.rs",
+      "test_functions": 7
+    },
+    "workspace_check": {
+      "outcome": "running_at_checkpoint",
+      "command": "cargo check --locked --workspace --all-targets"
+    },
+    "workspace_clippy_and_tests": {
+      "outcome": "pending"
+    },
+    "benchmark": {
+      "outcome": "not_run",
+      "claim": "No performance claim"
+    }
+  },
+  "limits": [
+    "This evidence does not validate the complete Session/CLI or production asynchronous runtime; executable integration checks are still pending at this checkpoint.",
+    "The callback is cooperative, synchronous and should be nonblocking. This adds no forced cancellation of arbitrary code and no asynchronous NDJSON cancellation endpoint.",
+    "Ordinary legacy Bind/Diff/Eval operations are outside this certification-specific API.",
+    "No complete campaign or compatibility profile is closed."
+  ],
+  "source_sha256": {
+    "src/request_budget.rs": "63b066c08aee1169bc1f1145ce402aca3442b5513ad61bfaee38e5c5d8bd43a9",
+    "src/lib.rs": "60b9f5af16fd2e26225eefd4f020a93eacc1976b1b93797f5bc479dfb62ac2ac",
+    "src/session.rs": "52f86f6bd25cf2e87461738abe61c25714b065a6bfa3e9a1a50b03220c0c218d",
+    "src/certification_session.rs": "d4f4efe59cedc232b2409718116ed18ee2ae7ab3aa4a77f7418f743d4de1d088",
+    "src/certification_session/compiled.rs": "91795986053434f7f46e22208fc348e558e4267adb8333a7c531ed955d42c19d",
+    "src/certification_session/compiled_objective.rs": "696c0dade612f3b856e06218f8d77dcf67e00492934cd4ac6aa2da413a779117",
+    "src/certification_session/compiled_solvers.rs": "5926ddaec7130811cd5d1286864d17bef4bdc17935e8c3f65991b0e9b1a52657",
+    "src/certification_session/parametric.rs": "a014a1a2e562ba43c8b29310074c70dcd970922e2ad1a9df2c246ef09cae6857",
+    "src/certification_session/polynomial_solver.rs": "c9ec3f4380aa4912fef410603d0282d1ae32991d6fb1901c5511c83de5976271",
+    "src/certification_session/real_solver.rs": "0a55904066e747c92765c96b3d90463036d0387aeea5f92b411aa3ef6623aca1",
+    "tests/session_cancellation.rs": "e47d822306a09b328054c7591fe253348f24d7d90ae17f4e045301b5856b996a"
+  },
+  "production_lock_sha256": "c7c208173cbc7a6643ff652b28044cdf8d07d5108e3c9b8f2bbd833ecb1d5f42"
+}

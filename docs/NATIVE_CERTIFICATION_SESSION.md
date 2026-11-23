@@ -13,6 +13,44 @@ optimization, integrals, candidate search checkpoints and compiled derivative
 programs. This interface does not close the complete Certified
 Jacobian campaign or certify a SymPy compatibility profile.
 
+## Host-controlled cooperative cancellation
+
+A native host can run a typed request with
+`Session::certification_request_with_checkpoint`. Its callback supplies the
+owning request's cancellation policy, for example a check of its asupersync
+context:
+
+```rust,ignore
+let result = session.certification_request_with_checkpoint(request, || {
+    if cx.is_cancel_requested() {
+        Err(frankensympy::MeterError::Cancelled)
+    } else {
+        Ok(())
+    }
+});
+```
+
+The same callback runs at ordinary computation, protected independent
+verification, and final output-admission safe points. Its first error stays
+terminal for that invocation, and `CertificationSessionError::code()` reports
+`"cancelled"` for cancellation. Newly registered sources, compiled programs,
+accepted certificates, and released handles change only after the final
+admission checkpoint. No cancellation check runs after a successful commit to
+misreport an already published result as cancelled.
+
+The session retains one cumulative budget across requests. Cancellation does
+not refund earlier work or replenish the protected verifier pool. An incremental
+search retains completed cells and its valid candidate frontier; the host can
+inspect, export, resume, or release it in a subsequent request using the same
+session. Acceptance still requires independent `Finish` verification. Dropping
+the checkpoint adapter changes neither the budget nor the frozen source and
+assumption context.
+
+The callback is synchronous and should be cheap and nonblocking. This API
+creates no tasks and supplies no forced interruption of foreign code. The
+ordinary `certification_request` remains the standalone entry point, and the
+NDJSON command has no asynchronous cancellation endpoint.
+
 ## Run an exact root check
 
 Build and start the command with the repository's pinned toolchain and donor
