@@ -23,7 +23,10 @@ pub use sparse_rref::{
     verify_sparse_rref_candidate,
 };
 mod pseudoinverse;
-pub use pseudoinverse::{PseudoinverseCertificate, verify_pseudoinverse_certificate};
+pub use pseudoinverse::{
+    GaussianLeastSquaresCandidate, PseudoinverseCertificate, VerifiedGaussianLeastSquaresFamily,
+    verify_pseudoinverse_certificate,
+};
 mod least_squares;
 pub use least_squares::{
     LeastSquaresCandidate, VerifiedLeastSquaresFamily, verify_least_squares_candidate,

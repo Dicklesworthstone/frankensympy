@@ -8,6 +8,7 @@ use fsym_matrices::{
     Matrix, MatrixError, PseudoinverseCertificate, verify_pseudoinverse_certificate,
 };
 use fsym_proof_kernel::hermitian_inertia::{HermitianInertiaError, read_gaussian_rational_matrix};
+use std::sync::Arc;
 
 fn gaussian(real: i64, imaginary: i64, denominator: i64) -> Expr {
     let real = Expr::rational(real, denominator).unwrap();
@@ -60,8 +61,8 @@ fn scalar_complex_inverses_are_exact_and_conjugated() {
         1,
         1,
         vec![Expr::Pow(
-            Box::new(gaussian(1, 1, 1)),
-            Box::new(Expr::from_i64(-1)),
+            Arc::new(gaussian(1, 1, 1)),
+            Arc::new(Expr::from_i64(-1)),
         )],
     )
     .unwrap();
@@ -309,16 +310,16 @@ fn empty_shapes_accept_strict_recorded_budgets_without_zero_charges() {
 
 #[test]
 fn original_poles_and_unsupported_children_survive_zero_simplifications() {
-    let pole = Expr::Pow(Box::new(Expr::from_i64(0)), Box::new(Expr::from_i64(-1)));
+    let pole = Expr::Pow(Arc::new(Expr::from_i64(0)), Arc::new(Expr::from_i64(-1)));
     let sources = [
         Expr::Mul(vec![Expr::from_i64(0), pole.clone()]),
-        Expr::Pow(Box::new(pole.clone()), Box::new(Expr::from_i64(0))),
+        Expr::Pow(Arc::new(pole.clone()), Arc::new(Expr::from_i64(0))),
         Expr::Pow(
-            Box::new(Expr::Add(vec![
+            Arc::new(Expr::Add(vec![
                 Expr::Const(Constant::I),
                 gaussian(0, -1, 1),
             ])),
-            Box::new(Expr::from_i64(0)),
+            Arc::new(Expr::from_i64(0)),
         ),
     ];
     for expression in sources {
@@ -387,8 +388,8 @@ fn source_and_intermediate_bounds_refuse_before_expensive_work() {
         1,
         1,
         vec![Expr::Pow(
-            Box::new(Expr::Integer(BigInt::from(1) << 2000)),
-            Box::new(Expr::from_i64(64)),
+            Arc::new(Expr::Integer(BigInt::from(1) << 2000)),
+            Arc::new(Expr::from_i64(64)),
         )],
     )
     .unwrap();
@@ -410,8 +411,8 @@ fn source_and_intermediate_bounds_refuse_before_expensive_work() {
         1,
         1,
         vec![Expr::Pow(
-            Box::new(Expr::Const(Constant::I)),
-            Box::new(Expr::from_i64(65)),
+            Arc::new(Expr::Const(Constant::I)),
+            Arc::new(Expr::from_i64(65)),
         )],
     )
     .unwrap();

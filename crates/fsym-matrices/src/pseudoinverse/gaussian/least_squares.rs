@@ -1,18 +1,70 @@
-//! Unique bounded Q(i) least squares through exact realification.
+//! Bounded unique and complete-family Q(i) least squares.
 //!
 //! R(A*) = R(A)^T, so the independently checked rational full-column-rank
 //! solve for R(A), R(B) establishes uniqueness over Q(i). Only then are its
 //! left blocks extracted. A distinct direct Q(i) pass re-reads the original
 //! A, B and X and checks A* (A X - B) = 0 before publication. Neither a
 //! transpose-only normal equation nor the generator's Gram matrix is used
-//! to accept a complex result. Rank-deficient systems remain unsupported by
-//! this unique-solution interface; complete affine families are unchanged.
+//! to accept a complex result. The unique-solution interface refuses rank
+//! deficiency; the separate family interface accepts every minimizer X+PW.
+//!
+//! Family acceptance reinterprets both original sources and checks an
+//! untrusted pseudoinverse with all four Hermitian Penrose identities. It
+//! then checks the original normal residual, minimum-norm orthogonality,
+//! and a complete orthogonal kernel projector. Residual-only witnesses
+//! cannot establish completeness, and a kernel-shifted particular cannot
+//! establish minimum norm.
 
 use super::{
     BigRational, BudgetMeter, Expr, GaussianMatrix, MAX_WORK_BITS, Matrix, MatrixError, Operation,
-    Result, SparseMatrix, Work, check_bits, limit,
+    Result, SparseMatrix, Work, check_bits, check_penrose, limit, propose,
 };
-use num_traits::Zero;
+use num_traits::{One, Zero};
+
+/// An untrusted least-squares proposal. The pseudoinverse is a completeness
+/// witness, not an accepted flag or a substitute for checking A and B.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GaussianLeastSquaresCandidate {
+    pub pseudoinverse: Matrix,
+    pub minimum_norm: Matrix,
+    pub projector: Matrix,
+}
+
+/// Every least-squares solution is `minimum_norm + projector * W`, with
+/// arbitrary complex W of the minimum-norm matrix's shape. The particular
+/// is the unique minimum-Frobenius-norm minimizer. Source snapshots contain
+/// the exact Q(i) values admitted from the original expression graphs; the
+/// original graphs' domain obligations are checked before these snapshots
+/// are normalized. This is an in-process receipt, not a portable certificate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedGaussianLeastSquaresFamily {
+    coefficients: Matrix,
+    rhs: Matrix,
+    minimum_norm: Matrix,
+    projector: Matrix,
+}
+
+impl VerifiedGaussianLeastSquaresFamily {
+    pub fn coefficients(&self) -> &Matrix {
+        &self.coefficients
+    }
+
+    pub fn rhs(&self) -> &Matrix {
+        &self.rhs
+    }
+
+    pub fn minimum_norm(&self) -> &Matrix {
+        &self.minimum_norm
+    }
+
+    pub fn projector(&self) -> &Matrix {
+        &self.projector
+    }
+
+    pub fn into_parts(self) -> (Matrix, Matrix) {
+        (self.minimum_norm, self.projector)
+    }
+}
 
 fn extract_solution(
     realified: &SparseMatrix,
@@ -74,12 +126,21 @@ fn check_original_normal_equations(
     let a = GaussianMatrix::read(matrix, work)?;
     let b = GaussianMatrix::read(rhs, work)?;
     let x = GaussianMatrix::read(solution, work)?;
+    check_normal_equations(&a, &b, &x, work)
+}
+
+fn check_normal_equations(
+    a: &GaussianMatrix,
+    b: &GaussianMatrix,
+    x: &GaussianMatrix,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<()> {
     if a.rows != b.rows || x.rows != a.cols || x.cols != b.cols {
         return Err(MatrixError::InvalidCertificate(
             "Gaussian least-squares source or solution shape".into(),
         ));
     }
-    let mut residual = a.multiply(&x, work)?;
+    let mut residual = a.multiply(x, work)?;
     for (value, target) in residual.entries.iter_mut().zip(&b.entries) {
         value.0 = work.rational(&value.0, &target.0, Operation::Subtract)?;
         value.1 = work.rational(&value.1, &target.1, Operation::Subtract)?;
@@ -115,7 +176,186 @@ fn check_original_normal_equations(
     work.tick(1)
 }
 
+fn identity_minus(
+    matrix: &GaussianMatrix,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<GaussianMatrix> {
+    if matrix.rows != matrix.cols {
+        return Err(MatrixError::InvalidCertificate(
+            "kernel projector product is not square".into(),
+        ));
+    }
+    let mut result = GaussianMatrix::zeros(matrix.rows, matrix.cols, work)?;
+    for row in 0..matrix.rows {
+        for column in 0..matrix.cols {
+            work.tick(1)?;
+            work.storage(64)?;
+            let identity = if row == column {
+                BigRational::one()
+            } else {
+                BigRational::zero()
+            };
+            let value = matrix.get(row, column);
+            result.entries[row * matrix.cols + column] = (
+                work.rational(&identity, &value.0, Operation::Subtract)?,
+                work.negate(&value.1)?,
+            );
+        }
+    }
+    Ok(result)
+}
+
+fn require_zero(
+    matrix: &GaussianMatrix,
+    message: &'static str,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<()> {
+    for value in &matrix.entries {
+        work.tick(value.0.numer().limb_count() + value.1.numer().limb_count() + 1)?;
+        if !value.0.is_zero() || !value.1.is_zero() {
+            return Err(MatrixError::InvalidCertificate(message.into()));
+        }
+    }
+    work.tick(1)
+}
+
+fn propose_family(
+    matrix: &Matrix,
+    rhs: &Matrix,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<GaussianLeastSquaresCandidate> {
+    // Inspect both complete originals before zero/rank shortcuts or any
+    // multiplication can erase a held reciprocal or unsupported expression.
+    let a = GaussianMatrix::read(matrix, work)?;
+    let b = GaussianMatrix::read(rhs, work)?;
+    if a.rows != b.rows {
+        return Err(MatrixError::ShapeMismatch(a.rows, a.cols, b.rows, b.cols));
+    }
+    let pseudoinverse = propose(matrix, work)?;
+    let inverse = GaussianMatrix::read(&pseudoinverse, work)?;
+    let minimum_norm = inverse.multiply(&b, work)?.into_matrix(work)?;
+    let inverse_a = inverse.multiply(&a, work)?;
+    let projector = identity_minus(&inverse_a, work)?.into_matrix(work)?;
+    work.tick(1)?;
+    Ok(GaussianLeastSquaresCandidate {
+        pseudoinverse,
+        minimum_norm,
+        projector,
+    })
+}
+
+fn verify_family(
+    matrix: &Matrix,
+    rhs: &Matrix,
+    candidate: &GaussianLeastSquaresCandidate,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<VerifiedGaussianLeastSquaresFamily> {
+    // This checker never uses the generator's rational RREF, rank, realified
+    // block shape or retained source values. All five matrices are read anew.
+    let a = GaussianMatrix::read(matrix, work)?;
+    let b = GaussianMatrix::read(rhs, work)?;
+    let inverse = GaussianMatrix::read(&candidate.pseudoinverse, work)?;
+    let x = GaussianMatrix::read(&candidate.minimum_norm, work)?;
+    let p = GaussianMatrix::read(&candidate.projector, work)?;
+    if a.rows != b.rows
+        || x.rows != a.cols
+        || x.cols != b.cols
+        || p.rows != a.cols
+        || p.cols != a.cols
+    {
+        return Err(MatrixError::InvalidCertificate(
+            "Gaussian least-squares family shape".into(),
+        ));
+    }
+    let (_, inverse_a) = check_penrose(&a, &inverse, work)?;
+    check_normal_equations(&a, &b, &x, work)?;
+    if !p.is_hermitian(work)? {
+        return Err(MatrixError::InvalidCertificate(
+            "least-squares kernel projector is not Hermitian".into(),
+        ));
+    }
+    if !p.multiply(&p, work)?.equal(&p, work)? {
+        return Err(MatrixError::InvalidCertificate(
+            "least-squares kernel projector is not idempotent".into(),
+        ));
+    }
+    require_zero(
+        &a.multiply(&p, work)?,
+        "least-squares projector leaves the original kernel",
+        work,
+    )?;
+    // AP=0, P=P* and P^2=P do not establish that P spans the entire
+    // kernel: even P=0 satisfies them. The independently checked Penrose
+    // witness proves that I-A+ A is exactly the complete kernel projector.
+    if !p.equal(&identity_minus(&inverse_a, work)?, work)? {
+        return Err(MatrixError::InvalidCertificate(
+            "least-squares kernel projector is incomplete".into(),
+        ));
+    }
+    require_zero(
+        &p.multiply(&x, work)?,
+        "least-squares particular is not minimum norm",
+        work,
+    )?;
+    if !inverse.multiply(&b, work)?.equal(&x, work)? {
+        return Err(MatrixError::InvalidCertificate(
+            "least-squares particular does not match the original RHS".into(),
+        ));
+    }
+    let accepted = VerifiedGaussianLeastSquaresFamily {
+        coefficients: a.into_matrix(work)?,
+        rhs: b.into_matrix(work)?,
+        minimum_norm: x.into_matrix(work)?,
+        projector: p.into_matrix(work)?,
+    };
+    // Include output normalization/allocation and the final publication safe
+    // point in the same ledger as source admission and proof replay.
+    work.tick(1)?;
+    Ok(accepted)
+}
+
 impl Matrix {
+    /// Propose a bounded exact Q(i) minimum-norm particular and complete
+    /// kernel projector. The returned public candidate is untrusted until
+    /// checked with [`Self::verify_gaussian_least_squares_candidate`].
+    pub fn gaussian_least_squares_candidate_with_meter(
+        &self,
+        rhs: &Self,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<GaussianLeastSquaresCandidate> {
+        propose_family(self, rhs, &mut Work::new(meter))
+    }
+
+    /// Independently check the complete complex least-squares family against
+    /// the original A and B, without invoking proposal generation. Source,
+    /// witness and output are bounded before publication, with cancellation
+    /// and all transient arithmetic charged to the supplied meter.
+    pub fn verify_gaussian_least_squares_candidate(
+        &self,
+        rhs: &Self,
+        candidate: &GaussianLeastSquaresCandidate,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<VerifiedGaussianLeastSquaresFamily> {
+        verify_family(self, rhs, candidate, &mut Work::new(meter))
+    }
+
+    /// Return all exact Q(i) least-squares minimizers as X+PW, including
+    /// singular, rectangular, inconsistent and zero-area systems. The unique
+    /// minimum-norm minimizer is X. Every axis is at most 32 and each admitted
+    /// source/witness/output component has at most 4096 bits. Proposal,
+    /// independent original-source verification and publication share one
+    /// cumulative caller meter and one 20M-step/256MiB intrinsic envelope.
+    /// No protected verifier pool or portable proof family is claimed.
+    pub fn metered_gaussian_least_squares_family(
+        &self,
+        rhs: &Self,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<VerifiedGaussianLeastSquaresFamily> {
+        let mut work = Work::new(meter);
+        let candidate = propose_family(self, rhs, &mut work)?;
+        verify_family(self, rhs, &candidate, &mut work)
+    }
+
     /// Solve exact Q(i) least squares with independently established full
     /// column rank. Both original sources are admitted before generation;
     /// source interpretation, realification, rational generation and rank

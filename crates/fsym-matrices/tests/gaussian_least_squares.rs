@@ -6,6 +6,7 @@ use fsym_budget::{
 use fsym_core::{BigInt, Constant, Expr};
 use fsym_matrices::{Matrix, MatrixError, SparseMatrix};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 fn gaussian(real: i64, imaginary: i64, denominator: i64) -> Expr {
     Expr::rational(real, denominator).unwrap()
@@ -159,7 +160,7 @@ fn empty_rhs_keeps_full_rank_obligation_and_empty_unknowns_preserve_shape() {
 
 #[test]
 fn both_original_domains_are_checked_before_normal_products_or_rank_shortcuts() {
-    let pole = Expr::Pow(Box::new(Expr::from_i64(0)), Box::new(Expr::from_i64(-1)));
+    let pole = Expr::Pow(Arc::new(Expr::from_i64(0)), Arc::new(Expr::from_i64(-1)));
     let hidden = Expr::Mul(vec![Expr::from_i64(0), pole]);
     let invalid = Matrix::new(1, 1, vec![hidden]).unwrap();
     let one = matrix(1, 1, &[(1, 0)], 1);
@@ -190,7 +191,7 @@ fn both_original_domains_are_checked_before_normal_products_or_rank_shortcuts() 
 
 #[test]
 fn held_gaussian_source_arithmetic_is_exactly_admitted() {
-    let reciprocal = Expr::Pow(Box::new(gaussian(1, 1, 1)), Box::new(Expr::from_i64(-1)));
+    let reciprocal = Expr::Pow(Arc::new(gaussian(1, 1, 1)), Arc::new(Expr::from_i64(-1)));
     let source = Matrix::new(1, 1, vec![reciprocal]).unwrap();
     assert_eq!(
         source
@@ -261,7 +262,7 @@ fn borrowed_sparse_rhs_admission_precedes_any_dense_conversion() {
             Err(MatrixError::ResourceLimit(_)),
         ));
     }
-    let pole = Expr::Pow(Box::new(Expr::from_i64(0)), Box::new(Expr::from_i64(-1)));
+    let pole = Expr::Pow(Arc::new(Expr::from_i64(0)), Arc::new(Expr::from_i64(-1)));
     let invalid = SparseMatrix::new(
         1,
         2,

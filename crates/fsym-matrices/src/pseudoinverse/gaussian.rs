@@ -16,6 +16,7 @@
 //! proof-kernel certificate.
 
 mod least_squares;
+pub use least_squares::{GaussianLeastSquaresCandidate, VerifiedGaussianLeastSquaresFamily};
 
 use crate::{Matrix, MatrixError, SparseMatrix, generate_sparse_pseudoinverse_candidate};
 use fsym_budget::{BudgetError, BudgetMeter, Dimension, MeterError};
@@ -496,6 +497,39 @@ fn propose(matrix: &Matrix, work: &mut Work<'_, impl BudgetMeter>) -> Result<Mat
     inverse.into_matrix(work)
 }
 
+fn check_penrose(
+    a: &GaussianMatrix,
+    x: &GaussianMatrix,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<(GaussianMatrix, GaussianMatrix)> {
+    work.tick(1)?;
+    if a.rows != x.cols || a.cols != x.rows {
+        return Err(MatrixError::ShapeMismatch(a.rows, a.cols, x.rows, x.cols));
+    }
+    let ax = a.multiply(x, work)?;
+    let xa = x.multiply(a, work)?;
+    let axa = ax.multiply(a, work)?;
+    if !axa.equal(a, work)? {
+        return Err(MatrixError::InvalidCertificate("A X A != A".into()));
+    }
+    let xax = xa.multiply(x, work)?;
+    if !xax.equal(x, work)? {
+        return Err(MatrixError::InvalidCertificate("X A X != X".into()));
+    }
+    if !ax.is_hermitian(work)? {
+        return Err(MatrixError::InvalidCertificate(
+            "A X is not Hermitian".into(),
+        ));
+    }
+    if !xa.is_hermitian(work)? {
+        return Err(MatrixError::InvalidCertificate(
+            "X A is not Hermitian".into(),
+        ));
+    }
+    work.tick(1)?;
+    Ok((ax, xa))
+}
+
 fn verify(matrix: &Matrix, inverse: &Matrix, work: &mut Work<'_, impl BudgetMeter>) -> Result<()> {
     work.tick(1)?;
     matrix.validate_shape()?;
@@ -511,26 +545,7 @@ fn verify(matrix: &Matrix, inverse: &Matrix, work: &mut Work<'_, impl BudgetMete
     // Re-read both complete sources before even a zero-input shortcut.
     let a = GaussianMatrix::read(matrix, work)?;
     let x = GaussianMatrix::read(inverse, work)?;
-    let ax = a.multiply(&x, work)?;
-    let xa = x.multiply(&a, work)?;
-    let axa = ax.multiply(&a, work)?;
-    if !axa.equal(&a, work)? {
-        return Err(MatrixError::InvalidCertificate("A X A != A".into()));
-    }
-    let xax = xa.multiply(&x, work)?;
-    if !xax.equal(&x, work)? {
-        return Err(MatrixError::InvalidCertificate("X A X != X".into()));
-    }
-    if !ax.is_hermitian(work)? {
-        return Err(MatrixError::InvalidCertificate(
-            "A X is not Hermitian".into(),
-        ));
-    }
-    if !xa.is_hermitian(work)? {
-        return Err(MatrixError::InvalidCertificate(
-            "X A is not Hermitian".into(),
-        ));
-    }
+    check_penrose(&a, &x, work)?;
     work.tick(1)
 }
 
