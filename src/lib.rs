@@ -29,6 +29,7 @@ pub mod parametric_transport;
 pub mod program_transport;
 pub mod repairable_search;
 mod request_budget;
+pub mod scalar_bracket;
 pub mod search_checkpoint;
 pub mod session;
 
@@ -66,6 +67,7 @@ pub use fsym_calculus::box_optimization::{
 };
 pub use fsym_calculus::parametric_cover::ParametricRootCoverOptions;
 pub use fsym_calculus::quadrature::QuadratureOptions;
+pub use fsym_calculus::scalar_bracket::ScalarRootBracketOptions;
 pub use fsym_calculus::root_isolation::{
     MAX_ROOT_ISOLATION_ADVANCE_CELLS, RootIsolationCounters, RootIsolationOptions,
     RootIsolationProgress, RootIsolationSearch, RootIsolationSearchCheckpoint,
@@ -77,7 +79,8 @@ pub use fsym_core::{
     ParametricRootCoverReceipt, ParametricRootCoverStep, ParametricRootCoverWitness,
     ParametricSensitivityReceipt, QuadratureError, QuadratureWitness, RealBall,
     ResidualJacobianEnclosure, RootBoxReceipt, RootBoxWitness, RootIsolationError,
-    RootIsolationReceipt, RootIsolationStep, RootIsolationWitness, StationaryPointKind,
+    RootIsolationReceipt, RootIsolationStep, RootIsolationWitness, ScalarRootBracketError,
+    ScalarRootBracketReceipt, ScalarRootBracketWitness, StationaryPointKind,
     StationaryPointReceipt, Symbol, SymbolIdentity, metered_enclose_parametric_cover_sensitivity,
     metered_enclose_parametric_root_sensitivity,
 };
@@ -126,6 +129,10 @@ pub use program_transport::{
 pub use repairable_search::{
     PreparedRepairableRootSearchCheckpoint, RepairableRootSearchCheckpoint,
     RepairableRootSearchCheckpointStore, RepairableSearchError, RootSearchRepairReport,
+};
+pub use scalar_bracket::{
+    MAX_SCALAR_ROOT_BRACKET_BYTES, SCALAR_ROOT_BRACKET_SCHEMA_VERSION, ScalarBracketError,
+    export_scalar_root_bracket, replay_scalar_root_bracket,
 };
 pub use search_checkpoint::{
     MAX_ROOT_SEARCH_CHECKPOINT_BYTES, ROOT_SEARCH_CHECKPOINT_SCHEMA_VERSION,
