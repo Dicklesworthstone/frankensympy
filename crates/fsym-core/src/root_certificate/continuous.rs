@@ -244,9 +244,7 @@ fn unary_value(
         }
         "asin" | "acos" => {
             work.arithmetic(&[argument], &[])?;
-            if argument.lower() < -BigRational::one()
-                || argument.upper() > BigRational::one()
-            {
+            if argument.lower() < -BigRational::one() || argument.upper() > BigRational::one() {
                 // Range dependency can overshoot a valid source's domain.
                 // Keep that refusal refinable by the adaptive partitioner;
                 // actual ball precision/resource failures remain terminal.
@@ -323,12 +321,7 @@ mod tests {
     ) -> Result<RealBall, RootBoxError> {
         let mut meter = Unbounded;
         let mut work = Work::new(&mut meter, 16)?;
-        super::super::validate_inputs(
-            std::slice::from_ref(source),
-            variables,
-            domain,
-            &mut work,
-        )?;
+        super::super::validate_inputs(std::slice::from_ref(source), variables, domain, &mut work)?;
         Ok(evaluate_continuous(source, variables, domain, &mut work)?.value)
     }
 
@@ -351,10 +344,7 @@ mod tests {
     #[test]
     fn positive_literal_rational_powers_include_the_exact_zero_endpoint() {
         for (numerator, denominator, upper, endpoint) in [(1, 3, 8, 2), (2, 3, 27, 9)] {
-            let source = power(
-                Expr::symbol("x"),
-                Expr::Rational(q(numerator, denominator)),
-            );
+            let source = power(Expr::symbol("x"), Expr::Rational(q(numerator, denominator)));
             let value = scalar(&source, interval(0, upper)).unwrap();
             assert_eq!(value.lower(), q(0, 1));
             assert!(value.contains(&q(endpoint, 1)));
@@ -367,10 +357,7 @@ mod tests {
 
     #[test]
     fn nonliteral_and_nonpositive_powers_keep_the_strict_positive_branch() {
-        let dynamic = power(
-            Expr::symbol("x"),
-            Expr::Add(vec![Expr::Rational(q(1, 2))]),
-        );
+        let dynamic = power(Expr::symbol("x"), Expr::Add(vec![Expr::Rational(q(1, 2))]));
         let negative = power(Expr::symbol("x"), Expr::Rational(q(-1, 2)));
         for source in [dynamic, negative] {
             assert!(matches!(
@@ -443,26 +430,13 @@ mod tests {
 
     #[test]
     fn typed_axis_identity_and_coordinate_order_are_preserved() {
-        let first = Symbol::with_identity(
-            "x",
-            SymbolIdentity::from_assumptions_digest([1; 32]),
-        );
-        let other = Symbol::with_identity(
-            "x",
-            SymbolIdentity::from_assumptions_digest([2; 32]),
-        );
+        let first = Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([1; 32]));
+        let other = Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([2; 32]));
         assert!(matches!(
-            enclose(
-                &Expr::Sym(other),
-                &[first],
-                &[interval(0, 1)],
-            ),
+            enclose(&Expr::Sym(other), &[first], &[interval(0, 1)],),
             Err(RootBoxError::Unsupported("unbound symbol identity"))
         ));
-        let source = Expr::Add(vec![
-            function("sqrt", Expr::symbol("y")),
-            Expr::symbol("x"),
-        ]);
+        let source = Expr::Add(vec![function("sqrt", Expr::symbol("y")), Expr::symbol("x")]);
         assert_eq!(
             enclose(
                 &source,
@@ -527,10 +501,7 @@ mod tests {
             assert!(work.eval(&source, &variables, &domain, 0).is_err());
             assert!(
                 super::super::objective::evaluate_objective(
-                    &source,
-                    &variables,
-                    &domain,
-                    &mut work,
+                    &source, &variables, &domain, &mut work,
                 )
                 .is_err()
             );
@@ -571,7 +542,10 @@ mod tests {
             }),
         ] {
             let stop = Cell::new(false);
-            let mut meter = StoppingMeter { stop: &stop, failure };
+            let mut meter = StoppingMeter {
+                stop: &stop,
+                failure,
+            };
             let mut work = Work::new(&mut meter, 16).unwrap();
             let source = function("sqrt", Expr::symbol("x"));
             let variables = [Symbol::new("x")];

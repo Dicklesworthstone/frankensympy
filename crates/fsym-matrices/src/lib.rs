@@ -57,12 +57,14 @@ pub use hermitian_inertia::{
 mod normal_forms;
 pub use normal_forms::{
     HermiteNormalFormCandidate, IntegerLinearCandidate, IntegerMatrixRef,
-    IntegerModularInverseCandidate, SmithNormalFormCandidate, VerifiedHermiteNormalForm,
-    VerifiedIntegerLinearSystem, VerifiedIntegerModularInverse, VerifiedSmithNormalForm,
-    generate_hermite_normal_form_candidate, generate_integer_linear_candidate,
-    generate_integer_modular_inverse_candidate, generate_smith_normal_form_candidate,
-    metered_inverse_mod, metered_solve_integer, verify_hermite_normal_form_candidate,
-    verify_integer_linear_candidate, verify_integer_modular_inverse_candidate,
+    IntegerModularInverseCandidate, IntegerModularSystemCandidate, SmithNormalFormCandidate,
+    VerifiedHermiteNormalForm, VerifiedIntegerLinearSystem, VerifiedIntegerModularInverse,
+    VerifiedIntegerModularSystem, VerifiedSmithNormalForm, generate_hermite_normal_form_candidate,
+    generate_integer_linear_candidate, generate_integer_modular_inverse_candidate,
+    generate_integer_modular_system_candidate, generate_smith_normal_form_candidate,
+    metered_inverse_mod, metered_solve_integer, metered_solve_mod,
+    verify_hermite_normal_form_candidate, verify_integer_linear_candidate,
+    verify_integer_modular_inverse_candidate, verify_integer_modular_system_candidate,
     verify_smith_normal_form_candidate,
 };
 

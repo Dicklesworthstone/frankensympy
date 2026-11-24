@@ -2190,6 +2190,35 @@ refuse difficult inputs. See [integer normal forms and systems](docs/INTEGER_NOR
 for the exact contracts, examples, failure semantics, and retained evidence.
 The broad WS10/WS19 and compatibility-profile gates remain open.
 
+### Native modular linear systems
+
+Native Rust `Matrix` and `SparseMatrix` provide `solve_mod(rhs, modulus)` for
+complete finite solution families of `A*X = B (mod m)`, including rectangular
+systems, composite moduli and multiple right-hand sides:
+
+```rust
+use fsym_core::{BigInt, Expr};
+use fsym_matrices::Matrix;
+
+let a = Matrix::new(1, 1, vec![Expr::from_i64(2)]).unwrap();
+let b = Matrix::new(1, 1, vec![Expr::from_i64(2)]).unwrap();
+let solution = a.solve_mod(&b, &BigInt::from(6)).unwrap();
+assert!(solution.is_consistent());
+assert!(!solution.is_unique());
+assert_eq!(solution.periods().unwrap(), &[BigInt::from(2)]);
+// P = [1], K = [3]: x = 1 + 3*T (mod 6), with T in {0, 1}.
+```
+
+The independently checked result exposes `particular()`, `generators()` and
+`periods()`. All solutions are `X = P + K*T (mod m)`, with each `T[i,j]`
+independently ranging from zero through `periods[i] - 1`. Checked inconsistency
+returns a receipt with `is_consistent() == false` and absent family fields.
+The bounded native API admits moduli at least two, dimensions through 64 and
+original entries/moduli through 4096 bits; separate cumulative generation and
+verification budgets remain available through `metered_solve_mod`. These native
+methods add no Python surface or modular-rank claim. See the
+[implementation and validation record](artifacts/audit/2026-11-24-modular-linear-system-progress.json).
+
 ## Exact complex dense linear solves (development API)
 
 Dense `Matrix.solve()`, `LUsolve()` and `inv()` accept bounded exact complex

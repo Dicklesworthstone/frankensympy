@@ -61,15 +61,9 @@ fn finite_closed_endpoints_admit_exact_roots_without_derivatives() {
         (function("acosh", sx), q(1, 1), q(2, 1), q(1, 1)),
     ] {
         let proposed = bracket(root.clone(), root.clone());
-        let receipt = certify_scalar_root_bracket(
-            &source,
-            &x,
-            &lower,
-            &upper,
-            &q(1, 100),
-            &proposed,
-        )
-        .unwrap();
+        let receipt =
+            certify_scalar_root_bracket(&source, &x, &lower, &upper, &q(1, 100), &proposed)
+                .unwrap();
         assert_eq!(receipt.expression(), &source);
         assert_eq!(receipt.lower(), &lower);
         assert_eq!(receipt.upper(), &upper);
@@ -173,8 +167,7 @@ fn a_boundary_value_receipt_cannot_accept_a_forged_root_or_a_changed_source() {
     let sx = Expr::Sym(x.clone());
     let source = subtract(function("sqrt", sx.clone()), q(1, 2));
     let valid = bracket(q(1, 4), q(1, 4));
-    certify_scalar_root_bracket(&source, &x, &q(0, 1), &q(1, 1), &q(1, 100), &valid)
-        .unwrap();
+    certify_scalar_root_bracket(&source, &x, &q(0, 1), &q(1, 1), &q(1, 100), &valid).unwrap();
     for (changed_source, proposed) in [
         (source, bracket(q(1, 1), q(1, 1))),
         (subtract(function("sqrt", sx), q(3, 4)), valid),
@@ -246,27 +239,18 @@ fn a_continuous_only_integral_cell_uses_the_entire_range_without_fake_curvature(
     let source = function("sqrt", Expr::Sym(x.clone()));
     let proposed = partition(vec![q(0, 1), q(1, 1)]);
     let receipt =
-        certify_integral_enclosure(&source, &x, &q(0, 1), &q(1, 1), &q(1, 1), &proposed)
-            .unwrap();
+        certify_integral_enclosure(&source, &x, &q(0, 1), &q(1, 1), &q(1, 1), &proposed).unwrap();
     assert_eq!(receipt.enclosure().lower(), q(0, 1));
     assert_eq!(receipt.enclosure().upper(), q(1, 1));
     assert!(receipt.enclosure().contains(&q(2, 3)));
     // A midpoint value with absent derivatives treated as zero would wrongly
     // claim arbitrary accuracy. This partition supplies no such information.
     assert!(matches!(
-        certify_integral_enclosure(
-            &source,
-            &x,
-            &q(0, 1),
-            &q(1, 1),
-            &q(1, 100),
-            &proposed,
-        ),
+        certify_integral_enclosure(&source, &x, &q(0, 1), &q(1, 1), &q(1, 100), &proposed,),
         Err(QuadratureError::AccuracyNotReached)
     ));
     let reversed =
-        certify_integral_enclosure(&source, &x, &q(1, 1), &q(0, 1), &q(1, 1), &proposed)
-            .unwrap();
+        certify_integral_enclosure(&source, &x, &q(1, 1), &q(0, 1), &q(1, 1), &proposed).unwrap();
     assert_eq!(reversed.enclosure().lower(), q(-1, 1));
     assert_eq!(reversed.enclosure().upper(), q(0, 1));
     assert!(reversed.enclosure().contains(&q(-2, 3)));
@@ -293,15 +277,9 @@ fn complete_partitions_enclose_independently_known_endpoint_integrals() {
         (power(sx.clone(), q(3, 2)), q(2, 5)),
         (function("acos", sx), q(1, 1)),
     ] {
-        let receipt = certify_integral_enclosure(
-            &source,
-            &x,
-            &q(0, 1),
-            &q(1, 1),
-            &q(1, 16),
-            &proposed,
-        )
-        .unwrap();
+        let receipt =
+            certify_integral_enclosure(&source, &x, &q(0, 1), &q(1, 1), &q(1, 16), &proposed)
+                .unwrap();
         assert_eq!(receipt.integrand(), &source);
         assert_eq!(receipt.interval_count(), 32);
         assert!(receipt.enclosure().contains(&exact_integral));
@@ -372,11 +350,23 @@ fn continuity_retries_preserve_real_budgets_and_late_cancellation() {
     let mut root_budget = Budget::new(BudgetLimits::uniform(limit, 0));
     let mut integral_budget = Budget::new(BudgetLimits::uniform(limit, 0));
     verify_scalar_root_bracket(
-        &source, &x, &q(0, 1), &q(1, 1), &q(1, 100), &root, &mut root_budget,
+        &source,
+        &x,
+        &q(0, 1),
+        &q(1, 1),
+        &q(1, 100),
+        &root,
+        &mut root_budget,
     )
     .unwrap();
     verify_integral_enclosure(
-        &source, &x, &q(0, 1), &q(1, 1), &q(1, 1), &cells, &mut integral_budget,
+        &source,
+        &x,
+        &q(0, 1),
+        &q(1, 1),
+        &q(1, 1),
+        &cells,
+        &mut integral_budget,
     )
     .unwrap();
     for budget in [&root_budget, &integral_budget] {
@@ -385,14 +375,10 @@ fn continuity_retries_preserve_real_budgets_and_late_cancellation() {
     }
 
     let run_root = |meter: &mut Checkpoints| {
-        verify_scalar_root_bracket(
-            &source, &x, &q(0, 1), &q(1, 1), &q(1, 100), &root, meter,
-        )
+        verify_scalar_root_bracket(&source, &x, &q(0, 1), &q(1, 1), &q(1, 100), &root, meter)
     };
     let run_integral = |meter: &mut Checkpoints| {
-        verify_integral_enclosure(
-            &source, &x, &q(0, 1), &q(1, 1), &q(1, 1), &cells, meter,
-        )
+        verify_integral_enclosure(&source, &x, &q(0, 1), &q(1, 1), &q(1, 1), &cells, meter)
     };
     let mut root_baseline = Checkpoints::default();
     let mut integral_baseline = Checkpoints::default();
@@ -401,7 +387,10 @@ fn continuity_retries_preserve_real_budgets_and_late_cancellation() {
     assert!(root_baseline.calls > 4);
     assert!(integral_baseline.calls > 4);
     for cancel_at in [1, root_baseline.calls / 2, root_baseline.calls] {
-        let mut meter = Checkpoints { calls: 0, cancel_at: Some(cancel_at) };
+        let mut meter = Checkpoints {
+            calls: 0,
+            cancel_at: Some(cancel_at),
+        };
         assert!(matches!(
             run_root(&mut meter),
             Err(ScalarRootBracketError::Enclosure(RootBoxError::Meter(
@@ -410,10 +399,15 @@ fn continuity_retries_preserve_real_budgets_and_late_cancellation() {
         ));
     }
     for cancel_at in [1, integral_baseline.calls / 2, integral_baseline.calls] {
-        let mut meter = Checkpoints { calls: 0, cancel_at: Some(cancel_at) };
+        let mut meter = Checkpoints {
+            calls: 0,
+            cancel_at: Some(cancel_at),
+        };
         assert!(matches!(
             run_integral(&mut meter),
-            Err(QuadratureError::Enclosure(RootBoxError::Meter(MeterError::Cancelled)))
+            Err(QuadratureError::Enclosure(RootBoxError::Meter(
+                MeterError::Cancelled
+            )))
         ));
     }
 }

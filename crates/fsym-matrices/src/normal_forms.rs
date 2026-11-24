@@ -28,6 +28,12 @@ pub use modular_inverse::{
     generate_integer_modular_inverse_candidate, metered_inverse_mod,
     verify_integer_modular_inverse_candidate,
 };
+mod modular_system;
+pub use modular_system::{
+    IntegerModularSystemCandidate, VerifiedIntegerModularSystem,
+    generate_integer_modular_system_candidate, metered_solve_mod,
+    verify_integer_modular_system_candidate,
+};
 mod hermite;
 pub use hermite::{
     HermiteNormalFormCandidate, VerifiedHermiteNormalForm, generate_hermite_normal_form_candidate,

@@ -1,0 +1,27 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "fsym-core",
+    "--test",
+    "continuous_value_certificates",
+    "-j1",
+    "--",
+    "--test-threads=1"
+  ],
+  "cwd": "/workspace/scratch/ab9781d06adb/frankensympy-verify-20261124",
+  "started_utc": "2026-11-24T20:50:40Z",
+  "initial_memory_available_mib": 1393,
+  "initial_target_free_mib": 1593,
+  "reserve_memory_mib": 768,
+  "reserve_target_mib": 256,
+  "resource_guard": null,
+  "exit_code": -9,
+  "elapsed_seconds": 12.018,
+  "minimum_memory_available_mib": 1090,
+  "minimum_target_free_mib": 1349,
+  "child_maximum_rss_kib": 131940,
+  "completed_utc": "2026-11-24T20:50:52Z"
+}

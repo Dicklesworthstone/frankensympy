@@ -7,12 +7,10 @@ use fsym_calculus::quadrature::{
     QuadratureOptions, certified_integral, metered_certified_integral,
 };
 use fsym_calculus::scalar_bracket::{
-    ScalarRootBracketOptions, certified_scalar_root_bracket,
-    metered_certified_scalar_root_bracket,
+    ScalarRootBracketOptions, certified_scalar_root_bracket, metered_certified_scalar_root_bracket,
 };
 use fsym_core::{
-    BigRational, Expr, QuadratureError, RealBall, RootBoxError, ScalarRootBracketError,
-    Symbol,
+    BigRational, Expr, QuadratureError, RealBall, RootBoxError, ScalarRootBracketError, Symbol,
 };
 use std::sync::Arc;
 
@@ -189,15 +187,17 @@ fn reversed_and_zero_width_integrals_keep_exact_source_endpoint_obligations() {
     assert_eq!(point.enclosure(), &RealBall::from_i64(0));
     assert_eq!(point.interval_count(), 0);
     let undefined = power(source, q(-1, 1));
-    assert!(certified_integral(
-        &undefined,
-        &variable,
-        &q(0, 1),
-        &q(0, 1),
-        &tolerance,
-        integral_options(),
-    )
-    .is_err());
+    assert!(
+        certified_integral(
+            &undefined,
+            &variable,
+            &q(0, 1),
+            &q(0, 1),
+            &tolerance,
+            integral_options(),
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -217,24 +217,28 @@ fn original_poles_and_outside_domain_values_do_not_gain_continuity_receipts() {
         Expr::Add(vec![function("sqrt", x), hidden_pole]),
     ];
     for source in sources {
-        assert!(certified_scalar_root_bracket(
-            &source,
-            &variable,
-            &q(0, 1),
-            &q(1, 1),
-            &q(1, 100),
-            root_options(),
-        )
-        .is_err());
-        assert!(certified_integral(
-            &source,
-            &variable,
-            &q(0, 1),
-            &q(1, 1),
-            &q(1, 64),
-            integral_options(),
-        )
-        .is_err());
+        assert!(
+            certified_scalar_root_bracket(
+                &source,
+                &variable,
+                &q(0, 1),
+                &q(1, 1),
+                &q(1, 100),
+                root_options(),
+            )
+            .is_err()
+        );
+        assert!(
+            certified_integral(
+                &source,
+                &variable,
+                &q(0, 1),
+                &q(1, 1),
+                &q(1, 64),
+                integral_options(),
+            )
+            .is_err()
+        );
     }
 }
 
@@ -258,7 +262,11 @@ fn adaptive_partitioning_resolves_closed_domain_range_dependency() {
     let square = Expr::Mul(vec![x.clone(), x]);
     let hyperbolic_argument = Expr::Add(vec![Expr::from_i64(1), square.clone()]);
     for (child, lower, upper) in [
-        (function("asin", circular_argument.clone()), q(0, 1), q(1, 1)),
+        (
+            function("asin", circular_argument.clone()),
+            q(0, 1),
+            q(1, 1),
+        ),
         (function("acos", circular_argument), q(0, 1), q(1, 1)),
         (function("acosh", hyperbolic_argument), q(-1, 1), q(1, 1)),
         (function("sqrt", square), q(-1, 1), q(1, 1)),
@@ -299,7 +307,9 @@ fn endpoint_support_does_not_relax_precision_or_accuracy_limits() {
                     ..root_options()
                 },
             ),
-            Err(ScalarRootBracketError::Enclosure(RootBoxError::InvalidPrecision))
+            Err(ScalarRootBracketError::Enclosure(
+                RootBoxError::InvalidPrecision
+            ))
         ));
         assert!(matches!(
             certified_integral(
@@ -384,7 +394,9 @@ fn endpoint_generators_and_verifiers_share_each_callers_cumulative_budget() {
                 &mut generator,
                 &mut verifier,
             ),
-            Err(ScalarRootBracketError::Enclosure(RootBoxError::Meter(MeterError::Budget(_))))
+            Err(ScalarRootBracketError::Enclosure(RootBoxError::Meter(
+                MeterError::Budget(_)
+            )))
         ));
         let mut generator = Budget::new(BudgetLimits::uniform(generation_limit, 0));
         let mut verifier = Budget::new(BudgetLimits::uniform(verification_limit, 0));
@@ -399,7 +411,9 @@ fn endpoint_generators_and_verifiers_share_each_callers_cumulative_budget() {
                 &mut generator,
                 &mut verifier,
             ),
-            Err(QuadratureError::Enclosure(RootBoxError::Meter(MeterError::Budget(_))))
+            Err(QuadratureError::Enclosure(RootBoxError::Meter(
+                MeterError::Budget(_)
+            )))
         ));
     }
 }

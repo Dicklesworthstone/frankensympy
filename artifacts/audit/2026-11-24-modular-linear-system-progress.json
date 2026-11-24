@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "recorded_date": "2026-11-24",
+  "source_baseline_commit": "d31fdd888ee97b944d33e7d4a0515485d8ff7ea6",
+  "scope": "Complete bounded native integer modular linear systems",
+  "implementation": {
+    "checker": "crates/fsym-proof-kernel/src/integer_modular_system.rs",
+    "native_api": "Matrix::solve_mod, SparseMatrix::solve_mod, and mixed-storage metered_solve_mod",
+    "family": "X = P + K*T (mod m), with independent 0 <= T[i,j] < periods[i] for each RHS column",
+    "result": "Verified complete finite family or independently checked inconsistency; original coefficient matrix, RHS and modulus remain bound",
+    "bounds": {
+      "maximum_dimension": 64,
+      "maximum_original_entry_bits": 4096,
+      "maximum_modulus_bits": 4096,
+      "minimum_modulus": 2
+    },
+    "limits": "Native Rust scope; no new Python API, modular-rank claim, compatibility-profile promotion or broad workstream closure."
+  },
+  "authored_rust_tests": {
+    "proof_kernel": {
+      "path": "crates/fsym-proof-kernel/tests/integer_modular_system.rs",
+      "tests": 11,
+      "scalar_enumeration_cases": 385
+    },
+    "matrices": {
+      "path": "crates/fsym-matrices/tests/modular_linear_system.rs",
+      "tests": 10,
+      "small_system_enumeration_cases": 624
+    },
+    "total_tests": 21,
+    "execution_status": "not_run",
+    "total_small_system_enumeration_cases": 1009
+  },
+  "independent_mathematical_fixture_oracle": {
+    "language": "JavaScript",
+    "status": "executed",
+    "direct_enumerations": 14,
+    "listed_matrix_fixture_solution_counts": [
+      12,
+      6,
+      3,
+      3,
+      5,
+      8,
+      1,
+      12,
+      2,
+      0,
+      16,
+      0,
+      49
+    ],
+    "multiple_rhs_solution_count": 144,
+    "evidence_scope": "Direct small-integer enumeration checks the fixture mathematics. It does not execute or validate the Rust candidate generator or verifier."
+  },
+  "validation": {
+    "independent_source_review": "completed",
+    "rustfmt": "passed for all 14 selected Rust files across the endpoint and modular feature units, using the pinned toolchain and skip_children=true",
+    "formatted_files": [
+      "crates/fsym-calculus/tests/certified_quadrature.rs",
+      "crates/fsym-calculus/tests/continuous_endpoints.rs",
+      "crates/fsym-core/src/root_certificate.rs",
+      "crates/fsym-core/src/root_certificate/continuous.rs",
+      "crates/fsym-core/src/root_certificate/quadrature.rs",
+      "crates/fsym-core/src/root_certificate/scalar_bracket.rs",
+      "crates/fsym-core/tests/continuous_value_certificates.rs",
+      "crates/fsym-matrices/src/lib.rs",
+      "crates/fsym-matrices/src/normal_forms.rs",
+      "crates/fsym-matrices/src/normal_forms/modular_system.rs",
+      "crates/fsym-matrices/tests/modular_linear_system.rs",
+      "crates/fsym-proof-kernel/src/integer_modular_system.rs",
+      "crates/fsym-proof-kernel/src/lib.rs",
+      "crates/fsym-proof-kernel/tests/integer_modular_system.rs"
+    ],
+    "rustc_commit": "f7d782a3be46d6bb4b9792fe69a61db389ba1769",
+    "intended_toolchain": "nightly-2026-08-20",
+    "project_compilation": "attempted; Cargo received SIGKILL during dependency compilation before project checking or tests",
+    "native_test_execution": "not_run",
+    "clippy": "not_run",
+    "source_input_stability": "700 Rust, manifest and lockfile input hashes unchanged across the attempted native run",
+    "native_attempt_log": "artifacts/audit/2026-11-24-continuous-native-attempt.log",
+    "native_attempt_status": "artifacts/audit/2026-11-24-continuous-native-attempt.json",
+    "environment": "The execution host became unavailable after the native test attempt; when restored, the pinned toolchain, Cargo cache and target in /tmp were absent.",
+    "failure_cause": "not_established",
+    "resource_guard": "did not fire"
+  },
+  "integration": {
+    "ci": "Existing kernel and matrix regression commands include the two new test targets.",
+    "bead_notes": [
+      "fra-kfo",
+      "fra-7kf"
+    ],
+    "existing_continuous_endpoint_changes": "preserved",
+    "task_status_changes": false
+  }
+}
