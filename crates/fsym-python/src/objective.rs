@@ -276,6 +276,13 @@ pub struct PyVerifiedObjective {
     objective: VerifiedObjective,
 }
 
+impl PyVerifiedObjective {
+    /// Accept only an objective already admitted by the native proof checker.
+    pub(crate) fn from_verified(objective: VerifiedObjective) -> Self {
+        Self { objective }
+    }
+}
+
 #[pymethods]
 impl PyVerifiedObjective {
     #[new]

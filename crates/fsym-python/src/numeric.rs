@@ -1906,6 +1906,23 @@ impl PyVerifiedResidualSystem {
         Ok(result)
     }
 
+    /// Compile the exact ordered objective 1/2 sum(residual**2), retaining every
+    /// original residual domain. Independent derivative/source replay admits
+    /// the result for the existing objective enclosure and stationary checkers.
+    #[pyo3(signature = (*, budget=None))]
+    fn least_squares_objective(
+        &self,
+        py: Python<'_>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<crate::objective::PyVerifiedObjective> {
+        let objective = with_certification_meter(py, budget.as_deref(), |meter| {
+            self.system.least_squares_objective_with_meter(meter)
+        })?;
+        let result = crate::objective::PyVerifiedObjective::from_verified(objective);
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
+    }
+
     /// Generate an approximate least-squares stationary point, not a root.
     /// All residual rows and derivative domains share the same native ledger.
     /// The sparse route retains sparse Jacobian values throughout LSQR; neither

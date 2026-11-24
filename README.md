@@ -566,6 +566,41 @@ uniqueness or minimum-norm claim is made. Controls are bounded by 1,024 nonlinea
 iterations, six damping strengths per iteration, 512 LSQR steps per strength and
 32 line-search trials per direction.
 
+### Certified objectives for nonlinear fits
+
+A residual system can also produce a checked scalar objective directly from its
+captured source. This connects inconsistent observations to the existing local
+minimum and box-optimization methods:
+
+```python
+from sympy import Symbol, compile_residual_system
+
+x = Symbol("fitted_value")
+observations = compile_residual_system([x - 1, x - 3], x)
+objective = observations.least_squares_objective()
+assert objective.evaluate(2) == (1.0, [0.0], [[2.0]])
+minimum = objective.minimize_certified(0)
+assert minimum.kind == "strict_minimum"
+# The minimum occurs at x=2 with cost=1; the residuals are still +1 and -1.
+```
+
+The exact objective is `1/2 * sum(residual**2)`. Every original ordered row is
+retained, including duplicate rows, constant errors and held operations with
+domain restrictions. The checked Hessian includes residual second derivatives
+as well as `J.T @ J`. For example, the residual `x**2 - 1` has objective curvature
+`-2` at zero: this stationary point is a maximum, and `minimize_certified` cannot
+publish it as a minimum.
+
+The derived objective preserves argument nesting, exact typed coordinates,
+captured assumptions and the approximate-only status of Float source literals.
+It supports the existing objective evaluation, Hessian products, transport,
+enclosure and optimization interfaces. Its complete held source must fit the
+existing objective bounds of 256 nodes, depth 16 and 64 variables; exact box
+certification remains limited to 16 variables. A supplied `budget=` covers
+composition and independent derivative admission cumulatively and can be reused
+for subsequent evaluation or certification. A proved local minimum of squared
+error does not assert that the original equations have a common root.
+
 ### One budget from compilation through saved-program replay
 
 The three Python compilers accept a keyword-only `budget=`. Residual export

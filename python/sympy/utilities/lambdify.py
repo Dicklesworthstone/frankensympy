@@ -1279,6 +1279,31 @@ class _ResidualCallable:
             max_step_norm, precision, budget=budget,
         )
 
+    def least_squares_objective(self, *, budget=None):
+        """Compile the exact objective ``1/2 * sum(original_residual**2)``.
+
+        Native composition retains every original row, including held domain
+        obligations, and independently checks the objective's gradient and
+        complete Hessian. The Hessian includes residual-curvature terms;
+        it is not restricted to the Gauss-Newton approximation ``J.T * J``.
+
+        The resulting objective supports the existing value, gradient and
+        Hessian products, minimization candidates, ``minimize_certified``
+        and exact box checks. Certification may establish a local minimum of
+        a nonzero-residual fit when its separate original-source obligations
+        succeed. Composition alone does not certify a minimizer or a root.
+
+        Ordered typed coordinates, argument nesting, frozen residual source,
+        captured assumptions and the approximate-source marker are reused
+        without reading mutable caller objects again. The complete composed
+        objective is bounded to 256 source nodes and depth 16, and retains the
+        objective compiler's other limits. One supplied EvaluationBudget or
+        one private bounded ledger funds composition, proof checking and final
+        publication. No numerical approximation or backend fallback is used.
+        """
+        from ._least_squares_objective import least_squares_objective
+        return least_squares_objective(self, budget=budget)
+
     def solve_least_squares(self, initial, *, backend="dense", gtol=None, maxiter=None,
                            max_step_norm=None, budget=None):
         """Find an approximate stationary point of the full least-squares cost.
