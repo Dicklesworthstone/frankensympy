@@ -1,0 +1,75 @@
+{
+  "date": "2026-11-24",
+  "feature": "Checked exact polynomial-weighted finite binomial summation",
+  "source_base": "207e32f338bb91b0f7c77be30e20a6b613675966",
+  "publication_parent": "d5df9b5deba8b47ec9eec872dd07849ba4a60f90",
+  "workstream": "fra-a5x / WS18; broader calculus and compatibility gates remain open",
+  "family": "sum(k=0..n) p(k)*binomial(n,k)*a^k*b^(n-k), with p in QQ[k], a,b in QQ, and literal nonnegative integer n",
+  "implemented": [
+    "Forward-difference falling-factorial coefficient generation and consecutive-moment evaluation.",
+    "Independent original-source grammar/degree proof, independent exponential-factor classification, and exact interpolation identity verification using max(original_degree,candidate_degree)+1 points.",
+    "Independent finite binomial-theorem moments and explicit claimed_sum comparison.",
+    "Exact truncation of falling moments above n before powers; handles a+b=0, a=0, b=0, n=0 and polynomial degree greater than n.",
+    "Original source, typed index and bounds remain certificate obligations; held opaque sources remain unevaluated.",
+    "Full-range single-factor selection preserves existing short partial-range and squared-binomial behavior outside the checked lane.",
+    "Current source and bounds are checked before each native dispatch inside a supervised callback, including candidates created by earlier nested limits.",
+    "Traversal capacities are charged before allocation; generation, checking and publication share one cumulative meter."
+  ],
+  "envelope": {
+    "literal_n_max": 65536,
+    "polynomial_degree_max": 32,
+    "source_nodes_max": 4096,
+    "source_depth_max": 64,
+    "input_scalar_bits_max": 4096,
+    "work_scalar_bits_max": 65536,
+    "scalar_power_growth": "conservative predictive bound, including maximum 32768 predicted bits for nontrivial powers",
+    "compute_steps_total": 20000000,
+    "logical_memory_bytes_total": 134217728
+  },
+  "validation": {
+    "native_tests": {
+      "authored_test_functions": 10,
+      "status": "not run",
+      "scope": "Includes 216 independent small finite-enumeration combinations, long exact moments, source/certificate attacks, degree/exponent impostors, legacy-dispatch controls, budget/cancellation and preallocation."
+    },
+    "public_tests": {
+      "authored_unittest_methods": 11,
+      "native_only_methods": 6,
+      "status": "not run against the candidate extension"
+    },
+    "upstream_oracle": {
+      "version": "SymPy 1.14.0",
+      "selected_methods_passed": 4,
+      "log": "artifacts/audit/2026-11-24-binomial-summation-oracle-focused.log",
+      "scope": "Alternating moments, 24 rational-weight cases, unrelated deep evaluation, and short partial/squared-binomial controls.",
+      "full_run": "Interrupted during the n=3000 method; no complete upstream-suite pass claimed."
+    },
+    "long_expected_fixtures": {
+      "method": "Independent exact integer-binomial finite enumeration over 3001 terms",
+      "passed": 5,
+      "artifact": "artifacts/audit/2026-11-24-binomial-long-fixtures.json",
+      "scope": "Expected-value evidence, not candidate native execution."
+    },
+    "static_review": {
+      "status": "completed",
+      "scope": "Separate source/checker mathematical review and native Rust API/type/ownership review; identified and corrected test oracle Result handling."
+    },
+    "python_syntax": {
+      "status": "passed",
+      "scope": "Final two Python files parse and compile in memory with zero warnings."
+    },
+    "native_execution": {
+      "status": "not started",
+      "reason": "The exact pinned toolchain was restored before host capacity loss, but free /tmp space fell to 1086877696 bytes before any build and the host then reset. No compiler/native test/Clippy result is claimed."
+    },
+    "final_rust_formatting": {
+      "status": "unverified",
+      "reason": "Final checker/dispatch corrections postdate the original formatter run. The exact pinned rustfmt archive was recovered, SHA256 f87315bbf4c701afb2759abcb04a94c0567977d75ec2f0056797897358bbcfb8, but its required librustc_driver-59857489213b2a36.so was unavailable; no alternate compiler was substituted."
+    }
+  },
+  "scope_limits": [
+    "No symbolic-upper-bound binomial certificate inferred from symbol identity or assumptions.",
+    "No new checked guarantee for legacy partial-range or squared-binomial paths.",
+    "No portable proof object, complete calculus coverage or broad profile closure claimed."
+  ]
+}

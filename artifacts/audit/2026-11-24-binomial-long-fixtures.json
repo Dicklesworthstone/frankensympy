@@ -1,0 +1,15 @@
+{
+  "method": "Independent exact finite enumeration with integer binomial coefficient recurrence, not the candidate falling-factorial algorithm or native extension",
+  "n": 3000,
+  "terms_enumerated": 3001,
+  "checks": {
+    "binomial_mass": true,
+    "first_moment": true,
+    "second_moment": true,
+    "rational_probability_mass": true,
+    "rational_probability_mean": true
+  },
+  "passed": true,
+  "seconds": 0.015505,
+  "scope": "Long-range expected-fixture validation only; no candidate execution claim"
+}

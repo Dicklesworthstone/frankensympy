@@ -1487,6 +1487,47 @@ portable proof certificates or a general ODE-domain completeness claim.
 
 ---
 
+## Exact finite binomial moments (development API)
+
+`summation` and `Sum.doit` support the full finite family
+`p(k)*binomial(n, k)*a**k*b**(n-k)` over `k = 0..n`, with a polynomial
+weight over the rationals, exact rational `a, b`, and a literal nonnegative
+integer `n`. The formula avoids the legacy direct-summation limit:
+
+```python
+from sympy import Rational, Symbol, binomial, summation
+
+k = Symbol("k", integer=True)
+n = 3000
+assert summation(binomial(n, k), (k, 0, n)) == 2**n
+assert summation(k**2*binomial(n, k), (k, 0, n)) == n*(n + 1)*2**(n - 2)
+
+mass = binomial(n, k)*Rational(1, 3)**k*Rational(2, 3)**(n - k)
+assert summation(mass, (k, 0, n)) == 1
+assert summation(k*mass, (k, 0, n)) == 1000
+```
+
+Generation converts the weight to falling factorials by forward differences
+and evaluates consecutive binomial moments. The checker independently proves
+the original weight's grammar and degree, classifies the original exponential
+factors, and verifies the polynomial identity at enough exact rational points.
+It then evaluates each finite binomial-theorem moment separately and compares
+the claimed final value. Terms whose falling-factorial degree exceeds `n`
+vanish before any powers are formed, including alternating and zero-base cases.
+
+The new checked formula admits `n <= 65536`, polynomial degree at most 32,
+and bounded exact scalar growth. One cumulative 20M-step / 128MiB logical
+allocation ledger covers source admission, generation, checking and publication.
+Original held children remain domain obligations; opaque applications stay
+held, and active supervised callback requests refuse the new formula.
+
+Only an exact full-range, single-factor binomial candidate enters this lane.
+Existing short partial-range sums and other binomial shapes keep their legacy
+dispatch without acquiring a new receipt claim. Once a candidate enters the
+checked lane, unsupported grammar, resource failure and cancellation cannot
+restart a folded fallback. Symbolic upper-bound formulas and portable proof
+objects are outside this slice.
+
 ## Quadratic rational telescoping (development API)
 
 The existing `summation` and `Sum.doit` entry points now admit rational

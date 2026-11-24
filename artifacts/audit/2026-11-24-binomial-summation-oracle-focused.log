@@ -1,0 +1,11 @@
+Oracle: 1.14.0 /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/site-packages/sympy/__init__.py
+Focused run only; the earlier full suite was interrupted during n=3000, with no complete suite result.
+test_alternating_moments_and_degree_above_upper_bound (binomial_summation_oracle.BinomialSummationTests.test_alternating_moments_and_degree_above_upper_bound) ... ok
+test_rational_weights_match_independent_python_finite_enumeration (binomial_summation_oracle.BinomialSummationTests.test_rational_weights_match_independent_python_finite_enumeration) ... ok
+test_unrelated_sums_keep_deep_evaluation (binomial_summation_oracle.BinomialSummationTests.test_unrelated_sums_keep_deep_evaluation) ... ok
+test_partial_ranges_and_squared_binomials_keep_existing_results (binomial_summation_oracle.BinomialSummationTests.test_partial_ranges_and_squared_binomials_keep_existing_results) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.599s
+
+OK

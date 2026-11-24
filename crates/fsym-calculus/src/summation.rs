@@ -13,6 +13,8 @@
 //!   formal symbolic integer bounds and convergent infinite geometric moments;
 //! * independently checked polynomial-weighted exponential generating series
 //!   `p(k)*z**k/k!`, including exact finite heads and an entire symbolic parameter;
+//! * independently checked binomial moments `p(k)*binomial(n,k)*a**k*b**(n-k)`
+//!   over `0..n`, for literal nonnegative integer `n` and rational `a,b`;
 //! * independently checked rational telescoping, including repeated poles
 //!   and fractional offsets, at exact integer bounds, e.g.
 //!   `sum_{k=1}^{10000} 1/(k*(k+1)) = 10000/10001`;
@@ -37,6 +39,8 @@ const MAX_DIRECT_TERMS: i64 = 2000;
 
 #[derive(Debug, Error)]
 pub enum SummationError {
+    #[error(transparent)]
+    Binomial(#[from] crate::binomial_sum::BinomialSummationError),
     #[error(transparent)]
     Geometric(#[from] crate::geometric_sum::GeometricSummationError),
     #[error(transparent)]
@@ -365,7 +369,9 @@ pub fn summation(f: &Expr, k: &Symbol, a: &Expr, b: &Expr) -> Option<Expr> {
 }
 
 /// Preserve operational failures from the independently checked weighted
-/// geometric and factorial lanes. Unsupported families retain the exact rules;
+/// geometric, binomial and factorial lanes. Selected full-range binomial
+/// candidates retain their original source on unsupported syntax. Partial
+/// ranges, binomial powers and unrelated families retain the exact rules;
 /// exhausted or invalid work is never retried with a fresh budget.
 pub fn checked_summation(
     f: &Expr,
@@ -373,13 +379,23 @@ pub fn checked_summation(
     a: &Expr,
     b: &Expr,
 ) -> Result<Option<Expr>, SummationError> {
+    use crate::binomial_sum::{BinomialSummationError, metered_polynomial_binomial_sum};
     use crate::exponential_sum::{ExponentialSummationError, metered_polynomial_exponential_sum};
     use crate::geometric_sum::{GeometricSummationError, metered_polynomial_geometric_sum};
     let mut limits = BudgetLimits::uniform(128 * 1024 * 1024, 0);
     limits.dimensions[Dimension::ComputeSteps.index()] = 20_000_000;
     let mut generator = Budget::new(limits);
     let mut verifier = Budget::new(limits);
-    // Both checked candidates retain this same accounting across Unsupported
+    // The binomial generator/checker share the same cumulative caller ledger.
+    // A selected but unsupported full-range binomial source must not be folded and
+    // retried: that can erase original singular or excessively large children.
+    match metered_polynomial_binomial_sum(f, k, a, b, &mut generator) {
+        Ok(Some(checked)) => return Ok(Some(checked.into_value())),
+        Ok(None) => {}
+        Err(BinomialSummationError::Unsupported(_)) => return Ok(None),
+        Err(error) => return Err(error.into()),
+    }
+    // The remaining checked candidates retain this same accounting across Unsupported
     // fallback. The legacy table/direct rules below retain their prior scope.
     match metered_polynomial_exponential_sum(f, k, a, b, &mut generator, &mut verifier) {
         Ok(Some(checked)) => return Ok(Some(checked.into_value())),

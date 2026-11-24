@@ -2,6 +2,7 @@
 //!
 //! Symbolic differentiation, integration, limits, and series expansion.
 
+pub mod binomial_sum;
 pub mod box_optimization;
 pub mod compile;
 pub mod delayed_laplace;

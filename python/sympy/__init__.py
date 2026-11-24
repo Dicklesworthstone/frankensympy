@@ -1741,6 +1741,68 @@ def _limit_triples(limits):
     return out
 
 
+def _contains_retained_binomial(source):
+    """Probe retained storage without evaluating opaque children or hooks."""
+    from .core import Basic
+    from .core._opaque_arithmetic import stored_args
+
+    pending = [(source, 0)]
+    seen = set()
+    count = 0
+    while pending:
+        node, depth = pending.pop()
+        count += 1
+        if count > 4096 or depth > 64:
+            raise ValueError("binomial summation source exceeds the shape bound")
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        if type(node) is binomial:
+            return True
+        children = stored_args(node)
+        if children is not None:
+            if len(children) > 4096 - count - len(pending):
+                raise ValueError("binomial summation source exceeds the shape bound")
+            pending.extend((child, depth + 1) for child in children)
+            continue
+        try:
+            native = Basic.__dict__["_value"].__get__(node, Basic)
+        except (AttributeError, TypeError):
+            continue
+        if type(native) is _native.Expr and native.has_function_bounded("binomial"):
+            return True
+    return False
+
+
+def _selects_full_binomial_factor(native_source, index, lower, upper):
+    """Match the full-range native lane before refusing callback reentry."""
+    native_lower, native_upper = _native_expr(lower), _native_expr(upper)
+    if (native_lower != _native.py_integer(0) or not native_upper.is_integer
+            or native_upper.exact_numerator() < 0):
+        return False
+    # Borrowed validation bounds subsequent native child copies. The selector
+    # only flattens products, and never treats a binomial under **2 as a factor.
+    _native.CompiledFunction._validate_source(native_source)
+    pattern = _native.py_function("binomial", native_upper, _native_expr(index))
+    pending = [native_source]
+    visited = factors = 0
+    matches = False
+    while pending:
+        node = pending.pop()
+        visited += 1
+        if visited > 4096:
+            raise ValueError("binomial summation source exceeds the shape bound")
+        if node.is_mul:
+            children = node.args
+            if len(children) > 4096 - visited - len(pending):
+                raise ValueError("binomial summation source exceeds the shape bound")
+            pending.extend(children)
+        elif node.func_name == "binomial":
+            factors += 1
+            matches = matches or node == pattern
+    return factors == 1 and matches
+
+
 def _contains_index_factorial(native_source, index, *, reciprocal=False):
     """Bound and identify exact typed index-factorial syntax without evaluation."""
     # This is only a dispatch probe. Domain and polynomial-work admission
@@ -1830,6 +1892,23 @@ class _ConcreteOperator(Function):
             # domains before the independent product verifier could check them.
             # Later symbolic limits do not weaken the first finite obligation.
             deep = False
+        if type(self) is Sum and limits:
+            from .core import _contains_opaque
+
+            # Finite binomial moments check every original held child before
+            # arithmetic. Rebuilding first could erase a pole, unsupported
+            # weight or excessive degree under multiplication by zero or **0.
+            # The bounded native probe does not evaluate or infer assumptions.
+            if _contains_opaque(current):
+                # A native formula cannot admit Python-owned applications.
+                # Retain the complete source before any opaque child can be
+                # evaluated away under a held zero factor or exponent.
+                if _contains_retained_binomial(current):
+                    return self
+            else:
+                original_source = _native_expr(current)
+                if original_source.has_function_bounded("binomial"):
+                    deep = False
         if deep and type(self) is Sum and any(b == oo for _, _, b in limits):
             from .core import _contains_opaque
 
@@ -1853,6 +1932,17 @@ class _ConcreteOperator(Function):
             if (type(self) is Sum and b == oo
                     and _nonfinite_factorial_parameter(current, k, native_source)):
                 return type(self)(current, *limits[index:])
+            if type(self) is Sum:
+                from .core import _active_callback_session
+
+                # An earlier limit can create a full-range binomial candidate.
+                # Check this iteration's current source immediately before
+                # dispatch, so no nested limit starts a fresh intrinsic ledger.
+                if (_active_callback_session() is not None
+                        and native_source.has_function_bounded("binomial")
+                        and _selects_full_binomial_factor(native_source, k, a, b)):
+                    raise NotImplementedError(
+                        "binomial summation requires a supervised callback lane")
             native = getattr(_native, self._native_fn)(
                 native_source, native_index, native_lower, native_upper,
             )
