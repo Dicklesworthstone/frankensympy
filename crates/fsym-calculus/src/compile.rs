@@ -984,18 +984,17 @@ impl CompiledExpr {
                     charge_compilation_work(meter, name.len() + 1, 0, 0)?;
                     let operation = match args.as_slice() {
                         [_] => CompiledOp::LambertW,
-                        [_, Expr::Integer(branch)] if branch.bits() == 0 => {
-                            CompiledOp::LambertW
-                        }
+                        [_, Expr::Integer(branch)] if branch.bits() == 0 => CompiledOp::LambertW,
                         [_, Expr::Integer(branch)]
                             if branch.bits() == 1 && branch == &BigInt::from(-1) =>
                         {
                             CompiledOp::LambertWMinusOne
                         }
                         _ => {
-                            return Err(CompileError::UnsupportedFunction(
-                                compilation_diagnostic("LambertW real branch 0 or -1", meter)?,
-                            ));
+                            return Err(CompileError::UnsupportedFunction(compilation_diagnostic(
+                                "LambertW real branch 0 or -1",
+                                meter,
+                            )?));
                         }
                     };
                     Self::compile_recursive(&args[0], var_map, ops, depth + 1, meter)?;
@@ -1657,11 +1656,10 @@ impl CompiledExpr {
                         0
                     };
                     let order = match op {
-                        CompiledOp::LambertW | CompiledOp::LambertWMinusOne => {
-                            LambertOrder::Value
+                        CompiledOp::LambertW | CompiledOp::LambertWMinusOne => LambertOrder::Value,
+                        CompiledOp::LambertWDerivative | CompiledOp::LambertWMinusOneDerivative => {
+                            LambertOrder::First
                         }
-                        CompiledOp::LambertWDerivative
-                        | CompiledOp::LambertWMinusOneDerivative => LambertOrder::First,
                         _ => LambertOrder::Second,
                     };
                     stack.push(evaluate_lambert(value, branch, order, meter)?);
