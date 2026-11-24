@@ -13,9 +13,10 @@
 #![forbid(unsafe_code)]
 
 use fsym_bigint::{
-    BigInt, NonZeroBigInt, gcd, metered_add as metered_bigint_add,
+    BigInt, MeteredShiftError, NonZeroBigInt, gcd, metered_add as metered_bigint_add,
     metered_cmp as metered_bigint_cmp, metered_div_rem_nonzero, metered_gcd, metered_multiply,
-    metered_pow as metered_bigint_pow, metered_subtract as metered_bigint_subtract,
+    metered_pow as metered_bigint_pow, metered_shift_left,
+    metered_subtract as metered_bigint_subtract,
 };
 use fsym_budget::{BudgetMeter, Dimension, MeterError, Unbounded};
 use num_traits::{Num, One, Signed, ToPrimitive, Zero};
@@ -306,6 +307,8 @@ impl BigRational {
     /// kernels. Large finite quotients therefore never pass through independently rounded
     /// numerator and denominator floats. Overflow and underflow are classified from coefficient
     /// heights before allocating when possible; signed zero and infinity follow [`Self::to_f64`].
+    /// Binary scaling shifts digits directly; an unrepresentable or unreservable shift buffer
+    /// returns `None`, preserving the conversion's explicit representation-refusal channel.
     /// Every return, including an internal representation refusal, checks cancellation before
     /// publication. An exhausted meter is propagated and never retried without accounting.
     pub fn metered_to_f64<M: BudgetMeter + ?Sized>(
@@ -1343,20 +1346,15 @@ fn metered_binary_scale<M: BudgetMeter>(
     value: &BigInt,
     shift: u32,
     meter: &mut M,
-) -> Result<BigInt, MeterError> {
-    // Shifts here are bounded by the binary64 exponent range (at most 1075). Using the owned
-    // integer kernels keeps both the scaling buffer and its limb work inside the caller meter.
-    meter.checkpoint()?;
-    meter.charge_batch(&[
-        (Dimension::ComputeSteps, 1),
-        (Dimension::MemoryBytes, 8),
-        (Dimension::AllocationCount, 1),
-    ])?;
-    let two = BigInt::from(2u64);
-    meter.checkpoint()?;
-    let factor = metered_bigint_pow(&two, shift, meter)?;
-    let scaled = metered_multiply(value, &factor, meter)?;
-    float_conversion_finish(scaled, meter)
+) -> Result<Option<BigInt>, MeterError> {
+    // The format bounds shifts to at most 1075, but coefficient heights remain arbitrary.
+    // Direct digit scaling avoids constructing 2^shift and multiplying by its zero limbs.
+    let result = match metered_shift_left(value, u64::from(shift), meter) {
+        Ok(scaled) => Some(scaled),
+        Err(MeteredShiftError::Meter(error)) => return Err(error),
+        Err(MeteredShiftError::SizeOverflow | MeteredShiftError::AllocationFailure) => None,
+    };
+    float_conversion_finish(result, meter)
 }
 
 fn metered_rounded_binary_quotient<M: BudgetMeter>(
@@ -1369,10 +1367,18 @@ fn metered_rounded_binary_quotient<M: BudgetMeter>(
     meter.charge(Dimension::ComputeSteps, 1)?;
     let scaled_storage;
     let (scaled_numerator, scaled_denominator) = if binary_shift > 0 {
-        scaled_storage = metered_binary_scale(numerator, binary_shift.unsigned_abs(), meter)?;
+        let Some(scaled) = metered_binary_scale(numerator, binary_shift.unsigned_abs(), meter)?
+        else {
+            return float_conversion_finish(None, meter);
+        };
+        scaled_storage = scaled;
         (&scaled_storage, denominator)
     } else if binary_shift < 0 {
-        scaled_storage = metered_binary_scale(denominator, binary_shift.unsigned_abs(), meter)?;
+        let Some(scaled) = metered_binary_scale(denominator, binary_shift.unsigned_abs(), meter)?
+        else {
+            return float_conversion_finish(None, meter);
+        };
+        scaled_storage = scaled;
         (numerator, &scaled_storage)
     } else {
         (numerator, denominator)
@@ -1455,13 +1461,17 @@ fn metered_rational_to_f64<M: BudgetMeter>(
         let Ok(shift) = u32::try_from(exponent) else {
             return float_conversion_finish(None, meter);
         };
-        let scaled = metered_binary_scale(denominator, shift, meter)?;
+        let Some(scaled) = metered_binary_scale(denominator, shift, meter)? else {
+            return float_conversion_finish(None, meter);
+        };
         metered_bigint_cmp(numerator, &scaled, meter)? == Ordering::Less
     } else if exponent < 0 {
         let Ok(shift) = u32::try_from(-exponent) else {
             return float_conversion_finish(None, meter);
         };
-        let scaled = metered_binary_scale(numerator, shift, meter)?;
+        let Some(scaled) = metered_binary_scale(numerator, shift, meter)? else {
+            return float_conversion_finish(None, meter);
+        };
         metered_bigint_cmp(&scaled, denominator, meter)? == Ordering::Less
     } else {
         metered_bigint_cmp(numerator, denominator, meter)? == Ordering::Less
@@ -1543,7 +1553,11 @@ fn metered_rational_to_f64_bounds<M: BudgetMeter>(
             (0.0, f64::from_bits(1))
         }
     } else {
-        match metered_compare_rational_to_finite_float(value, nearest, meter)? {
+        let Some(ordering) = metered_compare_rational_to_finite_float(value, nearest, meter)?
+        else {
+            return float_conversion_finish(None, meter);
+        };
+        match ordering {
             Ordering::Less => (nearest.next_down(), nearest),
             Ordering::Equal => (nearest, nearest),
             Ordering::Greater => (nearest, nearest.next_up()),
@@ -1559,7 +1573,7 @@ fn metered_compare_rational_to_finite_float<M: BudgetMeter>(
     value: &BigRational,
     float: f64,
     meter: &mut M,
-) -> Result<Ordering, MeterError> {
+) -> Result<Option<Ordering>, MeterError> {
     meter.checkpoint()?;
     meter.charge_batch(&[
         (Dimension::ComputeSteps, 3),
@@ -1583,13 +1597,18 @@ fn metered_compare_rational_to_finite_float<M: BudgetMeter>(
     let significand = BigInt::from(signed_significand);
     let product = metered_multiply(value.denom(), &significand, meter)?;
     let ordering = if exponent >= 0 {
-        let scaled = metered_binary_scale(&product, exponent as u32, meter)?;
+        let Some(scaled) = metered_binary_scale(&product, exponent as u32, meter)? else {
+            return float_conversion_finish(None, meter);
+        };
         metered_bigint_cmp(value.numer(), &scaled, meter)?
     } else {
-        let scaled = metered_binary_scale(value.numer(), exponent.unsigned_abs(), meter)?;
+        let Some(scaled) = metered_binary_scale(value.numer(), exponent.unsigned_abs(), meter)?
+        else {
+            return float_conversion_finish(None, meter);
+        };
         metered_bigint_cmp(&scaled, &product, meter)?
     };
-    float_conversion_finish(ordering, meter)
+    float_conversion_finish(Some(ordering), meter)
 }
 
 fn rounded_binary_quotient(

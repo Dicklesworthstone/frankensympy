@@ -35,6 +35,8 @@
 //! [`MeteredProductCandidate::into_bigint`], which charges the provisional substrate's final
 //! native-limb repack. This last allocation is infallible and cannot be interrupted internally;
 //! candidate-only APIs retain the stronger fallible-buffer contract.
+//! [`metered_shift_left`] scales by a power of two in linear digit work without constructing
+//! that power or invoking multiplication, retaining the same charged final repack boundary.
 
 #![forbid(unsafe_code)]
 
@@ -312,6 +314,37 @@ impl fmt::Display for MeteredMultiplyError {
 impl std::error::Error for MeteredMultiplyError {}
 
 impl From<MeterError> for MeteredMultiplyError {
+    fn from(error: MeterError) -> Self {
+        Self::Meter(error)
+    }
+}
+
+/// Failure from cancellation-first binary scaling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeteredShiftError {
+    /// Cancellation or budget refusal from the caller-provided meter.
+    Meter(MeterError),
+    /// The output bit height or backing-buffer capacity cannot be represented.
+    SizeOverflow,
+    /// A preflighted kernel-owned digit-buffer reservation failed.
+    AllocationFailure,
+}
+
+impl fmt::Display for MeteredShiftError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Meter(error) => write!(f, "{error}"),
+            Self::SizeOverflow => f.write_str("metered shift size overflow"),
+            Self::AllocationFailure => {
+                f.write_str("metered shift backing-buffer allocation refused")
+            }
+        }
+    }
+}
+
+impl std::error::Error for MeteredShiftError {}
+
+impl From<MeterError> for MeteredShiftError {
     fn from(error: MeterError) -> Self {
         Self::Meter(error)
     }
@@ -1826,6 +1859,88 @@ fn charge_substrate_lift<M: BudgetMeter>(digits: &[u32], meter: &mut M) -> Resul
     }
 
     Ok(())
+}
+
+/// Multiplies an integer by `2^shift` with linear, cancellable base-$2^{32}$ digit work.
+///
+/// The signed magnitude is shifted directly, without materializing a power-of-two factor or
+/// copying either input into an intermediate buffer. Zero stays zero for every shift, and a
+/// zero shift still meters the output copy. The output bit height and byte capacity are checked
+/// before charging one exact-capacity digit buffer; its reservation is fallible. Each inserted
+/// zero and each shifted digit is charged and checkpointed before it is written. Memory records
+/// cumulative requested capacity, not allocator overhead or peak live storage.
+///
+/// Materialization uses the same separately charged native-limb repack as
+/// [`MeteredProductCandidate::into_bigint`]. That provisional substrate allocation is infallible
+/// and has no internal safe points. Cancellation is checked before and after it, and an error
+/// never publishes a partial integer or retries on a fresh meter. Size and reservation refusals
+/// also check cancellation before returning.
+pub fn metered_shift_left<M: BudgetMeter>(
+    value: &BigInt,
+    shift: u64,
+    meter: &mut M,
+) -> Result<BigInt, MeteredShiftError> {
+    meter.checkpoint()?;
+    if value.is_zero() {
+        return Ok(metered_finish(BigInt::zero(), meter)?);
+    }
+
+    meter.charge(Dimension::ComputeSteps, 1)?;
+    let layout: Result<(usize, u64, usize), MeteredShiftError> = (|| {
+        let output_bits = value
+            .bits()
+            .checked_add(shift)
+            .ok_or(MeteredShiftError::SizeOverflow)?;
+        let output_len = usize::try_from(output_bits.div_ceil(u64::from(u32::BITS)))
+            .map_err(|_| MeteredShiftError::SizeOverflow)?;
+        let output_bytes = output_len
+            .checked_mul(std::mem::size_of::<u32>())
+            .filter(|bytes| *bytes <= isize::MAX as usize)
+            .ok_or(MeteredShiftError::SizeOverflow)?;
+        let output_bytes =
+            u64::try_from(output_bytes).map_err(|_| MeteredShiftError::SizeOverflow)?;
+        let zero_digits = usize::try_from(shift / u64::from(u32::BITS))
+            .map_err(|_| MeteredShiftError::SizeOverflow)?;
+        Ok((output_len, output_bytes, zero_digits))
+    })();
+    meter.checkpoint()?;
+    let (output_len, output_bytes, zero_digits) = layout?;
+    meter.charge_batch(&[
+        (Dimension::MemoryBytes, output_bytes),
+        (Dimension::AllocationCount, 1),
+    ])?;
+    meter.checkpoint()?;
+    let mut digits = Vec::new();
+    if digits.try_reserve_exact(output_len).is_err() {
+        meter.checkpoint()?;
+        return Err(MeteredShiftError::AllocationFailure);
+    }
+
+    for _ in 0..zero_digits {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        digits.push(0);
+    }
+    let digit_shift = (shift % u64::from(u32::BITS)) as u32;
+    let mut carry = 0u64;
+    for digit in value.0.iter_u32_digits() {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        let wide = (u64::from(digit) << digit_shift) | carry;
+        digits.push(wide as u32);
+        carry = wide >> u32::BITS;
+    }
+    if carry != 0 {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        digits.push(carry as u32);
+    }
+    debug_assert_eq!(digits.len(), output_len);
+    let candidate = MeteredProductCandidate {
+        negative: value.is_negative(),
+        digits,
+    };
+    Ok(candidate.into_bigint(meter)?)
 }
 
 /// Metered multiplication with safe points inside the limb-product loop.

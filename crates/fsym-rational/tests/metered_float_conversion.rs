@@ -374,3 +374,68 @@ fn a_large_finite_quotient_refuses_inside_its_borrowed_coefficient_comparison() 
     assert_eq!(exhausted.budget.remaining(Dimension::ComputeSteps), 0);
     assert_eq!(exhausted.budget.verifier_remaining(), 37);
 }
+
+#[test]
+fn direct_scaling_preserves_tight_rounding_for_large_sources_at_ieee_extremes() {
+    for height in [1024u32, 4096] {
+        let base = power_of_two(height);
+        for (numerator, denominator, target_bits) in [
+            (&base + 1i64, (&base + 3i64) << 1074u32, 1u64),
+            (
+                (&base + 1i64) << 1023u32,
+                &base + 3i64,
+                0x7fe0_0000_0000_0000,
+            ),
+        ] {
+            let value = BigRational::new(numerator.clone(), denominator.clone());
+            let target = exact_positive_float(target_bits);
+            let predecessor = exact_positive_float(target_bits - 1);
+            let midpoint = (&target + &predecessor) / BigRational::from_integer(2i64.into());
+            assert!(value > midpoint && value < target);
+            assert_both_signs(numerator, denominator, target_bits);
+            for negative in [false, true] {
+                let source = if negative { -&value } else { value.clone() };
+                let (lower, upper) = source
+                    .metered_to_f64_bounds(&mut Unbounded)
+                    .unwrap()
+                    .unwrap();
+                let expected = if negative {
+                    (target_bits | SIGN_BIT, (target_bits - 1) | SIGN_BIT)
+                } else {
+                    (target_bits - 1, target_bits)
+                };
+                assert_eq!((lower.to_bits(), upper.to_bits()), expected);
+            }
+        }
+    }
+}
+
+#[test]
+fn binary_scaling_cancellation_survives_nearest_and_directed_conversion() {
+    let value = BigRational::new(1i64.into(), power_of_two(32));
+    for directed in [false, true] {
+        let convert = |meter: &mut ObservedMeter| {
+            if directed {
+                value
+                    .metered_to_f64_bounds(meter)
+                    .map(|bounds| bounds.map(|(lower, upper)| (lower.to_bits(), upper.to_bits())))
+            } else {
+                value
+                    .metered_to_f64(meter)
+                    .map(|nearest| nearest.map(|nearest| (nearest.to_bits(), nearest.to_bits())))
+            }
+        };
+        let mut baseline = ObservedMeter::unlimited(None);
+        assert_eq!(
+            convert(&mut baseline),
+            Ok(Some((0x3df0_0000_0000_0000, 0x3df0_0000_0000_0000)))
+        );
+        assert!(baseline.checkpoints > 20);
+        for checkpoint in 1..=baseline.checkpoints {
+            let mut cancelled = ObservedMeter::unlimited(Some(checkpoint));
+            assert_eq!(convert(&mut cancelled), Err(MeterError::Cancelled));
+            assert_eq!(cancelled.checkpoints, checkpoint);
+            assert_eq!(cancelled.budget.verifier_remaining(), 37);
+        }
+    }
+}
