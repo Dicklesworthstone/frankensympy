@@ -1922,7 +1922,8 @@ fn consumer_error_code(error: &fsym_numeric_consumer::SystemConsumerError) -> &'
         | SystemConsumerError::NonlinearSolve(_)
         | SystemConsumerError::ConsumerContract(_) => "numeric_consumer_refused",
         SystemConsumerError::NoConvergence { .. }
-        | SystemConsumerError::SparseLeastSquaresNoConvergence { .. } => "numeric_no_convergence",
+        | SystemConsumerError::SparseLeastSquaresNoConvergence { .. }
+        | SystemConsumerError::BoundedLeastSquaresNoConvergence { .. } => "numeric_no_convergence",
         SystemConsumerError::Evaluation(error) => {
             compiled::eval_error_code(error, "numeric_evaluation_refused")
         }

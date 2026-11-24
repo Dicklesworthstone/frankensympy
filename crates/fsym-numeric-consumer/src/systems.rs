@@ -17,6 +17,8 @@
 //! use their existing metered evaluators. Counts describe logical work and
 //! cumulative requested buffer storage, not RSS or allocator overhead.
 
+mod bounded_least_squares;
+pub use bounded_least_squares::*;
 mod least_squares;
 pub use least_squares::*;
 mod parametric;
@@ -111,6 +113,13 @@ pub enum SystemConsumerError {
     SparseLeastSquaresNoConvergence {
         iterations: usize,
         gradient_norm: f64,
+    },
+    #[error(
+        "bounded sparse least squares did not reach stationarity after {iterations} iterations; projected gradient infinity-norm {projected_gradient_norm}"
+    )]
+    BoundedLeastSquaresNoConvergence {
+        iterations: usize,
+        projected_gradient_norm: f64,
     },
     #[error("compiled evaluation refused: {0}")]
     Evaluation(#[from] EvalError),
