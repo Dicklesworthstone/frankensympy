@@ -1750,7 +1750,26 @@ class Matrix(MatrixBase):
         return self.LDLdecomposition(hermitian=hermitian)
 
     def LDLsolve(self, b):
-        return self.solve(b)
+        """Solve a full-column-rank exact system, minimizing tall residuals.
+
+        Square systems return the unique exact solution. Tall systems use
+        the checked Hermitian normal equations, including complex RHS data.
+        Results retain this coefficient class; deficient rank is refused.
+        """
+        from ._factor_solve import solve
+
+        return solve(self, b)
+
+    def cholesky_solve(self, rhs):
+        """Return the unique exact Hermitian least-squares solution.
+
+        The coefficient matrix may be square or tall and need not itself
+        be Hermitian or positive definite. Closed Q(i) data and active
+        requests use the source-bound checker through 32 axes.
+        """
+        from ._factor_solve import solve
+
+        return solve(self, rhs)
 
     def solve(self, b):
         """Solve ``self * X = b`` when its exact solution is unique.

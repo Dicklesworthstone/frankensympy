@@ -1845,6 +1845,33 @@ factorization route; the sparse checked route requires `hermitian=True`.
 These features remain `implemented_uncertified`; compatibility-profile gates
 remain open.
 
+### LDL and Cholesky system solves
+
+`LDLsolve(B)` and `cholesky_solve(B)` solve full-column-rank square or tall
+systems over exact rational real and imaginary components. For a tall system
+they return the unique Hermitian least-squares solution, even when the original
+equations are inconsistent. Dense and sparse, mutable and immutable coefficient
+matrices all preserve their own class in the result, independently of the RHS
+class; multiple RHS columns are supported.
+
+```python
+from sympy import I, Matrix, Rational, SparseMatrix
+
+A = SparseMatrix([[1], [2*I]])
+B = Matrix([1, 0])
+assert A.LDLsolve(B) == SparseMatrix([[Rational(1, 5)]])
+assert A.cholesky_solve(B) == SparseMatrix([[Rational(1, 5)]])
+```
+
+These solve methods use the existing independent original-source rank and
+normal-residual checks. Square coefficients can be indefinite or
+non-Hermitian; the positive-definite factorization restriction above applies
+to the factor-returning APIs. Underdetermined and rank-deficient systems
+refuse, including a deficient system with zero RHS columns. Closed complex
+sources and active callback requests use the bounded 32-axis Q(i) lane with
+cumulative work, source-owner and cancellation checks. Standalone literal
+rational sparse systems retain their sparse checker and larger envelope.
+
 ## Exact complex determinants through checked LU (development API)
 
 Dense and sparse `det()` now use checked LU for closed Gaussian-rational

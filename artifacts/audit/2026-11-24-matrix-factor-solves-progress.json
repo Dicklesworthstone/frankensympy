@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-24",
+  "base_commit": "bcf2635cecd801b03088a7410303791ea3c755f7",
+  "bead": "fra-kfo",
+  "status": "implemented_execution_pending",
+  "scope": [
+    "Correct dense LDLsolve for inconsistent tall exact systems",
+    "Add dense cholesky_solve and sparse LDLsolve/cholesky_solve",
+    "Preserve coefficient class, multiple right-hand sides, original-source admission and checked unique Hermitian least-squares semantics"
+  ],
+  "limits": "Complex and active callback requests use the existing checked Q(i) lane with at most 32 axes and 4096-bit rational components. Standalone literal-rational sparse inputs retain their sparse checked kernel. Underdetermined and rank-deficient systems refuse, including an empty RHS. No new symbolic fallback or portable matrix proof claim is introduced.",
+  "validation": {
+    "authored_public_cases": 214,
+    "ordinary_cases": 144,
+    "native_contract_cases": 70,
+    "isolated_sympy_1_14_0": "All 144 ordinary fixtures were exercised directly against installed isolated upstream SymPy 1.14.0 and matched. This was a direct Python oracle exercise because that isolated interpreter lacked pytest, not candidate execution.",
+    "comparators": "Exact solution values, original Hermitian normal residuals, coefficient class identity, result shape, zero-unknown dimensions and underdetermined refusal. Native-only cases retain stricter full-rank, held-domain, source-mutation, bounded-storage and cumulative-request obligations.",
+    "python_ast": "Passed for all four implementation/test files.",
+    "whitespace": "Owned-file git diff --check passed.",
+    "independent_review": "Two independent agents reviewed source capture, native lane selection, original owner rechecks, full-rank obligation even for zero RHS columns, subclass publication and cumulative callback cancellation. No concrete blocker found.",
+    "candidate_execution": "Not executed; the production extension remains unavailable after prior dependency-build SIGKILL and executor loss. No compiler or candidate-runtime pass is claimed.",
+    "ci": "The 214 focused public cases are selected in the existing actual-extension CI suite."
+  },
+  "adjacent_validation_correction": "The existing sparse exact-solve audit records eight upstream false-inconsistency cases and their correct native-only classification. Their mathematical acceptance assertions remain unchanged; combined isolated QR/exact-solve execution reports 62 passed and 40 skipped.",
+  "claims": "No WS10, campaign, compatibility, performance or proof-class gate is closed or promoted."
+}

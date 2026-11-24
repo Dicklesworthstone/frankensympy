@@ -31,7 +31,11 @@ def system(cls, rhs_cls, tall):
 
 @pytest.mark.parametrize("cls", CLASSES)
 @pytest.mark.parametrize("rhs_cls", RHS_CLASSES)
-@pytest.mark.parametrize("tall", [False, True])
+# The pinned oracle's default zero predicate falsely calls this consistent
+# tall Gaussian system inconsistent. Exact expansion proves A*X == B, and
+# its explicit expanded-zero predicate finds X; native acceptance remains
+# covered without asserting default-oracle parity for these eight cases.
+@pytest.mark.parametrize("tall", [False, pytest.param(True, marks=native_only)])
 def test_sparse_complex_lusolve_checks_original_residual_and_keeps_rhs_class(cls, rhs_cls, tall):
     coefficients, rhs = system(cls, rhs_cls, tall)
     result = coefficients.LUsolve(rhs)

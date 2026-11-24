@@ -12,11 +12,33 @@
   "bounds": "At most 32 axes and 4096-bit rational components on the existing Gaussian checked path; original sparse admission precedes bounded dense conversion. Literal-rational sparse algorithms retain their prior bounds.",
   "validation": {
     "authored_public_cases": 58,
-    "ordinary_reference_compatible_cases": 38,
-    "native_contract_cases": 20,
+    "ordinary_reference_compatible_cases": 30,
+    "native_contract_cases": 28,
     "independent_source_review": "Root and implementing agent reviewed source capture, lane selection, shape/class publication and native left-inverse/residual identities; an unrelated oracle-incompatible least-squares assertion was removed.",
-    "execution": "No test or syntax result observed for this slice. The execution host disconnected before results; source files were reconstructed from exact recorded patches and immutable baselines, staged through GitHub and independently fetched.",
-    "actual_extension": "Pending; no candidate execution or compiler pass is claimed."
+    "execution": "Initial prior-session candidate execution remained blocked. This continuation executed the isolated upstream oracle and source syntax checks described here; no candidate extension execution is claimed.",
+    "actual_extension": "Pending; no candidate execution or compiler pass is claimed.",
+    "initial_isolated_sympy_1_14_0": {
+      "passed": 62,
+      "failed": 8,
+      "skipped": 32,
+      "scope": "Combined QR and exact-solve modules against the isolated upstream oracle; not candidate execution."
+    },
+    "oracle_classification_correction": "Eight tall Gaussian LUsolve fixtures are mathematical-correction cases rather than default-oracle parity: upstream 1.14.0 falsely raises inconsistency. Their original native acceptance assertions remain unchanged; only their oracle classification is now native-only.",
+    "oracle_diagnostic": {
+      "coefficient_matrix": "[[I,1],[1,I],[1+I,1+I]]",
+      "expected_solution": "[[2-I,3+I],[-1+2*I,4-I]]",
+      "rhs": "[[4*I,3+2*I],[-2*I,4+5*I],[2*I,7+7*I]]",
+      "expanded_original_residual": "exact zero matrix",
+      "default_upstream_result": "ValueError: The system is inconsistent.",
+      "explicit_upstream_zero_predicate": "iszerofunc=lambda value: value.expand()==0 returns the expected exact solution after expansion"
+    },
+    "python_ast": "Passed on all 11 current-main Python source/test files changed by the preceding QR, exact-solve and resumable-global-optimization commits; checked at bcf2635cecd801b03088a7410303791ea3c755f7.",
+    "classified_isolated_sympy_1_14_0": {
+      "passed": 62,
+      "skipped": 40,
+      "scope": "Combined QR and exact-solve modules after explicitly classifying eight upstream false-refusal cases as native-only. All native mathematical acceptance assertions remain unchanged. No candidate execution."
+    },
+    "current_syntax_and_whitespace": "AST parsing and git diff --check passed after the classification change."
   },
   "claims": "No workstream, profile, campaign, performance or certification gate is closed or promoted."
 }
