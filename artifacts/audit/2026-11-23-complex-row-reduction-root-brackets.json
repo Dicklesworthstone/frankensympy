@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "recorded_at": "2026-11-24T00:22:40Z",
+  "recorded_at": "2026-11-24T00:35:27Z",
   "session_date": "2026-11-23",
   "repository": "Dicklesworthstone/frankensympy",
   "baseline_commit": "05ff1cbc6cc30d49f48f0bff30eef44613882458",
@@ -24,6 +24,10 @@
     {
       "sha": "ad98212ed640af019b8d6d3a13ec85832072cecb",
       "subject": "fix(matrices): preserve wide singular values and exact condition ordering"
+    },
+    {
+      "sha": "f1d819aa5bc507410163b48d7d3f3d1a2546bee0",
+      "subject": "fix(validation): persist pinned formatting and verify matrix oracle cases"
     }
   ],
   "scope": [
@@ -82,7 +86,7 @@
       "toolchain": "nightly-2026-08-20",
       "version": "rustfmt 1.10.0-nightly (f7d782a3be 2026-08-19)",
       "local_result": "Formatter and immediate --check passed on 19 restored Rust files",
-      "remote_result": "All six formatted outputs were captured and preserved as immutable GitHub blobs, included in this validation follow-up.",
+      "remote_result": "All formatted outputs were committed in f1d819aa5bc507410163b48d7d3f3d1a2546bee0.",
       "pending_formatted_paths": [],
       "formatted_blobs": [
         {
@@ -111,9 +115,59 @@
         }
       ]
     },
-    "native_compilation": "not completed",
-    "native_tests": "not executed",
-    "actual_python_extension_tests": "not executed",
+    "native_compilation": "The selected core, calculus and matrix packages compiled and their test targets ran successfully with the exact pinned nightly and -D warnings.",
+    "native_tests": {
+      "passed": 149,
+      "failed": 0,
+      "new_feature_tests": 48,
+      "adjacent_regressions": 101,
+      "toolchain": "nightly-2026-08-20 / rustc 1.100.0-nightly (f7d782a3b)",
+      "configuration": "One build job; RUSTFLAGS=-D warnings; development/test debug information and incremental compilation disabled. The adjacent matrix command also used RUST_TEST_THREADS=1.",
+      "targets": [
+        {
+          "package": "fsym-core",
+          "target": "scalar_bracket_certificate",
+          "passed": 16,
+          "command": "cargo test --locked -p fsym-core --test scalar_bracket_certificate -j1"
+        },
+        {
+          "package": "fsym-calculus",
+          "target": "scalar_bracket",
+          "passed": 12,
+          "command": "cargo test --locked --offline -p fsym-calculus --test scalar_bracket -j1"
+        },
+        {
+          "package": "fsym-matrices",
+          "target": "gaussian_rref",
+          "passed": 20,
+          "command": "cargo test --locked --offline -p fsym-matrices --test gaussian_rref -j1"
+        },
+        {
+          "package": "fsym-matrices",
+          "target": "lib",
+          "passed": 64
+        },
+        {
+          "package": "fsym-matrices",
+          "target": "gaussian_exact_solve",
+          "passed": 13
+        },
+        {
+          "package": "fsym-matrices",
+          "target": "gaussian_qr",
+          "passed": 16
+        },
+        {
+          "package": "fsym-matrices",
+          "target": "rectangular_solve",
+          "passed": 8
+        }
+      ],
+      "adjacent_command": "cargo test --locked --offline -p fsym-matrices --lib --test rectangular_solve --test gaussian_exact_solve --test gaussian_qr -j1",
+      "adjacent_transcript": "artifacts/audit/2026-11-23-native-matrix-regressions.log",
+      "independent_matrix_anchors": 256
+    },
+    "actual_python_extension_tests": "Not executed: the complete extension could not be built past the asupersync compiler termination.",
     "isolated_sympy_oracle": {
       "version": "1.14.0",
       "suites": [
@@ -129,12 +183,64 @@
       "candidate_runtime_claim": false
     },
     "hosted_ci": {
-      "commit": "70795876e8d9176cfd055e314c03438918f9c9d8",
-      "run_id": 45294430782,
-      "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/45294430782",
+      "commit": "f1d819aa5bc507410163b48d7d3f3d1a2546bee0",
+      "run_id": 45296752039,
+      "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/45296752039",
       "last_observed_status": "queued"
     },
-    "blocker": "Execution environment disconnected repeatedly. All changed Python syntax checks, isolated upstream fixture tests and pinned formatting completed during recovery. Targeted native compilation/tests are now being attempted; no native or actual-extension test result is yet asserted."
+    "blocker": "149 native tests, 76 isolated upstream fixture cases, all 10 changed Python syntax checks and pinned formatting on all 19 changed Rust files passed. Complete PyO3/extension and workspace validation remain pending after the pinned asupersync compiler process was killed with SIGKILL. No full-workspace, Clippy, candidate-extension or compatibility-profile success is asserted.",
+    "pyo3_check": {
+      "command": "cargo check --locked -p fsym-python --lib -j1",
+      "status": "blocked",
+      "cargo_exit_code": 101,
+      "compiler_termination": "signal 9 / SIGKILL",
+      "dependency": "pinned asupersync",
+      "stage": "metadata generation",
+      "new_bridge_typecheck_completed": false,
+      "new_bridge_rust_diagnostic": false,
+      "cause": "The precise cause of termination was not established; the cgroup limit filesystem was not exposed.",
+      "repeated_heavy_attempt": false,
+      "component_shim_used": false
+    },
+    "full_workspace_check": "Not completed.",
+    "clippy": "Not run on the final source set. The two observed baseline CI blockers were corrected without relaxing lint/test gates.",
+    "source_identity": {
+      "commit": "f1d819aa5bc507410163b48d7d3f3d1a2546bee0",
+      "matched_files": 29,
+      "mismatches": 0,
+      "method": "Compared local file Git blob hashes with the exact remote commit tree before the completed native regression runs.",
+      "blobs": {
+        "crates/fsym-matrices/src/lib.rs": "b4b2a2a4089e39cdd1584470037c041fe5f90388",
+        "crates/fsym-matrices/src/pseudoinverse.rs": "e29d2000e5545ff39910cc02efd7c8c3e77af66d",
+        "crates/fsym-matrices/src/pseudoinverse/gaussian.rs": "8ce8e306a806cc02c69fbc2f41708048f8339df9",
+        "crates/fsym-matrices/src/pseudoinverse/gaussian/exact_solve.rs": "a511e3a3287707f3a4e2669d9a121b5de15b9078",
+        "crates/fsym-matrices/src/pseudoinverse/gaussian/rref.rs": "bd735367b34406ede455b06dced2132966492d7c",
+        "crates/fsym-matrices/tests/gaussian_rref.rs": "ebadd6baeb5c44ea07ed67f17172d9f7ae4727fd",
+        "crates/fsym-matrices/tests/rectangular_solve.rs": "c3b5e0d5096dfaa0e3bbf705341a08e099726f6a",
+        "crates/fsym-core/src/root_certificate.rs": "052287c515614e0fed67d29184ef78acaa650137",
+        "crates/fsym-core/src/root_certificate/lipschitz.rs": "d516300e89bfd6dc5fb0c372ce1802f7157fbaaa",
+        "crates/fsym-core/src/root_certificate/scalar_bracket.rs": "80255523138552684b2c904ca563e135a9531ea1",
+        "crates/fsym-core/tests/scalar_bracket_certificate.rs": "a6f6e482b305d239a7cc6298366dc92d3b1a6741",
+        "crates/fsym-calculus/src/lib.rs": "afaa42f838001f57ded0c2efc821fdc9e31ced1e",
+        "crates/fsym-calculus/src/scalar_bracket.rs": "8d893c05939f6795b6647f9087822462fad5849c",
+        "crates/fsym-calculus/tests/scalar_bracket.rs": "31a0d14a079348dc4e186b209677c356f1b6b262",
+        "crates/fsym-python/src/lib.rs": "01154ca4c2a274092847d2e2dc12bdba485c872a",
+        "crates/fsym-python/src/matrix.rs": "e383036fd5bf2823f638d95ae0218147f735221c",
+        "crates/fsym-python/src/numeric_budget.rs": "305548cece9043096ae14cf9d4867ecdd80943b8",
+        "crates/fsym-python/src/scalar_bracket.rs": "9d976817ef4ee2356c2d9a38e8c4ee26e2faddbb",
+        "crates/fsym-numeric-consumer/tests/parametric_root_proposal.rs": "806ba5215a44f10df3ea3a2cf7f83ae4442d4ebb",
+        "python/sympy/matrices/_pseudoinverse.py": "a9366ebf58f2bb239fbdc294db6d62a5ce8ce344",
+        "python/sympy/matrices/_row_reduction.py": "2de230039b7eb8028ac84ce499d674a4712df790",
+        "python/sympy/matrices/dense.py": "b88531f66bf9767240e465f2ee152275b4e34884",
+        "python/sympy/matrices/sparse.py": "d7bacc28730797f22ba67199535cea0fb013e0f7",
+        "python/sympy/solvers/certified.py": "c0558cc60e6825cb6be3a6db8f1e649cbf3aafb1",
+        "python/sympy/solvers/__init__.py": "60c969933283a3ac10504f2e59aa26cc88eedf55",
+        "python/sympy/__init__.py": "6206fd687ba9790f3f91a7da4ae281dc513d49fd",
+        "python/tests/test_matrix_complex_row_reduction.py": "aa40b3ac6efe734203fa12029f105473413e1b25",
+        "python/tests/test_certified_scalar_root_bracket.py": "aa2bb7bf5bec540de8ebdd3b0278f9e218ed81b9",
+        "python/tests/test_matrix_singular_value_order.py": "b948c34c8ed95fef8019c3a4f6802ad8aa23f411"
+      }
+    }
   },
   "baseline_ci_repairs": [
     {

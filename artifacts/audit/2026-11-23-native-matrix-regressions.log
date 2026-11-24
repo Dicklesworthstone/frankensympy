@@ -1,0 +1,127 @@
+   Compiling fsym-matrices v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy/crates/fsym-matrices)
+    Finished `test` profile [unoptimized] target(s) in 8.12s
+     Running unittests src/lib.rs (/tmp/frankensympy-native-20261124/target/debug/build/fsym-matrices/fa46ff532f87353a/out/fsym_matrices-fa46ff532f87353a)
+
+running 64 tests
+test pseudoinverse::gaussian::least_squares::tests::original_hermitian_residual_rejects_the_transpose_only_answer ... ok
+test pseudoinverse::gaussian::qr::tests::independent_scale_checker_accepts_exact_nonsquare_and_fractional_anchors ... ok
+test pseudoinverse::gaussian::qr::tests::independent_scale_checker_rejects_wrong_branches_and_unknown_scalar_shapes ... ok
+test pseudoinverse::gaussian::qr::tests::normalization_products_bound_coefficients_radicals_and_grammar_before_arithmetic ... ok
+test pseudoinverse::gaussian::tests::hermitian_reference_checks_diagonal_reality_and_conjugate_pairs ... ok
+test pseudoinverse::gaussian::tests::malformed_private_storage_is_rejected_before_rectangular_indexing ... ok
+test sparse_rref::tests::rectangular_residual_reference_binds_every_original_rhs_row ... ok
+test sparse_rref::tests::rectangular_residual_reference_rejects_wrong_and_nearly_right_solutions ... ok
+test tests::bareiss_matches_independent_rational_elimination ... ok
+test tests::char_poly_of_diagonal_factors_exactly ... ok
+test tests::charpoly_certificate_verifies_reference_evaluations ... ok
+test tests::charpoly_verifier_rejects_mutants ... ok
+test tests::determinant_budget_and_cancellation_never_publish_a_partial_value ... ok
+test tests::determinant_preflights_resource_bounds_and_preserves_symbolic_lane ... ok
+test tests::eigenvalues_beyond_quadratic_degree_keep_multiplicity ... ok
+test tests::eigenvalues_of_diagonal_matrix_are_exact ... ok
+test tests::eigenvalues_of_rotation_are_symbolic_roots ... ok
+test tests::empty_and_scalar_matrix_algebra_is_exact ... ok
+test tests::exact_determinants_cross_old_laplace_cap_with_pivots_and_singularities ... ok
+test tests::exact_fold_handles_typed_nonnegative_rational_powers ... ok
+test tests::lu_verifier_rejects_orthogonal_non_permutation_matrix ... ok
+test tests::matrix_construction_and_wire_decode_reject_invalid_shapes ... ok
+test tests::matrix_polynomial_evaluation_preflights_shape_and_aggregate_work ... ok
+test tests::non_square_inverse_and_charpoly_refused ... ok
+test tests::nullspace_certificate_wire_bounds_vector_count ... ok
+test tests::nullspace_certificate_wire_refuses_invalid_export ... ok
+test tests::nullspace_refuses_quadratic_output_amplification ... ok
+test tests::numeric_inverse_times_original_is_identity ... ok
+test tests::qr_refuses_symbolic_nonzero_assumptions ... ok
+test tests::rank_matches_independent_row_count ... ok
+test tests::rational_inverse_uses_row_reduction_above_eight_dimensions ... ok
+test tests::singular_numeric_matrix_is_refused ... ok
+test tests::sparse_operations_preserve_partial_entries_and_preflight_fill ... ok
+test tests::sparse_trace_scales_with_stored_entries_instead_of_declared_dimensions ... ok
+test tests::sparse_wire_rejects_out_of_bounds_entries ... ok
+test tests::symbolic_characteristic_polynomial_refuses_eigenvalues ... ok
+test tests::symbolic_zero_decisions_are_refused ... ok
+test tests::test_eigenvalues_sturm_certificate_adversarial_tampering ... ok
+test tests::test_eigenvalues_with_sturm_certificate_2x2_diagonal ... ok
+test tests::test_eigenvalues_with_sturm_certificate_2x2_repeated ... ok
+test tests::test_eigenvalues_with_sturm_certificate_2x2_rotation_no_real_roots ... ok
+test tests::test_eigenvalues_with_sturm_certificate_3x3_companion_cubic ... ok
+test tests::test_eigenvalues_with_sturm_certificate_3x3_distinct ... ok
+test tests::test_eigenvalues_with_sturm_certificate_4x4_repeated ... ok
+test tests::test_exact_ldl_decomposition_and_verification ... ok
+test tests::test_exact_least_squares_solve ... ok
+test tests::test_exact_linear_system_solve_and_verification ... ok
+test tests::test_exact_qr_decomposition_and_verification ... ok
+test tests::test_inverse_certificate_and_verification ... ok
+test tests::test_jacobian_computation ... ok
+test tests::test_lu_decomposition_and_verification ... ok
+test tests::test_matrix_add_sub_scalar_mul_and_hadamard ... ok
+test tests::test_matrix_cofactor_adjugate_pow_and_frobenius_norm ... ok
+test tests::test_matrix_det_2x2 ... ok
+test tests::test_matrix_diag_and_shape_predicates ... ok
+test tests::test_matrix_eye_matmul ... ok
+test tests::test_matrix_kron_and_skew_symmetric ... ok
+test tests::test_matrix_trace ... ok
+test tests::test_mutant_tampered_certificates_rejected ... ok
+test tests::test_nullspace_certificate_and_verification ... ok
+test tests::test_rref_and_nullspace_computation ... ok
+test tests::test_sparse_dense_roundtrip_and_matmul ... ok
+test tests::zero_area_shapes_still_bound_each_dimension ... ok
+test tests::zero_dimension_metered_operations_do_not_issue_zero_charges ... ok
+
+test result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+
+     Running tests/gaussian_exact_solve.rs (/tmp/frankensympy-native-20261124/target/debug/build/fsym-matrices/1a3d6e8537c62d0b/out/gaussian_exact_solve-1a3d6e8537c62d0b)
+
+running 13 tests
+test all_exact_solve_and_inverse_work_is_cumulative_through_publication ... ok
+test bounded_syntax_selection_preserves_symbolic_inverse_and_domains ... ok
+test changes_to_original_sources_solution_and_left_inverse_are_rejected ... ok
+test empty_rhs_keeps_uniqueness_and_empty_unknowns_keep_consistency ... ok
+test hand_derived_integer_corpus_exercises_complex_pivots_and_rhs ... ok
+test independent_checker_is_cancelled_even_at_its_final_safe_point ... ok
+test independently_authored_left_inverse_proves_the_exact_solution ... ok
+test least_squares_projection_never_satisfies_an_exact_solve_request ... ok
+test ordinary_square_solve_and_inverse_accept_exact_imaginary_pivots ... ok
+test original_undefined_sources_cannot_disappear_in_zero_products ... ok
+test rational_coefficients_and_multiple_complex_rhs_share_the_exact_lane ... ok
+test residual_only_witnesses_cannot_claim_uniqueness ... ok
+test unsupported_malformed_and_oversized_inputs_refuse_before_publication ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.39s
+
+     Running tests/gaussian_qr.rs (/tmp/frankensympy-native-20261124/target/debug/build/fsym-matrices/2709c7eca95485b3/out/gaussian_qr-2709c7eca95485b3)
+
+running 16 tests
+test complete_hermitian_gram_check_rejects_imaginary_cross_terms ... ok
+test dimensions_and_exact_bit_growth_remain_bounded ... ok
+test empty_and_zero_rank_shapes_are_thin_without_false_basis_vectors ... ok
+test exhaustive_small_complex_ranks_match_the_independent_determinant ... ok
+test generation_verification_normalization_and_publication_share_one_meter ... ok
+test independent_replay_has_its_own_cancellation_and_budget_controls ... ok
+test isotropic_columns_require_the_hermitian_inner_product ... ok
+test nonorthogonal_complex_columns_have_hand_computed_exact_projections ... ok
+test nonsquare_normalization_reserves_repeated_arithmetic_allocations ... ok
+test normalized_pythagorean_columns_and_scalar_phases_are_exact ... ok
+test original_tall_source_and_its_conjugation_keep_the_expected_rank ... ok
+test source_norm_pivot_and_factor_mutants_are_rejected_exactly ... ok
+test unit_pivot_minor_rejects_rank_inflation_even_when_reconstruction_and_gram_pass ... ok
+test zero_and_dependent_columns_are_retained_in_rectangular_r ... ok
+test zero_rank_outputs_work_with_exact_recorded_no_zero_charge_budgets ... ok
+test zero_shortcuts_never_discard_original_poles_or_unsupported_children ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.49s
+
+     Running tests/rectangular_solve.rs (/tmp/frankensympy-native-20261124/target/debug/build/fsym-matrices/160d98bdb9bb3fa5/out/rectangular_solve-160d98bdb9bb3fa5)
+
+running 8 tests
+test a_later_inconsistent_rhs_cannot_publish_a_partial_result ... ok
+test established_square_solver_does_not_inherit_rectangular_dimension_caps ... ok
+test inconsistent_and_parametric_outcomes_are_distinct_refusals ... ok
+test original_domains_shapes_and_aggregate_bounds_are_checked ... ok
+test small_tall_systems_agree_with_independent_two_by_two_determinants ... ok
+test tall_systems_with_row_pivoting_and_multiple_rhs_have_exact_solutions ... ok
+test tiny_exact_pivots_and_inconsistencies_are_not_rounded_away ... ok
+test zero_area_systems_preserve_unique_empty_vectors_and_rank_checks ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
