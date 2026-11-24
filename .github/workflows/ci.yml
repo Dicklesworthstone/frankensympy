@@ -157,7 +157,7 @@ jobs:
           cargo test --locked -p fsym-matrices --lib pseudoinverse::gaussian::qr::tests -j1
       - name: Complete real Lambert-W source and branch checks
         run: |
-          cargo test --locked -p fsym-core --test real_lambert_certificate -j1
+          cargo test --locked -p fsym-core --test real_lambert_certificate --test lambert_enclosures -j1
           cargo test --locked -p fsym-solvers --test real_lambert -j1
           cargo test --locked -p fsym-calculus --test lambert_derivative -j1
       - name: Principal-angle interval and original-source certificates
@@ -426,6 +426,7 @@ jobs:
               "python/tests/test_absolute_quadrature.py",
               "python/tests/test_certified_scalar_root_bracket.py",
               "python/tests/test_real_lambert_solving.py",
+              "python/tests/test_lambert_real_evalf.py",
               "python/tests/test_certified_objective.py",
               "python/tests/test_stationary_search.py",
               "python/tests/test_box_extremum.py",

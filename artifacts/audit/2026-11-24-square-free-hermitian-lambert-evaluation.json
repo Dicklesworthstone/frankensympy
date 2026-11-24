@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "session_date": "2026-11-24",
+  "repository": "Dicklesworthstone/frankensympy",
+  "baseline_commit": "e08f8a9bbe1d8890cff7aec346ee3d7236d72649",
+  "preceding_feature_commits": [
+    "7ba53b559236f52edf441f913c0c5f2e7b6baa82",
+    "d6b1b8d90342e4197fdc982d57fe73c55f3c04bf",
+    "29265dc37e88c7c8bb7195c28cb3c23045f00ae6"
+  ],
+  "scope": [
+    "Complete multivariate prime-field square-free decomposition including recursive inseparable Frobenius powers, independent checked receipts, and public Poly/PurePoly/module APIs.",
+    "Checked exact Hermitian Q(i) LDL and positive-root Cholesky, with dense/sparse mutable/immutable public APIs.",
+    "Certified bounded evaluation of both real Lambert-W branches, native real/complex-real expression dispatch, and public evalf/N regression coverage."
+  ],
+  "native_validation": {
+    "toolchain": "nightly-2026-08-20; rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "common_environment": {
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "RUST_TEST_THREADS": "1"
+    },
+    "standard_rustflags": "-D warnings",
+    "serialized_rustflags": "-D warnings -Z unstable-options --jobs-frontend=1 --jobs-backend=1",
+    "targets": [
+      {
+        "target": "fsym-polys --test finite_field_multivariate_square_free",
+        "passed": 22,
+        "failed": 0,
+        "log": "artifacts/validation/2026-11-24-finite-field-square-free.txt"
+      },
+      {
+        "target": "fsym-polys --lib finite_field_multivariate_square_free::tests",
+        "passed": 2,
+        "failed": 0,
+        "log": "artifacts/validation/2026-11-24-finite-field-frobenius.txt"
+      },
+      {
+        "target": "fsym-core --test lambert_enclosures",
+        "passed": 12,
+        "failed": 0,
+        "execution": "The first eleven cases passed together; the newly added 128-digit precision-ceiling case then passed in a filtered invocation. Production sources were unchanged between runs.",
+        "logs": [
+          "artifacts/validation/2026-11-24-lambert-enclosures.txt",
+          "artifacts/validation/2026-11-24-lambert-precision-ceiling.txt"
+        ]
+      },
+      {
+        "target": "fsym-matrices --test gaussian_ldl",
+        "passed": 25,
+        "failed": 0,
+        "log": "artifacts/validation/2026-11-24-hermitian-and-qr.txt"
+      },
+      {
+        "target": "fsym-matrices --test gaussian_qr",
+        "passed": 16,
+        "failed": 0,
+        "log": "artifacts/validation/2026-11-24-hermitian-and-qr.txt"
+      }
+    ],
+    "total_distinct_tests_passed": 77,
+    "precision_boundary": "W0(1) at 128 requested working digits has enclosure width <=10^-130; independent 220-digit absolute-exponential endpoint residuals have strict opposite signs.",
+    "environment_recovery": "The initial matrix attempt was killed with signal 9 while compiling unchanged fsym-calculus. An actual retry with serialized compiler frontend and backend stages passed both matrix suites, with no source, feature, resource-envelope, or acceptance-condition changes.",
+    "compiled_feature_source_blobs": {
+      "crates/fsym-polys/src/finite_field_multivariate_square_free.rs": "25618cb392d5509eb24af6585f29335678ae49a4",
+      "crates/fsym-polys/src/lib.rs": "c65316bc3d92450ed85390dca33731fab16bab13",
+      "crates/fsym-polys/tests/finite_field_multivariate_square_free.rs": "de8d5d5a797321970473a4d7c78a714caf525b25",
+      "crates/fsym-matrices/src/pseudoinverse/gaussian/ldl.rs": "1819cd8ec0de412c4aa16e86257cfb962e16f641",
+      "crates/fsym-matrices/src/pseudoinverse/gaussian.rs": "6e9407aa1adfcba5e1af908baf28cbdfc54a534f",
+      "crates/fsym-matrices/src/pseudoinverse/gaussian/qr.rs": "cedebfa415de6fbd7183514583d509cf069e2cd4",
+      "crates/fsym-matrices/src/pseudoinverse.rs": "cccf5b039ec0e9732174bfe892df62c530ff47b6",
+      "crates/fsym-matrices/src/lib.rs": "25db05cb400f6cc01353f169bf145a6d0dee658e",
+      "crates/fsym-matrices/tests/gaussian_ldl.rs": "2ca90eeba1dc0654e64a213fa996d5a83130a8ba",
+      "crates/fsym-core/src/ball/lambert.rs": "11be3ab9467a8cc270e6e3374c151cfd15bb0950",
+      "crates/fsym-core/src/ball.rs": "01a37296fbe0a1d61cd35a159e1eeb99d6a3c034",
+      "crates/fsym-core/src/lib.rs": "0ba99a2573a1fd4c18437e3e436feec7bed78676",
+      "crates/fsym-core/tests/lambert_enclosures.rs": "d9baa96d8aa0192cb57639e03ecefe24b7dcc971"
+    }
+  },
+  "upstream_oracle": {
+    "version": "SymPy 1.14.0",
+    "isolated": true,
+    "suites": [
+      {
+        "path": "python/tests/test_matrix_hermitian_decompositions.py",
+        "passed": 40,
+        "native_only_skipped": 79,
+        "failed": 0
+      },
+      {
+        "path": "python/tests/test_lambert_real_evalf.py",
+        "passed": 25,
+        "native_only_skipped": 14,
+        "failed": 0
+      }
+    ],
+    "total_passed": 65,
+    "limits": "These runs check ordinary mathematical/public expectations against upstream SymPy. They do not execute the candidate extension. Native-only skips are not counted as passes."
+  },
+  "source_checks": {
+    "rust": "Changed Rust files were formatted and parsed by the exact pinned rustfmt with edition2024 and skip_children=true. No full-workspace formatter success is claimed.",
+    "python": "All nine changed Python implementation/test files passed AST parsing.",
+    "independent_review": "The finite-field, Hermitian, and Lambert native algorithms and Python bridge/public paths were independently source-reviewed."
+  },
+  "full_extension_and_workspace_status_at_checkpoint": {
+    "candidate_python_suites_executed": false,
+    "extension": "A real production extension-module cargo check using the serialized compiler configuration is in progress; no success is claimed at this checkpoint.",
+    "full_workspace_check_clippy_test": "Not completed.",
+    "hosted_ci_last_observed": {
+      "head": "29265dc37e88c7c8bb7195c28cb3c23045f00ae6",
+      "status": "queued",
+      "run_ids": [
+        45315928785,
+        45315928846
+      ]
+    }
+  },
+  "claim_status": "implemented_uncertified",
+  "beads_read": [
+    "fra-o4g",
+    "fra-kfo",
+    "fra-a5x",
+    "fra-7kf"
+  ],
+  "beads_closed": [],
+  "compatibility_profiles_certified": [],
+  "performance_claims": []
+}

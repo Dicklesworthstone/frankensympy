@@ -3,7 +3,7 @@
 **An in-progress memory-safe, proof-carrying, agent-native symbolic mathematics system—and an independently implemented drop-in replacement for named SymPy profiles.**
 
 > [!IMPORTANT]
-> **Current status: implementation in progress, pre-certification.** The repository now contains a substantial Rust implementation workspace (exact arithmetic, semantic term DAG, proof kernel, evidence system, polynomial/linear-algebra/calculus engines, portfolio runtime, conformance laboratory) with green workspace tests, a Python compatibility shell slice, and a live SymPy 1.14.0 differential oracle. It is **not** a certified SymPy replacement: no compatibility profile is certified, no performance win is demonstrated, and all `validated`/`certified` gates remain open. Capability status is tracked in [`registries/claims.toml`](registries/claims.toml).
+> **Current status: implementation in progress, pre-certification.** The repository now contains a substantial Rust implementation workspace (exact arithmetic, semantic term DAG, proof kernel, evidence system, polynomial/linear-algebra/calculus engines, portfolio runtime, conformance laboratory) with a Python compatibility shell slice and a live SymPy 1.14.0 differential oracle. It is **not** a certified SymPy replacement: no compatibility profile is certified, no performance win is demonstrated, and all `validated`/`certified` gates remain open. Capability status is tracked in [`registries/claims.toml`](registries/claims.toml).
 
 The complete design is in [`COMPREHENSIVE_PLAN_FOR_FRANKENSYMPY.md`](COMPREHENSIVE_PLAN_FOR_FRANKENSYMPY.md).
 
@@ -656,6 +656,27 @@ and zero values are also supported. This is a bounded development extension:
 the pinned upstream `solveset` often leaves these same equations conditional,
 and this addition does not establish a complex-domain completeness or drop-in
 compatibility claim.
+
+### Numerical values on both real branches
+
+The returned Lambert-W expressions also support real numerical evaluation:
+
+```python
+LambertW(1).evalf(30)                   # approximately 0.567143290409783...
+LambertW(-Rational(1, 4), -1).evalf(30) # approximately -2.15329236411035...
+```
+
+Native real-ball evaluation encloses the complete input interval on branch 0
+or branch -1, using certified residual and derivative bounds. Principal values
+near zero retain relative accuracy, and the lower branch is evaluated directly
+for small negative arguments. Exact branch-point values fold to -1.
+
+The finite real domains are `[-1/e, ∞)` for branch 0 and `[-1/e, 0)` for
+branch -1. An input ball crossing a domain boundary refuses; the lower branch
+at zero is nonfinite. The native working ceiling is 128 decimal digits with
+4096-bit rational inputs and cumulative work/allocation limits. Decimal
+`.evalf()` calls need guard digits, so their output-precision ceiling can be
+lower. Other complex branches remain outside this numerical lane.
 
 ## Bracketed scalar roots (development API)
 
@@ -1541,6 +1562,36 @@ standalone literal-rational square calls retain their larger native envelope
 when `rankcheck` is false. These are development APIs with same-crate reference
 checks; no compatibility profile is certified by this addition.
 
+## Exact Hermitian LDL and Cholesky (development API)
+
+Dense and sparse matrices with rational real and imaginary components support
+positive-definite Hermitian factorization. `LDLdecomposition()` returns unit
+lower-triangular `L` and positive diagonal `D` with `A=L*D*L.H`; `cholesky()`
+returns the lower-triangular factor with positive real diagonal. Both preserve
+the input's dense/sparse and mutable/immutable class:
+
+```python
+from sympy import I, SparseMatrix
+
+A = SparseMatrix([[2, 2 - 2*I], [2 + 2*I, 7]])
+L, D = A.LDLdecomposition()
+assert L == SparseMatrix([[1, 0], [1 + I, 1]])
+assert D == SparseMatrix([[2, 0], [0, 3]])
+C = A.cholesky()
+# C = [[sqrt(2), 0], [(1 + I)*sqrt(2), sqrt(3)]]; C*C.H reconstructs A.
+```
+
+The native checker verifies the original matrix, every reconstruction
+coefficient, positive pivots, and each Cholesky square-root branch. The checked
+lane admits dimension 32 and 4096-bit rational components, subject to cumulative
+work and storage limits. Non-Hermitian, singular, and indefinite inputs refuse
+in this lane. Empty matrices retain their shapes.
+
+Standalone dense `hermitian=False` calls retain their established transpose
+factorization route; the sparse checked route requires `hermitian=True`.
+These features remain `implemented_uncertified`; compatibility-profile gates
+remain open.
+
 ## Exact complex determinants through checked LU (development API)
 
 Dense and sparse `det()` now use checked LU for closed Gaussian-rational
@@ -2145,6 +2196,32 @@ other operand as GCD; both results are zero when both operands are zero.
 Original typed generators, field characteristic, and the `symmetric` lifting
 policy are retained. Exhausted or incomplete work returns no partial result.
 
+`Poly.sqf_list()` and `Poly.sqf_part()` also support several generators over
+`GF(p)`, including inseparable polynomials whose every partial derivative
+vanishes. Multiplicities survive recursive Frobenius descent:
+
+```python
+f = Poly((x + y + 1)**9*(y + 1)**3, x, y, modulus=3)
+assert f.sqf_list() == (1, [
+    (Poly(y + 1, x, y, modulus=3), 3),
+    (Poly(x + y + 1, x, y, modulus=3), 9),
+])
+assert f.sqf_part() == Poly((x + y + 1)*(y + 1), x, y, modulus=3)
+```
+
+The same operations work with `PurePoly` and the module functions `sqf_list`,
+`sqf_part`, and `sqf` when an explicit prime field is supplied. Groups are monic,
+pairwise coprime, and ordered by increasing multiplicity; a group can contain
+several irreducible factors. Independent reconstruction and complete derivative
+GCD checks establish the multiplicities and square-free part.
+
+The existing prime limit 65521, degree limit 64, and 4096-term limit apply.
+Nested GCDs retain their auxiliary-variable limits, so general nontrivial
+requests admit at most seven declared generators. Original generator
+identities, order, coefficient-lifting policy, and source-domain checks are
+retained. The public multivariate square-free route currently refuses active
+supervised callback requests.
+
 `Poly.eval` supports exact integer values in multivariate prime-field rings.
 Partial evaluation returns a `Poly` over the same field with the remaining
 generators in their original order; complete evaluation returns the integer
@@ -2336,7 +2413,7 @@ The lane admits primes through 65521, total degree at most 64, up to 4096 sparse
 terms, and at most 32 basis polynomials or ordered divisors. Original source expressions and
 coefficient growth have additional bounds. Source admission, generation,
 verification, and lifting use cumulative budgets; an exhausted or rejected
-request cannot restart over the rationals. Multivariate factorization,
+request cannot restart over the rationals. Multivariate irreducible factorization,
 resultants, and composition remain unsupported. Existing
 univariate prime-field operations remain available. These are bounded
 in-process checked operations, not a certified compatibility profile or

@@ -1036,6 +1036,9 @@ impl Expr {
                     self.eval_real_ball(precision_digits)?,
                 ))
             }
+            Expr::Function(name, _) if name == "LambertW" => Ok(ComplexBall::from_real(
+                self.eval_real_ball(precision_digits)?,
+            )),
             Expr::Function(name, args) if args.len() == 1 => {
                 let arg = args[0].eval_complex_ball(extra)?;
                 match name.as_str() {
@@ -1324,6 +1327,26 @@ impl Expr {
                 }
             }
             Expr::Function(name, args) => {
+                if name == "LambertW" {
+                    let (argument, branch) = match args.as_slice() {
+                        [argument] => (argument, 0),
+                        [argument, Expr::Integer(branch)] if branch.is_zero() => (argument, 0),
+                        [argument, Expr::Integer(branch)] if *branch == BigInt::from(-1) => {
+                            (argument, -1)
+                        }
+                        _ => return refuse("LambertW requires a literal real branch 0 or -1"),
+                    };
+                    // Admit the original argument before exact folding. A
+                    // held zero product or zero power cannot hide a pole,
+                    // non-real subtree, or unsupported function.
+                    let value = argument.evalf_ball_at_working_precision(precision_digits)?;
+                    if let Some(folded) = elementary::eval_function(name, args)
+                        && !matches!(&folded, Expr::Function(..))
+                    {
+                        return folded.evalf_ball_at_working_precision(precision_digits);
+                    }
+                    return map(value.lambert_w(branch, precision_digits));
+                }
                 if name == "atan2" && args.len() == 2 {
                     let y = args[0].evalf_ball_at_working_precision(precision_digits)?;
                     let x = args[1].evalf_ball_at_working_precision(precision_digits)?;

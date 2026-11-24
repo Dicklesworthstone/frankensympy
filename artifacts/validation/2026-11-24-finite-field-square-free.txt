@@ -1,0 +1,104 @@
+COMMAND /tmp/frankensympy-native-residual-20261124/rust/bin/cargo test --locked -p fsym-polys --test finite_field_multivariate_square_free -j1
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded cc v1.4.4
+  Downloaded rand v0.9.5
+  Downloaded bitflags v2.13.1
+  Downloaded find-msvc-tools v0.1.11
+  Downloaded thiserror v2.0.20
+  Downloaded regex-syntax v0.8.11
+  Downloaded thiserror-impl v2.0.20
+  Downloaded zerocopy v0.8.56
+  Downloaded libc v0.2.189
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling syn v3.0.3
+   Compiling autocfg v1.5.1
+   Compiling serde_core v1.0.229
+   Compiling num-traits v0.2.19
+   Compiling cfg-if v1.0.4
+   Compiling serde v1.0.229
+   Compiling serde_derive v1.0.229
+   Compiling libc v0.2.189
+   Compiling num-integer v0.1.47
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.11
+   Compiling cc v1.4.4
+   Compiling num-bigint v0.4.8
+   Compiling fsym-budget v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-budget)
+   Compiling zmij v1.0.23
+   Compiling fsym-bigint v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-bigint)
+   Compiling blake3 v1.8.7
+   Compiling thiserror v2.0.20
+   Compiling serde_json v1.0.151
+   Compiling getrandom v0.3.4
+   Compiling fsym-modular v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-modular)
+   Compiling num-rational v0.4.2
+   Compiling thiserror-impl v2.0.20
+   Compiling cpufeatures v0.3.0
+   Compiling constant_time_eq v0.4.2
+   Compiling arrayvec v0.7.8
+   Compiling itoa v1.0.18
+   Compiling memchr v2.8.3
+   Compiling fsym-rational v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-rational)
+   Compiling fsym-id v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-id)
+   Compiling num-complex v0.4.6
+   Compiling zerocopy v0.8.56
+   Compiling getrandom v0.4.3
+   Compiling rustix v1.1.4
+   Compiling fsym-outcome v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-outcome)
+   Compiling fsym-core v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-core)
+   Compiling rand_core v0.9.5
+   Compiling linux-raw-sys v0.12.1
+   Compiling bitflags v2.13.1
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-assumptions)
+   Compiling fastrand v2.5.0
+   Compiling once_cell v1.21.4
+   Compiling tempfile v3.27.0
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-proof-kernel)
+   Compiling ppv-lite86 v0.2.21
+   Compiling wait-timeout v0.2.1
+   Compiling bit-vec v0.8.0
+   Compiling quick-error v1.2.3
+   Compiling fnv v1.0.7
+   Compiling rusty-fork v0.3.1
+   Compiling bit-set v0.8.0
+   Compiling rand_chacha v0.9.0
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-evidence)
+   Compiling rand_xorshift v0.4.0
+   Compiling rand v0.9.5
+   Compiling unarray v0.1.4
+   Compiling regex-syntax v0.8.11
+   Compiling proptest v1.11.0
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-polys)
+    Finished `test` profile [unoptimized] target(s) in 1m 18s
+     Running tests/finite_field_multivariate_square_free.rs (/tmp/frankensympy-native-residual-20261124/target/debug/build/fsym-polys/bfaffd68c5ee0819/out/finite_field_multivariate_square_free-bfaffd68c5ee0819)
+
+running 22 tests
+test both_phases_share_cumulative_exact_budgets_through_descent_and_publication ... ok
+test cancellation_in_generation_verification_and_final_publication_is_terminal ... ok
+test canonical_source_envelope_remains_enforced_by_typed_construction ... ok
+test characteristic_two_changes_square_freeness_without_field_equations ... ok
+test correct_product_with_a_repeated_factor_is_not_a_square_free_certificate ... ok
+test derivatives_that_vanish_modulo_p_cannot_be_replaced_by_formal_integer_terms ... ok
+test eight_axes_keep_trivial_frobenius_support_and_general_gcd_refusals ... ok
+test equal_multiplicities_are_grouped_without_irreducible_factorization ... ok
+test every_original_axis_has_derivative_evidence_including_unused_axes ... ok
+test independent_replay_has_exact_budget_and_every_checkpoint_is_cancellable ... ok
+test independently_supplied_decomposition_is_accepted_without_generator_replay ... ok
+test mixed_separable_and_inseparable_layers_preserve_sorted_distinct_groups ... ok
+test multiplicity_order_units_and_trivial_component_mutants_are_rejected ... ok
+test nonlinear_components_preserve_units_and_exact_characteristic_multiplicities ... ok
+test omitted_reordered_or_foreign_gradient_evidence_is_rejected ... ok
+test overlapping_components_in_different_multiplicity_groups_are_rejected ... ok
+test pure_frobenius_powers_recover_the_root_and_all_p_adic_multiplicity ... ok
+test source_identity_is_checked_even_with_valid_radical_and_weighted_degree ... ok
+test square_free_part_identity_is_checked_separately_from_source_reconstruction ... ok
+test typed_same_name_axes_field_and_original_coefficients_remain_bound ... ok
+test zero_and_constant_mutants_cannot_publish_noncanonical_radicals ... ok
+test zero_and_constants_preserve_declared_rings_and_public_part_conventions ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+
+EXIT 0 ELAPSED_SECONDS 78.56

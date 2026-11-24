@@ -1,0 +1,21 @@
+COMMAND /tmp/frankensympy-native-residual-20261124/rust/bin/cargo test --locked -p fsym-core --test lambert_enclosures -j1
+   Compiling fsym-core v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-core)
+    Finished `test` profile [unoptimized] target(s) in 1.48s
+     Running tests/lambert_enclosures.rs (/tmp/frankensympy-native-residual-20261124/target/debug/build/fsym-core/8456519f2d4b9f50/out/lambert_enclosures-8456519f2d4b9f50)
+
+running 11 tests
+test both_real_branches_invert_independent_forward_enclosures ... ok
+test cancellation_before_during_and_at_publication_never_returns_a_partial_image ... ok
+test exact_branchpoint_and_named_specials_survive_native_expression_evaluation ... ok
+test exact_special_folding_cannot_discard_held_invalid_argument_subtrees ... ok
+test meters_are_shared_across_endpoints_and_repeated_calls ... ok
+test native_decimal_and_complex_real_dispatch_support_both_real_branches ... ok
+test rational_arguments_have_tight_brackets_with_independent_residual_signs ... ok
+test real_domain_admission_uses_every_input_value ... ok
+test tiny_principal_values_keep_relative_accuracy_and_lower_tails_remain_finite ... ok
+test unsupported_branches_precisions_and_numeric_heights_refuse ... ok
+test wide_inputs_retain_the_complete_monotone_branch_image ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 187.76s
+
+EXIT 0 ELAPSED_SECONDS 189.30

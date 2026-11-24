@@ -1,0 +1,12 @@
+COMMAND /tmp/frankensympy-native-residual-20261124/rust/bin/cargo test --locked -p fsym-core --test lambert_enclosures principal_value_reaches_the_declared_precision_ceiling -j1
+   Compiling serde_json v1.0.151
+   Compiling fsym-core v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-core)
+    Finished `test` profile [unoptimized] target(s) in 7.74s
+     Running tests/lambert_enclosures.rs (/tmp/frankensympy-native-residual-20261124/target/debug/build/fsym-core/6fbae1c084a213d8/out/lambert_enclosures-6fbae1c084a213d8)
+
+running 1 test
+test principal_value_reaches_the_declared_precision_ceiling ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 100.09s
+
+EXIT 0 ELAPSED_SECONDS 107.86

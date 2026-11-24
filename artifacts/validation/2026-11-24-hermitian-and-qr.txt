@@ -1,0 +1,123 @@
+COMMAND /tmp/frankensympy-native-residual-20261124/rust/bin/cargo test --locked -p fsym-matrices --test gaussian_ldl --test gaussian_qr -j1
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling syn v3.0.3
+   Compiling autocfg v1.5.1
+   Compiling serde_core v1.0.229
+   Compiling num-traits v0.2.19
+   Compiling cfg-if v1.0.4
+   Compiling serde v1.0.229
+   Compiling serde_derive v1.0.229
+   Compiling num-integer v0.1.47
+   Compiling find-msvc-tools v0.1.11
+   Compiling shlex v2.0.1
+   Compiling cc v1.4.4
+   Compiling num-bigint v0.4.8
+   Compiling fsym-budget v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-budget)
+   Compiling zmij v1.0.23
+   Compiling fsym-bigint v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-bigint)
+   Compiling blake3 v1.8.7
+   Compiling serde_json v1.0.151
+   Compiling libc v0.2.189
+   Compiling thiserror v2.0.20
+   Compiling fsym-modular v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-modular)
+   Compiling num-rational v0.4.2
+   Compiling thiserror-impl v2.0.20
+   Compiling cpufeatures v0.3.0
+   Compiling constant_time_eq v0.4.2
+   Compiling itoa v1.0.18
+   Compiling memchr v2.8.3
+   Compiling arrayvec v0.7.8
+   Compiling fsym-rational v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-rational)
+   Compiling fsym-id v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-id)
+   Compiling num-complex v0.4.6
+   Compiling fsym-outcome v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-outcome)
+   Compiling fsym-core v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-core)
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-assumptions)
+   Compiling getrandom v0.3.4
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-proof-kernel)
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-evidence)
+   Compiling getrandom v0.4.3
+   Compiling rustix v1.1.4
+   Compiling zerocopy v0.8.56
+   Compiling rand_core v0.9.5
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-polys)
+   Compiling bitflags v2.13.1
+   Compiling linux-raw-sys v0.12.1
+   Compiling fsym-simplify v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-simplify)
+   Compiling fastrand v2.5.0
+   Compiling once_cell v1.21.4
+   Compiling tempfile v3.27.0
+   Compiling ppv-lite86 v0.2.21
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-calculus)
+   Compiling fsym-sets v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-sets)
+   Compiling wait-timeout v0.2.1
+   Compiling quick-error v1.2.3
+   Compiling fnv v1.0.7
+   Compiling bit-vec v0.8.0
+   Compiling bit-set v0.8.0
+   Compiling rusty-fork v0.3.1
+   Compiling fsym-solvers v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-solvers)
+   Compiling rand_chacha v0.9.0
+   Compiling rand_xorshift v0.4.0
+   Compiling rand v0.9.5
+   Compiling regex-syntax v0.8.11
+   Compiling unarray v0.1.4
+   Compiling proptest v1.11.0
+   Compiling fsym-matrices v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-matrices)
+    Finished `test` profile [unoptimized] target(s) in 1m 41s
+     Running tests/gaussian_ldl.rs (/tmp/frankensympy-native-residual-20261124/target/debug/build/fsym-matrices/fac1bba6a7dcfb65/out/gaussian_ldl-fac1bba6a7dcfb65)
+
+running 25 tests
+test cancellation_during_every_phase_and_final_publication_is_terminal ... ok
+test checker_accepts_a_hand_built_complex_positive_definite_ldl_witness ... ok
+test cholesky_rejects_negative_and_imaginary_column_phases_even_with_same_gram ... ok
+test cholesky_requires_correct_positive_scales_complete_shapes_and_checked_ldl ... ok
+test complete_normalized_forest_is_bounded_before_scalar_interpretation ... ok
+test defined_held_arithmetic_is_admitted_but_every_original_pole_is_preserved ... ok
+test empty_publication_obeys_exact_measured_limits_for_both_operations ... ok
+test empty_square_factors_are_valid_and_rectangular_shapes_are_refused ... ok
+test every_original_entry_is_checked_for_hermitian_symmetry_without_tolerance ... ok
+test exact_source_binding_rejects_changed_sources_and_tiny_factor_perturbations ... ok
+test exhaustive_small_positive_hermitian_pairs_match_scalar_schur_complements ... ok
+test factor_identity_alone_does_not_replace_unit_lower_and_positive_diagonal_checks ... ok
+test generation_reconstruction_normalization_and_publication_share_one_budget ... ok
+test imaginary_off_diagonals_use_conjugate_transpose_and_positive_real_pivots ... ok
+test indefinite_semidefinite_and_zero_leading_pivots_are_not_positive_definite ... ok
+test independent_cholesky_checker_accepts_an_equivalent_noncanonical_positive_root ... ok
+test independent_replay_uses_exact_budgets_and_checks_final_cancellation ... ok
+test legacy_rational_ldl_still_accepts_its_transpose_symmetric_indefinite_contract ... ok
+test normalized_entry_equality_is_exact_even_when_component_signs_agree ... ok
+test shape_diagonal_upper_triangle_and_imaginary_diagonal_mutants_are_rejected ... ok
+test textbook_rational_three_by_three_has_hand_computed_exact_factors ... ok
+test thirty_two_axes_are_supported_and_dimension_and_height_bounds_remain_closed ... ok
+test tiny_positive_rational_pivots_are_retained_exactly ... ok
+test undefined_candidate_children_are_parsed_before_zero_factor_shortcuts ... ok
+test unsupported_source_children_do_not_disappear_under_zero_shortcuts ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.38s
+
+     Running tests/gaussian_qr.rs (/tmp/frankensympy-native-residual-20261124/target/debug/build/fsym-matrices/5e22408aafd335e7/out/gaussian_qr-5e22408aafd335e7)
+
+running 16 tests
+test complete_hermitian_gram_check_rejects_imaginary_cross_terms ... ok
+test dimensions_and_exact_bit_growth_remain_bounded ... ok
+test empty_and_zero_rank_shapes_are_thin_without_false_basis_vectors ... ok
+test exhaustive_small_complex_ranks_match_the_independent_determinant ... ok
+test generation_verification_normalization_and_publication_share_one_meter ... ok
+test independent_replay_has_its_own_cancellation_and_budget_controls ... ok
+test isotropic_columns_require_the_hermitian_inner_product ... ok
+test nonorthogonal_complex_columns_have_hand_computed_exact_projections ... ok
+test nonsquare_normalization_reserves_repeated_arithmetic_allocations ... ok
+test normalized_pythagorean_columns_and_scalar_phases_are_exact ... ok
+test original_tall_source_and_its_conjugation_keep_the_expected_rank ... ok
+test source_norm_pivot_and_factor_mutants_are_rejected_exactly ... ok
+test unit_pivot_minor_rejects_rank_inflation_even_when_reconstruction_and_gram_pass ... ok
+test zero_and_dependent_columns_are_retained_in_rectangular_r ... ok
+test zero_rank_outputs_work_with_exact_recorded_no_zero_charge_budgets ... ok
+test zero_shortcuts_never_discard_original_poles_or_unsupported_children ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.61s
+
+EXIT 0 ELAPSED_SECONDS 104.90
