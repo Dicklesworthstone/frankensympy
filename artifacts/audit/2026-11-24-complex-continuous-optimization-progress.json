@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-24",
+  "repository": "Dicklesworthstone/frankensympy",
+  "base_commit": "1b4cfab25b55aaeba2be4a62ed97048eca6bf4d5",
+  "complex_feature_commit": "794632520d5d8cd6cade73485b47e1db3de0aaeb",
+  "optimization_source_binding": "Containing Git commit; no self-referential commit hash is embedded.",
+  "status": "implemented_uncertified",
+  "bead": "fra-campaign-jacobian-bundle-ukp",
+  "features": [
+    {
+      "feature": "Principal complex logarithm and square root",
+      "scope": "Native rational rectangular value enclosures; principal branch signs; exact real-axis values; half-integer Expr evaluation; intrinsic arithmetic/precision bounds.",
+      "limits": [
+        "Nonreal rectangles meeting the negative real branch cut refuse.",
+        "Logarithm rectangles containing zero refuse.",
+        "Fixed intrinsic work envelope does not provide caller-owned cancellation or a new portable proof family."
+      ]
+    },
+    {
+      "feature": "Continuous endpoint global optimization",
+      "scope": "Existing complete-cover value-gap verifier and bounded resumable search admit finite continuous endpoints without bounded derivatives; direct Python source APIs inherit the behavior.",
+      "limits": [
+        "Continuous-only cells expose no slope bounds and use no Taylor or monotone-face shortcut.",
+        "C1/C2, unique-root and stationary-point requirements are unchanged.",
+        "Original poles, nonreal domains, unstable Piecewise guards and operational failures remain refusals.",
+        "Finite leaf/evaluation/work budgets may return inconclusive or resource failures.",
+        "Noninteger rational powers use nonnegative real argument intervals, including zero for positive powers; negative bases remain outside this continuous endpoint path."
+      ]
+    }
+  ],
+  "tests_authored": {
+    "complex_native_test_functions": 20,
+    "continuous_optimization_native_test_functions": 16,
+    "continuous_optimization_python_test_functions": 7,
+    "continuous_optimization_python_parameterized_cases": 20,
+    "files": [
+      "crates/fsym-core/tests/complex_elementary.rs",
+      "crates/fsym-core/tests/complex_expression.rs",
+      "crates/fsym-core/tests/continuous_box_optimization.rs",
+      "crates/fsym-calculus/tests/continuous_box_optimization.rs",
+      "python/tests/test_continuous_box_optimization.py"
+    ],
+    "independent_mathematical_oracles": [
+      "Exact Gaussian rational squares.",
+      "Finite rational atan/log series with proved remainder bounds.",
+      "Quartic sign brackets for both components of sqrt(1+i).",
+      "Known endpoint and interior-cusp extrema; original-source independent complete-cover replay."
+    ]
+  },
+  "validation": {
+    "source_review": "Separate agents reviewed the complex primitives, expression composition, work bounds and tests; root and a separate agent reviewed optimizer acceptance, source binding, checkpoint accounting and regressions. Public API/tests received separate source review.",
+    "rustfmt": "not executed",
+    "compilation": "not executed",
+    "clippy": "not executed",
+    "rust_tests": "not executed",
+    "python_syntax_and_runtime": "not executed; source reviewed only",
+    "blocker": "The exact nightly-2026-08-20 installation failed with No space left on device (os error 28). An isolated minimal retry was downloading when the execution host disconnected and was marked unavailable. Reattachment diagnostics confirmed the repository survived but both compiler-installation paths were absent, with about 966 MB workspace disk and 1.2 GB temporary space free. The next compiler inventory failed with exec-server transport disconnected. No compiler, formatter, Python parser or test execution was possible.",
+    "hosted_ci": {
+      "commit": "794632520d5d8cd6cade73485b47e1db3de0aaeb",
+      "run_id": 45511545958,
+      "status": "queued at observation",
+      "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/45511545958"
+    },
+    "remote_integrity": "First commit message, six changed paths, all file blob identities and main head independently fetched after the connector ref update. The containing optimization commit receives the same verification in the session report."
+  },
+  "remaining_commands": [
+    "cargo fmt --check",
+    "cargo check --workspace --all-targets",
+    "cargo clippy --workspace --all-targets -- -D warnings",
+    "cargo test --workspace",
+    "cargo test --locked -p fsym-core --test complex_elementary --test complex_expression --test continuous_box_optimization --test nonsmooth_box_optimization --test box_optimization_monotonicity -j1",
+    "cargo test --locked -p fsym-calculus --test continuous_box_optimization --test nonsmooth_box_optimization --test box_optimization_search --test box_optimization_checkpoint -j1",
+    "python -m pytest python/tests/test_continuous_box_optimization.py",
+    "./scripts/check.sh registries"
+  ],
+  "claim_effects": "No workstream, campaign, profile, performance or portable-proof gate is closed or promoted. Existing Beads status, priority and dependency edges are retained.",
+  "recorded_at_utc": "2026-11-24 23:42:33 UTC"
+}

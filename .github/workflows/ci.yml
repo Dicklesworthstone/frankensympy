@@ -131,6 +131,10 @@ jobs:
       - run: python -m pip install --disable-pip-version-check pytest==8.4.2
       - name: Principal complex logarithm and square-root enclosures
         run: cargo test --locked -p fsym-core --test complex_elementary --test complex_expression -j1
+      - name: Continuous endpoint global value certificates and resumable search
+        run: |
+          cargo test --locked -p fsym-core --test continuous_box_optimization --test nonsmooth_box_optimization --test box_optimization_monotonicity -j1
+          cargo test --locked -p fsym-calculus --test continuous_box_optimization --test nonsmooth_box_optimization --test box_optimization_search --test box_optimization_checkpoint -j1
       - name: Independent exact LLL row-lattice certificates
         run: cargo test --locked -p fsym-proof-kernel --test integer_lll -j1
       - name: Independently checked integer column Hermite forms
@@ -457,6 +461,7 @@ jobs:
               "python/tests/test_box_optimization.py",
               "python/tests/test_box_optimization_search.py",
               "python/tests/test_absolute_box_optimization.py",
+              "python/tests/test_continuous_box_optimization.py",
               "python/tests/test_root_isolation.py",
               "python/tests/test_root_isolation_search.py",
               "python/tests/test_parametric_root_box.py",

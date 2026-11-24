@@ -6,6 +6,7 @@
 //! Acceptance proves a value interval and an absolute suboptimality bound,
 //! not an exact optimizer, uniqueness or a complete set of optimizers.
 
+use super::continuous::{ContinuousEnclosure, evaluate_continuous, is_continuity_only_boundary};
 use super::lipschitz::{LipschitzEnclosure, evaluate_lipschitz};
 use super::objective::{ObjectiveJet, evaluate_objective};
 use super::{
@@ -27,7 +28,7 @@ pub const MAX_BOX_OPTIMIZATION_NODES: usize = 2 * MAX_BOX_OPTIMIZATION_LEAVES - 
 // Smooth search visits at most 2L-1 cells: whole box, center, two monotone
 // faces, and one incumbent proposal per cell. Independent smooth replay uses
 // at most 4L+1 evaluations. Each actual traversal, including a refused C2
-// attempt followed by Lipschitz evaluation, consumes this same fixed cap.
+// attempt followed by Lipschitz or continuous evaluation, consumes the same cap.
 // Each phase has its own workspace; cumulative Work limits remain in force.
 const MAX_EVALUATIONS: usize = 5 * MAX_BOX_OPTIMIZATION_NODES + 8;
 
@@ -101,8 +102,9 @@ type Result<T> = std::result::Result<T, BoxOptimizationError>;
 /// The global minimum/maximum value is in value. The objective value at the
 /// exact feasible point differs from that optimum by at most gap, which is
 /// no larger than absolute_tolerance. No coordinate-distance claim is made.
-/// Continuous absolute-value compositions may have corners; acceptance does
-/// not assert C1/C2 differentiability, stationarity, or a unique optimizer.
+/// Continuous compositions may have corners or finite endpoints with unbounded
+/// slopes; acceptance does not assert Lipschitz or C1/C2 regularity,
+/// stationarity, or a unique optimizer.
 /// All fields are private, with no unchecked constructor or deserializer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BoxOptimizationReceipt {
@@ -160,14 +162,15 @@ impl BoxOptimizationReceipt {
 
 /// Local bounds usable by a search strategy. These do not assert that the
 /// supplied cell covers the requested domain or contains a global optimizer.
-/// Coordinate slope bounds prove value changes and monotonicity on this cell;
-/// they need not be derivatives at an absolute-value corner.
+/// Optional coordinate slope bounds prove value changes and monotonicity on
+/// this cell; they need not be derivatives at an absolute-value corner. A
+/// continuous-only enclosure carries no slope information.
 #[derive(Debug, Clone)]
 pub struct BoxCellEnclosure {
     range: RealBall,
     center: Vec<BigRational>,
     center_value: RealBall,
-    slope_bounds: Vec<RealBall>,
+    slope_bounds: Option<Vec<RealBall>>,
 }
 
 impl BoxCellEnclosure {
@@ -183,8 +186,10 @@ impl BoxCellEnclosure {
     /// Bounds on the derivative almost everywhere along each absolutely
     /// continuous coordinate slice. They establish a Lipschitz value bound,
     /// including nonsmooth Abs corners, and are not a C1 gradient certificate.
-    pub fn slope_bounds(&self) -> &[RealBall] {
-        &self.slope_bounds
+    /// `None` means only continuity and a value range were established. It
+    /// never means zero slopes and cannot authorize a monotonicity shortcut.
+    pub fn slope_bounds(&self) -> Option<&[RealBall]> {
+        self.slope_bounds.as_deref()
     }
 }
 
@@ -194,6 +199,7 @@ impl BoxCellEnclosure {
 enum CellValueEnclosure {
     Smooth(ObjectiveJet),
     Lipschitz(LipschitzEnclosure),
+    Continuous(ContinuousEnclosure),
 }
 
 impl CellValueEnclosure {
@@ -201,13 +207,15 @@ impl CellValueEnclosure {
         match self {
             Self::Smooth(jet) => &jet.value,
             Self::Lipschitz(enclosure) => &enclosure.value,
+            Self::Continuous(enclosure) => &enclosure.value,
         }
     }
 
-    fn slopes(&self) -> &[RealBall] {
+    fn slopes(&self) -> Option<&[RealBall]> {
         match self {
-            Self::Smooth(jet) => &jet.gradient,
-            Self::Lipschitz(enclosure) => &enclosure.slopes,
+            Self::Smooth(jet) => Some(&jet.gradient),
+            Self::Lipschitz(enclosure) => Some(&enclosure.slopes),
+            Self::Continuous(_) => None,
         }
     }
 
@@ -215,13 +223,15 @@ impl CellValueEnclosure {
         match self {
             Self::Smooth(jet) => jet.value,
             Self::Lipschitz(enclosure) => enclosure.value,
+            Self::Continuous(enclosure) => enclosure.value,
         }
     }
 
-    fn into_slopes(self) -> Vec<RealBall> {
+    fn into_slopes(self) -> Option<Vec<RealBall>> {
         match self {
-            Self::Smooth(jet) => jet.gradient,
-            Self::Lipschitz(enclosure) => enclosure.slopes,
+            Self::Smooth(jet) => Some(jet.gradient),
+            Self::Lipschitz(enclosure) => Some(enclosure.slopes),
+            Self::Continuous(_) => None,
         }
     }
 }
@@ -552,15 +562,28 @@ impl<'a, M: BudgetMeter> BoxOptimizationWorkspace<'a, M> {
 
     fn evaluate(&mut self, domain: &[RealBall]) -> Result<CellValueEnclosure> {
         self.begin_evaluation()?;
-        match evaluate_objective(self.objective, self.variables, domain, &mut self.work) {
-            Ok(jet) => Ok(CellValueEnclosure::Smooth(jet)),
-            Err(RootBoxError::Domain(reason)) if reason == ABSOLUTE_VALUE_CORNER => {
-                // Retry exactly this mathematical regularity limitation.
-                // Every original child and guard is rechecked. No resource,
-                // cancellation, other domain, or unsupported error restarts.
-                // Failed C2 work remains charged in this same workspace.
+        let enclosure =
+            match evaluate_objective(self.objective, self.variables, domain, &mut self.work) {
+                Ok(jet) => Ok(CellValueEnclosure::Smooth(jet)),
+                Err(RootBoxError::Domain(reason)) if reason == ABSOLUTE_VALUE_CORNER => {
+                    // Keep the failed C2 work and recheck every original child
+                    // before admitting almost-everywhere slope bounds.
+                    self.begin_evaluation()?;
+                    evaluate_lipschitz(self.objective, self.variables, domain, &mut self.work)
+                        .map(CellValueEnclosure::Lipschitz)
+                }
+                Err(error) => Err(error),
+            };
+        match enclosure {
+            Ok(enclosure) => Ok(enclosure),
+            Err(error) if is_continuity_only_boundary(&error) => {
+                // Finite continuous endpoints need no bounded slopes for a
+                // global value-gap proof. Recheck the complete original source
+                // in the separate value-only lane, retaining all failed work.
+                // Only the named regularity refusals reach this attempt;
+                // resources, cancellation and unsupported forms stay terminal.
                 self.begin_evaluation()?;
-                Ok(CellValueEnclosure::Lipschitz(evaluate_lipschitz(
+                Ok(CellValueEnclosure::Continuous(evaluate_continuous(
                     self.objective,
                     self.variables,
                     domain,
@@ -573,7 +596,8 @@ impl<'a, M: BudgetMeter> BoxOptimizationWorkspace<'a, M> {
 
     /// Recompute a feasible point from the original source, retaining every
     /// domain obligation hidden by held zero factors and zero powers. Abs
-    /// corners admit values here without asserting a derivative at the point.
+    /// corners and finite continuous endpoints admit values here without
+    /// asserting a derivative at the point.
     pub fn evaluate_point(&mut self, point: &[BigRational]) -> Result<RealBall> {
         if point.len() != self.variables.len() {
             return Err(RootBoxError::DimensionMismatch.into());
@@ -601,6 +625,8 @@ impl<'a, M: BudgetMeter> BoxOptimizationWorkspace<'a, M> {
     /// Intersect the natural range with centered and monotone-face enclosures.
     /// Smooth cells retain the C2 Taylor quadratic form; Abs corners instead
     /// integrate whole-cell coordinate slope bounds along coordinate segments.
+    /// Continuous-only cells retain their natural range without centered or
+    /// monotonicity tightening. Missing slopes never stand in for zero slopes.
     /// Only slope signs proved on the complete original cell can move a
     /// varying coordinate to an endpoint.
     pub fn enclose_cell(&mut self, domain: &[RealBall]) -> Result<BoxCellEnclosure> {
@@ -614,6 +640,14 @@ impl<'a, M: BudgetMeter> BoxOptimizationWorkspace<'a, M> {
         let center: Vec<_> = domain.iter().map(|b| b.midpoint().clone()).collect();
         let at: Vec<_> = center.iter().cloned().map(RealBall::exact).collect();
         let at_center = self.evaluate(&at)?;
+        let Some(slope_bounds) = whole.slopes() else {
+            return Ok(BoxCellEnclosure {
+                range: whole.into_value(),
+                center,
+                center_value: at_center.into_value(),
+                slope_bounds: None,
+            });
+        };
         let mut delta = Vec::new();
         delta
             .try_reserve_exact(domain.len())
@@ -648,7 +682,7 @@ impl<'a, M: BudgetMeter> BoxOptimizationWorkspace<'a, M> {
                 }
             }
         } else {
-            for (slope, displacement) in whole.slopes().iter().zip(&delta) {
+            for (slope, displacement) in slope_bounds.iter().zip(&delta) {
                 let contribution = self.work.mul(slope, displacement)?;
                 centered = self.work.add(&centered, &contribution)?;
             }
@@ -659,7 +693,7 @@ impl<'a, M: BudgetMeter> BoxOptimizationWorkspace<'a, M> {
             .intersect(&centered)
             .ok_or(BoxOptimizationError::InconsistentEnclosure)?;
         check_ball(&range)?;
-        if let Some(monotone) = self.monotone_range(domain, whole.slopes())? {
+        if let Some(monotone) = self.monotone_range(domain, slope_bounds)? {
             self.work.arithmetic(&[&range, &monotone], &[])?;
             range = range
                 .intersect(&monotone)

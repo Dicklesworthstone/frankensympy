@@ -309,10 +309,14 @@ def optimize_box_certified(objective, args, box, *, kind="minimum",
 
     Smooth cells use C2 Taylor bounds. Continuous ``Abs`` compositions also
     admit corners through separate Lipschitz value and coordinate-slope
-    bounds; these do not assert a derivative, Hessian or stationary point at
-    the corner. Other primitives retain their strict source-domain checks,
-    including poles hidden by held zero products or zeroth powers. Singular
-    non-Lipschitz endpoints such as ``sqrt(Abs(x))`` at zero still refuse.
+    bounds. Square roots and positive literal rational powers on nonnegative
+    arguments, including zero endpoints, asin/acos on [-1, 1], acosh on
+    [1, infinity), and continuous compositions
+    such as sqrt(Abs(x)) can instead use value ranges without bounded slopes.
+    These cells use no derivative, Taylor or monotonicity shortcut. All paths
+    preserve original domain checks, including poles hidden by held zero
+    products or zeroth powers. No value receipt asserts differentiability,
+    a Hessian, or stationarity at a corner or endpoint.
 
     Source assumptions apply to the full box. Piecewise guards must have
     stable selections on neighborhoods of all verified cells; unresolved or
@@ -321,7 +325,8 @@ def optimize_box_certified(objective, args, box, *, kind="minimum",
     covers exact preparation, search, independent replay and publication.
     Failed bounded search, exhausted resources or cancellation returns no
     partial certificate. ``enclose_objective`` and the root/stationarity
-    certifiers retain their stricter C1/C2 requirements at ``Abs`` corners.
+    certifiers retain their stricter C1/C2 requirements at ``Abs`` corners
+    and finite continuous endpoints.
     """
     from ._box_optimization import optimize_box_certified as check
 
@@ -337,9 +342,10 @@ def begin_box_optimization(objective, args, box, *, kind="minimum",
 
     No symbolic derivative compilation is required. Like
     optimize_box_certified, this admits nonconvex smooth objectives and
-    continuous Abs compositions while retaining original-source domain
-    obligations. Exact bounds and tolerance, typed coordinate order, source
-    assumptions and options are fixed in the returned BoxOptimizationSearch.
+    continuous Abs compositions and finite continuous endpoints while retaining
+    original-source domain obligations. Exact bounds and tolerance, typed
+    coordinate order, source assumptions and options are fixed in the returned
+    BoxOptimizationSearch.
 
     advance performs bounded bisections; checkpoint saves canonical
     candidates. Only independent finish can publish global value bounds

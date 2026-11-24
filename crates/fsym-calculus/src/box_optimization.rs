@@ -200,6 +200,7 @@ fn widest_axis(
 /// fallback. The omitted factor two is common to every coordinate. A face
 /// proposal moves only coordinates whose whole-cell Lipschitz slope has a
 /// proved sign; slopes spanning zero leave that coordinate at the center.
+/// Continuous-only cells use width alone and cannot propose a monotone face.
 fn analyze_cell(
     workspace: &mut BoxOptimizationWorkspace<'_, impl BudgetMeter>,
     domain: &[RealBall],
@@ -207,11 +208,13 @@ fn analyze_cell(
     kind: BoxExtremumKind,
 ) -> Result<(Option<usize>, Option<Vec<BigRational>>)> {
     let widest = widest_axis(workspace, domain)?;
+    let Some(slopes) = enclosure.slope_bounds() else {
+        return Ok((widest, None));
+    };
     let mut weighted = None::<(usize, BigRational)>;
     let mut face = None::<Vec<BigRational>>;
     let zero = BigRational::zero();
-    for (axis, (coordinate, derivative)) in domain.iter().zip(enclosure.slope_bounds()).enumerate()
-    {
+    for (axis, (coordinate, derivative)) in domain.iter().zip(slopes).enumerate() {
         workspace.account(1, 0, 0)?;
         if coordinate.radius().is_zero() {
             continue;

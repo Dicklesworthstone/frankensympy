@@ -158,7 +158,7 @@ fn one_sided_corners_keep_monotone_faces_and_crossing_slopes_stay_uncertain() {
         .unwrap()
         .enclose_cell(std::slice::from_ref(&domain))
         .unwrap();
-        assert_eq!(cell.slope_bounds(), [slopes]);
+        assert_eq!(cell.slope_bounds(), Some([slopes].as_slice()));
         assert_eq!(cell.range(), &range);
     }
     // A positive whole-cell coordinate slope remains meaningful even though
@@ -202,7 +202,7 @@ fn product_dynamic_power_and_binary_composition_enclose_independent_values() {
             .enclose_cell(&domain)
             .unwrap();
         assert!(cell.range().contains(&expected), "{source}");
-        assert_eq!(cell.slope_bounds().len(), 2);
+        assert_eq!(cell.slope_bounds().unwrap().len(), 2);
     }
 }
 
@@ -245,7 +245,9 @@ fn fallback_never_cancels_away_original_poles_undefined_children_or_unknown_func
         power(x.clone(), -1),
         function("log", x.clone()),
         function("log", abs(x.clone())),
-        function("sqrt", abs(x.clone())),
+        // sqrt(abs(x)) now has a continuous value enclosure. The negative
+        // radicand remains non-real and must not be erased by a held parent.
+        function("sqrt", Expr::Mul(vec![Expr::from_i64(-1), abs(x.clone())])),
         power(abs(x.clone()), 0),
         Expr::Function("atan2".into(), vec![abs(x.clone()), Expr::from_i64(-1)]),
         function("unknown", x.clone()),
