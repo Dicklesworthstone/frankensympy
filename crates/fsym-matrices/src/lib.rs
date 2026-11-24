@@ -910,8 +910,10 @@ impl Matrix {
     /// Determinant computation for a square matrix.
     ///
     /// Exact integer/rational matrices use row-denominator clearing followed
-    /// by fraction-free Bareiss elimination. Symbolic matrices retain bounded
-    /// Laplace expansion, which makes no unproved symbolic pivot decision.
+    /// by fraction-free Bareiss elimination. Closed Gaussian-rational sources
+    /// use independently checked LU through dimension32 with cumulative work
+    /// limits. Symbolic matrices retain bounded Laplace expansion, which makes
+    /// no unproved symbolic pivot decision.
     pub fn det(&self) -> Result<Expr, MatrixError> {
         self.validate_shape()?;
         if self.rows != self.cols {
@@ -923,6 +925,12 @@ impl Matrix {
             .all(|entry| matches!(entry, Expr::Integer(_) | Expr::Rational(_)))
         {
             return self.metered_det(&mut fsym_budget::Unbounded);
+        }
+        // Select the closed exact domain from original syntax before doing
+        // arithmetic. Admitted poles, budget failures and coefficient growth
+        // are terminal; they cannot retry through a simplifying expansion.
+        if self.has_gaussian_rational_syntax_with_meter(&mut fsym_budget::Unbounded)? {
+            return self.metered_gaussian_det(&mut fsym_budget::Unbounded);
         }
         if self.rows > MAX_DETERMINANT_DIMENSION {
             return Err(MatrixError::ResourceLimit(format!(

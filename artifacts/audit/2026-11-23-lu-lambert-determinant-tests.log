@@ -1,0 +1,230 @@
+Native validation transcripts. See accompanying JSON for exact compiled blob identities and corrected findings.
+
+## Lambert core and solver pass; this transcript also contains the superseded derivative comparator failure described in the audit
+Log source: native-real-lambert-20261124-rerun.log
+
+COMMAND: cargo test --locked --offline -p fsym-core --test real_lambert_certificate -j1
+   Compiling fsym-core v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-next-20261124/crates/fsym-core)
+    Finished `test` profile [unoptimized] target(s) in 6.61s
+     Running tests/real_lambert_certificate.rs (/tmp/frankensympy-native-20261124/target/debug/build/fsym-core/e87d23f8117d6884/out/real_lambert_certificate-e87d23f8117d6884)
+
+running 15 tests
+test branch_point_and_zero_argument_are_not_duplicated ... ok
+test caller_budgets_are_cumulative_and_cancellation_never_publishes_partial_roots ... ok
+test certified_comparisons_cover_both_exponent_signs_and_both_root_counts ... ok
+test coordinate_identity_and_unsupported_original_nodes_are_preserved ... ok
+test every_changed_coefficient_and_original_source_is_rejected ... ok
+test exact_principal_special_value_is_lifted_as_a_rational_root ... ok
+test exp_equals_affine_reverses_branches_after_negative_affine_map ... ok
+test explicit_lambert_branches_have_profile_correct_exact_special_values ... ok
+test lower_than_minimum_is_proved_empty_and_nearby_sides_remain_distinct ... ok
+test nonlinear_and_mismatched_exponential_sources_cannot_fake_the_normal_form ... ok
+test original_poles_and_undefined_values_survive_zero_products_and_powers ... ok
+test oversized_inputs_fail_before_unbounded_recursion_or_integer_arithmetic ... ok
+test positive_argument_has_one_source_bound_principal_root ... ok
+test shifted_scaled_and_negative_slope_forms_keep_exact_arguments ... ok
+test two_negative_argument_branches_are_complete_and_distinct ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+EXIT: 0
+COMMAND: cargo test --locked --offline -p fsym-solvers --test real_lambert -j1
+   Compiling fsym-core v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-next-20261124/crates/fsym-core)
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-next-20261124/crates/fsym-assumptions)
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-next-20261124/crates/fsym-proof-kernel)
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-next-20261124/crates/fsym-evidence)
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-next-20261124/crates/fsym-polys)
+   Compiling fsym-simplify v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-next-20261124/crates/fsym-simplify)
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-next-20261124/crates/fsym-calculus)
+   Compiling fsym-sets v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-next-20261124/crates/fsym-sets)
+   Compiling fsym-solvers v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-next-20261124/crates/fsym-solvers)
+    Finished `test` profile [unoptimized] target(s) in 43.71s
+     Running tests/real_lambert.rs (/tmp/frankensympy-native-20261124/target/debug/build/fsym-solvers/2bdaf75b078f9d90/out/real_lambert-2bdaf75b078f9d90)
+
+running 9 tests
+test cancellation_during_verification_cannot_publish_after_generator_cancelled ... ok
+test common_mixed_transcendental_equations_have_complete_real_solutions ... ok
+test exact_sparse_expansion_and_affine_argument_normalization_compose ... ok
+test generator_and_verifier_failures_keep_their_separate_cumulative_ledgers ... ok
+test nonmatching_equations_remain_available_to_existing_solver_lanes ... ok
+test reciprocal_rational_constants_are_exact_and_original_dynamic_poles_refuse ... ok
+test tangencies_and_vanishing_rhs_return_one_exact_finite_root ... ok
+test translated_rescaled_equations_expose_exact_normal_form_coefficients ... ok
+test typed_coordinate_identity_survives_generator_and_verifier ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+EXIT: 0
+COMMAND: cargo test --locked --offline -p fsym-calculus --test lambert_derivative -j1
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-next-20261124/crates/fsym-calculus)
+    Finished `test` profile [unoptimized] target(s) in 0.37s
+     Running tests/lambert_derivative.rs (/tmp/frankensympy-native-20261124/target/debug/build/fsym-calculus/14f731a9ed7b2314/out/lambert_derivative-14f731a9ed7b2314)
+
+running 4 tests
+test both_real_branches_obey_the_differentiated_defining_identity ... FAILED
+test fixed_branch_does_not_create_a_dependency_on_an_unrelated_variable ... ok
+test principal_derivative_at_e_has_the_exact_inverse_function_value ... ok
+test symbolic_branch_parameter_is_not_silently_frozen ... ok
+
+failures:
+
+---- both_real_branches_obey_the_differentiated_defining_identity stdout ----
+
+thread 'both_real_branches_obey_the_differentiated_defining_identity' (313) panicked at crates/fsym-calculus/tests/lambert_derivative.rs:22:9:
+assertion `left == right` failed
+  left: Add([Mul([Integer(BigInt(3)), Pow(Mul([Add([Integer(BigInt(1)), Function("LambertW", [Add([Integer(BigInt(2)), Mul([Integer(BigInt(3)), Sym(Symbol { name: "lambert_derivative_x", identity: None })])])])]), Add([Integer(BigInt(2)), Mul([Integer(BigInt(3)), Sym(Symbol { name: "lambert_derivative_x", identity: None })])])]), Integer(BigInt(-1))), Function("LambertW", [Add([Integer(BigInt(2)), Mul([Integer(BigInt(3)), Sym(Symbol { name: "lambert_derivative_x", identity: None })])])]), Add([Integer(BigInt(1)), Function("LambertW", [Add([Integer(BigInt(2)), Mul([Integer(BigInt(3)), Sym(Symbol { name: "lambert_derivative_x", identity: None })])])])]), Add([Integer(BigInt(2)), Mul([Integer(BigInt(3)), Sym(Symbol { name: "lambert_derivative_x", identity: None })])])]), Mul([Integer(BigInt(-3)), Function("LambertW", [Add([Integer(BigInt(2)), Mul([Integer(BigInt(3)), Sym(Symbol { name: "lambert_derivative_x", identity: None })])])])])])
+ right: Integer(BigInt(0))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    both_real_branches_obey_the_differentiated_defining_identity
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p fsym-calculus --test lambert_derivative`
+EXIT: 101
+
+## Final corrected independent Lambert derivative identity checks
+Log source: native-lambert-derivative-20261124-rerun.log
+
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-next-20261124/crates/fsym-calculus)
+    Finished `test` profile [unoptimized] target(s) in 0.64s
+     Running tests/lambert_derivative.rs (/tmp/frankensympy-native-20261124/target/debug/build/fsym-calculus/14f731a9ed7b2314/out/lambert_derivative-14f731a9ed7b2314)
+
+running 4 tests
+test both_real_branches_obey_the_differentiated_defining_identity ... ok
+test fixed_branch_does_not_create_a_dependency_on_an_unrelated_variable ... ok
+test principal_derivative_at_e_has_the_exact_inverse_function_value ... ok
+test symbolic_branch_parameter_is_not_silently_frozen ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+
+## Final checked determinant and LU suites
+Log source: native-gaussian-determinant-lu-20261124-rerun.log
+
+   Compiling fsym-matrices v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-next-20261124/crates/fsym-matrices)
+    Finished `test` profile [unoptimized] target(s) in 8.01s
+     Running tests/gaussian_determinant.rs (/tmp/frankensympy-native-20261124/target/debug/build/fsym-matrices/7fe689e5d526acc7/out/gaussian_determinant-7fe689e5d526acc7)
+
+running 13 tests
+test closed_exact_held_arithmetic_is_selected_before_simplification ... ok
+test complete_rank_check_establishes_zero_for_singular_complex_sources ... ok
+test complex_triangular_determinants_reach_the_thirty_two_axis_boundary ... ok
+test default_dispatch_preserves_the_rational_and_symbolic_lanes ... ok
+test determinant_uses_one_ledger_through_independent_check_and_scalar_publication ... ok
+test dimensions_input_height_and_published_height_are_bounded ... ok
+test empty_determinant_is_one_and_nonempty_zero_determinants_are_zero ... ok
+test empty_determinant_still_has_a_checked_publication_checkpoint ... ok
+test exact_odd_and_even_row_permutations_contribute_the_correct_sign ... ok
+test exhaustive_two_by_two_results_match_integer_pair_ad_minus_bc ... ok
+test nonsquare_matrices_refuse_including_zero_area_rectangles ... ok
+test original_held_poles_cannot_disappear_in_a_zero_determinant ... ok
+test rational_complex_components_remain_exact_without_binary64_conversion ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s
+
+     Running tests/gaussian_lu.rs (/tmp/frankensympy-native-20261124/target/debug/build/fsym-matrices/986865eb2b8ffa6a/out/gaussian_lu-986865eb2b8ffa6a)
+
+running 20 tests
+test checker_accepts_a_hand_built_complex_rectangular_witness ... ok
+test empty_factor_publication_accepts_exact_recorded_budgets ... ok
+test exact_original_source_and_tiny_complex_factor_mutants_are_rejected ... ok
+test exact_pivot_policy_uses_the_first_nonzero_row_not_largest_magnitude ... ok
+test exhaustive_two_by_two_ranks_agree_with_integer_pair_determinants ... ok
+test forged_undefined_factors_and_oversized_inputs_fail_closed ... ok
+test gaussian_division_retains_exact_fractional_complex_multipliers ... ok
+test held_poles_and_unsupported_children_are_not_erased_by_zero_rows ... ok
+test imaginary_pivots_have_exact_unit_lower_factors ... ok
+test independent_replay_has_terminal_cancel_and_resource_limits ... ok
+test late_row_swaps_move_previously_computed_lower_multipliers ... ok
+test malformed_shapes_swaps_and_rank_reports_are_rejected_before_indexing ... ok
+test multiple_forward_swaps_have_the_correct_permutation_orientation ... ok
+test one_cumulative_budget_covers_generation_reconstruction_and_publication ... ok
+test rank_deficient_zero_leading_columns_do_not_require_diagonal_pivots ... ok
+test reconstruction_alone_does_not_establish_unit_lower_or_echelon_structure ... ok
+test tall_matrices_keep_full_square_lower_factor_and_original_upper_shape ... ok
+test wide_matrices_skip_zero_columns_and_place_multipliers_by_pivot_row ... ok
+test zero_and_empty_shapes_retain_full_lower_identity_without_invented_rank ... ok
+test zero_permutations_cannot_erase_source_rows_under_a_valid_product_identity ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.50s
+
+
+## Existing matrix library regressions after determinant dispatch change
+Log source: native-matrix-lib-post-lu-det-20261124.log
+
+   Compiling fsym-matrices v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-next-20261124/crates/fsym-matrices)
+    Finished `test` profile [unoptimized] target(s) in 5.25s
+     Running unittests src/lib.rs (/tmp/frankensympy-native-20261124/target/debug/build/fsym-matrices/fa46ff532f87353a/out/fsym_matrices-fa46ff532f87353a)
+
+running 64 tests
+test pseudoinverse::gaussian::least_squares::tests::original_hermitian_residual_rejects_the_transpose_only_answer ... ok
+test pseudoinverse::gaussian::qr::tests::independent_scale_checker_accepts_exact_nonsquare_and_fractional_anchors ... ok
+test pseudoinverse::gaussian::qr::tests::independent_scale_checker_rejects_wrong_branches_and_unknown_scalar_shapes ... ok
+test pseudoinverse::gaussian::qr::tests::normalization_products_bound_coefficients_radicals_and_grammar_before_arithmetic ... ok
+test pseudoinverse::gaussian::tests::hermitian_reference_checks_diagonal_reality_and_conjugate_pairs ... ok
+test pseudoinverse::gaussian::tests::malformed_private_storage_is_rejected_before_rectangular_indexing ... ok
+test sparse_rref::tests::rectangular_residual_reference_binds_every_original_rhs_row ... ok
+test sparse_rref::tests::rectangular_residual_reference_rejects_wrong_and_nearly_right_solutions ... ok
+test tests::bareiss_matches_independent_rational_elimination ... ok
+test tests::char_poly_of_diagonal_factors_exactly ... ok
+test tests::charpoly_certificate_verifies_reference_evaluations ... ok
+test tests::charpoly_verifier_rejects_mutants ... ok
+test tests::determinant_budget_and_cancellation_never_publish_a_partial_value ... ok
+test tests::determinant_preflights_resource_bounds_and_preserves_symbolic_lane ... ok
+test tests::eigenvalues_beyond_quadratic_degree_keep_multiplicity ... ok
+test tests::eigenvalues_of_diagonal_matrix_are_exact ... ok
+test tests::eigenvalues_of_rotation_are_symbolic_roots ... ok
+test tests::empty_and_scalar_matrix_algebra_is_exact ... ok
+test tests::exact_determinants_cross_old_laplace_cap_with_pivots_and_singularities ... ok
+test tests::exact_fold_handles_typed_nonnegative_rational_powers ... ok
+test tests::lu_verifier_rejects_orthogonal_non_permutation_matrix ... ok
+test tests::matrix_construction_and_wire_decode_reject_invalid_shapes ... ok
+test tests::matrix_polynomial_evaluation_preflights_shape_and_aggregate_work ... ok
+test tests::non_square_inverse_and_charpoly_refused ... ok
+test tests::nullspace_certificate_wire_bounds_vector_count ... ok
+test tests::nullspace_certificate_wire_refuses_invalid_export ... ok
+test tests::nullspace_refuses_quadratic_output_amplification ... ok
+test tests::numeric_inverse_times_original_is_identity ... ok
+test tests::qr_refuses_symbolic_nonzero_assumptions ... ok
+test tests::rank_matches_independent_row_count ... ok
+test tests::rational_inverse_uses_row_reduction_above_eight_dimensions ... ok
+test tests::singular_numeric_matrix_is_refused ... ok
+test tests::sparse_operations_preserve_partial_entries_and_preflight_fill ... ok
+test tests::sparse_trace_scales_with_stored_entries_instead_of_declared_dimensions ... ok
+test tests::sparse_wire_rejects_out_of_bounds_entries ... ok
+test tests::symbolic_characteristic_polynomial_refuses_eigenvalues ... ok
+test tests::symbolic_zero_decisions_are_refused ... ok
+test tests::test_eigenvalues_sturm_certificate_adversarial_tampering ... ok
+test tests::test_eigenvalues_with_sturm_certificate_2x2_diagonal ... ok
+test tests::test_eigenvalues_with_sturm_certificate_2x2_repeated ... ok
+test tests::test_eigenvalues_with_sturm_certificate_2x2_rotation_no_real_roots ... ok
+test tests::test_eigenvalues_with_sturm_certificate_3x3_companion_cubic ... ok
+test tests::test_eigenvalues_with_sturm_certificate_3x3_distinct ... ok
+test tests::test_eigenvalues_with_sturm_certificate_4x4_repeated ... ok
+test tests::test_exact_ldl_decomposition_and_verification ... ok
+test tests::test_exact_least_squares_solve ... ok
+test tests::test_exact_linear_system_solve_and_verification ... ok
+test tests::test_exact_qr_decomposition_and_verification ... ok
+test tests::test_inverse_certificate_and_verification ... ok
+test tests::test_jacobian_computation ... ok
+test tests::test_lu_decomposition_and_verification ... ok
+test tests::test_matrix_add_sub_scalar_mul_and_hadamard ... ok
+test tests::test_matrix_cofactor_adjugate_pow_and_frobenius_norm ... ok
+test tests::test_matrix_det_2x2 ... ok
+test tests::test_matrix_diag_and_shape_predicates ... ok
+test tests::test_matrix_eye_matmul ... ok
+test tests::test_matrix_kron_and_skew_symmetric ... ok
+test tests::test_matrix_trace ... ok
+test tests::test_mutant_tampered_certificates_rejected ... ok
+test tests::test_nullspace_certificate_and_verification ... ok
+test tests::test_rref_and_nullspace_computation ... ok
+test tests::test_sparse_dense_roundtrip_and_matmul ... ok
+test tests::zero_area_shapes_still_bound_each_dimension ... ok
+test tests::zero_dimension_metered_operations_do_not_issue_zero_charges ... ok
+
+test result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.17s
+
+

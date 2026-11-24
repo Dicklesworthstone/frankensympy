@@ -16,7 +16,7 @@ _NAMES = ("shape", "is_exact_rational", "validate_gaussian_pseudoinverse_source"
           "pinv", "solve_least_squares", "least_squares_family", "to_sparse",
           "solve", "inv", "has_gaussian_rational_syntax", "gaussian_qr",
           "gaussian_rref", "gaussian_nullspace", "gaussian_gauss_jordan_solve",
-          "gaussian_lu", "lu")
+          "gaussian_lu", "lu", "gaussian_det")
 _METHODS = tuple(_source._DICT.__get__(_NATIVE)[name] for name in _NAMES)
 _CLASSES = (_source.Matrix, _source.ImmutableDenseMatrix)
 _SPARSE_CLASSES = (_source.SparseMatrix, _source.ImmutableSparseMatrix)
@@ -31,7 +31,7 @@ def _interfaces(operation, context, base):
     namespace = _source._DICT.__get__(_NATIVE)
     required = ((0, 1, 2, operation, 6) if operation in (5, 7, 11, 12, 13, 14, 15)
                 else (0, 1, 2, operation))
-    if operation in (8, 11, 12, 13):
+    if operation in (8, 11, 12, 13, 16):
         required += (9,)
     if any(namespace.get(_NAMES[index]) is not _METHODS[index]
            for index in required):
@@ -242,7 +242,7 @@ def _legacy_rational_view(matrix, operation, context):
     if not literal:
         # Preserve previous symbolic inverse/reduction lanes for a plain subclass;
         # this syntactic decision precedes all exact algorithm execution.
-        if operation in (8, 11, 12) and dense and type(native) is _NATIVE:
+        if operation in (8, 11, 12, 16) and dense and type(native) is _NATIVE:
             exact = _METHODS[9](native, session=_active_callback_session())
             unchanged()
             if not exact:

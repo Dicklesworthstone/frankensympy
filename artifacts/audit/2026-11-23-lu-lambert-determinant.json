@@ -1,0 +1,152 @@
+{
+  "schema_version": 1,
+  "session_date": "2026-11-23",
+  "repository": "Dicklesworthstone/frankensympy",
+  "baseline_commit": "3ed3285ea4e947bc4920a855c5bd4f0541bc0fd8",
+  "preceding_feature_commits": [
+    "0e7ac835a3d3e594b86dc5baf76293797bdff62a",
+    "374a272d4bee6d8b7feca658397e37e75ecb0124",
+    "dbe5badc88743fa9b73ee0aeb5d141aa4fb4a9d3",
+    "4f7fbcdbff6201890ec9788f313e820941fbf215"
+  ],
+  "scope": [
+    "Checked rectangular exact Q(i) LU with complete echelon rank and ordered row swaps",
+    "Dense/sparse mutable/immutable LUdecomposition and legacy lu permutation-matrix alias",
+    "Complete real roots of exact rational affine/exponential Lambert-W equations",
+    "Independent source-normal-form and real-branch verifier, exact specials and fixed-branch derivatives",
+    "Checked complex determinants through dimension32 with original-source checks"
+  ],
+  "native_validation": {
+    "toolchain": "nightly-2026-08-20; rustc1.100.0-nightly f7d782a3b",
+    "command_prefix": "cargo test --locked --offline -j1 -p",
+    "settings": {
+      "RUSTFLAGS": "-D warnings",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "RUST_TEST_THREADS": "1"
+    },
+    "targets": [
+      {
+        "target": "fsym-core --test real_lambert_certificate",
+        "passed": 15,
+        "failed": 0
+      },
+      {
+        "target": "fsym-solvers --test real_lambert",
+        "passed": 9,
+        "failed": 0
+      },
+      {
+        "target": "fsym-calculus --test lambert_derivative",
+        "passed": 4,
+        "failed": 0
+      },
+      {
+        "target": "fsym-matrices --test gaussian_determinant",
+        "passed": 13,
+        "failed": 0
+      },
+      {
+        "target": "fsym-matrices --test gaussian_lu",
+        "passed": 20,
+        "failed": 0
+      },
+      {
+        "target": "fsym-matrices --lib",
+        "passed": 64,
+        "failed": 0
+      }
+    ],
+    "total_distinct_tests_passed": 125,
+    "compiled_source_git_blobs": {
+      "crates/fsym-core/src/lib.rs": "aef696f1eabed4318e49e397a1d380b736877771",
+      "crates/fsym-core/src/lambert.rs": "87ceeb455eb4be29eea9ce500e58a16f891b03c5",
+      "crates/fsym-core/src/elementary.rs": "6eab74ccb903ec71db0cfb7df35f40977749b92b",
+      "crates/fsym-core/tests/real_lambert_certificate.rs": "c9b1ac70de784827d9b449bdfd77b14886b8d857",
+      "crates/fsym-solvers/src/lib.rs": "41cd87725a639e06e202d0cfe9a59f46c1c77372",
+      "crates/fsym-solvers/src/lambert.rs": "fc6eac31c0819354d09f44befa5881dab3430e0c",
+      "crates/fsym-solvers/tests/real_lambert.rs": "4deec90b254a97f576e2bd46c6a58ecb5227d233",
+      "crates/fsym-calculus/src/lib.rs": "25419156777bdcbef7bbfd9c43be8ff7a77bae7c",
+      "crates/fsym-calculus/tests/lambert_derivative.rs": "41a186f9df7b6dacf45f8259008f4db31bb57054",
+      "crates/fsym-matrices/src/lib.rs": "8d2723d41011394e94e7ab6cec5b59e01bd1a390",
+      "crates/fsym-matrices/src/pseudoinverse.rs": "5b63a6dd334e5a7e4a21797288d400aad7a4caac",
+      "crates/fsym-matrices/src/pseudoinverse/gaussian.rs": "31d0812e37182221a0d73c8f689bac9c2f61048e",
+      "crates/fsym-matrices/src/pseudoinverse/gaussian/lu.rs": "b04664b7cbd9ba5216f645a3596e1b4936654db2",
+      "crates/fsym-matrices/tests/gaussian_lu.rs": "077eae697fd6f940ffd4b6cc9641cff49de5e555",
+      "crates/fsym-matrices/tests/gaussian_determinant.rs": "ce10a892fc4cecb4d7d4e11cd5333f39c1a5676e"
+    },
+    "binding": "Exact compiled source identities are recorded here; final remote main verification is reported separately."
+  },
+  "upstream_oracle": {
+    "version": "SymPy1.14.0",
+    "isolated": true,
+    "suites": [
+      {
+        "path": "python/tests/test_matrix_lu_exact.py",
+        "passed": 96,
+        "native_only_skipped": 19,
+        "failed": 0
+      },
+      {
+        "path": "python/tests/test_matrix_complex_determinant.py",
+        "passed": 62,
+        "native_only_skipped": 33,
+        "failed": 0
+      }
+    ],
+    "limits": "These results validate expected ordinary mathematical/public forms against upstream; they do not execute the candidate extension. The new real Lambert solveset behavior is a development extension, not an upstream form-parity claim."
+  },
+  "corrected_findings": [
+    "The generic interval-box64MiB reservation exhausted Lambert64MiB accounting on ordinary negative arguments. Direct use of the existing certified positive-exponential kernel passes all real-branch cases with the same4M/64MiB caps.",
+    "The derivative test initially asked general simplify to cancel a correct rational residual. Independent rational-source replay now checks the same defining identity and rejects planted nonzero derivative perturbations.",
+    "Dense permutation multiplication exhausted the determinant20M cap at the boundary. Direct checked row selection and zero-aware triangular reference convolution preserve every reconstruction coefficient and pass the unchanged32x32 result with the same caps.",
+    "Captured and guarded native Add/Mul/integer source builders prevent a replaced constructor from supplying another equation to the genuine Lambert verifier."
+  ],
+  "formatting": {
+    "changed_rust_files": "Pinned rustfmt with skip_children=true and immediate --check passed.",
+    "workspace_command": "cargo fmt --all -- --check",
+    "workspace_exit_code": 1,
+    "workspace_cause": "Formatting differences in33 untouched files of the pinned asupersync sibling; no diff under the FrankenSymPy worktree and no parser diagnostics. No donor files were changed."
+  },
+  "full_extension_and_workspace_limits": {
+    "candidate_python_suites_executed": false,
+    "extension_build": "The previous cargo check --locked -p fsym-python --lib -j1 was killed with signal9 during pinned asupersync metadata generation. The current production feature graph offers no genuinely smaller bridge build. The identical heavy attempt was not repeated.",
+    "full_workspace_check_clippy_test": "Not completed; focused production native crates and required formatter were run. No dependency shim, source substitution, or weakened gate was used.",
+    "hosted_ci_last_observed": {
+      "head": "4f7fbcdbff6201890ec9788f313e820941fbf215",
+      "run_id": 45308013170,
+      "name": "CI Gate Topology",
+      "status": "queued"
+    }
+  },
+  "claim_status": "implemented_uncertified",
+  "beads_read": [
+    "fra-kfo",
+    "fra-7kf",
+    "fra-a5x",
+    "fra-o4g",
+    "fra-546"
+  ],
+  "beads_closed": [],
+  "compatibility_profiles_certified": [],
+  "performance_claims": [],
+  "python_ast_validation": {
+    "files": [
+      "python/sympy/matrices/_lu.py",
+      "python/sympy/matrices/_determinant.py",
+      "python/sympy/matrices/_pseudoinverse.py",
+      "python/sympy/matrices/dense.py",
+      "python/sympy/matrices/sparse.py",
+      "python/sympy/solvers/_lambert_real.py",
+      "python/sympy/__init__.py",
+      "python/sympy/functions/elementary/exponential.py",
+      "python/tests/test_matrix_lu_exact.py",
+      "python/tests/test_matrix_complex_determinant.py",
+      "python/tests/test_real_lambert_solving.py",
+      "python/tests/test_surface.py"
+    ],
+    "count": 12,
+    "status": "passed"
+  }
+}

@@ -459,6 +459,11 @@ class Matrix(MatrixBase):
         return _wrap(self._native.trace())
 
     def det(self, method=None):
+        from ._determinant import determinant_if_needed
+
+        exact = determinant_if_needed(self)
+        if exact is not None:
+            return exact
         return _wrap(self._native.det())
 
     def inv(self, method=None, **kwargs):

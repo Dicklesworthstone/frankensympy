@@ -1541,6 +1541,35 @@ standalone literal-rational square calls retain their larger native envelope
 when `rankcheck` is false. These are development APIs with same-crate reference
 checks; no compatibility profile is certified by this addition.
 
+## Exact complex determinants through checked LU (development API)
+
+Dense and sparse `det()` now use checked LU for closed Gaussian-rational
+matrices through dimension32, removing the previous dimension8 cofactor
+expansion restriction for this exact domain:
+
+```python
+from sympy import I, eye
+
+A = (1 + I)*eye(9)
+assert A.det() == 16 + 16*I
+```
+
+The determinant follows from the independently checked permutation and unit
+lower-triangular factors: the signed product of `U`'s diagonal entries.
+Rank deficiency yields zero only after complete original-source admission and
+the reconstruction check. The empty determinant is one. Original source,
+factor generation, checking, multiplication, and scalar publication share the
+same cumulative work ledger. The checker uses exact permutation row selection
+and skips zero products only after all original and candidate entries have
+been admitted; it still checks every reconstruction coefficient.
+
+Standalone literal-rational inputs retain the existing fraction-free Bareiss
+path, and symbolic inputs retain the bounded symbolic path. A defined held
+singleton determinant retains its original Python cell after native checking.
+The checked Q(i) path keeps the 32-axis, 4096-bit component, 20-million-step,
+and 256-MiB charged-storage limits; it does not imply that every input within
+the dimension limit fits the arithmetic-growth budget.
+
 ## Exact complex QR decomposition (development API)
 
 Dense `Matrix.QRdecomposition()` and its `qr()` alias now admit bounded exact

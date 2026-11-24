@@ -962,6 +962,11 @@ class SparseMatrix(MatrixBase):
         return self._new(_checked_exponential(self, sparse=True))
 
     def det(self, method: Any = None) -> Any:
+        from ._determinant import determinant_if_needed
+
+        exact = determinant_if_needed(self)
+        if exact is not None:
+            return exact
         if self._native.is_exact_rational:
             return _wrap(self._native.det())
         return self.to_dense().det(method=method)

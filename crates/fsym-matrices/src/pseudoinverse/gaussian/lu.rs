@@ -236,12 +236,37 @@ fn verify(
         }
     }
 
-    // This dense reference convolution neither replays elimination nor calls
-    // the generator's quotient helper, expression simplifier or numeric LU.
-    let permuted = permutation.multiply(&original, work)?;
-    let reconstructed = lower.multiply(&upper, work)?;
-    if !permuted.equal(&reconstructed, work)? {
-        return Err(invalid("P A differs from L U for the original source"));
+    // Check every original P A = L U coefficient directly. The independently
+    // checked row labels select P A without cubic multiplication by a one-hot
+    // matrix. The checked lower triangle bounds the convolution. All original
+    // and proposed cells have already passed complete domain admission, so an
+    // exact zero factor may now skip arithmetic without hiding a held pole.
+    // No elimination, quotient helper, expression simplifier or numeric LU
+    // participates in this reference identity check.
+    for (row, &label) in labels.iter().enumerate() {
+        for column in 0..columns {
+            work.storage(128)?;
+            let mut sum = (BigRational::zero(), BigRational::zero());
+            for inner in 0..=row {
+                work.tick(1)?;
+                let left = lower.get(row, inner);
+                let right = upper.get(inner, column);
+                if is_zero(left) || is_zero(right) {
+                    continue;
+                }
+                let product = work.multiply(left, right)?;
+                sum = work.add(&sum, &product)?;
+            }
+            let expected = original.get(label, column);
+            let limbs = [&sum.0, &sum.1, &expected.0, &expected.1]
+                .iter()
+                .map(|value| value.numer().limb_count() + value.denom().limb_count())
+                .sum::<u64>();
+            work.tick(limbs + 1)?;
+            if &sum != expected {
+                return Err(invalid("P A differs from L U for the original source"));
+            }
+        }
     }
     work.tick(1)
 }
@@ -273,5 +298,51 @@ impl Matrix {
         verify(self, &candidate, &mut work)?;
         work.tick(1)?;
         Ok(candidate)
+    }
+
+    /// Exact square Q(i) determinant from an independently checked LU.
+    ///
+    /// The exact permutation and unit lower-triangular factor establish
+    /// det(A) = (-1)^swaps product(diag(U)). A deficient result becomes zero
+    /// only after complete source admission and the full reconstruction/rank
+    /// check. The empty determinant is one. All phases and scalar publication
+    /// retain one cumulative caller ledger and the existing Gaussian limits.
+    pub fn metered_gaussian_det(&self, meter: &mut impl BudgetMeter) -> Result<super::Expr> {
+        let mut work = Work::new(meter);
+        work.tick(1)?;
+        self.validate_shape()?;
+        if self.rows != self.cols {
+            return Err(MatrixError::NotSquare(self.rows, self.cols));
+        }
+        let candidate = propose(self, &mut work)?;
+        verify(self, &candidate, &mut work)?;
+        let upper = GaussianMatrix::read(&candidate.u, &mut work)?;
+        work.storage(128)?;
+        let mut determinant = if candidate.pivots.len() == self.rows {
+            (BigRational::one(), BigRational::zero())
+        } else {
+            (BigRational::zero(), BigRational::zero())
+        };
+        if candidate.pivots.len() == self.rows {
+            for index in 0..self.rows {
+                work.tick(1)?;
+                determinant = work.multiply(&determinant, upper.get(index, index))?;
+            }
+        }
+        if candidate.row_swaps.len() % 2 == 1 {
+            determinant.0 = work.negate(&determinant.0)?;
+            determinant.1 = work.negate(&determinant.1)?;
+        }
+        // Reuse the bounded exact Gaussian-to-Expr publication grammar.
+        let mut scalar = GaussianMatrix::zeros(1, 1, &mut work)?;
+        scalar.entries[0] = determinant;
+        let expression = scalar
+            .into_matrix(&mut work)?
+            .data
+            .into_iter()
+            .next()
+            .ok_or_else(|| invalid("determinant scalar publication lost its entry"))?;
+        work.tick(1)?;
+        Ok(expression)
     }
 }

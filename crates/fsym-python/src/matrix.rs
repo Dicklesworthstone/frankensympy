@@ -814,6 +814,33 @@ impl PyMatrix {
         Ok(PyExpr::from_expr(d))
     }
 
+    /// Exact Q(i) determinant from independently checked LU, with cumulative
+    /// source, factor, reference-check and scalar-publication accounting.
+    #[pyo3(signature = (*, session=None))]
+    pub fn gaussian_det(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<PyExpr> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = (|| {
+            meter.checkpoint().map_err(to_value_error)?;
+            let determinant = self
+                .inner
+                .metered_gaussian_det(&mut meter)
+                .map_err(matrix_err)?;
+            meter
+                .charge(Dimension::ComputeSteps, 1)
+                .map_err(to_value_error)?;
+            meter.checkpoint().map_err(to_value_error)?;
+            Ok(PyExpr::from_expr(determinant))
+        })();
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
+    }
+
     /// Borrowed rational-source admission before public snapshot copies.
     pub fn validate_rational_inertia_source(&self) -> PyResult<()> {
         self.inner
