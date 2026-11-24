@@ -99,6 +99,7 @@ impl PyIntegralEnclosureReceipt {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 #[pyfunction]
 #[pyo3(signature = (source, variable, lower, upper, absolute_tolerance, precision_digits=32, max_intervals=512, *, budget=None))]
 pub fn certified_integral_native(
