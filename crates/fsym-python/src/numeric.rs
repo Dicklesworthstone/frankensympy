@@ -40,11 +40,11 @@ use fsym_core::{
 use fsym_numeric_consumer::{
     LeastSquaresOptions, LeastSquaresTermination, MAX_CONSUMER_NEWTON_ITERATIONS,
     MAX_CONSUMER_VARIABLES, MAX_LEAST_SQUARES_RESIDUALS, MAX_SPARSE_LEAST_SQUARES_RESIDUALS,
-    MAX_SPARSE_LEAST_SQUARES_VARIABLES, MAX_SPARSE_NEWTON_VARIABLES, NewtonGuards, RootProposal,
+    MAX_SPARSE_LEAST_SQUARES_VARIABLES, NewtonGuards, RootProposal,
     SystemConsumerError, frankenscipy_analytic_system_with_meter,
     frankenscipy_fsolve_system_with_meter, least_squares_with_meter,
     newton_refine_parametric_with_meter, newton_refine_with_meter, sparse_least_squares_with_meter,
-    sparse_newton_refine_with_meter,
+    sparse_newton_refine_with_meter, validate_sparse_root_shape,
 };
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -1808,14 +1808,7 @@ impl PyVerifiedResidualSystem {
         let variables = self.system.vars().len();
         let residuals = self.system.residuals().len();
         if backend == "sparse" {
-            if !(1..=MAX_SPARSE_NEWTON_VARIABLES).contains(&variables) || residuals != variables {
-                return Err(crate::to_value_error(
-                    SystemConsumerError::UnsupportedSparseRootShape {
-                        variables,
-                        residuals,
-                    },
-                ));
-            }
+            validate_sparse_root_shape(variables, residuals).map_err(crate::to_value_error)?;
         } else if !(1..=MAX_CONSUMER_VARIABLES).contains(&variables) || residuals != variables {
             return Err(crate::to_value_error(
                 SystemConsumerError::UnsupportedShape {

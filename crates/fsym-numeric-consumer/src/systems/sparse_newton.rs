@@ -10,7 +10,7 @@
 //! Each outer iteration fixes a residual scale and uses the corresponding
 //! normalized squared-residual merit for bounded Armijo backtracking. This
 //! avoids squaring very small or very large original residuals. The source,
-//! Jacobian, and final stopping test remain unscaled. Scratch is O(nnz + n),
+//! Jacobian, and final stopping test remain unscaled. Scratch is O(nnz + m + n),
 //! and every rejected direction/trial retains its cumulative meter charges.
 
 use super::sparse_linear::{
@@ -26,6 +26,7 @@ use fsym_budget::{BudgetMeter, Unbounded};
 use fsym_calculus::VerifiedResidualSystem;
 
 pub const MAX_SPARSE_NEWTON_VARIABLES: usize = 256;
+pub const MAX_SPARSE_NEWTON_RESIDUALS: usize = 4096;
 const MAX_BACKTRACKS: usize = 32;
 const ARMIJO: f64 = 1e-4;
 
@@ -43,7 +44,23 @@ pub fn sparse_newton_refine(
     sparse_newton_refine_with_meter(system, initial, guards, &mut Unbounded)
 }
 
-/// Propose a root of a square system with 1..=256 declared variables.
+/// Check dimensions before converting a caller's input or reserving solver buffers.
+pub fn validate_sparse_root_shape(
+    variables: usize,
+    residuals: usize,
+) -> Result<(), SystemConsumerError> {
+    if !(1..=MAX_SPARSE_NEWTON_VARIABLES).contains(&variables)
+        || !(variables..=MAX_SPARSE_NEWTON_RESIDUALS).contains(&residuals)
+    {
+        return Err(SystemConsumerError::UnsupportedSparseRootShape {
+            variables,
+            residuals,
+        });
+    }
+    Ok(())
+}
+
+/// Propose a root of a square or overdetermined system with 1..=256 variables.
 ///
 /// Admission bounds nonlinear iterations by 1024. Each iteration admits at
 /// most six damping attempts, 512 LSQR steps per direction, and 32 line-search
@@ -58,22 +75,18 @@ pub fn sparse_newton_refine_with_meter<M: BudgetMeter>(
 ) -> Result<RootProposal, SystemConsumerError> {
     meter.checkpoint()?;
     let n = system.num_vars();
-    if !(1..=MAX_SPARSE_NEWTON_VARIABLES).contains(&n) || system.num_residuals() != n {
-        return Err(SystemConsumerError::UnsupportedSparseRootShape {
-            variables: n,
-            residuals: system.num_residuals(),
-        });
-    }
+    let m = system.num_residuals();
+    validate_sparse_root_shape(n, m)?;
     validate_guards(guards)?;
     point_dimension(initial, n, "sparse Newton initial point")?;
     finite(initial, "sparse Newton initial point", meter)?;
     let mut point = copy_values(initial, meter)?;
-    let mut state = evaluate(system, &point, n, meter)?;
+    let mut state = evaluate(system, &point, m, meter)?;
     let mut trial_point = zeros(n, meter)?;
 
     for iteration in 0..=guards.max_iterations {
         if state.residual_norm <= guards.residual_tolerance {
-            let checked = evaluate(system, &point, n, meter)?;
+            let checked = evaluate(system, &point, m, meter)?;
             if checked.residual_norm > guards.residual_tolerance {
                 return Err(SystemConsumerError::ConsumerContract(
                     "sparse Newton final original residual agreement",
@@ -93,8 +106,8 @@ pub fn sparse_newton_refine_with_meter<M: BudgetMeter>(
         // This strictly positive scale is held fixed for this entire line
         // search. It changes neither its minimizer nor the stopping criterion.
         let residual_scale = state.residual_norm;
-        let mut normalized_residuals = zeros(n, meter)?;
-        charge(meter, (2 * n) as u64, 0, 0)?;
+        let mut normalized_residuals = zeros(m, meter)?;
+        charge(meter, (2 * m) as u64, 0, 0)?;
         for (normalized, &residual) in normalized_residuals.iter_mut().zip(&state.residuals) {
             *normalized = residual / residual_scale;
         }
@@ -160,7 +173,7 @@ pub fn sparse_newton_refine_with_meter<M: BudgetMeter>(
                     alpha *= 0.5;
                     continue;
                 }
-                let trial = match evaluate(system, &trial_point, n, meter) {
+                let trial = match evaluate(system, &trial_point, m, meter) {
                     Ok(trial) => trial,
                     Err(error) if trial_domain_failure(&error) => {
                         alpha *= 0.5;
@@ -221,13 +234,15 @@ fn stopped(iterations: usize, state: &Evaluation) -> SystemConsumerError {
 fn evaluate<M: BudgetMeter>(
     system: &VerifiedResidualSystem,
     point: &[f64],
-    n: usize,
+    residual_count: usize,
     meter: &mut M,
 ) -> Result<Evaluation, SystemConsumerError> {
     // Even an empty Jacobian pattern or a later zero direction cannot erase
     // any original residual or derivative domain check.
     let values = system.evaluate_sparse_with_meter(point, meter)?;
-    if values.residuals.len() != n || values.jacobian.len() != system.jacobian_pattern().len() {
+    if values.residuals.len() != residual_count
+        || values.jacobian.len() != system.jacobian_pattern().len()
+    {
         return Err(SystemConsumerError::ConsumerContract(
             "sparse Newton evaluation dimensions",
         ));

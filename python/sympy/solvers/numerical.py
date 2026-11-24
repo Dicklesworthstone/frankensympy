@@ -16,6 +16,7 @@ _MAX_NEWTON_ITERATIONS = 10_000
 _MAX_SYSTEM_VARIABLES = 64
 _MAX_SYSTEM_RESIDUALS = 256
 _MAX_SPARSE_ROOT_VARIABLES = 256
+_MAX_SPARSE_ROOT_RESIDUALS = 4096
 _MAX_JACOBIAN_ENTRIES = 4096
 _MAX_LINE_SEARCH_STEPS = 64
 _MAX_SYSTEM_EVALUATIONS = 4096
@@ -563,11 +564,13 @@ def _candidate_options(backend, tol, maxiter, max_step_norm, *, allow_python):
 
 def _candidate_shape(program, backend):
     columns = program.native_system.variable_count
-    maximum = _MAX_SPARSE_ROOT_VARIABLES if backend == "sparse" else 16
-    if not 1 <= columns <= maximum or program.native_system.residual_count != columns:
-        raise ValueError(
-            f"numerical consumers require a square system with 1..{maximum} variables"
-        )
+    rows = program.native_system.residual_count
+    if backend == "sparse":
+        if not (1 <= columns <= _MAX_SPARSE_ROOT_VARIABLES
+                and columns <= rows <= _MAX_SPARSE_ROOT_RESIDUALS):
+            raise ValueError("sparse roots require 1..256 variables and variable_count..4096 residuals")
+    elif not 1 <= columns <= 16 or rows != columns:
+        raise ValueError("numerical consumers require a square system with 1..16 variables")
     return columns
 
 
@@ -732,8 +735,8 @@ def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False, budget=Non
     scalar solver cannot be combined with the sparse backend, and bisection
     does not accept residual systems or invoke symbolic differentiation.
 
-    ``backend="sparse"`` selects native damped LSQR for square systems with
-    1..256 variables, including a scalar equation. It keeps checked sparse
+    ``backend="sparse"`` selects native damped LSQR for square or overdetermined
+    systems with 1..256 variables and up to 4096 residuals, including a scalar equation. It keeps checked sparse
     Jacobian storage and requires a freshly evaluated original residual
     infinity norm <= tol, never least-squares stationarity alone. Every source
     and stored derivative is checked even at an initially acceptable point.
@@ -781,9 +784,9 @@ def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False, budget=Non
         is_system = _is_vector(expr) or _is_vector(var)
         if is_system:
             variables = _vector(var, "variables", _MAX_SPARSE_ROOT_VARIABLES)
-            residuals = _vector(expr, "residuals", _MAX_SPARSE_ROOT_VARIABLES)
-            if len(variables) != len(residuals):
-                raise ValueError("sparse nsolve requires a square system")
+            residuals = _vector(expr, "residuals", _MAX_SPARSE_ROOT_RESIDUALS)
+            if len(variables) > len(residuals):
+                raise ValueError("sparse nsolve needs at least as many residuals as variables")
             variables = [_require_symbol(value) for value in variables]
         else:
             variables = [_require_symbol(var)]

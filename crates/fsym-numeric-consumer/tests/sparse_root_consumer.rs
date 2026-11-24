@@ -275,8 +275,37 @@ fn artifact_replay_and_same_named_typed_coordinates_preserve_the_solve() {
 }
 
 #[test]
+fn overdetermined_roots_use_constraints_beyond_the_variable_count() {
+    // The first two rows leave y completely undetermined. The last row
+    // supplies the missing equation and makes row truncation observable.
+    let source = system(&["x-2", "2*x-4", "x+y-5"], &["x", "y"]);
+    let guards = NewtonGuards::default();
+    let proposal = sparse_newton_refine(&source, &[1.0, 7.0], &guards).unwrap();
+    near(proposal.root[0], 2.0, 1e-10);
+    near(proposal.root[1], 3.0, 1e-10);
+    check_original_residuals(&source, &proposal, guards.residual_tolerance);
+
+    let inconsistent = system(&["x-2", "y-3", "1"], &["x", "y"]);
+    assert!(matches!(
+        sparse_newton_refine(&inconsistent, &[2.0, 3.0], &guards),
+        Err(SystemConsumerError::NoConvergence { .. })
+    ));
+}
+
+#[test]
+fn sparse_root_row_cap_includes_the_boundary() {
+    use fsym_numeric_consumer::{MAX_SPARSE_NEWTON_RESIDUALS, validate_sparse_root_shape};
+
+    assert!(validate_sparse_root_shape(1, MAX_SPARSE_NEWTON_RESIDUALS).is_ok());
+    assert!(matches!(
+        validate_sparse_root_shape(1, MAX_SPARSE_NEWTON_RESIDUALS + 1),
+        Err(SystemConsumerError::UnsupportedSparseRootShape { .. })
+    ));
+}
+
+#[test]
 fn unsupported_shapes_are_rejected_before_any_numerical_charges() {
-    for (rows, columns) in [(0, 0), (0, 1), (1, 0), (1, 2), (2, 1), (257, 257)] {
+    for (rows, columns) in [(0, 0), (0, 1), (1, 0), (1, 2), (257, 257)] {
         let variables: Vec<_> = (0..columns).map(|i| Symbol::new(format!("x{i}"))).collect();
         let source =
             VerifiedResidualSystem::try_compile(&vec![Expr::from_i64(0); rows], &variables)

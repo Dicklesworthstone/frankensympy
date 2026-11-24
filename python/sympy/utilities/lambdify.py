@@ -1037,7 +1037,7 @@ class _ResidualCallable:
                         maxiter=None, max_step_norm=None, budget=None):
         """Generate an approximate root with an explicitly selected numerical backend.
 
-        Systems must be square. ``initial`` is a finite
+        Dense backends require a square system. ``initial`` is a finite
         real scalar for one variable or a flat vector in ``variables`` order,
         including programs whose ordinary evaluation arguments are nested.
 
@@ -1058,8 +1058,8 @@ class _ResidualCallable:
         with at most 16 variables. It does not substitute finite differences
         when a derivative or linear solve refuses.
 
-        ``sparse`` admits 1..256 variables and uses checked sparse Jacobian
-        values with damped LSQR directions. It shares the FrankenNumPy route's
+        ``sparse`` admits 1..256 variables and between variable_count and 4096
+        residual rows. It uses checked sparse Jacobian values with damped LSQR directions. It shares the FrankenNumPy route's
         controls and defaults, while retaining sparse storage throughout the
         iteration. ``max_step_norm`` clips each proposed direction's infinity
         norm before backtracking. At most six damping strengths, 512 LSQR

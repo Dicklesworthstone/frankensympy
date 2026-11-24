@@ -673,7 +673,7 @@ the registered source, or select a replacement backend after a refusal.
 
 | Request | Explicit backend | Successful numerical result |
 | --- | --- | --- |
-| `SolveCompiledResidualSystem` | `frankennumpy`, `frankenscipy`, `frankenscipy_analytic`, or `sparse` | A point meeting the residual tolerance for a square system |
+| `SolveCompiledResidualSystem` | `frankennumpy`, `frankenscipy`, `frankenscipy_analytic`, or `sparse` | A point meeting the residual tolerance in every row. Sparse accepts square and overdetermined systems with 1–256 variables and up to 4096 rows. The other backends require square systems |
 | `SolveCompiledParametricSystem` | Fixed `frankennumpy` | A root of the unknown prefix at the supplied fixed parameter suffix |
 | `SolveCompiledLeastSquares` | `dense` or `sparse` | A point meeting the tolerance for the gradient of `0.5 * sum(residuals^2)` |
 | `MinimizeCompiledObjective` | Fixed Hessian-assisted descent using the admitted FrankenNumPy adapter | A point meeting the objective-gradient tolerance |

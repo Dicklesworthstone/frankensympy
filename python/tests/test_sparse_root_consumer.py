@@ -98,8 +98,34 @@ def test_scalar_equations_and_existing_defaults_keep_their_public_result_forms()
     assert program.solve_candidate(0).backend == "frankennumpy"
     assert program.solve_candidate(0, backend="frankennumpy").root == (1.0,)
     assert s.nsolve([x-1, 2*x-2], [x], [0]).shape == (1, 1)
+    result = s.nsolve([x-1, 2*x-2], [x], [0], backend="sparse")
+    assert result.shape == (1, 1) and float(result[0]) == pytest.approx(1.0)
+
+
+def test_sparse_rectangular_program_retains_all_equations_and_coordinate_order():
+    x, y = s.symbols("rectangular_x rectangular_y")
+    # Only the final row binds y. Exercise more than the old 256-row ceiling.
+    equations = [x-2] * 256 + [s.Eq(x+y, 5, evaluate=False)]
+    mapping, = s.nsolve(equations, (y, x), [0, 0], backend="sparse", dict=True)
+    assert [float(mapping[axis]) for axis in (y, x)] == pytest.approx([3, 2])
+    source = [x-2, 2*x-4, x+y-5]
+    program = s.compile_residual_system(source, (y, x))
+    proposal = program.solve_candidate([0, 0], backend="sparse")
+    assert proposal.root == pytest.approx([3, 2])
+    assert proposal.residual_norm == max(map(abs, program.residuals(*proposal.root)))
+    assert proposal.residual_norm <= 1e-12
+    native_root, norm, _ = program.native_system.solve_candidate([0, 0], backend="sparse")
+    assert native_root == pytest.approx([3, 2]) and norm <= 1e-12
     with pytest.raises(ValueError, match="square"):
-        s.nsolve([x-1, 2*x-2], [x], [0], backend="sparse")
+        program.solve_candidate([0, 0], backend="frankennumpy")
+    with pytest.raises(ValueError, match="square"):
+        s.nsolve_certified(source, (y, x), [0, 0], backend="sparse")
+
+
+def test_sparse_rectangular_root_rejects_nonzero_residual_at_stationarity():
+    x = s.Symbol("inconsistent_rectangular_x")
+    with pytest.raises(ValueError):
+        s.nsolve([x-1, x-3], (x,), [2], backend="sparse")
 
 
 def test_nonlinear_and_rank_deficient_roots_retain_the_original_residual_test():
@@ -243,17 +269,16 @@ def test_backend_selectors_require_strings_at_every_entrypoint(backend):
         s.nsolve(x-1, x, 0, backend=backend)
 
 
-def test_non_square_and_oversized_requests_refuse_before_input_hooks_or_work():
+def test_underdetermined_empty_and_oversized_requests_refuse_before_input_hooks_or_work():
     x, y = s.symbols("sparse_root_shape_x sparse_root_shape_y")
     programs = (
         s.compile_residual_system([], ()),
-        s.compile_residual_system([x, x+1], x),
         s.compile_residual_system([x+y], (x, y)),
     )
     for program in programs:
         for target in (program, program.native_system):
             budget = s.EvaluationBudget(max_steps=0, max_memory_bytes=0, max_allocations=0)
-            with pytest.raises(ValueError, match="square"):
+            with pytest.raises(ValueError, match="residuals"):
                 target.solve_candidate([object()], backend="sparse", budget=budget)
             assert tuple(getattr(budget, field) for field in BUDGET_FIELDS) == (0, 0, 0)
     variables = s.symbols("sparse_root_too_wide_0:257")

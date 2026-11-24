@@ -1,7 +1,8 @@
 //! Bounded numerical consumers for checked symbolic artifacts.
 //!
 //! Dense square root adapters accept 1..=16 variables; the explicit sparse
-//! proposer accepts 1..=256. One caller-owned ledger covers all proposal work.
+//! proposer accepts 1..=256 variables and up to 4096 residual rows. One caller-owned
+//! ledger covers all proposal work.
 //! Independent original-source root certification retains its separate bounds.
 //! Least-squares routes have separate explicit rectangular and sparse bounds.
 //! The pinned donors are synchronous. Cancellation is checked before and after
@@ -79,7 +80,7 @@ pub enum SystemConsumerError {
     )]
     UnsupportedShape { variables: usize, residuals: usize },
     #[error(
-        "expected a square sparse root system with 1..=256 variables; got {variables} variables and {residuals} residuals"
+        "sparse roots require 1..=256 variables and variable_count..=4096 residuals; got {variables} variables and {residuals} residuals"
     )]
     UnsupportedSparseRootShape { variables: usize, residuals: usize },
     #[error("{input} has {actual} coordinates; expected {expected}")]

@@ -189,6 +189,21 @@ fn all_root_backends_execute_local_and_replayed_programs_in_the_frozen_axis_orde
 }
 
 #[test]
+fn sparse_root_backend_accepts_overdetermined_systems_and_rechecks_every_row() {
+    let (mut session, _) = residual_session(limits(), &["x-2", "2*x-4", "x+y-5"], &["y", "x"]);
+    let result = success(solve(&mut session, "sparse", &["0", "0"]));
+    approximate(&result);
+    near_vector(&result["root"], &[3.0, 2.0], 1e-10);
+    assert!(number(&result["residual_norm"]) <= 1e-12);
+
+    let (mut inconsistent, _) = residual_session(limits(), &["x-1", "x-3"], &["x"]);
+    refused(
+        solve(&mut inconsistent, "sparse", &["2"]),
+        "numeric_no_convergence",
+    );
+}
+
+#[test]
 fn both_least_squares_backends_retain_every_inconsistent_residual_row() {
     let (mut session, compiled) = residual_session(limits(), &["x-1", "x-3", "x-5"], &["x"]);
     for backend in ["dense", "sparse"] {

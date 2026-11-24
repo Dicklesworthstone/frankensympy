@@ -17,13 +17,13 @@ use fsym_numeric_consumer::{
     LeastSquaresOptions, LeastSquaresProposal, MAX_CONSUMER_NEWTON_ITERATIONS,
     MAX_CONSUMER_VARIABLES, MAX_LEAST_SQUARES_RESIDUALS, MAX_MINIMIZE_ITERATIONS,
     MAX_MINIMIZE_VARIABLES, MAX_SPARSE_LEAST_SQUARES_RESIDUALS, MAX_SPARSE_LEAST_SQUARES_VARIABLES,
-    MAX_SPARSE_NEWTON_VARIABLES, MinimizationProposal, MinimizeOptions, NewtonGuards,
+    MinimizationProposal, MinimizeOptions, NewtonGuards,
     ObjectiveConsumerError, RootProposal, SystemConsumerError,
     frankenscipy_analytic_system_with_meter, frankenscipy_fsolve_system_with_meter,
     least_squares_with_meter, minimize_with_meter, newton_refine_parametric_with_meter,
     newton_refine_with_meter, propose_parametric_root_box_with_meter, propose_root_box_with_meter,
     propose_stationary_box_with_meter, sparse_least_squares_with_meter,
-    sparse_newton_refine_with_meter,
+    sparse_newton_refine_with_meter, validate_sparse_root_shape,
 };
 use serde::{Deserialize, Serialize};
 
@@ -177,13 +177,7 @@ pub(super) fn solve_root(
     let variables = system.num_vars();
     let residuals = system.num_residuals();
     if backend == CompiledRootBackend::Sparse {
-        if !(1..=MAX_SPARSE_NEWTON_VARIABLES).contains(&variables) || residuals != variables {
-            return Err(SystemConsumerError::UnsupportedSparseRootShape {
-                variables,
-                residuals,
-            }
-            .into());
-        }
+        validate_sparse_root_shape(variables, residuals)?;
     } else if !(1..=MAX_CONSUMER_VARIABLES).contains(&variables) || residuals != variables {
         return Err(SystemConsumerError::UnsupportedShape {
             variables,
