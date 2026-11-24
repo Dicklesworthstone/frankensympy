@@ -25,7 +25,7 @@ pub use sparse_rref::{
 mod pseudoinverse;
 pub use pseudoinverse::{
     GaussianAffineCandidate, GaussianLeastSquaresCandidate, GaussianLinearSystemCandidate,
-    GaussianQrCandidate, GaussianRrefCandidate, PseudoinverseCertificate,
+    GaussianLuCandidate, GaussianQrCandidate, GaussianRrefCandidate, PseudoinverseCertificate,
     VerifiedGaussianAffineSolution, VerifiedGaussianLeastSquaresFamily,
     verify_pseudoinverse_certificate,
 };

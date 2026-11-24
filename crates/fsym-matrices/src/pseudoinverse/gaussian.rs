@@ -21,6 +21,8 @@ mod exact_solve;
 pub use exact_solve::GaussianLinearSystemCandidate;
 mod qr;
 pub use qr::GaussianQrCandidate;
+mod lu;
+pub use lu::GaussianLuCandidate;
 mod rref;
 pub use rref::{GaussianAffineCandidate, GaussianRrefCandidate, VerifiedGaussianAffineSolution};
 
