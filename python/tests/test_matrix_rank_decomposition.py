@@ -2,7 +2,7 @@
 
 import unittest
 
-from sympy import I, ImmutableMatrix, ImmutableSparseMatrix, Matrix, Rational, SparseMatrix
+from sympy import Add, I, ImmutableMatrix, ImmutableSparseMatrix, Matrix, Mul, Pow, Rational, SparseMatrix
 
 
 CLASSES = (Matrix, ImmutableMatrix, SparseMatrix, ImmutableSparseMatrix)
@@ -53,6 +53,21 @@ class RankDecompositionTests(unittest.TestCase):
                 self.assertEqual(right.shape, (1, 1024))
                 self.assertEqual(right[0, 3], 1)
                 self.assertEqual(right[0, 1000], Rational(-3, 2))
+
+    @unittest.skipUnless(hasattr(Matrix([[1]]), "_native_storage"), "native retained sources")
+    def test_pivot_column_preserves_original_held_owner(self):
+        held = Pow(Add(1, I, evaluate=False), -1, evaluate=False)
+        for cls in CLASSES:
+            with self.subTest(cls=cls):
+                left, _ = cls([[0, held]]).rank_decomposition()
+                self.assertIs(left[0, 0], held)
+
+    @unittest.skipUnless(hasattr(Matrix([[1]]), "_native_storage"), "native source domain")
+    def test_zero_multiplier_does_not_hide_an_original_pole(self):
+        pole = Pow(Add(I, -I, evaluate=False), -1, evaluate=False)
+        matrix = Matrix([[Mul(0, pole, evaluate=False)]])
+        with self.assertRaisesRegex(ValueError, "division by zero"):
+            matrix.rank_decomposition()
 
     @unittest.skipUnless(hasattr(Matrix([[1]]), "_native_storage"), "native request contract")
     def test_custom_callback_is_not_silently_discarded(self):

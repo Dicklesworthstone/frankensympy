@@ -158,9 +158,10 @@ def rank_decomposition(matrix, *, iszerofunc, simplify):
     base = _sparse.Matrix if dense else _sparse.SparseMatrix
     slots = _exact._source._SLOTS[base]
     session = _active_callback_session()
-    literal = not _exact._needs_gaussian(matrix)
+    _charge_nested_if_active()
     context = "exact rank decomposition"
-    if literal and session is None:
+    if session is None and not _exact._needs_gaussian(matrix):
+        literal = True
         # The rational proof kernel replays row operations on the entire
         # original system. Avoid producing a dense rows-by-columns RREF
         # just to discard its trailing zero rows.
@@ -178,6 +179,7 @@ def rank_decomposition(matrix, *, iszerofunc, simplify):
         # transform against both sides of the original matrix.
         source, (rows, cols), unchanged = _exact._capture(
             matrix, session, 11, context, allow_sparse=True, force_gaussian=True)
+        literal = not _exact._needs_gaussian(matrix)
         reduced, pivots = _exact._METHODS[11](source, session=session)
         _charge_nested_if_active(2*rows*cols + 1)
         source = _exact._METHODS[6](source)
@@ -195,10 +197,13 @@ def rank_decomposition(matrix, *, iszerofunc, simplify):
     _charge_nested_if_active(rows*rank + rank*cols + 1)  # active inputs are bounded dense views
     basis = {(r, pivot_column[c]): value for (r, c), value in stored(source).items()
              if c in pivot_column}
-    left = _sparse._checked_sparse_lift(
-        _sparse._NativeSparseMatrix(rows, rank, basis), cls)
+    native_class = _sparse._NativeSparseMatrix
+    if (native_class.__new__ is not _sparse._NATIVE_SPARSE_CONSTRUCTION[0]
+            or native_class.__init__ is not _sparse._NATIVE_SPARSE_CONSTRUCTION[1]):
+        raise NotImplementedError("rank decomposition requires original native constructors")
+    left = _sparse._checked_sparse_lift(native_class(rows, rank, basis), cls)
     right = _sparse._checked_sparse_lift(
-        _sparse._NativeSparseMatrix(rank, cols, stored(reduced)), right_class)
+        native_class(rank, cols, stored(reduced)), right_class)
 
     # Pivot columns are a selection of original public objects. Keep their
     # owners (including held Gaussian expressions) alongside the native view.

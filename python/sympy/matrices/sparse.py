@@ -15,6 +15,7 @@ from ..core import (
 from .dense import Matrix, MatrixBase, ImmutableDenseMatrix, _matrix_dimensions, _surface_entry
 
 _NativeSparseMatrix = _native.SparseMatrix
+_NATIVE_SPARSE_CONSTRUCTION = (_NativeSparseMatrix.__new__, _NativeSparseMatrix.__init__)
 _STRUCTURAL_NATIVE_NNZ = type.__dict__["__dict__"].__get__(_NativeSparseMatrix)["nnz"]
 
 
