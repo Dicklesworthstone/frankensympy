@@ -13,11 +13,12 @@ use crate::to_value_error;
 use fsym_budget::{Budget, BudgetMeter};
 use fsym_core::{Expr, Symbol};
 use fsym_polys::{
+    PrimeFieldMultivariateEliminationOperation as EliminationOp,
     PrimeFieldMultivariateOperation as Op, PrimeFieldMultivariatePolynomial as Polynomial,
     TermOrder, checked_prime_field_evaluation, checked_prime_field_multivariate_arithmetic,
-    checked_prime_field_multivariate_division, checked_prime_field_multivariate_gcd,
-    checked_prime_field_multivariate_source, checked_prime_field_multivariate_square_free,
-    checked_prime_field_recursive_division,
+    checked_prime_field_multivariate_division, checked_prime_field_multivariate_elimination,
+    checked_prime_field_multivariate_gcd, checked_prime_field_multivariate_source,
+    checked_prime_field_multivariate_square_free, checked_prime_field_recursive_division,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -226,8 +227,10 @@ pub fn prime_field_multivariate_native(
     let term_order = self::order(order)?;
     let valid_count = match operation {
         "reduced" => (1..=33).contains(&sources.len()),
-        "add" | "sub" | "mul" | "compose" | "divrem" | "gcd" | "lcm" => sources.len() == 2,
-        "normalize" | "neg" | "monic" | "pow" | "diff" => sources.len() == 1,
+        "add" | "sub" | "mul" | "compose" | "divrem" | "gcd" | "lcm" | "resultant" => {
+            sources.len() == 2
+        }
+        "normalize" | "neg" | "monic" | "pow" | "diff" | "discriminant" => sources.len() == 1,
         _ => false,
     };
     if !valid_count {
@@ -235,9 +238,18 @@ pub fn prime_field_multivariate_native(
             "unsupported multivariate prime-field operation or operand count",
         ));
     }
-    if matches!(operation, "divrem" | "gcd" | "lcm") && term_order != TermOrder::Lex {
+    if matches!(operation, "resultant" | "discriminant") && parameter != 0 {
         return Err(PyValueError::new_err(
-            "polynomial division and GCD/LCM use the declared generator order",
+            "polynomial elimination does not accept an arithmetic parameter",
+        ));
+    }
+    if matches!(
+        operation,
+        "divrem" | "gcd" | "lcm" | "resultant" | "discriminant"
+    ) && term_order != TermOrder::Lex
+    {
+        return Err(PyValueError::new_err(
+            "polynomial division, GCD/LCM and elimination use the declared generator order",
         ));
     }
     let (mut generator, mut verifier) = (budget(), budget());
@@ -272,7 +284,7 @@ pub fn prime_field_multivariate_native(
                     .collect::<PyResult<Vec<_>>>()?,
             ))
         }
-        "divrem" | "reduced" | "gcd" | "lcm" => None,
+        "divrem" | "reduced" | "gcd" | "lcm" | "resultant" | "discriminant" => None,
         _ => unreachable!("operation and operand count were admitted"),
     };
     if operation != "diff" && derivative_orders.is_some() {
@@ -308,6 +320,21 @@ pub fn prime_field_multivariate_native(
     let mut output = Vec::with_capacity(polynomials.len() + 1);
     if let Some(operation) = arithmetic {
         let accepted = checked_prime_field_multivariate_arithmetic(
+            &operation,
+            &polynomials[0],
+            polynomials.get(1),
+            &mut generator,
+            &mut verifier,
+        )
+        .map_err(polynomial_error)?;
+        output.push(lift(accepted.result(), symmetric, &mut generator)?);
+    } else if matches!(operation, "resultant" | "discriminant") {
+        let operation = if operation == "resultant" {
+            EliminationOp::Resultant
+        } else {
+            EliminationOp::Discriminant
+        };
+        let accepted = checked_prime_field_multivariate_elimination(
             &operation,
             &polynomials[0],
             polynomials.get(1),
