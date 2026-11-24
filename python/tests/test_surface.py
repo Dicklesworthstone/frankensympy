@@ -1936,12 +1936,13 @@ print(json.dumps({
         self.assertEqual(cp_x.as_expr(), x**2 - 5 * x - 2)
 
         # 4. LU decomposition
-        L, U, P = A.LUdecomposition()
-        self.assertEqual(L * U, P * A)
+        L, U, swaps = A.LUdecomposition()
+        self.assertEqual(swaps, [])
+        self.assertEqual(L * U, A)
         p_mat, l_mat, u_mat = A.lu()
         self.assertEqual(l_mat, L)
         self.assertEqual(u_mat, U)
-        self.assertEqual(p_mat, P)
+        self.assertEqual(p_mat, sympy.eye(A.rows))
 
         # 5. QR decomposition
         Q, R = A.QRdecomposition()

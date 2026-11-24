@@ -994,6 +994,19 @@ class SparseMatrix(MatrixBase):
             return self._new(self._native.solve(sparse_rhs._native))
         return self._new(self.to_dense().solve(sparse_rhs.to_dense()))
 
+    def LUdecomposition(self, iszerofunc=None, simpfunc=None, rankcheck=False):
+        """Return exact sparse LU factors and their ordered row-swap list."""
+        from ._lu import lu_decomposition
+
+        return lu_decomposition(self, iszerofunc=iszerofunc,
+                                simpfunc=simpfunc, rankcheck=rankcheck)
+
+    def lu(self):
+        """Return checked sparse ``(P, L, U)`` factors over exact Q(i)."""
+        from ._lu import lu_decomposition
+
+        return lu_decomposition(self, permutation_matrix=True)
+
     def LUsolve(self, b: Any):
         """Solve a square or consistent tall rational system, keeping RHS class.
 

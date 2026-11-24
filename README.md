@@ -1458,6 +1458,42 @@ Explicit custom commutativity or equality/hash protocols require their own
 supported algebra. Arithmetic graphs and formal differentiation are bounded; arbitrary non-cooperative
 Python hooks retain the existing supervised-boundary limitations.
 
+## Rectangular exact LU decomposition (development API)
+
+`LUdecomposition()` supports square, tall, wide, singular, and empty matrices
+over exact rational and Gaussian-rational entries. Dense and sparse mutable
+and immutable matrices preserve their factor classes. Its third return value
+is the ordered row-swap list used by the SymPy interface:
+
+```python
+from sympy import I, Matrix, SparseMatrix
+
+A = SparseMatrix([[0, I], [1, 0], [2, 3]])
+L, U, swaps = A.LUdecomposition(rankcheck=True)
+assert L.shape == (3, 3) and U.shape == (3, 2)
+assert swaps == [[0, 1]]
+
+# The native convenience alias retains its permutation-matrix contract.
+P, L, U = A.lu()
+assert L*U == P*A
+```
+
+The native generator proposes factors, swaps, and pivot columns. An independent
+reference pass reads the original entries, reconstructs the permutation from
+the swaps, checks `P*A = L*U`, and establishes unit lower-triangular `L` and the
+complete echelon structure of `U`. Skipped zero columns and dependent rows do
+not invent pivots. `rankcheck=True` rejects rank below the smaller input axis;
+zero-area matrices have their full possible rank of zero.
+
+The checked complex and rectangular lane admits at most 32 rows and columns,
+4096-bit rational components, and the existing cumulative Gaussian work and
+allocation limits. Defined held inputs retain their original source checks;
+hidden poles, source mutation, and exhausted requests cannot publish factors.
+Custom pivot callbacks require a separate supervised override lane. Existing
+standalone literal-rational square calls retain their larger native envelope
+when `rankcheck` is false. These are development APIs with same-crate reference
+checks; no compatibility profile is certified by this addition.
+
 ## Exact complex QR decomposition (development API)
 
 Dense `Matrix.QRdecomposition()` and its `qr()` alias now admit bounded exact

@@ -1617,13 +1617,24 @@ class Matrix(MatrixBase):
             return self._new(self.rows, self.cols, [self[i] * other[i] for i in range(len(self))])
         return Matrix(self._native.hadamard(other._native))
 
-    def LUdecomposition(self):
-        p, l, u = self._native.lu()
-        return self._new(l), self._new(u), self._new(p)
+    def LUdecomposition(self, iszerofunc=None, simpfunc=None, rankcheck=False):
+        """Return ``(L, U, row_swaps)`` with exact ``P*A = L*U``.
+
+        Rectangular and singular matrices over Q(i) use independently checked
+        factors through 32 rows and columns. The returned list contains the
+        row swaps, in application order. ``rankcheck=True`` requires full
+        rank. Custom pivot callbacks need a supervised override lane.
+        """
+        from ._lu import lu_decomposition
+
+        return lu_decomposition(self, iszerofunc=iszerofunc,
+                                simpfunc=simpfunc, rankcheck=rankcheck)
 
     def lu(self):
-        p, l, u = self._native.lu()
-        return self._new(p), self._new(l), self._new(u)
+        """Return checked ``(P, L, U)`` factors, including rectangular inputs."""
+        from ._lu import lu_decomposition
+
+        return lu_decomposition(self, permutation_matrix=True)
 
     def QRdecomposition(self):
         """Return an exact thin QR decomposition over rationals or Q(i).

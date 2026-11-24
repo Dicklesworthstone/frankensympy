@@ -38,6 +38,15 @@ type SparseAffineSolutionParts = (PySparseMatrix, PySparseMatrix, Vec<usize>);
 /// Complete dense Gaussian-rational family and its ordered free coordinates.
 type GaussianAffineSolutionParts = (PyMatrix, PyMatrix, Vec<usize>);
 
+/// Checked permutation, triangular factors, row swaps, and pivot columns.
+type GaussianLuParts = (
+    PyMatrix,
+    PyMatrix,
+    PyMatrix,
+    Vec<(usize, usize)>,
+    Vec<usize>,
+);
+
 /// Both inertia phases consume the same caller-owned symbolic request ledger.
 /// Native phase meters still enforce their own memory and allocation caps.
 /// Keep the original Python refusal: MeterError only stops native work, and
@@ -1451,6 +1460,42 @@ impl PyMatrix {
             Self { inner: cert.l },
             Self { inner: cert.u },
         ))
+    }
+
+    /// Rectangular exact Q(i) LU with checked row swaps and complete pivots.
+    /// Admission, generation, verification and publication share one request.
+    #[pyo3(signature = (*, session=None))]
+    pub fn gaussian_lu(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<GaussianLuParts> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = (|| {
+            meter.checkpoint().map_err(to_value_error)?;
+            let factors = self
+                .inner
+                .metered_gaussian_lu(&mut meter)
+                .map_err(matrix_err)?;
+            meter
+                .charge(
+                    Dimension::ComputeSteps,
+                    (factors.row_swaps.len() + factors.pivots.len() + 3) as u64,
+                )
+                .map_err(to_value_error)?;
+            meter.checkpoint().map_err(to_value_error)?;
+            Ok((
+                Self { inner: factors.p },
+                Self { inner: factors.l },
+                Self { inner: factors.u },
+                factors.row_swaps,
+                factors.pivots,
+            ))
+        })();
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
     }
 
     /// Exact QR decomposition with orthogonal columns returning `(Q, R)`.

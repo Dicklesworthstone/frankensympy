@@ -15,7 +15,8 @@ _NATIVE = _source._NATIVE[_source.Matrix]
 _NAMES = ("shape", "is_exact_rational", "validate_gaussian_pseudoinverse_source",
           "pinv", "solve_least_squares", "least_squares_family", "to_sparse",
           "solve", "inv", "has_gaussian_rational_syntax", "gaussian_qr",
-          "gaussian_rref", "gaussian_nullspace", "gaussian_gauss_jordan_solve")
+          "gaussian_rref", "gaussian_nullspace", "gaussian_gauss_jordan_solve",
+          "gaussian_lu", "lu")
 _METHODS = tuple(_source._DICT.__get__(_NATIVE)[name] for name in _NAMES)
 _CLASSES = (_source.Matrix, _source.ImmutableDenseMatrix)
 _SPARSE_CLASSES = (_source.SparseMatrix, _source.ImmutableSparseMatrix)
@@ -28,7 +29,7 @@ _SPARSE_METHODS = tuple(_source._DICT.__get__(_SPARSE_NATIVE)[name] for name in 
 def _interfaces(operation, context, base):
     _source._interfaces()
     namespace = _source._DICT.__get__(_NATIVE)
-    required = ((0, 1, 2, operation, 6) if operation in (5, 7, 11, 12, 13)
+    required = ((0, 1, 2, operation, 6) if operation in (5, 7, 11, 12, 13, 14, 15)
                 else (0, 1, 2, operation))
     if operation in (8, 11, 12, 13):
         required += (9,)
