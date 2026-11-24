@@ -730,6 +730,33 @@ verification paths. A finite value, sampled derivative or compiled program
 alone does not establish those claims. Inconclusive domain or resource bounds
 remain explicit refusals.
 
+Bounded nonlinear consumers distinguish a proved Lambert-W domain error from
+an inconclusive inverse computation. Sparse Newton, dense/sparse least squares
+and dense/sparse objective minimization shorten a trial step that crosses the
+selected real branch domain. Invalid initial or final points still refuse.
+For example, the full first Newton step in this request lies below `-1/e`,
+but backtracking can recover the root:
+
+```python
+from sympy import LambertW, Rational, Symbol, compile_residual_system, nsolve
+
+x = Symbol("lambert_trial")
+source = LambertW(x) + Rational(1, 2)
+program = compile_residual_system(source, x)
+candidate = program.solve_candidate(1, backend="sparse")
+root = nsolve(source, x, 1, backend="sparse")
+# Both coordinates are approximately -0.5 * exp(-0.5).
+```
+
+Only the native `OutsideRealDomain` category permits a rejected Lambert trial.
+Failure to separate an argument from the branch point, unsupported work
+envelopes and other inconclusive inverse failures remain terminal. Python
+preserves these as `RuntimeError`, while budget and cancellation failures keep
+their specific exception classes. Rejected trials consume the same caller
+ledger. These results remain approximate candidates. The pinned analytic
+FrankenSciPy driver has no domain-rejection channel and retains its terminal
+refusal for an invalid trial; selecting it never silently switches algorithms.
+
 All inverse, derivative and publication stages share the supplied cumulative
 budget. The original-source checker also retains its intrinsic total ceilings
 across repeated Lambert-W nodes. The ordinary math backend, default scalar

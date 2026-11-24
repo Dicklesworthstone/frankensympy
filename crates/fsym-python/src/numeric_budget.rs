@@ -9,7 +9,7 @@
 use fsym_budget::{Budget, BudgetLimits, BudgetMeter, Dimension, MeterError};
 use fsym_calculus::compile::{CompileError, EvalError};
 use fsym_calculus::program_artifact::ProgramArtifactError;
-use fsym_core::{BallError, RootBoxError, ScalarRootBracketError};
+use fsym_core::{BallError, LambertWError, RootBoxError, ScalarRootBracketError};
 use pyo3::exceptions::{PyMemoryError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyInt;
@@ -199,7 +199,16 @@ impl BudgetMeter for EvaluationMeter<'_> {
 /// Preserve typed operational refusals, including nested objective errors.
 pub(crate) fn evaluation_error<E: Error + 'static>(error: E) -> PyErr {
     let mut current: &(dyn Error + 'static) = &error;
+    let mut inconclusive_lambert = false;
     loop {
+        // A bounded inverse can fail to establish a value even when the input
+        // lies in its mathematical domain. Such failures must not become the
+        // ValueError that Python line searches use to reject a trial point.
+        // Continue through the source chain so budget, cancellation and memory
+        // failures retain their more specific operational exception classes.
+        if let Some(lambert) = current.downcast_ref::<LambertWError>() {
+            inconclusive_lambert |= !matches!(lambert, LambertWError::OutsideRealDomain { .. });
+        }
         if let Some(meter) = current.downcast_ref::<MeterError>() {
             return match meter {
                 MeterError::Cancelled => EvaluationCancelled::new_err(error.to_string()),
@@ -227,6 +236,9 @@ pub(crate) fn evaluation_error<E: Error + 'static>(error: E) -> PyErr {
         ) || matches!(
             current.downcast_ref::<fsym_numeric_consumer::ObjectiveConsumerError>(),
             Some(fsym_numeric_consumer::ObjectiveConsumerError::ConsumerContract(_))
+        ) || matches!(
+            current.downcast_ref::<EvalError>(),
+            Some(EvalError::DimensionOverflow)
         ) {
             return PyRuntimeError::new_err(error.to_string());
         }
@@ -247,6 +259,7 @@ pub(crate) fn evaluation_error<E: Error + 'static>(error: E) -> PyErr {
         }
         match current.source() {
             Some(source) => current = source,
+            None if inconclusive_lambert => return PyRuntimeError::new_err(error.to_string()),
             None => return PyValueError::new_err(error.to_string()),
         }
     }

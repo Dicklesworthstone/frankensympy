@@ -241,6 +241,7 @@ fn trial_domain_failure(error: &SystemConsumerError) -> bool {
                     | EvalError::NonsmoothAngle
                     | EvalError::NonsmoothSource(_)
                     | EvalError::NoMatchingPiecewiseBranch
+                    | EvalError::LambertW(fsym_core::LambertWError::OutsideRealDomain { .. })
             )
             | SystemConsumerError::SparseEvaluation(ResidualEvaluationError::Evaluation(
                 EvalError::NonFiniteValue
@@ -249,6 +250,7 @@ fn trial_domain_failure(error: &SystemConsumerError) -> bool {
                     | EvalError::NonsmoothAngle
                     | EvalError::NonsmoothSource(_)
                     | EvalError::NoMatchingPiecewiseBranch
+                    | EvalError::LambertW(fsym_core::LambertWError::OutsideRealDomain { .. })
             ))
     )
 }

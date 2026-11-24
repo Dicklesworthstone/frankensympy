@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-24",
+  "base_commit": "919fa914a71d65c1f4903799772582310425e43a",
+  "beads": [
+    "fra-7kf",
+    "fra-campaign-jacobian-bundle-ukp"
+  ],
+  "status": "implemented_execution_pending",
+  "implementation": [
+    "LambertWError::OutsideRealDomain is emitted only for proved original real-branch violations, with unresolved boundary comparisons and work-envelope failures retained separately.",
+    "Sparse Newton and dense/sparse least-squares and objective consumers backtrack only on the explicit mathematical-domain variant.",
+    "Original-source root certification maps a proved Lambert violation to its domain refusal.",
+    "Python error transport preserves terminal non-domain Lambert failures, structural evaluation overflow, caller budgets and cancellation through nested objective errors."
+  ],
+  "regression_coverage": {
+    "core_test_functions": 3,
+    "consumer_test_functions": 5,
+    "python_bridge_test_functions": 3,
+    "public_python_cases": 18,
+    "topics": [
+      "both real branches with invalid first Newton trials",
+      "original held zero domains",
+      "complete input-ball endpoints",
+      "unresolved branch-point comparison",
+      "cumulative work and cancellation",
+      "terminal analytic donor refusal",
+      "real preallocation structural overflow"
+    ]
+  },
+  "validation": {
+    "pinned_rustfmt": "Passed on all changed native files, including the final Python error-mapping follow-up.",
+    "python_parsing": "Final public regression source parsed and compiled successfully.",
+    "source_review": "Independent root/critical_gap_review/sparse_feature reviews completed",
+    "execution": "Full extension and focused core attempts were interrupted after prolonged compiler/dependency stalls; no runtime test pass is claimed. A monitored pinned core retry is active."
+  },
+  "donor_limit": "The pinned FrankenSciPy analytic driver has no fallible residual callback. Nonfinite Armijo interpolation returns no step and the driver falls back to the full step, so invalid trials remain terminal rather than being represented by fabricated residuals.",
+  "claims": "Approximate nonlinear candidates only. No kernel-error message matching, fallback budget reset, source-domain erasure, profile/campaign closure or claim-tier promotion."
+}

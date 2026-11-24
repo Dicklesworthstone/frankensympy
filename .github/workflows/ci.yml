@@ -164,6 +164,7 @@ jobs:
           cargo test --locked -p fsym-calculus --test lambert_derivative --test lambert_programs -j1
           cargo test --locked -p fsym-calculus --lib compile::lambert::tests -j1
           cargo test --locked -p fsym-calculus --lib proof::tests::numeric_lambert_proofs_ -j1
+          cargo test --locked -p fsym-numeric-consumer --test lambert_consumers -j1
       - name: Principal-angle interval and original-source certificates
         run: cargo test --locked -p fsym-core --test atan2_enclosures --test atan2_certification -j1
       - name: Compiled principal-angle programs and derivative admission
@@ -434,6 +435,7 @@ jobs:
               "python/tests/test_real_lambert_solving.py",
               "python/tests/test_lambert_real_evalf.py",
               "python/tests/test_lambert_numeric.py",
+              "python/tests/test_lambert_numeric_solvers.py",
               "python/tests/test_certified_objective.py",
               "python/tests/test_stationary_search.py",
               "python/tests/test_box_extremum.py",

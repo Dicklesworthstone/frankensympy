@@ -316,3 +316,100 @@ fn direct_and_nested_allocation_failures_remain_memory_errors() {
         }
     });
 }
+
+#[test]
+fn lambert_domain_failures_and_inconclusive_inverse_work_have_distinct_python_types() {
+    use fsym_calculus::compile::CompiledExpr;
+    use fsym_calculus::sparse_hessian::ObjectiveEvaluationError;
+    use std::collections::HashMap;
+
+    let variable = Symbol::new("lambert_python_domain");
+    let source = Expr::Function(
+        "LambertW".into(),
+        vec![Expr::Sym(variable.clone()), Expr::from_i64(-1)],
+    );
+    let program = CompiledExpr::try_compile(&source, &HashMap::from([(variable, 0)])).unwrap();
+    let outside = program.try_eval_finite(&[0.0]).unwrap_err();
+    assert!(matches!(
+        outside,
+        EvalError::LambertW(LambertWError::OutsideRealDomain { branch: -1 })
+    ));
+
+    Python::initialize();
+    Python::attach(|py| {
+        let domain = evaluation_error(outside);
+        assert!(domain.is_instance_of::<PyValueError>(py));
+        assert!(!domain.is_instance_of::<PyRuntimeError>(py));
+
+        // This is the bounded kernel's inconclusive envelope refusal, not a
+        // proved failure of the mathematical branch domain. Exercise both
+        // standalone and objective-nested error transport at the Python edge.
+        let failure = || {
+            EvalError::LambertW(LambertWError::Ball(
+                BallError::ArgumentOutsideDeclaredEnvelope("inverse refinement limit".into()),
+            ))
+        };
+        for error in [
+            evaluation_error(failure()),
+            evaluation_error(ObjectiveEvaluationError::Evaluation(failure())),
+        ] {
+            assert!(error.is_instance_of::<PyRuntimeError>(py));
+            assert!(!error.is_instance_of::<PyValueError>(py));
+            assert!(!error.is_instance_of::<EvaluationCancelled>(py));
+        }
+    });
+}
+
+#[test]
+fn nested_lambert_failures_keep_budget_and_cancellation_precedence() {
+    use fsym_calculus::sparse_hessian::ObjectiveEvaluationError;
+
+    Python::initialize();
+    Python::attach(|py| {
+        let cancelled = evaluation_error(ObjectiveEvaluationError::Evaluation(
+            EvalError::LambertW(LambertWError::Meter(MeterError::Cancelled)),
+        ));
+        assert!(cancelled.is_instance_of::<EvaluationCancelled>(py));
+        assert!(!cancelled.is_instance_of::<PyValueError>(py));
+
+        let mut budget = Budget::new(BudgetLimits::uniform(0, 0));
+        let exhausted = budget.charge(Dimension::ComputeSteps, 1).unwrap_err();
+        let exhausted = evaluation_error(ObjectiveEvaluationError::Evaluation(
+            EvalError::LambertW(LambertWError::Meter(exhausted)),
+        ));
+        assert!(exhausted.is_instance_of::<EvaluationBudgetExceeded>(py));
+        assert!(!exhausted.is_instance_of::<PyValueError>(py));
+
+        let intrinsic = evaluation_error(EvalError::LambertW(LambertWError::Ball(
+            BallError::ResourceLimitExceeded {
+                operation: "Lambert-W input height",
+                required_bits: 4097,
+                limit_bits: 4096,
+            },
+        )));
+        assert!(intrinsic.is_instance_of::<EvaluationBudgetExceeded>(py));
+        assert!(!intrinsic.is_instance_of::<PyValueError>(py));
+    });
+}
+
+#[test]
+fn native_dimension_overflow_is_terminal_before_allocating_a_buffer() {
+    use fsym_budget::Unbounded;
+    use fsym_calculus::sparse_hessian::ObjectiveEvaluationError;
+
+    let overflow = evaluation_buffer::<f64>(usize::MAX, &mut Unbounded).unwrap_err();
+    assert_eq!(overflow, EvalError::DimensionOverflow);
+    Python::initialize();
+    Python::attach(|py| {
+        for error in [
+            evaluation_error(overflow),
+            evaluation_error(ObjectiveEvaluationError::Evaluation(
+                EvalError::DimensionOverflow,
+            )),
+        ] {
+            assert!(error.is_instance_of::<PyRuntimeError>(py));
+            assert!(!error.is_instance_of::<PyValueError>(py));
+            assert!(!error.is_instance_of::<EvaluationCancelled>(py));
+        }
+    });
+}

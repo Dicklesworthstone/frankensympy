@@ -473,6 +473,7 @@ fn trial_domain_failure(error: &ObjectiveConsumerError) -> bool {
                     | EvalError::NonsmoothAngle
                     | EvalError::NonsmoothSource(_)
                     | EvalError::NoMatchingPiecewiseBranch
+                    | EvalError::LambertW(fsym_core::LambertWError::OutsideRealDomain { .. })
             ))
             | ObjectiveConsumerError::NonFinite(_)
     )

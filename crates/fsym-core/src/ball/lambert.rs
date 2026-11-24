@@ -29,6 +29,11 @@ const GUARD_DIGITS: u32 = 24;
 /// A real Lambert-W enclosure was refused before a result was published.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum LambertWError {
+    /// At least one point of the complete input ball is proved outside the
+    /// selected finite real branch. A failed bounded comparison, unsupported
+    /// branch or exhausted computation never has this mathematical meaning.
+    #[error("Lambert-W input is outside the finite real domain of branch {branch}")]
+    OutsideRealDomain { branch: i32 },
     #[error("Lambert-W ball operation failed: {0}")]
     Ball(#[from] BallError),
     #[error("Lambert-W evaluation stopped: {0}")]
@@ -380,9 +385,7 @@ fn admit_domain<M: BudgetMeter>(
 ) -> Result<(), LambertWError> {
     work.reserve(32, 512, 16)?;
     if branch == -1 && !input.hi.is_negative() {
-        return Err(refuse(
-            "the complete lower-branch input must be strictly negative",
-        ));
+        return Err(LambertWError::OutsideRealDomain { branch });
     }
     if !input.lo.is_negative() {
         return Ok(());
@@ -395,9 +398,7 @@ fn admit_domain<M: BudgetMeter>(
     }
     let half = BigRational::new(1.into(), 2.into());
     if work.compare(&magnitude, &half)? != Ordering::Less {
-        return Err(refuse(
-            "the complete input must be above the real branch point -1/e",
-        ));
+        return Err(LambertWError::OutsideRealDomain { branch });
     }
     let reciprocal = work.div(&BigRational::one(), &magnitude)?;
     let one = Interval::point(&BigRational::one(), work)?;
@@ -409,9 +410,7 @@ fn admit_domain<M: BudgetMeter>(
             return Ok(());
         }
         if work.compare(&exp_one.lo, &reciprocal)? == Ordering::Greater {
-            return Err(refuse(
-                "the complete input must be above the real branch point -1/e",
-            ));
+            return Err(LambertWError::OutsideRealDomain { branch });
         }
         if digits == maximum {
             return Err(refuse(

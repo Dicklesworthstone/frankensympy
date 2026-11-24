@@ -42,6 +42,9 @@ impl<M: BudgetMeter> Work<'_, M> {
             return Err(error);
         }
         let value = checked(result.map_err(|error| match error {
+            LambertWError::OutsideRealDomain { .. } => {
+                RootBoxError::Domain("Lambert-W argument leaves its finite real branch")
+            }
             LambertWError::Ball(error) => RootBoxError::Ball(error),
             LambertWError::Meter(error) => RootBoxError::Meter(error),
             LambertWError::Arithmetic(error) => RootBoxError::Ball(

@@ -281,6 +281,66 @@ fn unsupported_branches_precisions_and_numeric_heights_refuse() {
     ));
 }
 
+#[test]
+fn only_proved_invalid_real_branch_domains_have_the_domain_error() {
+    for branch in [0, -1] {
+        // Both an entirely invalid interval and one with a valid midpoint
+        // retain the invalid original lower endpoint.
+        for input in [
+            RealBall::exact(q(-1, 2)),
+            RealBall::exact(q(-37, 100)),
+            interval(q(-1, 2), q(-1, 10)),
+        ] {
+            assert_eq!(
+                input.metered_lambert_w(branch, 18, &mut Unbounded),
+                Err(LambertWError::OutsideRealDomain { branch })
+            );
+        }
+    }
+    for input in [
+        RealBall::from_i64(0),
+        RealBall::from_i64(1),
+        interval(q(-1, 4), q(0, 1)),
+    ] {
+        assert_eq!(
+            input.metered_lambert_w(-1, 18, &mut Unbounded),
+            Err(LambertWError::OutsideRealDomain { branch: -1 })
+        );
+    }
+    assert_eq!(
+        RealBall::from_i64(0)
+            .metered_lambert_w(0, 18, &mut Unbounded)
+            .unwrap(),
+        RealBall::from_i64(0)
+    );
+}
+
+#[test]
+fn unsupported_requests_and_unresolved_branch_comparisons_stay_terminal() {
+    let point = RealBall::from_i64(1);
+    for (branch, digits) in [(2, 18), (0, 0), (0, 129)] {
+        assert!(matches!(
+            point.metered_lambert_w(branch, digits, &mut Unbounded),
+            Err(LambertWError::Ball(
+                BallError::ArgumentOutsideDeclaredEnvelope(_)
+            ))
+        ));
+    }
+    // This rational lies closer to -1/e than the inverse kernel's bounded
+    // branch-comparison precision can resolve. Uncertainty is not a proof
+    // that the point is outside the branch, even when a caller wants to retry.
+    let e = RealBall::from_i64(1).exp(180).unwrap();
+    let boundary = RealBall::exact(-q(1, 1) / e.midpoint());
+    for branch in [0, -1] {
+        assert!(matches!(
+            boundary.metered_lambert_w(branch, 18, &mut Unbounded),
+            Err(LambertWError::Ball(
+                BallError::ArgumentOutsideDeclaredEnvelope(_)
+            ))
+        ));
+    }
+}
+
 #[derive(Default)]
 struct Checkpoints {
     calls: usize,
@@ -350,4 +410,40 @@ fn cancellation_before_during_and_at_publication_never_returns_a_partial_image()
             Err(LambertWError::Meter(MeterError::Cancelled))
         ));
     }
+}
+
+#[test]
+fn domain_refusal_does_not_override_cancellation_or_refund_its_work() {
+    let input = RealBall::exact(q(-37, 100));
+    let mut baseline = Checkpoints::default();
+    assert_eq!(
+        input.metered_lambert_w(0, 18, &mut baseline),
+        Err(LambertWError::OutsideRealDomain { branch: 0 })
+    );
+    for cancel_at in [1, baseline.calls / 2, baseline.calls] {
+        let mut meter = Checkpoints {
+            calls: 0,
+            cancel_at: Some(cancel_at),
+        };
+        assert!(matches!(
+            input.metered_lambert_w(0, 18, &mut meter),
+            Err(LambertWError::Meter(MeterError::Cancelled))
+        ));
+    }
+    let allowance = 1_000_000_000;
+    let mut meter = Budget::new(BudgetLimits::uniform(allowance, 0));
+    assert!(matches!(
+        input.metered_lambert_w(0, 18, &mut meter),
+        Err(LambertWError::OutsideRealDomain { .. })
+    ));
+    let after_first = meter.remaining(Dimension::ComputeSteps);
+    assert!(after_first < allowance);
+    assert!(matches!(
+        input.metered_lambert_w(0, 18, &mut meter),
+        Err(LambertWError::OutsideRealDomain { .. })
+    ));
+    assert_eq!(
+        allowance - meter.remaining(Dimension::ComputeSteps),
+        2 * (allowance - after_first)
+    );
 }
