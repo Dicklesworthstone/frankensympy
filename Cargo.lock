@@ -1006,6 +1006,7 @@ dependencies = [
  "fsym-outcome",
  "fsym-polys",
  "fsym-proof-kernel",
+ "fsym-rational",
  "num-traits",
  "proptest",
  "serde",

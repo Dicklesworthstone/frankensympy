@@ -6,9 +6,11 @@
 
 #![forbid(unsafe_code)]
 
+mod numeric;
 mod rational_cancel;
 pub mod rewrite;
 
+pub use numeric::{admit_numeric_expression_with, simplify_numeric_with};
 pub use rational_cancel::cancel_with;
 pub use rewrite::*;
 
@@ -215,7 +217,7 @@ fn collect_terms(terms: Vec<Expr>) -> Expr {
     }
 }
 
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum SimplifyError {
     #[error("Simplification error: {0}")]
     General(String),
@@ -227,6 +229,15 @@ pub enum SimplifyError {
     Cancelled,
     #[error("Verification proof error: {0}")]
     ProofFailed(String),
+    #[error("Numerical normalization {resource} exceeds the limit of {limit}")]
+    NumericLimitExceeded {
+        resource: &'static str,
+        limit: usize,
+    },
+    #[error("Numerical normalization allocation was refused")]
+    AllocationFailure,
+    #[error("Numerical normalization arithmetic invariant failed: {0}")]
+    ArithmeticInvariant(&'static str),
 }
 
 impl SimplifyError {

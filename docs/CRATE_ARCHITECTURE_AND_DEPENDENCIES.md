@@ -250,6 +250,11 @@ L3 contains candidate generators and deterministic core transforms. Representati
 - `fsym-subs`: optimized structural substitution and replacement;
 - `fsym-print-ir`: language-neutral printer/codegen document IR, not profile rendering.
 
+The bounded numerical-normalization lane in `fsym-simplify` also depends directly on the
+existing L1 `fsym-rational` crate for governed exact arithmetic and typed arithmetic errors.
+This uses the same rational substrate already exposed by `fsym-core`; it introduces no
+additional external dependency or generator-to-verifier edge.
+
 ### 7.2 Algebra program
 
 - `fsym-poly`;
