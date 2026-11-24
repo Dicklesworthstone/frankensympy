@@ -42,7 +42,7 @@ def test_zero_and_one_singleton_orders(evaluate):
 def test_only_independent_targets_can_be_coordinates(evaluate):
     x, y = s.symbols("x y")
     f = s.Function("coordinate_field")
-    for invalid in (x*y, s.sin(x), s.Derivative(x**2, x), s.Derivative(f(x), y),
+    for invalid in (x*y, "x+y", s.sin(x), s.Derivative(x**2, x), s.Derivative(f(x), y),
                     s.Derivative(f(x+x**2), x), s.Derivative(f(x, x), x)):
         with pytest.raises(ValueError):
             s.diff(x, invalid, evaluate=evaluate)

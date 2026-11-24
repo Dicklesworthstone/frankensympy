@@ -6103,7 +6103,7 @@ def _infer_diff_variable(expression: Expr) -> Symbol | None:
 
 
 def _diff_coordinate(value: Any) -> Basic:
-    value = Symbol(value) if isinstance(value, str) else sympify(value)
+    value = sympify(value)
     if isinstance(value, Symbol):
         return _require_symbol(value)
     if isinstance(value, AppliedUndef):
