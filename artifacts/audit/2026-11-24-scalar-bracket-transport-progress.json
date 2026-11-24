@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-24",
+  "base_commit": "5865b145b289866221ce27d887bae1014a89d7b0",
+  "bead": "fra-7kf",
+  "status": "implemented_native_core_verified_public_execution_pending",
+  "scope": [
+    "Share the existing version-1 scalar existence bracket codec between native Sessions and Python without changing the wire format or facade signatures",
+    "Expose ScalarRootBracketReceipt.to_bytes and receiver-bound from_bytes, backed by native generator-free independent replay",
+    "Bind original held source, typed variable, full original interval, exact tolerance and default ambient context before witness decoding",
+    "Keep existence separate from uniqueness, multiplicity and complete root enumeration",
+    "Retain one complete export/replay budget, preserve independent generation/checker ledgers, and check both after public receipt construction",
+    "Preserve built-in Abs source identity in public generation and replay"
+  ],
+  "limits": {
+    "encoded_bytes": 1048576,
+    "exact_input_bits": 4096,
+    "precision_digits": [
+      8,
+      128
+    ],
+    "maximum_bisections": 1024,
+    "public_context": "default empty ambient context; typed declared symbol assumptions retained"
+  },
+  "validation": {
+    "new_core_tests_passed": 9,
+    "existing_integral_core_tests_passed": 10,
+    "core_command": "cargo test --locked --offline -p fsym-core --test scalar_bracket_artifact --test integral_artifact -- --nocapture",
+    "core_log": "artifacts/audit/2026-11-24-scalar-integral-codecs-native.log",
+    "core_log_sha256": "1f2afc76b4dba8f63e4ef95e4ffe154fc46295bdd82552547774f94122460c61",
+    "strict_clippy": "Passed cargo clippy --locked --offline -p fsym-core -p fsym-matrices --all-targets -- -D warnings",
+    "clippy_log": "artifacts/audit/2026-11-24-matrix-scalar-clippy.log",
+    "clippy_log_sha256": "318839d62b5e9c21593c9ec2f87354d7e1e6f03cc7c78f8bf4e6cdad4dcb01ac",
+    "toolchain": "nightly-2026-08-20: rustc 1.100.0-nightly f7d782a3b; Cargo 1.100.0-nightly 514c56dd7; unchanged locked offline workspace graph",
+    "formatting": "Exact pinned rustfmt and git diff --check passed; four changed Python modules/test files parse successfully.",
+    "added_public_transport_cases": 34,
+    "added_public_generation_budget_cases": 6,
+    "added_facade_interoperability_tests": 1,
+    "candidate_bridge": "cargo check --locked --offline -p fsym-python --all-targets stopped before fsym-python: unchanged pinned asupersync rustc metadata compilation received SIGKILL, exit101, without source diagnostics. Not a passed bridge check.",
+    "bridge_failure_log": "artifacts/audit/2026-11-24-python-bridge-check.log",
+    "bridge_failure_log_sha256": "f469f59ac1a67455768a385bad7161b8f62f81945ab81ea771e141525b2b5720",
+    "candidate_python_runtime": "Not executed: actual extension could not be built in this executor. Public tests are selected by existing actual-extension CI; no remote CI result is claimed.",
+    "facade_runtime": "Not executed: facade graph depends on the same resource-blocked runtime.",
+    "independent_review": "Shared codec checked against original Session field order, canonical encoding, charges and checker boundary. Native/Python bridge and public exact-input, budget and publication paths received source review. Core replay tests never invoke the generator."
+  },
+  "claims": "No workstream, compatibility, release or certification gate is closed or promoted. The root receipt grants existence only. Native integral transport now has 10 actual passing tests; previous public integral execution limitations are unchanged."
+}

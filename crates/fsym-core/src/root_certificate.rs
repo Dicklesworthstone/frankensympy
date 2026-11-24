@@ -23,6 +23,7 @@ use thiserror::Error;
 pub mod artifact;
 pub mod integral_artifact;
 pub mod isolation_artifact;
+pub mod scalar_bracket_artifact;
 
 mod quadrature;
 pub use quadrature::*;

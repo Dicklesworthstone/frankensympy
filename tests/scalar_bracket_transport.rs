@@ -769,3 +769,52 @@ fn cancellation_before_during_and_at_final_publication_returns_no_receipt_or_byt
         )
     });
 }
+
+#[test]
+fn session_facade_and_shared_core_interoperate_without_resetting_accounting() {
+    use fsym_core::root_certificate::scalar_bracket_artifact as shared;
+
+    let source = problem("(x-1/3)^3");
+    let accepted = checked(&source, &q(0, 1), &q(1, 1), &q(1, 1000));
+    let mut facade_meter = Counted::default();
+    let facade_bytes =
+        export_scalar_root_bracket(&source, &accepted, [7; 32], &mut facade_meter).unwrap();
+    let mut core_meter = Counted::default();
+    let core_bytes = shared::export_scalar_root_bracket(
+        source.residuals(),
+        source.variables(),
+        &accepted,
+        [7; 32],
+        &mut core_meter,
+    )
+    .unwrap();
+    assert_eq!(core_bytes, facade_bytes);
+    assert_eq!(core_meter.charges, facade_meter.charges);
+    assert_eq!(core_meter.checkpoints, facade_meter.checkpoints);
+
+    let from_facade = shared::replay_scalar_root_bracket(
+        &facade_bytes,
+        source.residuals(),
+        source.variables(),
+        &q(0, 1),
+        &q(1, 1),
+        &q(1, 1000),
+        [7; 32],
+        &mut core_meter,
+    )
+    .unwrap();
+    let from_core = replay_scalar_root_bracket(
+        &core_bytes,
+        &source,
+        &q(0, 1),
+        &q(1, 1),
+        &q(1, 1000),
+        [7; 32],
+        &mut facade_meter,
+    )
+    .unwrap();
+    assert_eq!(from_facade, accepted);
+    assert_eq!(from_core, accepted);
+    assert_eq!(core_meter.charges, facade_meter.charges);
+    assert_eq!(core_meter.checkpoints, facade_meter.checkpoints);
+}

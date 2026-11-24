@@ -442,6 +442,7 @@ jobs:
               "python/tests/test_certified_integral_budget.py",
               "python/tests/test_integral_certificate_transport.py",
               "python/tests/test_certified_scalar_root_bracket.py",
+              "python/tests/test_scalar_bracket_transport.py",
               "python/tests/test_real_lambert_solving.py",
               "python/tests/test_lambert_real_evalf.py",
               "python/tests/test_lambert_numeric.py",

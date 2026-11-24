@@ -4,38 +4,25 @@
 
 use crate::binding::PySymbolBinding;
 use crate::expr::PyExpr;
+use crate::numeric::exact_rational;
 use crate::numeric_budget::{
     PyEvaluationBudget, with_certification_meter, with_evaluation_meter_attached,
 };
 use fsym_budget::BudgetMeter;
 use fsym_calculus::scalar_bracket::{ScalarRootBracketOptions, propose_scalar_root_bracket};
-use fsym_core::{
-    BigRational, Expr, MAX_SCALAR_ROOT_INPUT_BITS, ScalarRootBracketReceipt,
-    verify_scalar_root_bracket,
-};
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use fsym_core::{BigRational, ScalarRootBracketReceipt, verify_scalar_root_bracket};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 
-fn literal(value: &Bound<'_, PyAny>) -> PyResult<BigRational> {
+mod artifact;
+
+fn literal(value: &Bound<'_, PyAny>, budget: Option<&PyEvaluationBudget>) -> PyResult<BigRational> {
     if !value.is_exact_instance(&value.py().get_type::<PyExpr>()) {
         return Err(PyTypeError::new_err(
             "certified root bounds require exact native rational expressions",
         ));
     }
-    let value = value.extract::<PyRef<'_, PyExpr>>()?;
-    match &value.inner {
-        Expr::Integer(n) if n.bits() <= MAX_SCALAR_ROOT_INPUT_BITS => {
-            Ok(BigRational::from_integer(n.clone()))
-        }
-        Expr::Rational(q)
-            if q.numer().bits().max(q.denom().bits()) <= MAX_SCALAR_ROOT_INPUT_BITS =>
-        {
-            Ok(q.clone())
-        }
-        _ => Err(PyValueError::new_err(
-            "certified root bounds and tolerance require rational literals of at most 4096 bits",
-        )),
-    }
+    exact_rational(value, budget)
 }
 
 fn number(value: &BigRational) -> PyExpr {
@@ -103,6 +90,16 @@ impl PyScalarRootBracketReceipt {
             (number(&right.lower()), number(&right.upper())),
         )
     }
+
+    /// Export the exact statement and sign bracket for independent replay.
+    #[pyo3(signature = (*, budget=None))]
+    fn to_bytes<'py>(
+        &self,
+        py: Python<'py>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        artifact::export(py, &self.receipt, budget.as_deref())
+    }
 }
 
 #[pyfunction]
@@ -120,8 +117,16 @@ pub fn certified_scalar_root_bracket_native(
     budget: Option<PyRef<'_, PyEvaluationBudget>>,
     verification_budget: Option<PyRef<'_, PyEvaluationBudget>>,
 ) -> PyResult<PyScalarRootBracketReceipt> {
-    let generator_budget = budget.as_deref();
-    let checker_budget = verification_budget.as_deref();
+    // Capture each phase's omitted default once, before input preparation.
+    // Explicitly sharing the caller object still shares one cumulative ledger.
+    let generator_fallback = budget
+        .is_none()
+        .then(PyEvaluationBudget::certification_default);
+    let checker_fallback = verification_budget
+        .is_none()
+        .then(PyEvaluationBudget::certification_default);
+    let generator_budget = budget.as_deref().or(generator_fallback.as_ref());
+    let checker_budget = verification_budget.as_deref().or(checker_fallback.as_ref());
     with_evaluation_meter_attached(generator_budget, |meter| meter.checkpoint())?;
     with_evaluation_meter_attached(checker_budget, |meter| meter.checkpoint())?;
     if !source.is_exact_instance(&py.get_type::<PyExpr>()) {
@@ -132,9 +137,9 @@ pub fn certified_scalar_root_bracket_native(
     let source = source.extract::<PyRef<'_, PyExpr>>()?;
     let original = &source.inner;
     let symbol = variable.to_symbol();
-    let lower = literal(lower)?;
-    let upper = literal(upper)?;
-    let tolerance = literal(absolute_tolerance)?;
+    let lower = literal(lower, generator_budget)?;
+    let upper = literal(upper, generator_budget)?;
+    let tolerance = literal(absolute_tolerance, generator_budget)?;
     // These sequential phases borrow distinct optional caller ledgers. Passing
     // the same object explicitly shares one cumulative allowance; omitting
     // them keeps independent bounded default ledgers. The checker consumes
@@ -158,16 +163,21 @@ pub fn certified_scalar_root_bracket_native(
             original, &symbol, &lower, &upper, &tolerance, &witness, meter,
         )
     })?;
+    let result = PyScalarRootBracketReceipt { receipt };
     // Recheck both phases after GIL reentry, before publishing evidence.
     with_evaluation_meter_attached(generator_budget, |meter| meter.checkpoint())?;
     with_evaluation_meter_attached(checker_budget, |meter| meter.checkpoint())?;
-    Ok(PyScalarRootBracketReceipt { receipt })
+    Ok(result)
 }
 
 pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyScalarRootBracketReceipt>()?;
     module.add_function(wrap_pyfunction!(
         certified_scalar_root_bracket_native,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(
+        artifact::replay_scalar_root_bracket_native,
         module
     )?)?;
     Ok(())

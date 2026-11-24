@@ -9,9 +9,11 @@ from fractions import Fraction
 
 from ..core import Dummy, Symbol, _native, _wrap
 from ..utilities._certified_numeric import (
-    _check_assumptions, _native_number, _rational, _sequence, bound_assumptions,
+    _charge_exact_work, _check_assumptions, _native_number, _rational, _sequence,
+    bound_assumptions,
 )
 from ..utilities.lambdify import _check_evaluation_budget, _functions, _numeric_source
+from ..utilities.source_certification import _preserve_source_function_tags, _source_budget
 
 __all__ = ["certified_root_bracket", "ScalarRootBracketReceipt"]
 
@@ -26,6 +28,35 @@ def _root_binding(variable):
     if binding is None:
         raise TypeError("root variable payload is not a native symbol")
     return binding
+
+
+def _bracket_statement(expression, variable, binding, lower, upper, tolerance, budget):
+    """Capture one exact statement for both candidate search and saved replay."""
+    lower, upper, tolerance = (
+        _rational(value, budget) for value in (lower, upper, tolerance)
+    )
+    _charge_exact_work(budget, lower, upper, tolerance, operations=5)
+    if lower > upper:
+        raise ValueError("root bracket endpoints must be increasing")
+    if tolerance <= 0:
+        raise ValueError("certified root tolerance must be positive")
+    assumptions = bound_assumptions([variable], [binding])
+    _check_assumptions([(lower, upper)], assumptions)
+    if type(expression) is bool:
+        raise TypeError("certified root source requires an exact mathematical expression")
+    inexact = [False]
+    source = _numeric_source(expression, _functions(), [0], inexact=inexact)
+    _check_evaluation_budget(budget)
+    if inexact[0]:
+        raise ValueError("certified root source requires exact literals; replace Float with explicit Rational")
+    # Keep the closed Abs identity when a receipt lifts its source back to
+    # Python, even if an opaque function named 'abs' exists in this process.
+    source = _preserve_source_function_tags([source])[0]
+    _check_evaluation_budget(budget)
+    return (
+        source, binding, _native_number(lower, budget), _native_number(upper, budget),
+        _native_number(tolerance, budget),
+    )
 
 
 class ScalarRootBracketReceipt:
@@ -52,6 +83,41 @@ class ScalarRootBracketReceipt:
 
     def __delattr__(self, name):
         raise AttributeError("accepted scalar root receipts are immutable")
+
+    def to_bytes(self, *, budget=None):
+        """Export a canonical source-bound existence bracket, at most 1 MiB.
+
+        The bytes bind the original held expression, typed variable, complete
+        original interval, tolerance and default ambient context. Only an exact
+        candidate bracket is stored: no accepted flag, cached endpoint values,
+        uniqueness or completeness claim. Export uses one supplied cumulative
+        EvaluationBudget, or one private bounded ledger when omitted.
+        """
+        from ._bracket_certificate import export_receipt
+
+        return export_receipt(self, budget=budget)
+
+    @staticmethod
+    def from_bytes(data, *, expression, limits, tolerance=Fraction(1, 10000), budget=None):
+        """Independently verify a saved bracket against the receiver's source.
+
+        Exact built-in bytes, at most 1 MiB, are admitted before expected-source
+        preparation. The exact held expression, typed variable, original bounds
+        and requested tolerance must match; equivalent algebra or equal printed
+        symbol names do not substitute for identity. Only the default empty
+        ambient context is supported, retaining declared symbol facts.
+
+        Replay checks continuity over the entire original interval, containment,
+        width and endpoint evidence without running candidate search. It grants
+        existence only. One cumulative EvaluationBudget funds exact preparation,
+        decoding, independent verification and final publication; cancellation
+        or exhaustion never returns a partial receipt.
+        """
+        from ._bracket_certificate import replay_sources
+
+        return replay_sources(
+            data, expression=expression, limits=limits, tolerance=tolerance, budget=budget,
+        )
 
     @property
     def expression(self):
@@ -130,7 +196,11 @@ def certified_root_bracket(expression, limits, *, tolerance=Fraction(1, 10000),
     generation and independent verification, respectively. Passing the same
     budget for both phases shares cumulative limits. Exhaustion/cancellation
     preserves EvaluationBudgetExceeded/EvaluationCancelled and publishes no
-    partial receipt. Python source capture is structurally bounded separately.
+    partial receipt. Each omitted phase budget is captured once before exact
+    input preparation; preparation consumes the generation ledger. Source
+    capture is structurally bounded and Python allocation overhead remains
+    outside native-buffer accounting. Both phase budgets are checked again
+    after constructing the final public receipt.
 
     This evidence type is separate from RootBoxReceipt: it carries no
     uniqueness, nonzero-derivative, multiplicity or complete-enumeration claim.
@@ -141,33 +211,24 @@ def certified_root_bracket(expression, limits, *, tolerance=Fraction(1, 10000),
     """
     _check_evaluation_budget(budget)
     _check_evaluation_budget(verification_budget)
+    budget = _source_budget(budget)
+    verification_budget = _source_budget(verification_budget)
     variable, lower, upper = _sequence(limits, 3, "root bracket limits")
     binding = _root_binding(variable)
     if type(precision) is not int or not 8 <= precision <= 128:
         raise ValueError("certified precision must be an integer from 8 through 128")
     if type(max_bisections) is not int or not 0 <= max_bisections <= 1024:
         raise ValueError("max_bisections must be an integer from 0 through 1024")
-    lower, upper, tolerance = (_rational(value, budget)
-                               for value in (lower, upper, tolerance))
-    if lower > upper:
-        raise ValueError("root bracket endpoints must be increasing")
-    if tolerance <= 0:
-        raise ValueError("certified root tolerance must be positive")
-    assumptions = bound_assumptions([variable], [binding])
-    _check_assumptions([(lower, upper)], assumptions)
-    if type(expression) is bool:
-        raise TypeError("certified root source requires an exact mathematical expression")
-    inexact = [False]
-    source = _numeric_source(expression, _functions(), [0], inexact=inexact)
-    if inexact[0]:
-        raise ValueError("certified root source requires exact literals; replace Float with explicit Rational")
-    _check_evaluation_budget(budget)
-    _check_evaluation_budget(verification_budget)
-    receipt = _native.certified_scalar_root_bracket_native(
-        source, binding, _native_number(lower, budget), _native_number(upper, budget),
-        _native_number(tolerance, budget), precision, max_bisections,
-        budget=budget, verification_budget=verification_budget,
+    statement = _bracket_statement(
+        expression, variable, binding, lower, upper, tolerance, budget,
     )
     _check_evaluation_budget(budget)
     _check_evaluation_budget(verification_budget)
-    return ScalarRootBracketReceipt(receipt)
+    receipt = _native.certified_scalar_root_bracket_native(
+        *statement, precision, max_bisections,
+        budget=budget, verification_budget=verification_budget,
+    )
+    result = ScalarRootBracketReceipt(receipt)
+    _check_evaluation_budget(budget)
+    _check_evaluation_budget(verification_budget)
+    return result

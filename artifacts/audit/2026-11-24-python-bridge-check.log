@@ -1,0 +1,177 @@
+    Checking cfg-if v1.0.4
+   Compiling libc v0.2.189
+   Compiling syn v3.0.3
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+    Checking typenum v1.20.1
+   Compiling serde_derive v1.0.229
+   Compiling syn v2.0.119
+    Checking cpufeatures v0.3.0
+    Checking num-traits v0.2.19
+   Compiling getrandom v0.4.3
+    Checking foldhash v0.2.0
+    Checking equivalent v1.0.2
+    Checking allocator-api2 v0.2.21
+    Checking hashbrown v0.17.1
+    Checking memchr v2.8.3
+   Compiling serde_json v1.0.151
+    Checking rand_core v0.10.1
+    Checking indexmap v2.14.0
+    Checking zmij v1.0.23
+    Checking itoa v1.0.18
+    Checking num-integer v0.1.47
+    Checking hybrid-array v0.4.14
+   Compiling zeroize_derive v1.5.0
+    Checking zeroize v1.9.0
+    Checking num-bigint v0.4.8
+    Checking fsym-budget v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-budget)
+    Checking arrayvec v0.7.8
+    Checking constant_time_eq v0.4.2
+    Checking blake3 v1.8.7
+    Checking fsym-bigint v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-bigint)
+    Checking crypto-common v0.2.2
+   Compiling thiserror-impl v2.0.20
+    Checking thiserror v2.0.20
+    Checking fsym-modular v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-modular)
+    Checking num-rational v0.4.2
+    Checking fsym-rational v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-rational)
+    Checking num-complex v0.4.6
+    Checking fsym-id v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-id)
+    Checking fsym-outcome v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-outcome)
+    Checking fsym-core v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-core)
+    Checking block-buffer v0.12.1
+   Compiling version_check v0.9.5
+   Compiling target-lexicon v0.13.5
+   Compiling generic-array v0.14.7
+    Checking cmov v0.5.4
+    Checking ctutils v0.4.2
+   Compiling pyo3-build-config v0.27.2
+    Checking inout v0.2.2
+    Checking fsym-assumptions v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-assumptions)
+   Compiling crossbeam-utils v0.8.22
+    Checking fsym-proof-kernel v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-proof-kernel)
+    Checking cipher v0.5.2
+    Checking crypto-common v0.1.7
+    Checking block-buffer v0.10.4
+    Checking digest v0.10.7
+    Checking fsym-evidence v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-evidence)
+   Compiling rustix v1.1.4
+    Checking bitflags v2.13.1
+    Checking fsym-polys v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-polys)
+    Checking zerocopy v0.8.56
+   Compiling semver v1.0.28
+    Checking linux-raw-sys v0.12.1
+    Checking base64ct v1.8.3
+    Checking pem-rfc7468 v0.7.0
+   Compiling rustc_version v0.4.1
+    Checking ppv-lite86 v0.2.21
+    Checking fsym-simplify v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-simplify)
+    Checking universal-hash v0.6.1
+    Checking getrandom v0.2.17
+   Compiling crossbeam-epoch v0.9.21
+    Checking const-oid v0.9.6
+    Checking der v0.7.10
+    Checking rand_core v0.6.4
+   Compiling curve25519-dalek v4.1.3
+    Checking signature v2.2.0
+    Checking chacha20 v0.10.1
+   Compiling memoffset v0.9.1
+   Compiling anyhow v1.0.104
+    Checking cpubits v0.1.1
+   Compiling crossbeam-deque v0.8.8
+    Checking fastrand v2.5.0
+   Compiling rustversion v1.0.23
+    Checking cpufeatures v0.2.17
+    Checking once_cell v1.21.4
+    Checking const-oid v0.10.2
+    Checking digest v0.11.3
+    Checking spki v0.7.3
+   Compiling curve25519-dalek-derive v0.1.1
+    Checking subtle v2.6.1
+   Compiling cfg_aliases v0.2.2
+   Compiling parking_lot_core v0.9.12
+   Compiling either v1.18.0
+   Compiling rayon-core v1.13.0
+   Compiling itertools v0.14.0
+   Compiling nix v0.31.3
+    Checking pkcs8 v0.10.2
+    Checking getrandom v0.3.4
+    Checking tempfile v3.27.0
+    Checking sha2 v0.10.9
+    Checking polyval v0.7.3
+    Checking ed25519 v2.2.3
+    Checking rand_chacha v0.3.1
+    Checking fsym-calculus v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-calculus)
+   Compiling pyo3-ffi v0.27.2
+   Compiling pyo3-macros-backend v0.27.2
+    Checking aead v0.6.1
+    Checking errno v0.3.14
+    Checking tinyvec_macros v0.1.1
+    Checking scopeguard v1.2.0
+   Compiling crc32fast v1.5.1
+   Compiling signal-hook v0.4.4
+   Compiling virtue-next v0.1.3
+   Compiling bincode-next v3.1.1
+    Checking smallvec v1.15.2
+   Compiling bincode_derive-next v3.1.1
+    Checking lock_api v0.4.14
+    Checking tinyvec v1.12.0
+    Checking signal-hook-registry v1.4.8
+    Checking rand v0.8.7
+    Checking ed25519-dalek v2.2.0
+    Checking ghash v0.6.0
+    Checking rapidhash v4.5.1
+    Checking rand_core v0.9.5
+   Compiling prost-derive v0.14.4
+    Checking signatory v0.27.1
+    Checking aes v0.9.2
+    Checking poly1305 v0.9.1
+    Checking ctr v0.10.1
+    Checking fsym-sets v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-sets)
+    Checking franken-evidence v0.6.0 (/tmp/asupersync/franken_evidence)
+    Checking rmp v0.8.15
+   Compiling pin-project-internal v1.1.13
+    Checking franken-kernel v0.6.0 (/tmp/asupersync/franken_kernel)
+    Checking bytes v1.12.1
+   Compiling pastey v0.2.3
+    Checking pin-project-lite v0.2.17
+    Checking futures-io v0.3.34
+    Checking log v0.4.34
+   Compiling heck v0.5.0
+    Checking data-encoding v2.11.1
+   Compiling asupersync v0.6.0 (/tmp/asupersync)
+    Checking unty-next v0.1.2
+    Checking futures-core v0.3.34
+    Checking parking v2.2.1
+    Checking futures-lite v2.6.1
+    Checking nkeys v0.4.5
+    Checking rayon v1.12.0
+    Checking prost v0.14.4
+    Checking franken-decision v0.6.0 (/tmp/asupersync/franken_decision)
+    Checking pin-project v1.1.13
+    Checking rmp-serde v1.3.1
+    Checking fsym-solvers v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-solvers)
+    Checking aes-gcm v0.11.1
+    Checking chacha20poly1305 v0.11.0
+    Checking unicode-normalization v0.1.25
+    Checking parking_lot v0.12.5
+    Checking sha2 v0.11.0
+    Checking sha1 v0.11.0
+    Checking hmac v0.13.0
+    Checking rand v0.10.3
+    Checking xattr v1.6.1
+    Checking polling v3.11.0
+    Checking crossbeam-queue v0.3.13
+   Compiling pyo3 v0.27.2
+    Checking fsci-runtime v0.2.0 (/tmp/frankenscipy-pin/crates/fsci-runtime)
+    Checking sysinfo v0.39.6
+   Compiling asupersync-macros v0.6.0 (/tmp/asupersync/asupersync-macros)
+    Checking socket2 v0.6.5
+    Checking hex v0.4.3
+    Checking fnp-ndarray v0.3.0 (/tmp/franken_numpy-pin/crates/fnp-ndarray)
+    Checking base64 v0.23.1
+    Checking slab v0.4.12
+error: could not compile `asupersync` (lib)
+
+Caused by:
+  process didn't exit successfully: `/tmp/frankensympy-native-71f712/toolchain/bin/rustc --crate-name asupersync --edition=2024 /tmp/asupersync/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata -C embed-bitcode=no --warn=unused '--warn=clippy::pedantic' '--warn=clippy::nursery' '--allow=clippy::wrong_self_convention' '--allow=clippy::useless_vec' '--allow=clippy::useless_conversion' '--allow=clippy::used_underscore_binding' '--allow=clippy::use_self' '--allow=clippy::unused_self' '--allow=clippy::unused_peekable' --allow=unused_doc_comments '--allow=clippy::unused_async' --deny=unsafe_code '--allow=clippy::unreadable_literal' '--allow=clippy::unnecessary_wraps' '--allow=clippy::unnecessary_sort_by' '--allow=clippy::unnecessary_lazy_evaluations' '--allow=clippy::unnecessary_debug_formatting' '--allow=clippy::unit_arg' '--allow=clippy::uninlined_format_args' --warn=unexpected_cfgs '--allow=clippy::type_complexity' '--allow=clippy::trivially_copy_pass_by_ref' '--allow=clippy::too_many_lines' '--allow=clippy::too_many_arguments' '--allow=clippy::suspicious_operation_groupings' '--allow=clippy::suboptimal_flops' '--allow=clippy::struct_field_names' '--allow=clippy::struct_excessive_bools' '--allow=clippy::single_match_else' '--allow=clippy::single_match' '--allow=clippy::similar_names' '--allow=clippy::significant_drop_tightening' '--allow=clippy::significant_drop_in_scrutinee' '--allow=clippy::should_implement_trait' '--allow=clippy::semicolon_if_nothing_returned' '--allow=clippy::return_self_not_must_use' '--allow=clippy::result_large_err' '--allow=clippy::redundant_pattern_matching' '--allow=clippy::redundant_field_names' '--allow=clippy::redundant_else' '--allow=clippy::redundant_closure_for_method_calls' '--allow=clippy::redundant_clone' '--allow=clippy::read_zero_byte_vec' '--allow=clippy::question_mark' '--allow=clippy::ptr_as_ptr' '--allow=clippy::or_fun_call' '--allow=clippy::option_option' '--allow=clippy::option_if_let_else' '--allow=clippy::no_effect_underscore_binding' '--allow=clippy::new_without_default' '--allow=clippy::needless_range_loop' '--allow=clippy::needless_pass_by_value' '--allow=clippy::needless_pass_by_ref_mut' '--allow=clippy::must_use_unit' '--allow=clippy::must_use_candidate' '--allow=clippy::module_name_repetitions' '--allow=clippy::module_inception' '--allow=clippy::missing_panics_doc' '--allow=clippy::missing_inline_in_public_items' '--allow=clippy::missing_fields_in_debug' '--allow=clippy::missing_errors_doc' --allow=missing_docs '--allow=clippy::missing_const_for_fn' '--allow=clippy::match_wild_err_arm' '--allow=clippy::match_same_arms' '--allow=clippy::match_like_matches_macro' '--allow=clippy::map_unwrap_or' '--allow=clippy::manual_slice_fill' '--allow=clippy::manual_let_else' '--allow=clippy::manual_is_multiple_of' '--allow=clippy::manual_div_ceil' '--allow=clippy::manual_clamp' '--allow=clippy::manual_checked_ops' '--allow=clippy::len_zero' '--allow=clippy::large_futures' '--allow=clippy::large_enum_variant' '--allow=clippy::iter_with_drain' '--allow=clippy::items_after_test_module' '--allow=clippy::items_after_statements' '--allow=clippy::inefficient_to_string' '--allow=clippy::implicit_clone' '--allow=clippy::ignored_unit_patterns' '--allow=clippy::if_not_else' '--allow=clippy::future_not_send' '--allow=clippy::format_push_string' '--allow=clippy::format_collect' '--allow=clippy::float_cmp' '--allow=clippy::field_reassign_with_default' '--allow=clippy::explicit_iter_loop' '--allow=clippy::explicit_into_iter_loop' '--allow=clippy::duration_suboptimal_units' '--allow=clippy::drain_collect' '--allow=clippy::double_must_use' '--allow=clippy::doc_markdown' '--allow=clippy::doc_lazy_continuation' '--allow=clippy::derive_partial_eq_without_eq' '--allow=clippy::default_trait_access' '--allow=clippy::collection_is_never_read' '--allow=clippy::collapsible_if' '--allow=clippy::cognitive_complexity' '--allow=clippy::cloned_ref_to_slice_refs' '--allow=clippy::chunks_exact_to_as_chunks' '--allow=clippy::cast_sign_loss' '--allow=clippy::cast_precision_loss' '--allow=clippy::cast_possible_truncation' '--allow=clippy::cast_lossless' '--allow=clippy::branches_sharing_code' '--allow=clippy::borrow_as_ptr' '--allow=clippy::bool_assert_comparison' '--allow=clippy::assign_op_pattern' '--allow=clippy::assertions_on_constants' '--allow=clippy::assert_is_empty' '--allow=clippy::arithmetic_side_effects' --check-cfg 'cfg(loom)' --check-cfg 'cfg(fuzzing)' --check-cfg 'cfg(feature, values("quic", "http3", "wasm-browser-preview", "simd-intrinsics", "messaging-fabric", "obligation-cleanup-e2e"))' --cfg 'feature="default"' --cfg 'feature="native-runtime"' --cfg 'feature="nightly-outcome-try"' --cfg 'feature="proc-macros"' --cfg 'feature="runtime-core"' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values("atp-cli", "atpd-daemon", "benchmark-adapters", "browser-io", "browser-trace", "cancel-correctness-oracle", "channel-mpsc-select-e2e", "ci-cross-platform", "cli", "compression", "config-file", "criterion-benches", "cross-subsystem-recovery-e2e", "debug-server", "default", "dependency-ledger", "desktop-runtime-profile", "deterministic-mode", "distributed-hash-snapshot-recovery-e2e", "fuzz", "h3-websocket-e2e", "http3", "io-uring", "kafka", "lab-stack-traces", "legacy-internal-test-harnesses", "lock-metrics", "loom-tests", "messaging-fabric", "metrics", "mysql", "native-runtime", "nightly-outcome-try", "obligation-cleanup-e2e", "obligation-leak-detection", "postgres", "proc-macros", "quic", "raptorq-roundtrip-e2e", "real-service-e2e", "remote-service", "runtime-core", "runtime-metrics", "serialization-golden-harnesses", "simd-intrinsics", "sqlite", "tailscale-path-provider", "test-internals", "tls", "tls-native-roots", "tls-webpki-roots", "tokio-compat", "tower", "trace-compression", "tracing-integration", "waker-profiling", "wasm-browser-deterministic", "wasm-browser-dev", "wasm-browser-minimal", "wasm-browser-preview", "wasm-browser-prod", "wasm-runtime"))' -C metadata=aef4df1535d00bed -C extra-filename=-820d04aa073e9074 --out-dir /tmp/frankensympy-native-71f712/target/debug/build/asupersync/820d04aa073e9074/out -C strip=debuginfo -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/aead/68876776abac3eb6/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/aes/72e28253c896912b/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/aes-gcm/846a7f0df0947f92/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/allocator-api2/8a4dd0d955ee8dee/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/asupersync-macros/86d39a964dfe8d93/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/base64/dd8c02d4fe818fdc/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/base64ct/82e3cdbf29153047/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/bincode-next/de238f8fefe1d090/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/bincode_derive-next/378678d3b829af80/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/bitflags/9c7503829cab9e5f/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/block-buffer/a6ed67e76d667658/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/block-buffer/fac763d806003503/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/bytes/543c211fc281d174/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/cfg-if/4d5a9bc1b6658dfd/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/chacha20/25c7f0e2fb7864cf/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/chacha20poly1305/c2b60d1a4ccfab71/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/cipher/16b64efd2783f01c/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/cmov/001ea3fcccffe567/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/const-oid/8618d77a10855b48/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/const-oid/da6aac0ae8d7e6d9/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/cpubits/28e1aba5262497f8/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/cpufeatures/29e3765697672ff3/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/cpufeatures/5be33c83cded83ff/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/crc32fast/79b612ffa56642f1/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/crossbeam-queue/939970f6cabea40a/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/crossbeam-utils/61aab07b64bb3242/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/crypto-common/c09b6760fafcd449/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/crypto-common/edceb585bb9f0acb/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/ctr/de0f28119163d63a/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/ctutils/753ea7ffb154564b/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/curve25519-dalek/82f3c70163952c3d/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/curve25519-dalek-derive/90438aaa032606e4/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/data-encoding/163a6f3d32c3d54b/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/der/f481af6b182074c5/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/digest/7e6cbe3992d313bc/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/digest/ac5b80104b1d6b60/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/ed25519/c0bb6dbfaadf15bb/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/ed25519-dalek/aec681fe44553b6e/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/equivalent/e3e6db84a5112e34/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/errno/fa9fdd4a0966eb9d/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/fastrand/8682adbd2ca4f62e/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/foldhash/624b4358143f4d76/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/franken-decision/64f85b3ff68a3210/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/franken-evidence/698f1a3b65442288/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/franken-kernel/da41d4c36318c107/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/futures-core/d5eebd2be87bdb22/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/futures-io/b161f5f74b6ba3dc/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/futures-lite/8b77d18b1c3ca9de/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/generic-array/3392abe15f84c519/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/getrandom/2c47efa357e4d558/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/getrandom/69c6b4c67eb60575/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/ghash/9124206386ba2c24/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/hashbrown/5fa668f682b31a6e/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/hex/2c3d6abf8261b5b6/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/hmac/5c9aa6728f94f8ab/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/hybrid-array/acdd48a07809594a/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/indexmap/c2732f4d7503d4e0/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/inout/e8fa380b574d1411/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/itoa/6286e222743ccfff/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/libc/fa5db34c00a5b01f/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/linux-raw-sys/2b5cf1bd0c3253fc/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/lock_api/9b33fc566ff81b4b/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/log/13072385735b4684/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/memchr/90a1396a574293dd/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/memoffset/afe8457b3b052bf4/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/nix/363d9d1b4b475beb/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/nkeys/7ad9e2a17e3028a5/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/num-traits/e859be8ef9d8b902/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/once_cell/7520091a3be73da7/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/parking/388cf525ec65fc7b/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/parking_lot/736a72ee131d2993/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/parking_lot_core/c2f0c1849dc88ec7/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/pastey/3fb031423368252a/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/pem-rfc7468/6efb8799af951240/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/pin-project/3bbdea01b570ec92/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/pin-project-internal/36f49c54ca5532a7/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/pin-project-lite/2e26832320124fb9/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/pkcs8/0c742a8506f80670/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/polling/df2fc6a5a6653943/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/poly1305/dd9aadfd39dadf95/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/polyval/be1ee4045d2e2bdc/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/ppv-lite86/c816da3210fbd373/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/prost/2dcb97fc139e1c6c/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/prost-derive/87236368a253151d/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/rand/b467c536aec07e61/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/rand_chacha/cf1b39edce401d63/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/rand_core/09e0ddaede37bb80/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/rand_core/56d22d13c8463a4b/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/rapidhash/83ac5dea550bc555/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/rmp/18749cd416bd3f61/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/rmp-serde/a8d5cc6523dfa898/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/rustix/8e925afdae22f9b2/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/rustversion/a621a12c56bed3cc/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/scopeguard/65ec69724cf27987/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/semver/422dc4bcf2cf4949/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/serde/d08ad8d5d1641d41/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/serde_core/992cfdb11e04a203/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/serde_derive/c50a91c2ae510e32/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/serde_json/91027fa834cbf985/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/sha1/7e39775936958325/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/sha2/19fdc9fa2aa64c1e/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/sha2/86820bbec30e80eb/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/signal-hook/ea0150f8496ab608/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/signal-hook-registry/ad93dcd7620f08c6/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/signatory/057b7abc50069ec4/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/signature/ffbc252c98fffd23/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/slab/617e5566e8c5e6fd/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/smallvec/38aa1441ea177349/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/socket2/9058e7e3f44ea7a1/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/spki/638885c8737f3f95/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/subtle/85226d505b8d49c0/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/sysinfo/ea08c54d15cbf3c1/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/tempfile/30356fdfee1ff023/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/thiserror/d3b3c6a4c82fb055/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/thiserror-impl/6ce3fabc6851f27f/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/tinyvec/fd05a8fc94901638/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/tinyvec_macros/41ed69062f6aeeb2/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/typenum/afc1f718b91e7ba3/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/unicode-normalization/9959f2b0283a1d7e/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/universal-hash/96eac4b0561ed261/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/unty-next/49cd6cf5846b6d58/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/xattr/e68e33e38465c9c3/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/zerocopy/bf273255efd7bf2e/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/zeroize/a33d7cd973704593/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/zeroize_derive/9e1e43fc0e70632f/out -L dependency=/tmp/frankensympy-native-71f712/target/debug/build/zmij/de31a23f92613b6a/out --extern aes_gcm=/tmp/frankensympy-native-71f712/target/debug/build/aes-gcm/846a7f0df0947f92/out/libaes_gcm-846a7f0df0947f92.rmeta --extern asupersync_macros=/tmp/frankensympy-native-71f712/target/debug/build/asupersync-macros/86d39a964dfe8d93/out/libasupersync_macros-86d39a964dfe8d93.so --extern base64=/tmp/frankensympy-native-71f712/target/debug/build/base64/dd8c02d4fe818fdc/out/libbase64-dd8c02d4fe818fdc.rmeta --extern bincode=/tmp/frankensympy-native-71f712/target/debug/build/bincode-next/de238f8fefe1d090/out/libbincode_next-de238f8fefe1d090.rmeta --extern chacha20poly1305=/tmp/frankensympy-native-71f712/target/debug/build/chacha20poly1305/c2b60d1a4ccfab71/out/libchacha20poly1305-c2b60d1a4ccfab71.rmeta --extern crc32fast=/tmp/frankensympy-native-71f712/target/debug/build/crc32fast/79b612ffa56642f1/out/libcrc32fast-79b612ffa56642f1.rmeta --extern crossbeam_queue=/tmp/frankensympy-native-71f712/target/debug/build/crossbeam-queue/939970f6cabea40a/out/libcrossbeam_queue-939970f6cabea40a.rmeta --extern franken_decision=/tmp/frankensympy-native-71f712/target/debug/build/franken-decision/64f85b3ff68a3210/out/libfranken_decision-64f85b3ff68a3210.rmeta --extern franken_evidence=/tmp/frankensympy-native-71f712/target/debug/build/franken-evidence/698f1a3b65442288/out/libfranken_evidence-698f1a3b65442288.rmeta --extern franken_kernel=/tmp/frankensympy-native-71f712/target/debug/build/franken-kernel/da41d4c36318c107/out/libfranken_kernel-da41d4c36318c107.rmeta --extern futures_lite=/tmp/frankensympy-native-71f712/target/debug/build/futures-lite/8b77d18b1c3ca9de/out/libfutures_lite-8b77d18b1c3ca9de.rmeta --extern getrandom=/tmp/frankensympy-native-71f712/target/debug/build/getrandom/69c6b4c67eb60575/out/libgetrandom-69c6b4c67eb60575.rmeta --extern hashbrown=/tmp/frankensympy-native-71f712/target/debug/build/hashbrown/5fa668f682b31a6e/out/libhashbrown-5fa668f682b31a6e.rmeta --extern hex=/tmp/frankensympy-native-71f712/target/debug/build/hex/2c3d6abf8261b5b6/out/libhex-2c3d6abf8261b5b6.rmeta --extern hmac=/tmp/frankensympy-native-71f712/target/debug/build/hmac/5c9aa6728f94f8ab/out/libhmac-5c9aa6728f94f8ab.rmeta --extern libc=/tmp/frankensympy-native-71f712/target/debug/build/libc/fa5db34c00a5b01f/out/liblibc-fa5db34c00a5b01f.rmeta --extern memchr=/tmp/frankensympy-native-71f712/target/debug/build/memchr/90a1396a574293dd/out/libmemchr-90a1396a574293dd.rmeta --extern nix=/tmp/frankensympy-native-71f712/target/debug/build/nix/363d9d1b4b475beb/out/libnix-363d9d1b4b475beb.rmeta --extern nkeys=/tmp/frankensympy-native-71f712/target/debug/build/nkeys/7ad9e2a17e3028a5/out/libnkeys-7ad9e2a17e3028a5.rmeta --extern parking_lot=/tmp/frankensympy-native-71f712/target/debug/build/parking_lot/736a72ee131d2993/out/libparking_lot-736a72ee131d2993.rmeta --extern pin_project=/tmp/frankensympy-native-71f712/target/debug/build/pin-project/3bbdea01b570ec92/out/libpin_project-3bbdea01b570ec92.rmeta --extern polling=/tmp/frankensympy-native-71f712/target/debug/build/polling/df2fc6a5a6653943/out/libpolling-df2fc6a5a6653943.rmeta --extern prost=/tmp/frankensympy-native-71f712/target/debug/build/prost/2dcb97fc139e1c6c/out/libprost-2dcb97fc139e1c6c.rmeta --extern rmp_serde=/tmp/frankensympy-native-71f712/target/debug/build/rmp-serde/a8d5cc6523dfa898/out/librmp_serde-a8d5cc6523dfa898.rmeta --extern semver=/tmp/frankensympy-native-71f712/target/debug/build/semver/422dc4bcf2cf4949/out/libsemver-422dc4bcf2cf4949.rmeta --extern serde=/tmp/frankensympy-native-71f712/target/debug/build/serde/d08ad8d5d1641d41/out/libserde-d08ad8d5d1641d41.rmeta --extern serde_json=/tmp/frankensympy-native-71f712/target/debug/build/serde_json/91027fa834cbf985/out/libserde_json-91027fa834cbf985.rmeta --extern sha1=/tmp/frankensympy-native-71f712/target/debug/build/sha1/7e39775936958325/out/libsha1-7e39775936958325.rmeta --extern sha2=/tmp/frankensympy-native-71f712/target/debug/build/sha2/86820bbec30e80eb/out/libsha2-86820bbec30e80eb.rmeta --extern signal_hook=/tmp/frankensympy-native-71f712/target/debug/build/signal-hook/ea0150f8496ab608/out/libsignal_hook-ea0150f8496ab608.rmeta --extern slab=/tmp/frankensympy-native-71f712/target/debug/build/slab/617e5566e8c5e6fd/out/libslab-617e5566e8c5e6fd.rmeta --extern smallvec=/tmp/frankensympy-native-71f712/target/debug/build/smallvec/38aa1441ea177349/out/libsmallvec-38aa1441ea177349.rmeta --extern socket2=/tmp/frankensympy-native-71f712/target/debug/build/socket2/9058e7e3f44ea7a1/out/libsocket2-9058e7e3f44ea7a1.rmeta --extern subtle=/tmp/frankensympy-native-71f712/target/debug/build/subtle/85226d505b8d49c0/out/libsubtle-85226d505b8d49c0.rmeta --extern sysinfo=/tmp/frankensympy-native-71f712/target/debug/build/sysinfo/ea08c54d15cbf3c1/out/libsysinfo-ea08c54d15cbf3c1.rmeta --extern tempfile=/tmp/frankensympy-native-71f712/target/debug/build/tempfile/30356fdfee1ff023/out/libtempfile-30356fdfee1ff023.rmeta --extern thiserror=/tmp/frankensympy-native-71f712/target/debug/build/thiserror/d3b3c6a4c82fb055/out/libthiserror-d3b3c6a4c82fb055.rmeta --extern unicode_normalization=/tmp/frankensympy-native-71f712/target/debug/build/unicode-normalization/9959f2b0283a1d7e/out/libunicode_normalization-9959f2b0283a1d7e.rmeta --extern xattr=/tmp/frankensympy-native-71f712/target/debug/build/xattr/e68e33e38465c9c3/out/libxattr-e68e33e38465c9c3.rmeta --extern zeroize=/tmp/frankensympy-native-71f712/target/debug/build/zeroize/a33d7cd973704593/out/libzeroize-a33d7cd973704593.rmeta --sysroot=/tmp/frankensympy-native-71f712/toolchain` (signal: 9, SIGKILL: kill)

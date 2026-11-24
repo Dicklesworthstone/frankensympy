@@ -1,0 +1,34 @@
+   Compiling serde_json v1.0.151
+   Compiling fsym-core v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-core)
+    Finished `test` profile [unoptimized] target(s) in 30.56s
+     Running tests/integral_artifact.rs (/tmp/frankensympy-native-71f712/target/debug/build/fsym-core/19ff1c1ad4aec1d0/out/integral_artifact-19ff1c1ad4aec1d0)
+
+running 10 tests
+test every_receiver_binding_precedes_untrusted_witness_decoding ... ok
+test export_requires_the_same_original_source_and_typed_axis_as_the_receipt ... ok
+test equal_endpoints_replay_zero_only_after_admitting_the_original_source ... ok
+test integration_errors_preserve_leaf_errors_for_host_operational_classification ... ok
+test cancellation_at_early_and_late_transport_safe_points_never_publishes ... ok
+test export_and_replay_share_cumulative_compute_memory_and_allocation_allowances ... ok
+test canonical_candidates_cannot_hide_poles_or_claim_unproved_accuracy ... ok
+test incomplete_overlapping_duplicate_and_reversed_partitions_refuse ... ok
+test schema_canonical_encoding_and_decoder_envelopes_fail_closed ... ok
+test exact_polynomial_and_absolute_partitions_roundtrip_with_original_sources ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/scalar_bracket_artifact.rs (/tmp/frankensympy-native-71f712/target/debug/build/fsym-core/c26ec9e1f3d4fc2b/out/scalar_bracket_artifact-c26ec9e1f3d4fc2b)
+
+running 9 tests
+test expected_source_axis_interval_tolerance_and_context_precede_witness_decoding ... ok
+test immediate_operational_causes_remain_visible_to_host_error_mappers ... ok
+test export_binds_the_receipt_source_and_requires_exactly_one_axis ... ok
+test a_valid_sign_bracket_can_contain_several_roots_without_proving_uniqueness ... ok
+test cancellation_never_publishes_a_partial_export_or_accepted_replay ... ok
+test bounded_decoding_and_canonical_bytes_refuse_untrusted_claims ... ok
+test export_replay_and_repeated_requests_consume_one_cumulative_ledger ... ok
+test narrow_candidates_cannot_hide_original_poles_or_trigger_generator_fallback ... ok
+test exact_repeated_nonsmooth_and_endpoint_roots_replay_the_legacy_wire_format ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

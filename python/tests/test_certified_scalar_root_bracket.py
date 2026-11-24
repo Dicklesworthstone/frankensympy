@@ -209,3 +209,71 @@ def test_native_bridge_refuses_nonliteral_bounds_and_preserves_resource_errors()
         _native.certified_scalar_root_bracket_native(
             x._value, binding, Rational(-1)._value, Rational(1)._value,
             Rational(1, 100)._value, max_bisections=1025)
+
+
+def test_private_phase_budgets_are_captured_once_before_exact_preparation(monkeypatch):
+    import importlib
+
+    parametric = importlib.import_module("sympy.utilities._parametric_root")
+    real_factory = parametric._fallback_budget
+    created = []
+
+    def capture():
+        ledger = real_factory()
+        created.append(ledger)
+        return ledger
+
+    monkeypatch.setattr(parametric, "_fallback_budget", capture)
+    real_native = _native.certified_scalar_root_bracket_native
+    seen = []
+
+    def observe(*args, **kwargs):
+        generator, checker = kwargs["budget"], kwargs["verification_budget"]
+        seen.extend((generator, checker))
+        assert generator.remaining_steps < 512 * 1024 * 1024
+        assert checker.remaining_steps == 512 * 1024 * 1024
+        return real_native(*args, **kwargs)
+
+    monkeypatch.setattr(_native, "certified_scalar_root_bracket_native", observe)
+    assert certified_root_bracket(x, (x, -1, 1)).bounds == (0, 0)
+    assert len(created) == 2 and seen == created
+    assert created[0] is not created[1]
+    assert all(ledger.remaining_steps < 512 * 1024 * 1024 for ledger in created)
+
+
+@pytest.mark.parametrize("limit", ["max_steps", "max_memory_bytes", "max_allocations"])
+def test_direct_native_exact_input_copy_refuses_zero_allowances_atomically(limit):
+    limits = dict(max_steps=1 << 45, max_memory_bytes=1 << 40, max_allocations=1 << 30)
+    limits[limit] = 0
+    ledger = EvaluationBudget(**limits)
+    checker = EvaluationBudget()
+    fields = ("remaining_steps", "remaining_memory_bytes", "remaining_allocations")
+    before = tuple(getattr(ledger, field) for field in fields)
+    checker_before = tuple(getattr(checker, field) for field in fields)
+    with pytest.raises(EvaluationBudgetExceeded):
+        _native.certified_scalar_root_bracket_native(
+            x._value, x._value.symbol_binding, Rational(-1)._value, Rational(1)._value,
+            Rational(1, 10000)._value, budget=ledger, verification_budget=checker,
+        )
+    assert tuple(getattr(ledger, field) for field in fields) == before
+    assert tuple(getattr(checker, field) for field in fields) == checker_before
+
+
+@pytest.mark.parametrize("phase", ["budget", "verification_budget"])
+def test_both_phase_budgets_are_checked_after_public_receipt_construction(phase, monkeypatch):
+    from sympy.solvers import certified
+
+    real_receipt = certified.ScalarRootBracketReceipt
+    budgets = {name: EvaluationBudget() for name in ("budget", "verification_budget")}
+    accepted = []
+
+    def cancel_after_acceptance(native):
+        receipt = real_receipt(native)
+        accepted.append(receipt)
+        budgets[phase].cancel()
+        return receipt
+
+    monkeypatch.setattr(certified, "ScalarRootBracketReceipt", cancel_after_acceptance)
+    with pytest.raises(EvaluationCancelled):
+        certified_root_bracket(x, (x, -1, 1), **budgets)
+    assert len(accepted) == 1 and accepted[0].bounds == (0, 0)

@@ -982,6 +982,29 @@ independently recomputed endpoint-value enclosures. Its claim is existence
 only: it does not establish uniqueness, multiplicity or complete enumeration.
 It cannot substitute for `RootBoxReceipt`.
 
+Receipts can be saved and independently replayed against a receiver-owned
+statement without repeating the bracket search:
+
+```python
+from sympy import ScalarRootBracketReceipt
+
+encoded = multiple.to_bytes()
+restored = ScalarRootBracketReceipt.from_bytes(
+    encoded, expression=(x - 1)**3, limits=(x, 0, 2),
+)
+assert restored.bounds == (1, 1)
+```
+
+The canonical version-1 format is shared with native Sessions and admits
+exact built-in `bytes` through 1 MiB. Replay binds the original held source,
+typed variable, complete original interval, exact tolerance and default
+ambient context before accepting a witness. Stored endpoint values or
+acceptance flags carry no authority. Export and replay each accept one
+cumulative `EvaluationBudget` through `budget=`, including preparation,
+verification and the final publication check. Declared symbol assumptions
+remain part of the typed statement; nondefault ambient contexts are not
+accepted by this Python entry point.
+
 The checker proves continuity over the **entire original requested interval**.
 A narrowed witness cannot hide a pole elsewhere, and an interval that merely
 straddles zero is never treated as an exactly zero function value. Unknown
@@ -994,6 +1017,9 @@ Endpoints and tolerance admit exact integers, rationals and
 through 128 digits and `max_bisections` from 0 through 1024. Separate optional
 `budget` and `verification_budget` arguments accept cumulative
 `EvaluationBudget` objects; passing the same object shares one allowance.
+Each omitted phase budget is captured once before exact preparation, which
+consumes the generation ledger. Both phase budgets are checked after public
+receipt construction.
 Budget exhaustion and cancellation remain typed terminal errors, including
 the publication boundary. The feature and its native/public regression gates
 remain part of the implemented, uncertified development scope.
