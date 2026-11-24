@@ -2662,8 +2662,8 @@ class Expr(Basic):
         f = _num_facts(self)["finite"]
         return None if f is None else not f
 
-    def diff(self, *variables: Any) -> "Expr":
-        return diff(self, *variables)
+    def diff(self, *variables: Any, evaluate: bool = True) -> "Expr":
+        return diff(self, *variables, evaluate=evaluate)
 
     def simplify(self) -> "Expr":
         return simplify(self)
@@ -5053,44 +5053,18 @@ class Derivative(Expr):
         from ._opaque_arithmetic import contains_opaque
 
         expression = sympify(expression)
-        cleaned_vars = []
-        i = 0
-        while i < len(variables):
-            v = variables[i]
-            if isinstance(v, (tuple, list)) and len(v) == 2:
-                var, count = v
-                cnt = _exact_integer_value(count)
-                if cnt is None or cnt < 0:
-                    raise ValueError("differentiation order must be a non-negative integer")
-                if len(cleaned_vars) + cnt > 4096:
-                    raise ValueError("formal derivative exceeds the order limit")
-                cleaned_vars.extend([sympify(var)] * cnt)
-                i += 1
-            elif i + 1 < len(variables) and (isinstance(variables[i + 1], int) or type(variables[i + 1]) is Integer):
-                var = v
-                cnt = _exact_integer_value(variables[i + 1])
-                if cnt is None or cnt < 0:
-                    raise ValueError("differentiation order must be a non-negative integer")
-                if len(cleaned_vars) + cnt > 4096:
-                    raise ValueError("formal derivative exceeds the order limit")
-                cleaned_vars.extend([sympify(var)] * cnt)
-                i += 2
-            else:
-                if len(cleaned_vars) >= 4096:
-                    raise ValueError("formal derivative exceeds the order limit")
-                cleaned_vars.append(sympify(v))
-                i += 1
+        if not variables:
+            variable = _infer_diff_variable(expression)
+            if variable is None:
+                return _ZERO
+            variables = (variable,)
+        cleaned_vars = _normalize_diff_args(*variables)
         if not cleaned_vars:
             return expression
-        for variable in cleaned_vars:
-            if isinstance(variable, Symbol):
-                _require_symbol(variable)
-            elif not isinstance(variable, Function) and type(variable) is not Derivative:
-                raise ValueError("cannot differentiate with respect to a non-symbolic expression")
         if type(expression) is Derivative:
             cleaned_vars = list(expression.variables) + cleaned_vars
             expression = expression.expr
-            if len(cleaned_vars) > 4096:
+            if len(cleaned_vars) > _MAX_DIFF_ORDER:
                 raise ValueError("formal derivative exceeds the order limit")
         source_args = (expression, *cleaned_vars)
         opaque = any(contains_opaque(arg) for arg in source_args)
@@ -6115,63 +6089,93 @@ def _exact_integer_value(value: Any) -> int | None:
     return None
 
 
-def _normalize_diff_args(*variables: Any) -> list[Any]:
-    """Normalize differentiation variable specifications.
+_MAX_DIFF_ORDER = 4096
 
-    Supports:
-    - diff(expr, x)
-    - diff(expr, x, 2)
-    - diff(expr, (x, 2))
-    - diff(expr, x, y)
-    - diff(expr, x, 2, y, 3)
-    - diff(expr, (x, 2), (y, 3))
-    - diff(expr, x, 0)
-    - diff(expr, f(x))
-    - diff(expr, Derivative(f(x), x))
-    """
-    if not variables:
-        raise TypeError("at least one differentiation variable is required")
-    res: list[Any] = []
-    i = 0
-    while i < len(variables):
-        v = variables[i]
-        if isinstance(v, tuple):
-            if len(v) != 2:
-                raise ValueError(f"tuple variable spec must be (symbol, count), got {v}")
-            sym = v[0]
-            count = _exact_integer_value(v[1])
-            if count is None or count < 0:
-                raise TypeError(f"differentiation order must be a non-negative integer, got {v[1]}")
-            res.extend([sym] * count)
-            i += 1
-        elif type(v) is int or isinstance(v, Integer):
-            raise TypeError("differentiation order must follow a variable symbol")
+
+def _infer_diff_variable(expression: Expr) -> Symbol | None:
+    free = expression.free_symbols
+    if len(free) == 1:
+        return _require_symbol(next(iter(free)))
+    if not free and expression.is_number:
+        return None
+    raise ValueError("supply a differentiation variable unless the expression "
+                     "has exactly one free symbol or is a numeric constant")
+
+
+def _diff_coordinate(value: Any) -> Basic:
+    value = Symbol(value) if isinstance(value, str) else sympify(value)
+    if isinstance(value, Symbol):
+        return _require_symbol(value)
+    if isinstance(value, AppliedUndef):
+        return value
+    if isinstance(value, Function):
+        # A custom function may explicitly opt into independent coordinates.
+        # Read declarations without running an arbitrary descriptor.
+        for owner in type.__dict__["__mro__"].__get__(type(value)):
+            namespace = type.__dict__["__dict__"].__get__(owner)
+            if "_diff_wrt" in namespace:
+                if namespace["_diff_wrt"] is True:
+                    return value
+                break
+    if type(value) is Derivative and isinstance(value.expr, AppliedUndef):
+        # A jet coordinate must remain a formal partial. Repeated or
+        # composite occurrences would instead invoke the chain rule.
+        arguments = value.expr.args
+        for var in dict.fromkeys(value.variables):
+            if not isinstance(var, Symbol):
+                raise NotImplementedError("higher function-coordinate partials are unsupported")
+            if sum(arg == var for arg in arguments) != 1 or any(
+                var in arg.free_symbols for arg in arguments if arg != var
+            ):
+                break
         else:
-            sym = v
-            if i + 1 < len(variables) and (type(variables[i + 1]) is int or isinstance(variables[i + 1], Integer)):
-                count = _exact_integer_value(variables[i + 1])
-                if count is None or count < 0:
-                    raise TypeError(f"differentiation order must be a non-negative integer, got {variables[i + 1]}")
-                res.extend([sym] * count)
-                i += 2
-            else:
-                res.append(sym)
-                i += 1
-    return res
+            return value
+    raise ValueError("cannot differentiate with respect to a non-symbolic "
+                     "or dependent expression")
 
 
-def diff(expression: Any, *variables: Any) -> Expr:
-    """Differentiate through the implemented exact native rule set and supervised custom hooks."""
+def _normalize_diff_args(*variables: Any) -> list[Basic]:
+    """Admit every coordinate and total order before executing any derivative."""
+    result = []
+    index = 0
+    while index < len(variables):
+        variable = variables[index]
+        index += 1
+        count = 1
+        if isinstance(variable, (tuple, list)):
+            if len(variable) != 2:
+                raise ValueError("a variable specification must be a (variable, order) pair")
+            variable, count = variable
+        elif index < len(variables) and isinstance(variables[index], (int, Integer)):
+            count = variables[index]
+            index += 1
+        if type(count) in (Zero, One, NegativeOne, Integer):
+            count = count.p
+        if type(count) is not int or count < 0:
+            raise ValueError("differentiation order must be a non-negative integer")
+        if count > _MAX_DIFF_ORDER - len(result):
+            raise ValueError("derivative exceeds the order limit")
+        if count:
+            result.extend([_diff_coordinate(variable)] * count)
+    return result
+
+
+def diff(expression: Any, *variables: Any, evaluate: bool = True) -> Expr:
+    """Differentiate using native rules and supervised hooks, or keep a held derivative."""
+    if not evaluate:
+        return Derivative(expression, *variables, evaluate=False)
+    result = sympify(expression)
+    if not variables:
+        variable = _infer_diff_variable(result)
+        if variable is None:
+            return _ZERO
+        variables = (variable,)
     normalized_vars = _normalize_diff_args(*variables)
-    result = expression
     owns_session = _active_callback_session() is None
     cm = supervised_callback_session() if owns_session else contextlib.nullcontext()
     with cm:
         for symbol in normalized_vars:
-            if isinstance(symbol, str):
-                symbol = Symbol(symbol)
             if isinstance(symbol, Symbol):
-                _require_symbol(symbol)
                 result = _diff_single_supervised(result, symbol)
                 continue
             derivs = {d: Dummy(f"_deriv_{i}") for i, d in enumerate(result.atoms(Derivative)) if d != symbol}
