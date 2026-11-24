@@ -30,6 +30,8 @@ use serde::Serialize;
 use std::collections::HashMap;
 use thiserror::Error;
 
+mod least_squares;
+
 pub const MAX_OBJECTIVE_VARIABLES: usize = 64;
 pub const MAX_OBJECTIVE_SOURCE_NODES: usize = 256;
 pub const MAX_OBJECTIVE_SOURCE_DEPTH: usize = 16;
