@@ -47,5 +47,24 @@
     "Existing complete campaign and compatibility profile acceptance gates."
   ],
   "claim_effects": "No validated/certified profile, portable-proof, performance or campaign promotion; current broad Beads remain open or in progress.",
-  "integration_parent": "88284a49b76cef003162af9b64f7f35c79862359"
+  "integration_parent": "88284a49b76cef003162af9b64f7f35c79862359",
+  "public_python": {
+    "implementation": [
+      "Exact built-in LambertW and admitted native LambertW tags enter compile_numeric, residual systems and objectives.",
+      "Literal real branch 0/-1 and arity are checked before numerical normalization; comparisons borrow native integers.",
+      "Existing class/implementation, typed symbol, held source and math backend boundaries remain enforced."
+    ],
+    "source_files": [
+      "python/sympy/utilities/lambdify.py",
+      "python/tests/test_lambert_real_evalf.py"
+    ],
+    "authored_test_functions": 8,
+    "authored_parameterized_cases": 12,
+    "independent_review": "Reviewed actual raw Float/held Add retention, borrowed integer equality and the derivative opcode carried by residual transport; corrected the initial forged-opcode fixture.",
+    "remote_blob_readback": "Both final candidates fetched and compared exactly.",
+    "runtime": "not_run: execution environment unavailable"
+  },
+  "related_sparse_commit": "b456b464e021dfb241d8bd5940eb6117cdf57d8f",
+  "native_compiled_commit": "43920ec1cc94c06840847a1ab6d092862a64519f",
+  "public_integration_parent": "43920ec1cc94c06840847a1ab6d092862a64519f"
 }

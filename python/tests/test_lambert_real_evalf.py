@@ -183,3 +183,165 @@ def test_complete_real_solver_roots_are_usable_by_evalf_and_float(equation):
         assert math.isfinite(value)
         # This is a binary64 end-to-end check, not a root certificate.
         assert abs(residual(value)) < 4e-13
+
+
+@NATIVE_ONLY
+@pytest.mark.parametrize("branch,point,expected", [
+    (0, 1.0, CASES[0][5]),
+    (0, -0.25, CASES[1][5]),
+    (-1, -0.25, CASES[2][5]),
+])
+def test_compiled_real_branches_keep_value_chain_rule_and_second_derivative(
+    branch, point, expected,
+):
+    x, y = s.symbols("compiled_lambert_x compiled_lambert_y")
+    source = s.LambertW(2*x + y, branch, evaluate=False)
+    coordinates = (point / 4, point / 2)
+    slope = expected / (point * (1 + expected))
+    curvature = -(expected**2 * (expected + 2)) / (point**2 * (1 + expected)**3)
+
+    assert s.compile_numeric((x, y), source)(*coordinates) == pytest.approx(expected, rel=5e-14)
+    system = s.compile_residual_system([source], (x, y))
+    values, jacobian = system.evaluate(*coordinates)
+    assert values == pytest.approx([expected], rel=5e-14)
+    assert jacobian[0] == pytest.approx([2*slope, slope], rel=5e-13)
+    assert system.jacobian_vector_product([2, 3], *coordinates) == pytest.approx([7*slope])
+    assert system.jacobian_transpose_vector_product([5], *coordinates) == pytest.approx(
+        [10*slope, 5*slope],
+    )
+
+    objective = s.compile_objective(source, (x, y))
+    value, gradient, hessian = objective.evaluate(*coordinates)
+    assert value == pytest.approx(expected, rel=5e-14)
+    assert gradient == pytest.approx([2*slope, slope], rel=5e-13)
+    assert hessian[0] == pytest.approx([4*curvature, 2*curvature], rel=5e-12)
+    assert hessian[1] == pytest.approx([2*curvature, curvature], rel=5e-12)
+    assert objective.hessian_vector_product([2, 3], *coordinates) == pytest.approx(
+        [14*curvature, 7*curvature], rel=5e-12,
+    )
+
+
+@NATIVE_ONLY
+def test_compiled_principal_zero_uses_removable_derivatives_and_typed_bindings():
+    x = s.Dummy("lambert_same_name")
+    other = s.Dummy("lambert_same_name")
+    for source in (s.LambertW(x, evaluate=False), s.LambertW(x, 0, evaluate=False)):
+        assert s.compile_numeric(x, source)(0) == 0.0
+        assert s.compile_residual_system([source], x).evaluate(0) == ([0.0], [[1.0]])
+        assert s.compile_objective(source, x).evaluate(0) == (0.0, [1.0], [[-2.0]])
+        with pytest.raises(ValueError):
+            s.compile_numeric(other, source)
+
+
+@NATIVE_ONLY
+@pytest.mark.parametrize("branch,point", [(0, -0.5), (-1, 0.0), (-1, 0.25)])
+def test_compiled_lambert_original_domains_survive_zero_products_and_directions(branch, point):
+    x = s.Symbol("compiled_lambert_domain")
+    source = s.Mul(0, s.LambertW(x, branch, evaluate=False), evaluate=False)
+    scalar = s.compile_numeric(x, source)
+    residual = s.compile_residual_system([source], x)
+    objective = s.compile_objective(source, x)
+    for call in (
+        lambda: scalar(point),
+        lambda: residual.jacobian_vector_product([0], point),
+        lambda: objective.hessian_vector_product([0], point),
+    ):
+        with pytest.raises(ValueError):
+            call()
+
+
+@NATIVE_ONLY
+def test_lambert_numeric_admission_requires_literal_real_branch_metadata():
+    from sympy.core import _native, _native_expr
+
+    x = s.Symbol("compiled_lambert_branch")
+    malformed = [
+        s.Integer(1), s.Integer(-2), s.Integer(1 << 8192), s.Rational(1, 2), s.Float(0),
+        s.Symbol("symbolic_lambert_branch"), s.Add(0, 0, evaluate=False),
+    ]
+    for branch in malformed:
+        source = s.LambertW(x, branch, evaluate=False)
+        raw = _native_expr(source)
+        if type(branch) is s.Float or type(branch) is s.Add:
+            assert not raw.args[1].is_integer
+        for original in (source, raw):
+            with pytest.raises(ValueError):
+                s.compile_numeric(x, original)
+            with pytest.raises(ValueError):
+                s.compile_residual_system([original], x)
+    for arguments in ((), (_native_expr(x), _native_expr(s.Integer(0)), _native_expr(s.Integer(0)))):
+        with pytest.raises(ValueError):
+            s.compile_numeric(x, _native.py_function("LambertW", *arguments))
+
+
+@NATIVE_ONLY
+def test_lambert_compilation_does_not_accept_custom_classes_or_changed_hooks(monkeypatch):
+    from sympy.core import _native_expr
+
+    x = s.Symbol("compiled_lambert_class")
+    source = s.LambertW(x, evaluate=False)
+    native = _native_expr(source)
+
+    class CustomLambertW(s.LambertW):
+        pass
+
+    for custom in (s.Function("LambertW")(x), CustomLambertW(x, evaluate=False)):
+        with pytest.raises(NotImplementedError):
+            s.compile_numeric(x, custom)
+    calls = []
+
+    def changed(*args):
+        calls.append(args)
+        raise AssertionError("closed source admission cannot invoke a changed hook")
+
+    monkeypatch.setattr(s.LambertW, "_eval_derivative", changed, raising=False)
+    for original in (source, native):
+        with pytest.raises(NotImplementedError):
+            s.compile_numeric(x, original)
+        with pytest.raises(NotImplementedError):
+            s.compile_residual_system([original], x)
+    assert calls == []
+
+
+@NATIVE_ONLY
+def test_lambert_saved_programs_replay_branch_bound_derivatives_and_reject_substitution():
+    x = s.Symbol("compiled_lambert_transport")
+    source = s.LambertW(x, -1, evaluate=False)
+    system = s.compile_residual_system([source], x)
+    encoded = system.to_bytes()
+    restored = s.load_residual_system(encoded, residuals=[source], args=x)
+    assert restored.evaluate(-0.25) == system.evaluate(-0.25)
+    # Residual bundles store checked derivative programs, not value bytecode.
+    assert b'"LambertWMinusOneDerivative"' in encoded
+    forged = encoded.replace(b'"LambertWMinusOneDerivative"', b'"LambertWDerivative"')
+    with pytest.raises(ValueError):
+        s.load_residual_system(forged, residuals=[source], args=x)
+    with pytest.raises(ValueError):
+        s.load_residual_system(encoded, residuals=[s.LambertW(x)], args=x)
+
+    objective = s.compile_objective(source, x)
+    loaded = s.load_objective(objective.to_bytes(), objective=source, args=x)
+    assert loaded.evaluate(-0.25) == objective.evaluate(-0.25)
+
+
+@NATIVE_ONLY
+def test_lambert_native_work_retains_operational_budget_and_cancellation_errors():
+    x = s.Symbol("compiled_lambert_budget")
+    program = s.compile_numeric(x, s.LambertW(x))
+    budget = s.EvaluationBudget(max_steps=32)
+    with pytest.raises(s.EvaluationBudgetExceeded):
+        program(1.0, budget=budget)
+    assert budget.remaining_steps < 32
+    remaining = budget.remaining_steps
+    budget.cancel()
+    with pytest.raises(s.EvaluationCancelled):
+        program(1.0, budget=budget)
+    assert budget.remaining_steps == remaining
+    assert program(1.0) == pytest.approx(CASES[0][5], rel=5e-14)
+
+
+@NATIVE_ONLY
+def test_lambert_native_admission_does_not_change_the_math_backend():
+    x = s.Symbol("compiled_lambert_math")
+    with pytest.raises(NotImplementedError):
+        s.lambdify(x, s.LambertW(x), modules="math")
