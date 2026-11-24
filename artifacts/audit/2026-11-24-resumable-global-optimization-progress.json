@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-24",
+  "base_commit": "3d1754f8d230082155cf344cec928bc3794fb724",
+  "bead": "fra-campaign-jacobian-bundle-ukp",
+  "status": "implemented_execution_pending",
+  "scope": [
+    "Python compiled-objective and direct-source resumable global box optimization",
+    "Source/kind/tolerance/options/context-bound canonical checkpoints shared with native Sessions",
+    "Immutable candidate progress, bounded bisections, retained ledgers and independent complete-cover finish",
+    "Operational allocation, cancellation and exhaustion causes preserved across checkpoint transport"
+  ],
+  "public_api": [
+    "begin_box_optimization",
+    "restore_box_optimization",
+    "BoxOptimizationSearch",
+    "BoxOptimizationProgress",
+    "CompiledObjective.begin_box_optimization",
+    "CompiledObjective.restore_box_optimization"
+  ],
+  "limits": {
+    "variables": "1..16",
+    "precision_digits": "8..128",
+    "max_leaves": "1..1024",
+    "advance_splits": "1..1024",
+    "checkpoint_bytes": 1048576
+  },
+  "semantics": [
+    "Candidate state grants no global-bound acceptance; finish independently checks every original-source cell and feasible point.",
+    "A failed native advance is terminal; only an earlier saved checkpoint can be restored.",
+    "A completed advance can return unchanged candidate progress without charges; final verification and serialization require resources.",
+    "Restore retains intrinsic counters and spends the receiver's budget, but does not authenticate a remote caller's ledger.",
+    "Canonical schema 1 and root product API/encoding are preserved; root error adapter translates the shared codec's errors."
+  ],
+  "validation": {
+    "authored_shared_codec_tests": 6,
+    "authored_product_interoperability_tests": 1,
+    "authored_error_mapper_tests": 1,
+    "authored_public_functions": 19,
+    "authored_public_parameterized_cases": 40,
+    "independent_review": "Root, major_gap and validate_resume reviewed codec equivalence, native/public signatures, source bindings, lifetimes across GIL detach, mutable ownership, budget retention and final publication. Two concrete review findings were corrected.",
+    "codec_equivalence": "The existing serialization/restore body was mechanically compared after explicit type/source-argument renaming; its non-whitespace content was identical. Error source preservation is the intentional additional change.",
+    "python_ast": "Initial local six-file Python implementation parsed before the outage. Reconstructed final files and the ready-no-op test correction received source review; final execution/parsing remains pending.",
+    "pinned_toolchain": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19), official package SHA256 values verified",
+    "component_scope": "Audited exact-source component retained 50 complete current bridge files and omitted exactly 6 documented runtime/simplify/expand helpers; 56 registry identities/checksums matched production. No substitute implementation or upstream fallback.",
+    "attempts": [
+      {
+        "command": "cargo build --offline --locked --lib --features extension-module -j1",
+        "result": "Exit 101 after 80.05 seconds; host SIGKILL in fsym-calculus, no source diagnostic, Python bridge not reached."
+      },
+      {
+        "command": "cargo check --offline --locked --lib --features extension-module -j1",
+        "result": "Exit 101 after 35.08 seconds; host SIGKILL in fsym-calculus, no source diagnostic."
+      },
+      {
+        "command": "metadata check with explicitly serialized compiler workers",
+        "result": "Executor disconnected; no terminal result observed."
+      }
+    ],
+    "runtime": "No new native or candidate Python runtime tests completed.",
+    "rustfmt": "Could not start after executor loss; no formatting pass claimed.",
+    "ci": "New shared-codec target and public optimizer module added to existing actual-source CI selections."
+  },
+  "claims": "No C11/workstream/profile/performance/certification closure or claim-tier promotion. Existing supported smooth and Abs domains and bounded resource refusals remain unchanged."
+}

@@ -311,6 +311,44 @@ class _ObjectiveCallable:
             self, box, kind, tolerance, precision, max_leaves, budget=budget,
         )
 
+    def begin_box_optimization(self, box, *, kind="minimum",
+                               tolerance=Fraction(1, 10000), precision=32,
+                               max_leaves=512, budget=None):
+        """Begin a bounded, resumable global optimization of the frozen source.
+
+        The returned BoxOptimizationSearch evaluates the initial box, then
+        yields after bounded advance(max_splits) batches. checkpoint exports
+        canonical candidate bytes; only finish can independently verify the
+        complete cover and publish a BoxOptimizationReceipt.
+
+        Exact bounds, tolerance, typed variable order, captured assumptions
+        and options have the same meaning as optimize_box_certified. One
+        caller or private budget is retained across all calls. Save a
+        checkpoint before cancellation or exhaustion; failed native search
+        transitions are terminal and never grant partial acceptance.
+        """
+        from ._box_optimization_search import begin_box_optimization
+        return begin_box_optimization(
+            self, box, kind, tolerance, precision, max_leaves, budget=budget,
+        )
+
+    def restore_box_optimization(self, data, box, *, kind="minimum",
+                                 tolerance=Fraction(1, 10000), precision=32,
+                                 max_leaves=512, budget=None):
+        """Restore candidate bytes against this objective and expected options.
+
+        data must be exact built-in bytes, at most 1 MiB. Source, typed
+        coordinate order, exact box, kind, tolerance and options must match.
+        The native checker reconstructs and reevaluates the saved frontier;
+        serialized bounds or flags have no acceptance authority. Intrinsic
+        search counters survive restoration, and replay spends the receiving
+        ledger. Independent finish is still required after completion.
+        """
+        from ._box_optimization_search import restore_box_optimization
+        return restore_box_optimization(
+            self, data, box, kind, tolerance, precision, max_leaves, budget=budget,
+        )
+
     def solve_stationary_certified(self, initial, *, tol=1e-12, maxiter=200,
                                    precision=32, max_attempts=12, budget=None):
         """Find and independently certify one nonsingular stationary point.

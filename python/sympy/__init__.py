@@ -1619,12 +1619,14 @@ from .utilities.objective import (
     StationarySearchError, compile_objective, load_objective, load_portable_objective,
 )
 from .utilities.source_certification import (
+    begin_box_optimization, restore_box_optimization,
     certify_box_extremum, certify_root_box, certify_stationary_point,
     enclose_objective, enclose_residual_system, optimize_box_certified,
 )
 from .utilities._certified_numeric import ResidualJacobianEnclosure, RootBoxReceipt
 from .utilities._root_isolation import RootIsolationReceipt
 from .utilities._root_isolation_search import RootIsolationProgress, RootIsolationSearch
+from .utilities._box_optimization_search import BoxOptimizationProgress, BoxOptimizationSearch
 from .utilities._parametric_root import ParametricRootBoxReceipt
 from .utilities._parametric_cover import ParametricRootCoverReceipt
 from .utilities._parametric_sensitivity import ParametricSensitivityReceipt
@@ -2826,6 +2828,7 @@ __all__ = [
     "certify_stationary_point",
     "certify_box_extremum",
     "optimize_box_certified",
+    "begin_box_optimization", "restore_box_optimization",
     "StationarySearchError", "MinimizationSearchError", "NumericMinimizationCandidate",
     "EvaluationBudget",
     "EvaluationBudgetExceeded",
@@ -2844,6 +2847,7 @@ __all__ = [
     "StationaryPointReceipt",
     "BoxExtremumReceipt",
     "BoxOptimizationReceipt",
+    "BoxOptimizationProgress", "BoxOptimizationSearch",
     "count_ops",
     "real_roots",
     "factor_terms",

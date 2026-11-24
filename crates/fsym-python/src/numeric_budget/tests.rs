@@ -413,3 +413,52 @@ fn native_dimension_overflow_is_terminal_before_allocating_a_buffer() {
         }
     });
 }
+
+#[test]
+fn optimization_checkpoint_transport_keeps_operational_leaf_errors() {
+    use fsym_calculus::box_optimization::checkpoint_transport::OptimizationCheckpointError;
+    use fsym_core::BoxOptimizationError;
+    use fsym_core::root_certificate::artifact::CertificationError;
+    use pyo3::exceptions::PyMemoryError;
+
+    Python::initialize();
+    Python::attach(|py| {
+        let allocation = evaluation_error(OptimizationCheckpointError::Certification(
+            CertificationError::AllocationFailure,
+        ));
+        assert!(allocation.is_instance_of::<PyMemoryError>(py));
+        assert!(!allocation.is_instance_of::<PyValueError>(py));
+
+        for cancelled in [
+            OptimizationCheckpointError::Certification(CertificationError::Meter(
+                MeterError::Cancelled,
+            )),
+            OptimizationCheckpointError::Optimization(BoxOptimizationError::Verification(
+                RootBoxError::Meter(MeterError::Cancelled),
+            )),
+        ] {
+            let error = evaluation_error(cancelled);
+            assert!(error.is_instance_of::<EvaluationCancelled>(py));
+            assert!(!error.is_instance_of::<PyValueError>(py));
+        }
+
+        let exhausted = || {
+            let mut budget = Budget::new(BudgetLimits::uniform(0, 0));
+            budget.charge(Dimension::ComputeSteps, 1).unwrap_err()
+        };
+        for refusal in [
+            OptimizationCheckpointError::Certification(CertificationError::Meter(exhausted())),
+            OptimizationCheckpointError::Optimization(BoxOptimizationError::Verification(
+                RootBoxError::Meter(exhausted()),
+            )),
+            OptimizationCheckpointError::Optimization(BoxOptimizationError::Verification(
+                RootBoxError::ResourceLimit("checkpoint test intrinsic allowance"),
+            )),
+        ] {
+            let error = evaluation_error(refusal);
+            assert!(error.is_instance_of::<EvaluationBudgetExceeded>(py));
+            assert!(!error.is_instance_of::<PyValueError>(py));
+            assert!(!error.is_instance_of::<EvaluationCancelled>(py));
+        }
+    });
+}

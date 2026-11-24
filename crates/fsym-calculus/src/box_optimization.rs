@@ -17,6 +17,7 @@ use std::cmp::Ordering;
 
 mod checkpoint;
 pub use checkpoint::BoxOptimizationSearchCheckpoint;
+pub mod checkpoint_transport;
 
 type Result<T> = std::result::Result<T, BoxOptimizationError>;
 

@@ -223,6 +223,42 @@ fn canonical_native_checkpoint_recomputes_a_source_bound_frontier_and_final_witn
 }
 
 #[test]
+fn product_and_shared_codecs_exchange_identical_canonical_candidate_bytes() {
+    use fsym_calculus::box_optimization::checkpoint_transport;
+
+    let mut product = native_search("(x^2-2)^2");
+    let mut shared = native_search("(x^2-2)^2");
+    product.advance(3, &mut Unbounded).unwrap();
+    shared.advance(3, &mut Unbounded).unwrap();
+    let product_bytes =
+        export_box_optimization_checkpoint(&mut product, [3; 32], &mut Unbounded).unwrap();
+    let shared_bytes = checkpoint_transport::export_box_optimization_checkpoint(
+        &mut shared,
+        [3; 32],
+        &mut Unbounded,
+    )
+    .unwrap();
+    assert_eq!(product_bytes, shared_bytes);
+    let problem = problem("(x^2-2)^2");
+    let from_shared = restore_native(&shared_bytes).unwrap();
+    let from_product = checkpoint_transport::restore_box_optimization_checkpoint(
+        &product_bytes,
+        problem.objective(),
+        problem.variables(),
+        &native_domain(),
+        BoxExtremumKind::Minimum,
+        &q(1, 1000),
+        options(),
+        [3; 32],
+        &mut Unbounded,
+    )
+    .unwrap();
+    assert_eq!(from_shared.progress(), from_product.progress());
+    assert_eq!(from_shared.counters(), from_product.counters());
+    assert_eq!(from_shared.incumbent_point(), from_product.incumbent_point());
+}
+
+#[test]
 fn every_immutable_statement_component_is_bound_before_imported_arithmetic() {
     let mut original = native_search("(x^2-2)^2");
     let bytes = export_box_optimization_checkpoint(&mut original, [3; 32], &mut Unbounded).unwrap();

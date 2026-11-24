@@ -1174,6 +1174,62 @@ bounded slice. Search, independent replay, checkpoint restoration and final
 publication retain cumulative work and cancellation; exhausting a leaf or
 resource limit produces no partial certificate.
 
+### Resumable global box optimization
+
+Global searches can yield after bounded bisections, save candidate progress,
+and resume against the receiver's exact expected statement:
+
+```python
+from sympy import Rational, Symbol, compile_objective
+
+x = Symbol("x")
+program = compile_objective((x**2 - 2)**2, x)
+search = program.begin_box_optimization(
+    [(-2, 2)], tolerance=Rational(1, 1000), precision=16, max_leaves=256,
+)
+search.advance(3)
+saved = search.checkpoint()
+
+resumed = program.restore_box_optimization(
+    saved, [(-2, 2)], tolerance=Rational(1, 1000), precision=16,
+    max_leaves=256, budget=search.budget,
+)
+while not resumed.progress.ready_for_verification:
+    resumed.advance(4)
+receipt = resumed.finish()
+assert receipt.value[0] <= 0 <= receipt.value[1]
+assert receipt.gap <= Rational(1, 1000)
+```
+
+The direct-source `begin_box_optimization(objective, args, box, ...)` and
+`restore_box_optimization(data, *, objective, args, box, ...)` functions use
+the same continuation without symbolic derivative compilation. They retain
+the existing supported continuous `Abs` corners and original-domain checks.
+
+`advance(max_splits)` accepts 1 through 1024 bisections. Immutable
+`BoxOptimizationProgress` reports candidate status, leaf/split counts and
+evaluation count. A ready candidate still supplies no accepted global bound:
+`finish()` reconstructs the complete cover, reevaluates original-source cell
+bounds and the feasible point, and checks the requested objective-value gap.
+It returns the existing `BoxOptimizationReceipt`, without a uniqueness or
+coordinate-error claim. Repeated finishes repeat verification and spend work.
+
+One caller or private `EvaluationBudget` stays attached to the handle across
+preparation, advances, serialization and verification. A failed native
+transition is terminal and cannot export a new checkpoint; save before
+cancelling or exhausting its allowance. Reading progress remains possible.
+An already-ready advance can report existing progress without consuming work,
+but cancellation still refuses it.
+
+Canonical checkpoints share the native Session format and are bounded to
+1 MiB. Restore requires the same original source, ordered typed variables,
+exact box, optimization direction, positive rational tolerance, precision,
+leaf limit and context. It reconstructs and reevaluates the saved frontier,
+retains intrinsic counters and charges the receiving ledger. Stored bytes
+contain no accepted flags, trusted objective bounds or Python execution state;
+they do not authenticate another process's resource history. The existing
+limits of 1..16 variables, 8..128 digits and 1..1024 leaves remain in force.
+
 ---
 
 ## Exact quartic radicals (development API)

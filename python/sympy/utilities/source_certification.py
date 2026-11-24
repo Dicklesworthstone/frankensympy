@@ -15,6 +15,7 @@ from .lambdify import (
 __all__ = [
     "enclose_residual_system", "certify_root_box", "enclose_objective",
     "certify_stationary_point", "certify_box_extremum", "optimize_box_certified",
+    "begin_box_optimization", "restore_box_optimization",
 ]
 
 
@@ -327,3 +328,46 @@ def optimize_box_certified(objective, args, box, *, kind="minimum",
     budget = _source_budget(budget)
     context = _objective_context(objective, args, budget)
     return check(context, box, kind, tolerance, precision, max_leaves, budget=budget)
+
+
+def begin_box_optimization(objective, args, box, *, kind="minimum",
+                           tolerance=Fraction(1, 10000), precision=32,
+                           max_leaves=512, budget=None):
+    """Begin resumable global optimization directly from an exact source.
+
+    No symbolic derivative compilation is required. Like
+    optimize_box_certified, this admits nonconvex smooth objectives and
+    continuous Abs compositions while retaining original-source domain
+    obligations. Exact bounds and tolerance, typed coordinate order, source
+    assumptions and options are fixed in the returned BoxOptimizationSearch.
+
+    advance performs bounded bisections; checkpoint saves canonical
+    candidates. Only independent finish can publish global value bounds
+    and a tolerance-optimal feasible point. All phases share one caller or
+    private budget. Save a checkpoint before cancelling or exhausting it.
+    """
+    from ._box_optimization_search import begin_box_optimization as begin
+
+    budget = _source_budget(budget)
+    context = _objective_context(objective, args, budget)
+    return begin(context, box, kind, tolerance, precision, max_leaves, budget=budget)
+
+
+def restore_box_optimization(data, *, objective, args, box, kind="minimum",
+                             tolerance=Fraction(1, 10000), precision=32,
+                             max_leaves=512, budget=None):
+    """Restore candidate bytes against the receiver's exact expected source.
+
+    Source, ordered typed variables, domain, kind, tolerance and options
+    must match the checkpoint. The complete saved frontier is reconstructed
+    and reevaluated before exposing a continuation. Intrinsic counters are
+    retained and replay spends the receiving ledger. Checkpoints contain
+    neither Python execution state nor accepted global-optimality evidence;
+    a resumed search still requires independent finish verification.
+    """
+    from ._box_optimization_search import _checkpoint_data, restore_box_optimization as restore
+
+    _checkpoint_data(data, budget)
+    budget = _source_budget(budget)
+    context = _objective_context(objective, args, budget)
+    return restore(context, data, box, kind, tolerance, precision, max_leaves, budget=budget)

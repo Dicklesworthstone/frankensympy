@@ -35,6 +35,8 @@ use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyList, PyTuple};
 
+pub(crate) mod search;
+
 fn exact_preconditioner(
     values: &Bound<'_, PyAny>,
     dimension: usize,
@@ -266,6 +268,55 @@ impl PySourceObjective {
                 max_leaves,
             },
             budget.as_deref(),
+        )
+    }
+
+    /// Begin a bounded, source-bound global optimization continuation.
+    #[pyo3(signature = (domain, tolerance, kind="minimum", precision_digits=32, max_leaves=512, *, budget=None))]
+    fn begin_box_optimization(
+        &self,
+        domain: &Bound<'_, PyAny>,
+        tolerance: &Bound<'_, PyAny>,
+        kind: &str,
+        precision_digits: u32,
+        max_leaves: usize,
+        budget: Option<Py<PyEvaluationBudget>>,
+    ) -> PyResult<search::PyBoxOptimizationSearch> {
+        search::begin(
+            &self.source,
+            &self.variables,
+            domain,
+            tolerance,
+            kind,
+            precision_digits,
+            max_leaves,
+            budget,
+        )
+    }
+
+    /// Restore only a candidate for this exact original source and statement.
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (data, domain, tolerance, kind="minimum", precision_digits=32, max_leaves=512, *, budget=None))]
+    fn restore_box_optimization(
+        &self,
+        data: &Bound<'_, PyAny>,
+        domain: &Bound<'_, PyAny>,
+        tolerance: &Bound<'_, PyAny>,
+        kind: &str,
+        precision_digits: u32,
+        max_leaves: usize,
+        budget: Option<Py<PyEvaluationBudget>>,
+    ) -> PyResult<search::PyBoxOptimizationSearch> {
+        search::restore(
+            &self.source,
+            &self.variables,
+            data,
+            domain,
+            tolerance,
+            kind,
+            precision_digits,
+            max_leaves,
+            budget,
         )
     }
 }
@@ -526,6 +577,55 @@ impl PyVerifiedObjective {
                 max_leaves,
             },
             budget.as_deref(),
+        )
+    }
+
+    /// Begin a bounded continuation with the same original-source statement.
+    #[pyo3(signature = (domain, tolerance, kind="minimum", precision_digits=32, max_leaves=512, *, budget=None))]
+    fn begin_box_optimization(
+        &self,
+        domain: &Bound<'_, PyAny>,
+        tolerance: &Bound<'_, PyAny>,
+        kind: &str,
+        precision_digits: u32,
+        max_leaves: usize,
+        budget: Option<Py<PyEvaluationBudget>>,
+    ) -> PyResult<search::PyBoxOptimizationSearch> {
+        search::begin(
+            self.objective.objective(),
+            self.objective.variables(),
+            domain,
+            tolerance,
+            kind,
+            precision_digits,
+            max_leaves,
+            budget,
+        )
+    }
+
+    /// Restore candidate topology and reevaluate it against this exact source.
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (data, domain, tolerance, kind="minimum", precision_digits=32, max_leaves=512, *, budget=None))]
+    fn restore_box_optimization(
+        &self,
+        data: &Bound<'_, PyAny>,
+        domain: &Bound<'_, PyAny>,
+        tolerance: &Bound<'_, PyAny>,
+        kind: &str,
+        precision_digits: u32,
+        max_leaves: usize,
+        budget: Option<Py<PyEvaluationBudget>>,
+    ) -> PyResult<search::PyBoxOptimizationSearch> {
+        search::restore(
+            self.objective.objective(),
+            self.objective.variables(),
+            data,
+            domain,
+            tolerance,
+            kind,
+            precision_digits,
+            max_leaves,
+            budget,
         )
     }
 
