@@ -7,8 +7,8 @@
 
 use super::{
     CERTIFICATION_REQUEST_SCHEMA, CertificationResponse, CertificationSessionError,
-    CompiledStationarityOptions, MAX_SESSION_ROOT_ARTIFACT_BYTES, ObjectiveId, admit_response,
-    charge, valid_label,
+    CompiledObjectiveBackend, CompiledStationarityOptions, MAX_SESSION_ROOT_ARTIFACT_BYTES,
+    ObjectiveId, admit_response, charge, valid_label,
 };
 use crate::objective::ObjectiveProblem;
 use crate::program_transport::{decode_objective_program, export_objective_program};
@@ -251,6 +251,7 @@ impl CompiledObjectiveState {
         &self,
         id: CompiledObjectiveId,
         initial: &[String],
+        backend: CompiledObjectiveBackend,
         options: &CompiledStationarityOptions,
         budget: &mut RequestBudget<'_>,
     ) -> Result<CertificationResponse, CertificationSessionError> {
@@ -259,8 +260,13 @@ impl CompiledObjectiveState {
             .programs
             .get(&id)
             .ok_or(CertificationSessionError::UnknownCompiledObjective)?;
-        let proposal =
-            super::compiled_solvers::minimize(&resident.program, initial, options, budget)?;
+        let proposal = super::compiled_solvers::minimize(
+            &resident.program,
+            initial,
+            backend,
+            options,
+            budget,
+        )?;
         charge(budget, 1, resident.source.as_str().len())?;
         let response = CertificationResponse::CompiledObjectiveMinimized {
             schema_version: CERTIFICATION_REQUEST_SCHEMA,
@@ -268,6 +274,7 @@ impl CompiledObjectiveState {
             program: id,
             outcome: "approximate",
             numeric_model: "binary64",
+            backend,
             point: proposal.point,
             value: proposal.value,
             gradient: proposal.gradient,

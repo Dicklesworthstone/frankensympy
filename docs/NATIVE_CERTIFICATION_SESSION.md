@@ -629,8 +629,10 @@ complete response. Evaluations consume ordinary cumulative resources and do
 not spend verifier fuel after the program has been admitted.
 
 At most 32 compiled objectives may be resident, independently of the 32 residual
-program slots. Objective registration retains its existing 1–16 ordered-variable
-limit. Compilation also retains the native source limits of 256 nodes, depth 16,
+program slots. Objective registration and compiled sparse optimization admit
+1–64 ordered variables. Independent exact enclosures and stationary-point
+certificates retain their separate 1–16-variable limits. Compilation also
+retains the native source limits of 256 nodes, depth 16,
 4096-bit exact scalar payloads and 256-byte names, plus the existing derivative
 growth and total-node bounds. Unknown IDs, wrong-kind labels, duplicate handles,
 invalid schemas and unsupported original sources fail closed. Releasing a
@@ -819,7 +821,7 @@ the registered source, or select a replacement backend after a refusal.
 | `SolveCompiledResidualSystem` | `frankennumpy`, `frankenscipy`, `frankenscipy_analytic`, or `sparse` | A point meeting the residual tolerance in every row. Sparse accepts square, overdetermined and underdetermined systems with 1–256 variables and 1–4096 rows. The other backends require square systems |
 | `SolveCompiledParametricSystem` | Fixed `frankennumpy` | A root of the unknown prefix at the supplied fixed parameter suffix |
 | `SolveCompiledLeastSquares` | `dense` or `sparse` | A point meeting the tolerance for the gradient of `0.5 * sum(residuals^2)` |
-| `MinimizeCompiledObjective` | Fixed Hessian-assisted descent using the admitted FrankenNumPy adapter | A point meeting the objective-gradient tolerance |
+| `MinimizeCompiledObjective` | `dense` (default, 1–16 variables) or `sparse` (1–64 variables) | A point meeting the objective-gradient tolerance |
 
 For example, compile a square system and refine an initial point:
 
@@ -863,11 +865,29 @@ For an objective, use the compiled objective handle:
 ```
 
 Here the expected point is near `[1,-2]`, with value and gradient near zero.
-The `compiled_objective_minimized` result reports `point`, `value`, `gradient`,
+The `compiled_objective_minimized` result reports `backend`, `point`, `value`, `gradient`,
 `gradient_norm`, `iterations`, `evaluations`, and `regularizations`, along with
 the objective/program/context fields and `termination: "gradient_tolerance"`.
 A stationary initial point can also be a maximum or saddle; successful
 termination alone does not classify it.
+
+Select `"backend":"sparse"` in the minimization payload to execute the existing
+metered sparse Hessian Newton/CG route. It admits 1–64 declared variables,
+including unused coordinates, and applies stored Hessian entries directly
+without building a dense Hessian or calling the dense donor solver. Omission
+or `"backend":"dense"` retains the 1–16-variable FrankenNumPy route. Either
+selection works on locally compiled or independently replayed objective
+programs. The original source/gradient/Hessian domain checks, fresh final
+gradient test, cumulative resource ledger and terminal cancellation policy
+apply to both. A backend refusal never triggers the other backend.
+
+`RegisterObjective` retains up to 64 ordered coordinates, including unused
+coordinates and distinct typed symbols with the same name. Registration keeps
+the original held source; numerical compilation applies its own stricter
+source limits. Independent exact enclosure, stationary-point certification,
+and `MinimizeAndCertifyCompiledObjective` retain their separate 1–16-variable
+limits. The combined minimization/certification operation continues to use
+the dense numerical proposal route.
 
 All three result kinds explicitly report `outcome: "approximate"` and
 `numeric_model: "binary64"`. They contain no evidence receipt or certificate.
@@ -1068,10 +1088,14 @@ or use an empty object for those backends. Unknown controls, duplicate fields,
 unknown backend names and numeric controls encoded as JSON numbers refuse as
 `malformed_request`.
 
-Session registration retains its existing bounds of 1–16 ordered variables and
-1–64 residuals; selecting a sparse backend does not enlarge those registration
-limits. Ordinary root solving requires equal residual and variable counts;
-fixed-parameter root solving instead requires one unknown per residual followed
+Residual-system registration retains its existing bounds of 1–16 ordered
+variables and 1–64 residuals; selecting sparse root or least-squares solving
+does not enlarge those registration limits. Objective registration admits
+1–64 ordered variables for the compiled sparse route; dense minimization and
+independent exact objective certificates retain their 1–16-variable limits.
+Dense and FrankenSciPy root solving require equal residual and variable counts;
+sparse roots also admit rectangular systems within the registration bounds.
+Fixed-parameter Session root solving requires one unknown per residual followed
 by a nonempty parameter suffix. These drivers preserve the original source and
 derivative domain checks, including held poles, nonsmooth source endpoints and
 Hessian singularities at stationary points. Nonfinite results refuse.
@@ -1793,7 +1817,8 @@ its existing small defaults; numerical callers should use
 | Resident root searches | 8; explicit release frees a slot without a budget refund |
 | Root-search work quantum | 1–2,047 committed cell transitions per advance |
 | Root-search intrinsic allocation lifetime | 256 MiB cumulative, including snapshot copies and restoration work |
-| Residuals / variables | 1–64 / 1–16 |
+| Residual-system residuals / variables | 1–64 / 1–16 |
+| Objective variables | 1–64 for registration and compiled sparse minimization; 1–16 for dense minimization and independent exact certificates |
 | Residual × variable entries | At most 1,024 |
 | Automatic isolation leaves / roots | At most 1,024 / 128 |
 | Definite integral sources / variables / intervals | Exactly 1 / 1; at most 1,024 intervals |

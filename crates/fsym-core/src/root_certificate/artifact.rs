@@ -196,6 +196,21 @@ fn check_source(
     Ok(())
 }
 
+/// Inspect one exact source tree without admitting a certificate's dimensions.
+///
+/// This is only the existing bounded node, depth, scalar and name preflight.
+/// Callers must separately validate their complete ordered coordinate envelope.
+/// It grants no domain, derivative or mathematical claim, and does not widen
+/// [`check_dimensions`] or [`RootCertificateSources`] for root certificates.
+pub fn check_source_expression(
+    source: &Expr,
+    meter: &mut impl BudgetMeter,
+) -> Result<(), CertificationError> {
+    meter.checkpoint()?;
+    let mut visited = 0;
+    check_source(source, 0, &mut visited, meter)
+}
+
 pub fn check_problem_sources(
     residuals: &[Expr],
     variables: &[Symbol],

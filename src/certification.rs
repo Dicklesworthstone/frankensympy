@@ -34,6 +34,51 @@ pub(crate) use artifact::{
 /// Maximum UTF-8 bytes in one textual residual passed to the convenience parser.
 pub const MAX_CERTIFICATION_SOURCE_BYTES: usize = 4 * 1024;
 
+/// Shared raw-source parser. Parsing establishes only bounded exact syntax;
+/// each owning problem validates its own source and coordinate envelope.
+pub(crate) fn parse_source_expression(
+    source: &str,
+    index: usize,
+    meter: &mut impl BudgetMeter,
+) -> Result<Expr, CertificationError> {
+    if source.len() > MAX_CERTIFICATION_SOURCE_BYTES {
+        return Err(CertificationError::SourceLimit("textual residual bytes"));
+    }
+    // Raw construction does not evaluate powers. With <=4096 total decimal
+    // digits its literal normalization stays within the established envelope.
+    let length = source.len() as u64;
+    let envelope = length
+        .saturating_add(1)
+        .saturating_mul(length.saturating_add(1));
+    charge(
+        meter,
+        envelope.saturating_mul(4),
+        envelope.saturating_mul(2) + 1024,
+        length * 8 + 1,
+    )?;
+    let expression = parse_raw(source).map_err(|_| CertificationError::Parse { index })?;
+    meter.checkpoint()?;
+    Ok(expression)
+}
+
+/// Parse one declared coordinate without changing its plain symbol identity.
+pub(crate) fn parse_source_variable(
+    name: &str,
+    meter: &mut impl BudgetMeter,
+) -> Result<Symbol, CertificationError> {
+    if name.len() > MAX_CERTIFICATION_NAME_BYTES {
+        return Err(CertificationError::InvalidVariable);
+    }
+    charge(meter, name.len() as u64 + 1, name.len() as u64, 1)?;
+    let mut chars = name.chars();
+    let identifier = chars.next().is_some_and(|c| c.is_alphabetic() || c == '_')
+        && chars.all(|c| c.is_alphanumeric() || c == '_');
+    if !identifier || matches!(name, "pi" | "Pi" | "E" | "I" | "oo" | "zoo" | "nan" | "NaN") {
+        return Err(CertificationError::InvalidVariable);
+    }
+    Ok(Symbol::new(name.to_owned()))
+}
+
 /// Immutable typed source for a 1..64 by 1..16 real residual/Jacobian problem.
 ///
 /// Construction checks the source envelope; it does not prove the source is
@@ -83,47 +128,14 @@ impl ResidualProblem {
             .try_reserve_exact(variables.len())
             .map_err(|_| CertificationError::AllocationFailure)?;
         for name in variables {
-            if name.len() > MAX_CERTIFICATION_NAME_BYTES {
-                return Err(CertificationError::InvalidVariable);
-            }
-            charge(meter, name.len() as u64 + 1, name.len() as u64, 1)?;
-            let mut chars = name.chars();
-            let identifier = chars.next().is_some_and(|c| c.is_alphabetic() || c == '_')
-                && chars.all(|c| c.is_alphanumeric() || c == '_');
-            if !identifier
-                || matches!(
-                    name.as_str(),
-                    "pi" | "Pi" | "E" | "I" | "oo" | "zoo" | "nan" | "NaN"
-                )
-            {
-                return Err(CertificationError::InvalidVariable);
-            }
-            symbols.push(Symbol::new(name.clone()));
+            symbols.push(parse_source_variable(name, meter)?);
         }
         let mut expressions = Vec::new();
         expressions
             .try_reserve_exact(residuals.len())
             .map_err(|_| CertificationError::AllocationFailure)?;
         for (index, source) in residuals.iter().enumerate() {
-            if source.len() > MAX_CERTIFICATION_SOURCE_BYTES {
-                return Err(CertificationError::SourceLimit("textual residual bytes"));
-            }
-            // Raw construction does not evaluate powers. With <=4096 total
-            // decimal digits its only numeric work (literal division/decimal
-            // normalization) stays far below the core's 1024-limb envelope.
-            let length = source.len() as u64;
-            let envelope = length
-                .saturating_add(1)
-                .saturating_mul(length.saturating_add(1));
-            charge(
-                meter,
-                envelope.saturating_mul(4),
-                envelope.saturating_mul(2) + 1024,
-                length * 8 + 1,
-            )?;
-            let expression = parse_raw(source).map_err(|_| CertificationError::Parse { index })?;
-            meter.checkpoint()?;
-            expressions.push(expression);
+            expressions.push(parse_source_expression(source, index, meter)?);
         }
         Self::new(expressions, symbols, meter)
     }

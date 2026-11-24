@@ -180,11 +180,12 @@ fn default_cli_replays_then_solves_and_minimizes_after_the_sender_process_exits(
 
     let minimized = success(receiver.send(
         "MinimizeCompiledObjective",
-        json!({"program":"objective_program:received", "initial":["3"]}),
+        json!({"program":"objective_program:received", "backend":"sparse", "initial":["3"]}),
         "minimize-restored",
     ));
     approximate(&minimized);
     assert_eq!(minimized["kind"], "compiled_objective_minimized");
+    assert_eq!(minimized["backend"], "sparse");
     assert_eq!(minimized["termination"], "gradient_tolerance");
     assert_eq!(
         minimized["context_digest"],

@@ -6,24 +6,40 @@
 //! and numerical optimization are outside the acceptance boundary.
 
 use crate::certification::{
-    CertificationError, MAX_CERTIFICATION_SOURCE_BYTES, ResidualProblem, charge,
+    CertificationError, MAX_CERTIFICATION_NAME_BYTES, MAX_CERTIFICATION_SOURCE_BYTES,
+    ResidualProblem, charge, parse_source_expression, parse_source_variable,
 };
 use fsym_budget::BudgetMeter;
+use fsym_calculus::sparse_hessian::MAX_OBJECTIVE_VARIABLES;
+use fsym_core::root_certificate::artifact::check_source_expression;
 use fsym_core::{
-    Expr, ObjectiveEnclosure, RealBall, RootBoxWitness, StationaryPointReceipt, Symbol,
-    metered_enclose_objective, verify_stationary_point,
+    Expr, MAX_ROOT_BOX_VARIABLES, ObjectiveEnclosure, RealBall, RootBoxError, RootBoxWitness,
+    StationaryPointReceipt, Symbol, metered_enclose_objective, verify_stationary_point,
 };
 
-/// One scalar objective on 1..=16 ordered real coordinates.
+/// One scalar objective on 1..=64 ordered real coordinates.
 ///
 /// Registration admits the bounded exact source only. It neither asserts
 /// smoothness on a box nor grants a stationary-point or extremum claim.
 /// Held zero factors, cancellation and powers retain their original domains.
+/// Compiled sparse optimization admits up to 64 coordinates; the independent
+/// exact enclosure, stationary and portable-certificate lanes retain their
+/// separate 16-coordinate limits. Compilation has additional source bounds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObjectiveProblem {
-    // Reuse the immutable source envelope and parser rather than creating a
-    // second identity, domain, or admission policy for scalar objectives.
-    source: ResidualProblem,
+    source: ObjectiveSource,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ObjectiveSource {
+    // Preserve the complete original <=16-coordinate admission policy,
+    // including exact sources too large for numerical derivative compilation.
+    Certificate(ResidualProblem),
+    // A separate source envelope must not widen any root-certificate checker.
+    Wide {
+        objective: Expr,
+        variables: Vec<Symbol>,
+    },
 }
 
 impl ObjectiveProblem {
@@ -34,8 +50,39 @@ impl ObjectiveProblem {
         meter: &mut impl BudgetMeter,
     ) -> Result<Self, CertificationError> {
         charge(meter, 1, std::mem::size_of::<Expr>() as u64, 1)?;
+        if variables.len() <= MAX_ROOT_BOX_VARIABLES {
+            return Ok(Self {
+                source: ObjectiveSource::Certificate(ResidualProblem::new(
+                    vec![objective],
+                    variables,
+                    meter,
+                )?),
+            });
+        }
+        if variables.len() > MAX_OBJECTIVE_VARIABLES {
+            return Err(RootBoxError::DimensionMismatch.into());
+        }
+        for (index, variable) in variables.iter().enumerate() {
+            if variable.name.len() > MAX_CERTIFICATION_NAME_BYTES {
+                return Err(RootBoxError::ResourceLimit("symbol length").into());
+            }
+            charge(
+                meter,
+                ((index + 1) * (variable.name.len() + 1)) as u64,
+                128 + variable.name.len() as u64,
+                1,
+            )?;
+            if variables[..index].contains(variable) {
+                return Err(RootBoxError::DuplicateVariable.into());
+            }
+        }
+        check_source_expression(&objective, meter)?;
+        meter.checkpoint()?;
         Ok(Self {
-            source: ResidualProblem::new(vec![objective], variables, meter)?,
+            source: ObjectiveSource::Wide {
+                objective,
+                variables,
+            },
         })
     }
 
@@ -51,17 +98,47 @@ impl ObjectiveProblem {
             return Err(CertificationError::SourceLimit("textual objective bytes"));
         }
         charge(meter, 1, source.len() as u64, 1)?;
-        Ok(Self {
-            source: ResidualProblem::parse_sources(&[source.to_owned()], variables, meter)?,
-        })
+        if variables.len() <= MAX_ROOT_BOX_VARIABLES {
+            return Ok(Self {
+                source: ObjectiveSource::Certificate(ResidualProblem::parse_sources(
+                    &[source.to_owned()],
+                    variables,
+                    meter,
+                )?),
+            });
+        }
+        if variables.len() > MAX_OBJECTIVE_VARIABLES {
+            return Err(RootBoxError::DimensionMismatch.into());
+        }
+        charge(
+            meter,
+            1,
+            (variables.len() * std::mem::size_of::<Symbol>()) as u64,
+            1,
+        )?;
+        let mut symbols = Vec::new();
+        symbols
+            .try_reserve_exact(variables.len())
+            .map_err(|_| CertificationError::AllocationFailure)?;
+        for name in variables {
+            symbols.push(parse_source_variable(name, meter)?);
+        }
+        let objective = parse_source_expression(source, 0, meter)?;
+        Self::new(objective, symbols, meter)
     }
 
     pub fn objective(&self) -> &Expr {
-        &self.source.residuals()[0]
+        match &self.source {
+            ObjectiveSource::Certificate(source) => &source.residuals()[0],
+            ObjectiveSource::Wide { objective, .. } => objective,
+        }
     }
 
     pub fn variables(&self) -> &[Symbol] {
-        self.source.variables()
+        match &self.source {
+            ObjectiveSource::Certificate(source) => source.variables(),
+            ObjectiveSource::Wide { variables, .. } => variables,
+        }
     }
 
     /// Enclose the original value, gradient and Hessian over the entire box.

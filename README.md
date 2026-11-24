@@ -346,7 +346,9 @@ Both locally compiled and restored handles can drive numerical solvers directly
 through the Session or NDJSON interface. `SolveCompiledResidualSystem` selects
 FrankenNumPy Newton, either FrankenSciPy root backend, or sparse Newton;
 `SolveCompiledLeastSquares` selects dense or sparse fitting; and
-`MinimizeCompiledObjective` reuses the admitted gradient and Hessian for descent.
+`MinimizeCompiledObjective` reuses the admitted gradient and Hessian for descent,
+with an explicit sparse backend for up to 64 variables or the default dense
+backend for up to 16 variables.
 These operations spend ordinary cumulative resources and retain every original
 source-domain check. Their outputs remain approximate proposals. Least-squares
 stationarity can have nonzero residuals, and objective stationarity alone does

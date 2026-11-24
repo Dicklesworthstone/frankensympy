@@ -1,7 +1,8 @@
 //! Real numerical consumers of immutable local and replayed Session programs.
 
 use frankensympy::{
-    BudgetLimits, CompiledObjectiveId, CompiledResidualSystemId, Dimension, Session,
+    BudgetLimits, CertificationRequest, CompiledObjectiveBackend, CompiledObjectiveId,
+    CompiledResidualSystemId, CompiledStationarityOptions, Dimension, MeterError, Session,
 };
 use serde_json::{Value, json};
 
@@ -124,6 +125,14 @@ fn minimize(session: &mut Session, initial: &[&str]) -> Value {
         session,
         "MinimizeCompiledObjective",
         json!({"program":OBJECTIVE_PROGRAM, "initial":initial}),
+    )
+}
+
+fn minimize_backend(session: &mut Session, backend: &str, initial: &[&str]) -> Value {
+    call(
+        session,
+        "MinimizeCompiledObjective",
+        json!({"program":OBJECTIVE_PROGRAM, "backend":backend, "initial":initial}),
     )
 }
 
@@ -285,6 +294,7 @@ fn objective_descent_returns_the_original_value_gradient_and_frozen_context() {
     assert_eq!(result["kind"], "compiled_objective_minimized");
     assert_eq!(result["objective"], OBJECTIVE);
     assert_eq!(result["program"], OBJECTIVE_PROGRAM);
+    assert_eq!(result["backend"], "dense");
     assert_eq!(result["termination"], "gradient_tolerance");
     assert_eq!(result["context_digest"], compiled["context_digest"]);
     near_vector(&result["point"], &[-1.0, 2.0], 1e-9);
@@ -309,6 +319,143 @@ fn objective_descent_returns_the_original_value_gradient_and_frozen_context() {
     assert_eq!(
         session.budget_snapshot().verifier_pool,
         before.verifier_pool
+    );
+}
+
+#[test]
+fn sparse_objective_descent_executes_seventeen_coordinate_local_and_replayed_programs() {
+    let names: Vec<_> = (0..17).map(|index| format!("wide{index}")).collect();
+    let variables: Vec<_> = names.iter().rev().map(String::as_str).collect();
+    let source = "(wide0-2)^2+2*(wide16+1)^2+7";
+    let (mut sender, _) = objective_session(limits(), source, &variables);
+    let artifact = success(call(
+        &mut sender,
+        "ExportCompiledObjective",
+        json!({"program":OBJECTIVE_PROGRAM}),
+    ))["artifact"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    for imported in [false, true] {
+        let (mut session, admitted) = if imported {
+            let mut receiver = Session::with_budget_limits(limits(), 256);
+            success(call(
+                &mut receiver,
+                "RegisterObjective",
+                json!({"objective":OBJECTIVE, "source":source, "variables":variables}),
+            ));
+            let replayed = success(call(
+                &mut receiver,
+                "ReplayCompiledObjective",
+                json!({"objective":OBJECTIVE, "program":OBJECTIVE_PROGRAM, "artifact":artifact}),
+            ));
+            (receiver, replayed)
+        } else {
+            objective_session(limits(), source, &variables)
+        };
+        session.construct("wide0", "999").unwrap();
+        let initial = ["5"; 17];
+        // Default and explicit dense calls keep the original shape refusal.
+        refused(minimize(&mut session, &initial), "invalid_input");
+        refused(
+            minimize_backend(&mut session, "dense", &initial),
+            "invalid_input",
+        );
+        let before = session.budget_snapshot();
+        let result = success(minimize_backend(&mut session, "sparse", &initial));
+        approximate(&result);
+        assert_eq!(result["kind"], "compiled_objective_minimized");
+        assert_eq!(result["objective"], OBJECTIVE);
+        assert_eq!(result["program"], OBJECTIVE_PROGRAM);
+        assert_eq!(result["backend"], "sparse");
+        assert_eq!(result["termination"], "gradient_tolerance");
+        assert_eq!(result["context_digest"], admitted["context_digest"]);
+        let mut expected = [5.0; 17];
+        expected[0] = -1.0;
+        expected[16] = 2.0;
+        near_vector(&result["point"], &expected, 1e-9);
+        near_vector(&result["gradient"], &[0.0; 17], 1e-9);
+        near(number(&result["value"]), 7.0, 1e-12);
+        assert!(number(&result["gradient_norm"]) <= 1e-10);
+        let after = session.budget_snapshot();
+        assert_eq!(after.verifier_pool, before.verifier_pool);
+        assert!(
+            after.dimensions[Dimension::ComputeSteps.index()]
+                < before.dimensions[Dimension::ComputeSteps.index()]
+        );
+    }
+}
+
+#[test]
+fn sparse_objective_descent_accepts_sixty_four_axes_and_retains_stationary_saddle_semantics() {
+    let names: Vec<_> = (0..64).map(|index| format!("axis{index}")).collect();
+    let variables: Vec<_> = names.iter().map(String::as_str).collect();
+    let (mut session, _) = objective_session(limits(), "(axis0-3)^2", &variables);
+    let result = success(minimize_backend(&mut session, "sparse", &["7"; 64]));
+    approximate(&result);
+    assert_eq!(result["backend"], "sparse");
+    let mut expected = [7.0; 64];
+    expected[0] = 3.0;
+    near_vector(&result["point"], &expected, 1e-10);
+    near_vector(&result["gradient"], &[0.0; 64], 1e-10);
+    near(number(&result["value"]), 0.0, 1e-18);
+
+    let (mut saddle, _) = objective_session(limits(), "axis0^2-axis63^2", &variables);
+    let result = success(call(
+        &mut saddle,
+        "MinimizeCompiledObjective",
+        json!({"program":OBJECTIVE_PROGRAM, "backend":"sparse", "initial":vec!["0"; 64],
+            "options":{"max_iterations":0}}),
+    ));
+    approximate(&result);
+    assert_eq!(result["backend"], "sparse");
+    assert_eq!(result["value"], 0.0);
+    assert_eq!(result["gradient_norm"], 0.0);
+    assert_eq!(result["iterations"], 0);
+    assert_eq!(result["regularizations"], 0);
+    assert!(result["evaluations"].as_u64().unwrap() >= 2);
+    near_vector(&result["point"], &[0.0; 64], 0.0);
+}
+
+#[test]
+fn objective_backend_schema_and_original_domain_failures_never_trigger_a_fallback() {
+    let (mut session, _) = objective_session(limits(), "(x-1)^2+0*(1/x)", &["x"]);
+    for backend in [
+        json!("automatic"),
+        json!("SPARSE"),
+        Value::Null,
+        json!(7),
+        json!(false),
+    ] {
+        refused(
+            call(
+                &mut session,
+                "MinimizeCompiledObjective",
+                json!({"program":OBJECTIVE_PROGRAM, "backend":backend, "initial":["0"]}),
+            ),
+            "malformed_request",
+        );
+    }
+    for backend in ["dense", "sparse"] {
+        refused(
+            minimize_backend(&mut session, backend, &["0"]),
+            "numeric_evaluation_refused",
+        );
+        let result = success(minimize_backend(&mut session, backend, &["1"]));
+        approximate(&result);
+        assert_eq!(result["backend"], backend);
+        assert_eq!(result["value"], 0.0);
+    }
+    let (mut singular, _) = objective_session(limits(), "x^(3/2)", &["x"]);
+    refused(
+        minimize_backend(&mut singular, "sparse", &["0"]),
+        "numeric_evaluation_refused",
+    );
+    assert!(
+        singular
+            .compiled_objective(&CompiledObjectiveId::new(OBJECTIVE_PROGRAM).unwrap())
+            .is_some()
     );
 }
 
@@ -581,6 +728,7 @@ enum SolverCase {
     Root,
     LeastSquares,
     Objective,
+    SparseObjective,
 }
 
 impl SolverCase {
@@ -588,7 +736,9 @@ impl SolverCase {
         match self {
             Self::Root => residual_session(limits, &["x^2-2"], &["x"]).0,
             Self::LeastSquares => residual_session(limits, &["x-1", "x-3", "x-5"], &["x"]).0,
-            Self::Objective => objective_session(limits, "3*(x-2)^2+7", &["x"]).0,
+            Self::Objective | Self::SparseObjective => {
+                objective_session(limits, "3*(x-2)^2+7", &["x"]).0
+            }
         }
     }
 
@@ -597,6 +747,7 @@ impl SolverCase {
             Self::Root => solve(session, "frankennumpy", &["1"]),
             Self::LeastSquares => fit(session, "dense", &["0"]),
             Self::Objective => minimize(session, &["0"]),
+            Self::SparseObjective => minimize_backend(session, "sparse", &["0"]),
         }
     }
 
@@ -607,7 +758,7 @@ impl SolverCase {
                     .compiled_residual_system(&CompiledResidualSystemId::new(PROGRAM).unwrap())
                     .is_some()
             ),
-            Self::Objective => assert!(
+            Self::Objective | Self::SparseObjective => assert!(
                 session
                     .compiled_objective(&CompiledObjectiveId::new(OBJECTIVE_PROGRAM).unwrap())
                     .is_some()
@@ -622,6 +773,7 @@ fn final_response_resource_refusal_retains_programs_and_all_previous_work() {
         SolverCase::Root,
         SolverCase::LeastSquares,
         SolverCase::Objective,
+        SolverCase::SparseObjective,
     ] {
         let mut probe = case.session(limits());
         success(case.run(&mut probe));
@@ -656,6 +808,7 @@ fn solver_allowances_are_cumulative_and_need_no_remaining_verifier_fuel() {
         SolverCase::Root,
         SolverCase::LeastSquares,
         SolverCase::Objective,
+        SolverCase::SparseObjective,
     ] {
         let mut probe = case.session(limits());
         let compile_verifier_cost = AMPLE - probe.budget_snapshot().verifier_pool;
@@ -680,5 +833,67 @@ fn solver_allowances_are_cumulative_and_need_no_remaining_verifier_fuel() {
         );
         assert_eq!(session.budget_snapshot().verifier_pool, 0);
         case.assert_program_retained(&session);
+    }
+}
+
+#[test]
+fn sparse_objective_cancellation_is_typed_and_terminal_at_every_checkpoint() {
+    let typed_request = || CertificationRequest::MinimizeCompiledObjective {
+        schema_version: 1,
+        program: CompiledObjectiveId::new(OBJECTIVE_PROGRAM).unwrap(),
+        initial: vec!["0".into()],
+        backend: CompiledObjectiveBackend::Sparse,
+        options: CompiledStationarityOptions::default(),
+    };
+    let (mut probe, _) = objective_session(limits(), "3*(x-2)^2+7", &["x"]);
+    let mut checkpoints = 0;
+    let result = probe
+        .certification_request_with_checkpoint(typed_request(), || {
+            checkpoints += 1;
+            Ok(())
+        })
+        .unwrap();
+    approximate(&serde_json::to_value(result).unwrap());
+    assert!(checkpoints > 2);
+
+    for stop in 1..=checkpoints {
+        let (mut session, _) = objective_session(limits(), "3*(x-2)^2+7", &["x"]);
+        let before = session.budget_snapshot();
+        let mut calls = 0;
+        let error = session
+            .certification_request_with_checkpoint(typed_request(), || {
+                calls += 1;
+                assert!(calls <= stop, "continued after the first cancellation");
+                if calls == stop {
+                    Err(MeterError::Cancelled)
+                } else {
+                    Ok(())
+                }
+            })
+            .unwrap_err();
+        assert_eq!(calls, stop);
+        assert_eq!(error.code(), "cancelled");
+        let mut cause: &(dyn std::error::Error + 'static) = &error;
+        loop {
+            if let Some(meter) = cause.downcast_ref::<MeterError>() {
+                assert_eq!(*meter, MeterError::Cancelled);
+                break;
+            }
+            cause = cause.source().expect("lost the typed cancellation cause");
+        }
+        SolverCase::SparseObjective.assert_program_retained(&session);
+        let after = session.budget_snapshot();
+        assert_eq!(after.verifier_pool, before.verifier_pool);
+        if stop == checkpoints {
+            // The last observed callback includes complete response admission.
+            // Cancelling there must not return the already-computed proposal.
+            assert!(
+                after.dimensions[Dimension::ComputeSteps.index()]
+                    < before.dimensions[Dimension::ComputeSteps.index()]
+            );
+            let result = success(minimize_backend(&mut session, "sparse", &["0"]));
+            approximate(&result);
+            near_vector(&result["point"], &[2.0], 1e-10);
+        }
     }
 }

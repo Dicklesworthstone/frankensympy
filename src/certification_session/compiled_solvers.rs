@@ -17,12 +17,12 @@ use fsym_numeric_consumer::{
     LeastSquaresOptions, LeastSquaresProposal, MAX_CONSUMER_NEWTON_ITERATIONS,
     MAX_CONSUMER_VARIABLES, MAX_LEAST_SQUARES_RESIDUALS, MAX_MINIMIZE_ITERATIONS,
     MAX_MINIMIZE_VARIABLES, MAX_SPARSE_LEAST_SQUARES_RESIDUALS, MAX_SPARSE_LEAST_SQUARES_VARIABLES,
-    MinimizationProposal, MinimizeOptions, NewtonGuards, ObjectiveConsumerError, RootProposal,
-    SystemConsumerError, frankenscipy_analytic_system_with_meter,
-    frankenscipy_fsolve_system_with_meter, least_squares_with_meter, minimize_with_meter,
-    newton_refine_parametric_with_meter, newton_refine_with_meter,
-    propose_parametric_root_box_with_meter, propose_root_box_with_meter,
-    propose_stationary_box_with_meter, sparse_least_squares_with_meter,
+    MAX_SPARSE_MINIMIZE_VARIABLES, MinimizationProposal, MinimizeOptions, NewtonGuards,
+    ObjectiveConsumerError, RootProposal, SystemConsumerError,
+    frankenscipy_analytic_system_with_meter, frankenscipy_fsolve_system_with_meter,
+    least_squares_with_meter, minimize_with_meter, newton_refine_parametric_with_meter,
+    newton_refine_with_meter, propose_parametric_root_box_with_meter, propose_root_box_with_meter,
+    propose_stationary_box_with_meter, sparse_least_squares_with_meter, sparse_minimize_with_meter,
     sparse_newton_refine_with_meter, validate_sparse_root_shape,
 };
 use serde::{Deserialize, Serialize};
@@ -61,6 +61,28 @@ pub enum CompiledLeastSquaresBackend {
 }
 
 impl CompiledLeastSquaresBackend {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Dense => "dense",
+            Self::Sparse => "sparse",
+        }
+    }
+}
+
+/// Select an objective proposal algorithm without changing its checked source.
+///
+/// Omitted wire fields retain the original dense behavior. Selecting sparse
+/// uses the admitted Hessian entries directly and never retries a dense solve.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CompiledObjectiveBackend {
+    #[default]
+    #[serde(rename = "dense")]
+    Dense,
+    #[serde(rename = "sparse")]
+    Sparse,
+}
+
+impl CompiledObjectiveBackend {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Dense => "dense",
@@ -431,16 +453,24 @@ pub(super) fn solve_least_squares(
 pub(super) fn minimize(
     objective: &VerifiedObjective,
     initial: &[String],
+    backend: CompiledObjectiveBackend,
     options: &CompiledStationarityOptions,
     budget: &mut RequestBudget<'_>,
 ) -> Result<MinimizationProposal, CertificationSessionError> {
     budget.checkpoint()?;
     let variables = objective.variables().len();
-    if !(1..=MAX_MINIMIZE_VARIABLES).contains(&variables) {
-        return Err(ObjectiveConsumerError::InvalidRequest(
+    let (maximum, shape_error) = match backend {
+        CompiledObjectiveBackend::Dense => (
+            MAX_MINIMIZE_VARIABLES,
             "minimization requires 1..=16 variables",
-        )
-        .into());
+        ),
+        CompiledObjectiveBackend::Sparse => (
+            MAX_SPARSE_MINIMIZE_VARIABLES,
+            "sparse minimization requires 1..=64 variables",
+        ),
+    };
+    if !(1..=maximum).contains(&variables) {
+        return Err(ObjectiveConsumerError::InvalidRequest(shape_error).into());
     }
     let mut controls = MinimizeOptions::default();
     if let Some(iterations) = options.max_iterations {
@@ -477,7 +507,14 @@ pub(super) fn minimize(
         .into());
     }
     let initial = compiled_objective::numeric_values(initial, variables, "initial", budget)?;
-    let proposal = minimize_with_meter(objective, &initial, &controls, budget)?;
+    let proposal = match backend {
+        CompiledObjectiveBackend::Dense => {
+            minimize_with_meter(objective, &initial, &controls, budget)
+        }
+        CompiledObjectiveBackend::Sparse => {
+            sparse_minimize_with_meter(objective, &initial, &controls, budget)
+        }
+    }?;
     budget.checkpoint()?;
     Ok(proposal)
 }
@@ -527,7 +564,13 @@ pub(super) fn propose_stationary_witness(
         }
         exact_radii.push(radius);
     }
-    let proposal = minimize(objective, initial, options, budget)?;
+    let proposal = minimize(
+        objective,
+        initial,
+        CompiledObjectiveBackend::Dense,
+        options,
+        budget,
+    )?;
     Ok(propose_stationary_box_with_meter(
         objective,
         &proposal.point,

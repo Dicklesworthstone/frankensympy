@@ -203,7 +203,7 @@ jobs:
       - name: Native feature regressions
         run: |
           cargo test --locked -p fsym-calculus --test program_artifact --test program_artifact_legacy --test program_admission --test program_context_transport -j1
-          cargo test --locked -p frankensympy --test compiled_program_transport --test compiled_program_cli --test compiled_artifacts --test compiled_residual_session --test compiled_residual_products --test compiled_objective_session --test compiled_objective_certification --test compiled_solver_session --test compiled_solver_cli --test compiled_root_certification --test compiled_parametric_session --test compiled_parametric_certification -j1
+          cargo test --locked -p frankensympy --test compiled_program_transport --test compiled_program_cli --test compiled_artifacts --test compiled_residual_session --test compiled_residual_products --test compiled_objective_session --test compiled_objective_certification --test compiled_solver_session --test compiled_solver_cli --test wide_objective --test compiled_root_certification --test compiled_parametric_session --test compiled_parametric_certification -j1
           cargo test --locked -p frankensympy --test real_solver_session --test real_constraints_session --test real_polynomial_session -j1
           cargo test --locked -p frankensympy --lib certification_session::real_solver::tests -j1
           cargo test --locked -p frankensympy --lib certification_session::polynomial_solver::tests -j1

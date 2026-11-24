@@ -64,8 +64,8 @@ mod scalar_bracket;
 pub use compiled::{CompiledResidualSystemId, MAX_SESSION_COMPILED_SYSTEMS};
 pub use compiled_objective::{CompiledObjectiveId, MAX_SESSION_COMPILED_OBJECTIVES};
 pub use compiled_solvers::{
-    CompiledLeastSquaresBackend, CompiledRootBackend, CompiledRootSolveOptions,
-    CompiledStationarityOptions,
+    CompiledLeastSquaresBackend, CompiledObjectiveBackend, CompiledRootBackend,
+    CompiledRootSolveOptions, CompiledStationarityOptions,
 };
 pub use fsym_solvers::real_equation::{RealFormula, RealRelation};
 pub use parametric::{
@@ -469,6 +469,8 @@ pub enum CertificationRequest {
         schema_version: u32,
         program: CompiledObjectiveId,
         initial: Vec<String>,
+        #[serde(default)]
+        backend: CompiledObjectiveBackend,
         #[serde(default)]
         options: CompiledStationarityOptions,
     },
@@ -1279,6 +1281,7 @@ pub enum CertificationResponse {
         program: CompiledObjectiveId,
         outcome: &'static str,
         numeric_model: &'static str,
+        backend: CompiledObjectiveBackend,
         point: Vec<f64>,
         value: f64,
         gradient: Vec<f64>,
@@ -3273,11 +3276,12 @@ impl CertificationState {
             CertificationRequest::MinimizeCompiledObjective {
                 program,
                 initial,
+                backend,
                 options,
                 ..
             } => self
                 .compiled_objectives
-                .minimize(program, &initial, &options, budget),
+                .minimize(program, &initial, backend, &options, budget),
             CertificationRequest::MinimizeAndCertifyCompiledObjective {
                 program,
                 certificate,
