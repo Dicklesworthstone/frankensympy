@@ -2799,6 +2799,40 @@ identities, order, coefficient-lifting policy, and source-domain checks are
 retained. The public multivariate square-free route currently refuses active
 supervised callback requests.
 
+`Poly.resultant()` and `Poly.discriminant()` eliminate the first declared
+generator over `GF(p)` while retaining a polynomial in the remaining typed
+generators. `PurePoly` retains its class, unused coefficient axes survive,
+and the original symmetric or unsigned coefficient policy is preserved:
+
+```python
+from sympy import Poly, symbols
+
+x, a, b, c = symbols("x a b c")
+f = Poly(a*x**2 + b*x + c, x, a, b, c, modulus=5)
+assert f.discriminant() == Poly(b**2 + a*c, a, b, c, modulus=5)
+assert f.resultant(Poly(x + 1, x, a, b, c, modulus=5)) == Poly(
+    a - b + c, a, b, c, modulus=5)
+```
+
+The module functions `resultant` and `discriminant` also accept expressions
+with an explicit modulus or `domain="GF(p)"`; `polys=False` returns an
+expression and `polys=True` preserves the remaining polynomial ring. A
+univariate result stays scalar. Retained `Poly` operands currently require
+the same complete ordered ring. The bounded native lane admits at most eight
+Sylvester rows, so multivariate discriminants have primary degree at most
+four, together with the existing eight-axis, degree-64 and 4096-term bounds.
+Each complete generation and verification phase has a cumulative 20M-step
+and 128MiB logical-allocation budget. Active supervised callbacks refuse.
+
+Generation uses a division-free determinant recurrence; a separate checker
+rebuilds the Sylvester matrix from the original polynomials and evaluates
+signed permutation products. Discriminants retain the formal derivative
+degree in small characteristic and verify the exact leading-coefficient
+product identity. This implements the universal polynomial invariant even
+where SymPy 1.14.0 raises division errors. The public tests separately record
+those observed oracle divergences and its odd-degree reversal-sign defect;
+they do not establish complete profile compatibility or portable proofs.
+
 `Poly.eval` supports exact integer values in multivariate prime-field rings.
 Partial evaluation returns a `Poly` over the same field with the remaining
 generators in their original order; complete evaluation returns the integer

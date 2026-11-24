@@ -1,0 +1,83 @@
+{
+  "date": "2026-11-24",
+  "feature": "Primary-axis multivariate resultants and universal discriminants over prime fields",
+  "source_base": "207e32f338bb91b0f7c77be30e20a6b613675966",
+  "native_commit": "19c4265731891874a4b83f9853db0775a73394be",
+  "workstream": "fra-o4g / WS08; broader workstream and compatibility gates remain open",
+  "implemented": [
+    "Division-free subset Sylvester determinant generation over the coefficient polynomial ring.",
+    "Independent signed-permutation determinant reconstruction from original ordered inputs.",
+    "Universal discriminants retain formal derivative degree and verify leading_coefficient*candidate=signed_resultant.",
+    "Poly/PurePoly methods and module functions preserve remaining typed axes, field, class and coefficient-lifting policy.",
+    "Original owner/container/interface snapshots survive native checking and result publication; active callback requests refuse.",
+    "Existing univariate elimination remains on its native scalar route."
+  ],
+  "envelope": {
+    "prime": "2..65521, prime only",
+    "axes": 8,
+    "input_output_total_degree": 64,
+    "terms": 4096,
+    "intermediate_degree": 128,
+    "sylvester_dimension": 8,
+    "multivariate_discriminant_primary_degree": 4,
+    "compute_steps_per_phase": 20000000,
+    "logical_memory_bytes_per_phase": 134217728,
+    "retained_poly_ring": "same complete ordered typed generators"
+  },
+  "validation": {
+    "native_tests": {
+      "authored_test_functions": 13,
+      "status": "not run"
+    },
+    "native_compilation": {
+      "status": "not started",
+      "reason": "After exact pinned toolchain recovery, shared /tmp free space fell to 1086877696 bytes, approximately 13 MiB above the 1 GiB guard floor. The host then became unavailable. No Cargo build was launched."
+    },
+    "formatting": {
+      "status": "passed on exact pinned rustfmt before host restart",
+      "identity": "All four native files were recovered byte-for-byte against their recorded SHA256 checkpoints and GitHub blob hashes."
+    },
+    "static_review": {
+      "status": "completed",
+      "scope": "Independent complete mathematical/source review and Rust API/ownership review; this is not compilation."
+    },
+    "python_syntax": {
+      "status": "passed",
+      "files": [
+        "python/sympy/polys/_finitefield.py",
+        "python/tests/test_finite_field_elimination.py"
+      ]
+    },
+    "public_candidate_tests": {
+      "authored_cases": 78,
+      "status": "not run against candidate native extension"
+    },
+    "upstream_oracle": {
+      "version": "SymPy 1.14.0",
+      "passed": 42,
+      "skipped_native_only": 30,
+      "strict_expected_divergences": 6,
+      "log": "artifacts/audit/2026-11-24-finite-field-elimination-oracle.log",
+      "interpretation": "Oracle fixture evidence only; skipped and expected-divergence cases are not compatibility passes."
+    },
+    "transfer": {
+      "status": "full source and log content hashes verified",
+      "public_checkpoint_blobs": {
+        "shell": "bc1d566167536c26edc1d5755a7591a27b2c3c21",
+        "tests": "26ea9fb2e85d664ce5c2d8edb77617b2ee3fedb8",
+        "oracle_log": "0ecdd7bbe1badbbc403f4e20381b6cdbe9c51335"
+      }
+    }
+  },
+  "observed_oracle_divergences": [
+    "Poly and PurePoly nonmonic quadratic discriminants in GF(2) raise ZeroDivisionError.",
+    "Nonmonic cubic discriminants in GF(3) and quartic discriminants in GF(2) raise PolynomialDivisionFailed.",
+    "Reversing a linear/cubic resultant over GF(3) and GF(5) loses the required odd-degree sign."
+  ],
+  "scope_limits": [
+    "No portable proof-object or broad WS08/profile closure claim.",
+    "No multivariate irreducible factorization added.",
+    "Retained Poly operands do not gain generator unification or positional PurePoly renaming.",
+    "Numerical specialization cannot replace coefficient identity checks."
+  ]
+}

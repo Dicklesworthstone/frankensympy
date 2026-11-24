@@ -20,6 +20,7 @@ from .polyerrors import (
 
 _ABSENT = object()
 _SQUARE_FREE_NATIVE = _native.prime_field_multivariate_square_free_native
+_ELIMINATION_NATIVE = _native.prime_field_multivariate_native
 _INTEGER_TYPES = (int, Integer, Zero, One, NegativeOne)
 
 
@@ -196,6 +197,8 @@ class _Request(_Retained):
 
 def _call(request, prime, symmetric, operation, parameter=0,
           derivative_orders=None, order="lex"):
+    if len(request.gens) > 1 and operation in ("resultant", "discriminant"):
+        return _elimination_call(request, prime, symmetric, operation)
     try:
         if len(request.gens) != 1 or operation == "reduced":
             if operation not in ("normalize", "neg", "add", "sub", "mul", "monic",
@@ -212,6 +215,29 @@ def _call(request, prime, symmetric, operation, parameter=0,
     except _native.PrimeFieldCoefficientError as error:
         raise CoercionFailed("prime-field Poly coefficients must be integers") from error
     request.unchanged()
+    return result
+
+
+def _elimination_unchanged(request):
+    request.unchanged()
+    if _native.prime_field_multivariate_native is not _ELIMINATION_NATIVE:
+        raise RuntimeError("prime-field elimination native interface changed during evaluation")
+
+
+def _elimination_call(request, prime, symmetric, operation):
+    """Keep source admission, elimination, checking and lifting in one call."""
+    if _active_callback_session() is not None:
+        raise NotImplementedError(
+            "prime-field elimination requires a supervised callback lane")
+    if _native.prime_field_multivariate_native is not _ELIMINATION_NATIVE:
+        raise NotImplementedError("prime-field elimination requires the original native interface")
+    request.unchanged()
+    try:
+        result = _ELIMINATION_NATIVE(
+            request.raw, request.bindings, prime, operation, symmetric=symmetric)
+    except _native.PrimeFieldCoefficientError as error:
+        raise CoercionFailed("prime-field Poly coefficients must be integers") from error
+    _elimination_unchanged(request)
     return result
 
 
@@ -388,7 +414,12 @@ def operation(polynomial, name, other=_ABSENT, parameter=0, reverse=False,
 def scalar_operation(polynomial, name, other=_ABSENT):
     state, request = _operands(polynomial, other)
     raw = _call(request, state.prime, state.symmetric, name)
-    result = _lift_native_result(raw[0], *request.context)
+    if len(state.gens) > 1 and name in ("resultant", "discriminant"):
+        result = _publish(type(polynomial), raw[0], request, state.prime, state.symmetric,
+                          generators=state.gens[1:])
+        _elimination_unchanged(request)
+    else:
+        result = _lift_native_result(raw[0], *request.context)
     request.unchanged()
     return result
 
@@ -876,9 +907,9 @@ def _entry(values, generators, options, name, containers=()):
         generators = _infer_generators(initial)
         if not generators:
             raise GeneratorsNeeded("constant prime-field operations require an explicit generator")
-    if (not explicit or name in ("sqf_list", "sqf_part", "sqf")) and any(
+    if (not explicit or name in ("sqf_list", "sqf_part", "sqf", "resultant", "discriminant")) and any(
             state.gens != generators for state in states):
-        # Square-free receipts keep the complete original ordered Poly ring,
+        # These receipts keep the complete original ordered Poly ring,
         # including unused coordinates. A new modulus cannot erase an axis
         # whose declaration or retained native identity still needs admission.
         raise UnificationFailed("prime-field operands must use the same typed generator")
@@ -894,14 +925,22 @@ def _entry(values, generators, options, name, containers=()):
     raw = _call(request, prime, symmetric, name, order=order)
     if raw is None:
         raise NotInvertible("zero divisor")
-    want_polys = name not in ("resultant", "discriminant") and (
-        options.get("polys", bool(states)) if name in ("reduced", "compose") else
-        bool(states) or options.get("polys", False))
+    elimination = name in ("resultant", "discriminant")
+    result_gens = generators[1:] if elimination else generators
+    if elimination:
+        want_polys = bool(result_gens) and options.get("polys", bool(states))
+    elif name in ("reduced", "compose"):
+        want_polys = options.get("polys", bool(states))
+    else:
+        want_polys = bool(states) or options.get("polys", False)
     cls = type(inherited.polynomial) if inherited else _poly_types()[0]
     if want_polys:
-        result = tuple(_publish(cls, value, request, prime, symmetric) for value in raw)
+        result = tuple(_publish(cls, value, request, prime, symmetric, generators=result_gens)
+                       for value in raw)
     else:
         result = tuple(_lift_native_result(value, *request.context) for value in raw)
+    if elimination and len(generators) > 1:
+        _elimination_unchanged(request)
     request.unchanged()
     if initial is not None:
         initial.unchanged()

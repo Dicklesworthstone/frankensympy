@@ -1,0 +1,11 @@
+Oracle: 1.14.0 /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/site-packages/sympy/__init__.py
+..........x....x.....x..x....xx.................ssssssssssssssssssssssss [ 92%]
+ssssss                                                                   [100%]
+=========================== short test summary info ============================
+XFAIL frankensympy-continue6-71f712/python/tests/test_finite_field_elimination.py::test_quadratic_discriminant_is_the_universal_coefficient_invariant[Poly-2] - SymPy 1.14.0 divides by zero for a nonmonic GF(2) quadratic discriminant
+XFAIL frankensympy-continue6-71f712/python/tests/test_finite_field_elimination.py::test_quadratic_discriminant_is_the_universal_coefficient_invariant[PurePoly-2] - SymPy 1.14.0 divides by zero for a nonmonic GF(2) quadratic discriminant
+XFAIL frankensympy-continue6-71f712/python/tests/test_finite_field_elimination.py::test_cubic_and_quartic_discriminants_survive_derivative_degree_drop[3-3] - SymPy 1.14.0 fails polynomial division after derivative degree drops
+XFAIL frankensympy-continue6-71f712/python/tests/test_finite_field_elimination.py::test_cubic_and_quartic_discriminants_survive_derivative_degree_drop[4-2] - SymPy 1.14.0 fails polynomial division after derivative degree drops
+XFAIL frankensympy-continue6-71f712/python/tests/test_finite_field_elimination.py::test_resultant_reversal_sign_and_multiplicativity[3] - SymPy 1.14.0 loses the odd-degree resultant reversal sign
+XFAIL frankensympy-continue6-71f712/python/tests/test_finite_field_elimination.py::test_resultant_reversal_sign_and_multiplicativity[5] - SymPy 1.14.0 loses the odd-degree resultant reversal sign
+42 passed, 30 skipped, 6 xfailed in 1.41s
