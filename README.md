@@ -638,11 +638,56 @@ differentiate the source or accept systems; default and explicit
 `solver="newton"` calls retain the existing Newton path.
 
 The returned `Float` is an approximate binary64 candidate. Use
-`nsolve_certified` when an independently checked local root enclosure is
-required. This development route deliberately accepts an exactly evaluated
+`nsolve_certified` for its independently checked unique nonsingular root claim,
+or `certified_root_bracket` below for checked scalar existence from continuity
+and exact signs. This development route deliberately accepts an exactly evaluated
 right-endpoint root, where the pinned SymPy 1.14 bisection wrapper can instead
 raise. Its new regression suite is registered for actual-extension CI; a full
 compatibility profile is not certified.
+
+## Certified scalar root brackets (development API)
+
+`certified_root_bracket` returns independently checked evidence that a closed
+interval contains at least one root of the original scalar expression. It
+uses exact rational endpoints and certified signs, so odd repeated roots and
+supported continuous `Abs` corners need no nonzero derivative:
+
+```python
+from sympy import Abs, Rational, Symbol, certified_root_bracket
+
+x = Symbol("x", real=True)
+multiple = certified_root_bracket((x - 1)**3, (x, 0, 2))
+assert multiple.bounds == (1, 1)
+
+corner = certified_root_bracket(
+    Abs(3*x - 1) + 2*(3*x - 1), (x, -1, 1),
+    tolerance=Rational(1, 10**6),
+)
+# corner.bounds enclose 1/3 with width at most 1/10**6.
+# corner.midpoint is within corner.error_bound of at least one root.
+```
+
+The immutable `ScalarRootBracketReceipt` retains the original expression,
+typed variable, original interval, exact tolerance, narrowed root bounds and
+independently recomputed endpoint-value enclosures. Its claim is existence
+only: it does not establish uniqueness, multiplicity or complete enumeration.
+It cannot substitute for `RootBoxReceipt`.
+
+The checker proves continuity over the **entire original requested interval**.
+A narrowed witness cannot hide a pole elsewhere, and an interval that merely
+straddles zero is never treated as an exactly zero function value. Unknown
+signs, unstable Piecewise guards and unsupported original domains refuse.
+Even-multiplicity interior roots without a sign change are not generally
+discoverable; a proved exact endpoint root is accepted.
+
+Endpoints and tolerance admit exact integers, rationals and
+`fractions.Fraction`, with 4096-bit input bounds. Precision ranges from 8
+through 128 digits and `max_bisections` from 0 through 1024. Separate optional
+`budget` and `verification_budget` arguments accept cumulative
+`EvaluationBudget` objects; passing the same object shares one allowance.
+Budget exhaustion and cancellation remain typed terminal errors, including
+the publication boundary. The feature and its native/public regression gates
+remain part of the implemented, uncertified development scope.
 
 ## Compiled scalar objectives (development API)
 

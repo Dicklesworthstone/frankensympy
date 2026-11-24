@@ -9,7 +9,7 @@
 use fsym_budget::{Budget, BudgetLimits, BudgetMeter, Dimension, MeterError};
 use fsym_calculus::compile::{CompileError, EvalError};
 use fsym_calculus::program_artifact::ProgramArtifactError;
-use fsym_core::{BallError, RootBoxError};
+use fsym_core::{BallError, RootBoxError, ScalarRootBracketError};
 use pyo3::exceptions::{PyMemoryError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyInt;
@@ -233,6 +233,12 @@ pub(crate) fn evaluation_error<E: Error + 'static>(error: E) -> PyErr {
         if matches!(
             current.downcast_ref::<RootBoxError>(),
             Some(RootBoxError::ResourceLimit(_))
+        ) || matches!(
+            current.downcast_ref::<ScalarRootBracketError>(),
+            Some(
+                ScalarRootBracketError::ResourceLimit(_)
+                    | ScalarRootBracketError::Enclosure(RootBoxError::ResourceLimit(_))
+            )
         ) || matches!(
             current.downcast_ref::<BallError>(),
             Some(BallError::ResourceLimitExceeded { .. })

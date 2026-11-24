@@ -414,6 +414,7 @@ jobs:
               "python/tests/test_exact_stationary_points.py",
               "python/tests/test_certified_quadrature.py",
               "python/tests/test_absolute_quadrature.py",
+              "python/tests/test_certified_scalar_root_bracket.py",
               "python/tests/test_certified_objective.py",
               "python/tests/test_stationary_search.py",
               "python/tests/test_box_extremum.py",

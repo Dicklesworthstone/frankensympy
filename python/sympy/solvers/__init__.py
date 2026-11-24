@@ -1,6 +1,7 @@
 """Algebraic and differential equation solvers for FrankenSymPy (WS19)."""
 
 from .. import checksol, dsolve, solve, solveset
+from .certified import ScalarRootBracketReceipt, certified_root_bracket
 from .exact_ode import dsolve_exact_first_order
 from .inequalities import solve_univariate_inequality
 from .numerical import RootSearchError, nsolve_certified
@@ -22,6 +23,8 @@ from .solvers import linsolve, nsolve, solve_linear, solve_linear_system, solve_
 __all__ = [
     "checkodesol",
     "checksol",
+    "certified_root_bracket",
+    "ScalarRootBracketReceipt",
     "dsolve",
     "dsolve_cauchy_euler",
     "dsolve_const_coeff_second_order",

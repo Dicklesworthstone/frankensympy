@@ -1543,6 +1543,8 @@ from .combinatorics import (
 )
 from .solvers import (
     RootSearchError,
+    ScalarRootBracketReceipt,
+    certified_root_bracket,
     checkodesol,
     dsolve_cauchy_euler,
     dsolve_const_coeff_second_order,
@@ -2800,6 +2802,8 @@ __all__ = [
     "nsolve",
     "nsolve_certified",
     "RootSearchError",
+    "certified_root_bracket",
+    "ScalarRootBracketReceipt",
     "lambdify",
     "compile_numeric",
     "compile_numeric_hybrid",

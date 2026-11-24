@@ -2083,6 +2083,7 @@ mod polynomial_laplace;
 mod polynomial_relations;
 mod polynomial_systems;
 mod quadrature;
+mod scalar_bracket;
 mod quotient_algebra;
 mod rational_cancel;
 mod rational_laplace;
@@ -2116,6 +2117,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySymbol>()?;
     m.add_class::<binding::PySymbolBinding>()?;
     numeric_budget::register(m)?;
+    scalar_bracket::register(m)?;
     ode::register(m)?;
     finite_field_polynomial::register(m)?;
     finite_field_multivariate::register(m)?;
