@@ -106,14 +106,25 @@
   },
   "full_extension_and_workspace_status_at_checkpoint": {
     "candidate_python_suites_executed": false,
-    "extension": "A real production extension-module cargo check using the serialized compiler configuration is in progress; no success is claimed at this checkpoint.",
+    "extension": {
+      "command": "cargo check --locked -p fsym-python --lib --features extension-module -j1",
+      "python": "CPython 3.12.14",
+      "rustflags": "-D warnings -Z unstable-options --jobs-frontend=1 --jobs-backend=1",
+      "status": "blocked_by_compiler_resource_failure",
+      "exit_code": 101,
+      "elapsed_seconds": 200.19,
+      "child_maximum_rss_kib": 4269084,
+      "cause": "The pinned asupersync metadata compiler process was terminated by signal 9 (SIGKILL). No Rust source diagnostic was emitted. fsym-python did not finish type checking and no linked extension was produced.",
+      "log": "artifacts/validation/2026-11-24-python-production-check.txt",
+      "followup": "Stopped after this actual lower-concurrency attempt. No unchanged retry, dependency/source shim, disabled production feature, or weakened acceptance condition was used."
+    },
     "full_workspace_check_clippy_test": "Not completed.",
     "hosted_ci_last_observed": {
-      "head": "29265dc37e88c7c8bb7195c28cb3c23045f00ae6",
+      "head": "f7a142d1973508977c6deb17cc637a8b2b867094",
       "status": "queued",
       "run_ids": [
-        45315928785,
-        45315928846
+        45318225676,
+        45318225883
       ]
     }
   },
@@ -126,5 +137,38 @@
   ],
   "beads_closed": [],
   "compatibility_profiles_certified": [],
-  "performance_claims": []
+  "performance_claims": [],
+  "published_source_binding": {
+    "head": "f7a142d1973508977c6deb17cc637a8b2b867094",
+    "changed_code_and_test_files": 25,
+    "all_local_blobs_match_published_main": true,
+    "scope": "Every changed Rust/Python implementation and test file relative to this round's baseline was independently hashed locally and compared with the complete published Git tree. This is a source-identity check, not a claim that the blocked Python extension ran.",
+    "files": {
+      "crates/fsym-core/src/ball.rs": "01a37296fbe0a1d61cd35a159e1eeb99d6a3c034",
+      "crates/fsym-core/src/ball/lambert.rs": "11be3ab9467a8cc270e6e3374c151cfd15bb0950",
+      "crates/fsym-core/src/lib.rs": "0ba99a2573a1fd4c18437e3e436feec7bed78676",
+      "crates/fsym-core/tests/lambert_enclosures.rs": "d9baa96d8aa0192cb57639e03ecefe24b7dcc971",
+      "crates/fsym-matrices/src/lib.rs": "25db05cb400f6cc01353f169bf145a6d0dee658e",
+      "crates/fsym-matrices/src/pseudoinverse.rs": "cccf5b039ec0e9732174bfe892df62c530ff47b6",
+      "crates/fsym-matrices/src/pseudoinverse/gaussian.rs": "6e9407aa1adfcba5e1af908baf28cbdfc54a534f",
+      "crates/fsym-matrices/src/pseudoinverse/gaussian/ldl.rs": "1819cd8ec0de412c4aa16e86257cfb962e16f641",
+      "crates/fsym-matrices/src/pseudoinverse/gaussian/qr.rs": "cedebfa415de6fbd7183514583d509cf069e2cd4",
+      "crates/fsym-matrices/tests/gaussian_ldl.rs": "2ca90eeba1dc0654e64a213fa996d5a83130a8ba",
+      "crates/fsym-polys/src/finite_field_multivariate_square_free.rs": "25618cb392d5509eb24af6585f29335678ae49a4",
+      "crates/fsym-polys/src/lib.rs": "c65316bc3d92450ed85390dca33731fab16bab13",
+      "crates/fsym-polys/tests/finite_field_multivariate_square_free.rs": "de8d5d5a797321970473a4d7c78a714caf525b25",
+      "crates/fsym-python/src/finite_field_multivariate.rs": "cad06657b9ed03f981cf5a9cc7eb953d89aae25d",
+      "crates/fsym-python/src/finite_field_polynomial.rs": "c972082f65b1e1ac552cbf8918cba876cd54094c",
+      "crates/fsym-python/src/matrix.rs": "1b7662908c1bb3641885958449ae0157f70a1fc4",
+      "python/sympy/matrices/_hermitian.py": "7be938888dc79c7c2efabc33eaf770910e6fe3d4",
+      "python/sympy/matrices/_pseudoinverse.py": "97e4d751c67da427bdc1b3d9666d9bd2d314f7dd",
+      "python/sympy/matrices/dense.py": "9e2cecd90ac2707a1cceb044ae972f88d3b2e7d3",
+      "python/sympy/matrices/sparse.py": "b986a4973d0d2009c4ee780fc20975c2f7c3be3d",
+      "python/sympy/polys/_finitefield.py": "c88625568c565ea9f703152935f374b01cccf19f",
+      "python/sympy/polys/polytools.py": "556531fc4500707f86ca4254599b3f0bf29a50c3",
+      "python/tests/test_finite_field_multivariate_square_free.py": "635312f855472a487808445e722914f4ccc033ba",
+      "python/tests/test_lambert_real_evalf.py": "7ddc2ac140481cd799b762d3792c8c73fd821931",
+      "python/tests/test_matrix_hermitian_decompositions.py": "c1dbe0c77c6ea866622e39d57a89950f17f0539b"
+    }
+  }
 }

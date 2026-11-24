@@ -1,0 +1,203 @@
+COMMAND /tmp/frankensympy-native-residual-20261124/rust/bin/cargo check --locked -p fsym-python --lib --features extension-module -j1
+ Downloading crates ...
+  Downloaded either v1.18.0
+  Downloaded crc32fast v1.5.1
+  Downloaded indoc v2.0.7
+  Downloaded smallvec v1.15.2
+  Downloaded pyo3-macros v0.27.2
+  Downloaded rand v0.10.3
+  Downloaded target-lexicon v0.13.5
+  Downloaded unindent v0.2.4
+  Downloaded pin-project-internal v1.1.13
+  Downloaded crossbeam-queue v0.3.13
+  Downloaded zeroize v1.9.0
+  Downloaded chacha20 v0.10.1
+  Downloaded pyo3-build-config v0.27.2
+  Downloaded pin-project v1.1.13
+  Downloaded crossbeam-utils v0.8.22
+  Downloaded hybrid-array v0.4.14
+  Downloaded log v0.4.34
+  Downloaded bytes v1.12.1
+  Downloaded pyo3-ffi v0.27.2
+  Downloaded pyo3-macros-backend v0.27.2
+  Downloaded rand v0.8.7
+  Downloaded hashbrown v0.17.1
+  Downloaded sysinfo v0.39.6
+  Downloaded pyo3 v0.27.2
+    Checking cfg-if v1.0.4
+   Compiling libc v0.2.189
+   Compiling syn v3.0.3
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+    Checking typenum v1.20.1
+   Compiling serde_derive v1.0.229
+   Compiling syn v2.0.119
+    Checking cpufeatures v0.3.0
+    Checking num-traits v0.2.19
+    Checking equivalent v1.0.2
+    Checking allocator-api2 v0.2.21
+    Checking foldhash v0.2.0
+    Checking hashbrown v0.17.1
+    Checking memchr v2.8.3
+   Compiling serde_json v1.0.151
+    Checking zmij v1.0.23
+    Checking indexmap v2.14.0
+   Compiling getrandom v0.4.3
+    Checking itoa v1.0.18
+    Checking num-integer v0.1.47
+    Checking hybrid-array v0.4.14
+    Checking rand_core v0.10.1
+   Compiling zeroize_derive v1.5.0
+    Checking zeroize v1.9.0
+    Checking num-bigint v0.4.8
+    Checking fsym-budget v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-budget)
+    Checking constant_time_eq v0.4.2
+    Checking arrayvec v0.7.8
+    Checking blake3 v1.8.7
+    Checking fsym-bigint v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-bigint)
+    Checking crypto-common v0.2.2
+   Compiling thiserror-impl v2.0.20
+    Checking thiserror v2.0.20
+    Checking fsym-modular v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-modular)
+    Checking num-rational v0.4.2
+    Checking fsym-rational v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-rational)
+    Checking num-complex v0.4.6
+    Checking fsym-id v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-id)
+    Checking fsym-outcome v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-outcome)
+    Checking fsym-core v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-core)
+    Checking block-buffer v0.12.1
+   Compiling target-lexicon v0.13.5
+   Compiling version_check v0.9.5
+   Compiling generic-array v0.14.7
+    Checking cmov v0.5.4
+    Checking ctutils v0.4.2
+   Compiling pyo3-build-config v0.27.2
+    Checking inout v0.2.2
+    Checking fsym-assumptions v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-assumptions)
+   Compiling crossbeam-utils v0.8.22
+    Checking fsym-proof-kernel v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-proof-kernel)
+    Checking cipher v0.5.2
+    Checking block-buffer v0.10.4
+    Checking crypto-common v0.1.7
+    Checking digest v0.10.7
+    Checking fsym-evidence v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-evidence)
+    Checking fsym-polys v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-polys)
+    Checking base64ct v1.8.3
+   Compiling semver v1.0.28
+   Compiling rustc_version v0.4.1
+    Checking pem-rfc7468 v0.7.0
+    Checking fsym-simplify v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-simplify)
+    Checking universal-hash v0.6.1
+    Checking getrandom v0.2.17
+    Checking bitflags v2.13.1
+   Compiling crossbeam-epoch v0.9.21
+    Checking const-oid v0.9.6
+   Compiling rustix v1.1.4
+    Checking der v0.7.10
+    Checking rand_core v0.6.4
+   Compiling curve25519-dalek v4.1.3
+    Checking zerocopy v0.8.56
+    Checking signature v2.2.0
+    Checking chacha20 v0.10.1
+   Compiling memoffset v0.9.1
+   Compiling rustversion v1.0.23
+    Checking cpubits v0.1.1
+    Checking cpufeatures v0.2.17
+   Compiling crossbeam-deque v0.8.8
+   Compiling anyhow v1.0.104
+    Checking const-oid v0.10.2
+    Checking linux-raw-sys v0.12.1
+    Checking digest v0.11.3
+    Checking ppv-lite86 v0.2.21
+    Checking spki v0.7.3
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling cfg_aliases v0.2.2
+   Compiling either v1.18.0
+   Compiling rayon-core v1.13.0
+    Checking subtle v2.6.1
+   Compiling parking_lot_core v0.9.12
+   Compiling itertools v0.14.0
+   Compiling nix v0.31.3
+    Checking pkcs8 v0.10.2
+    Checking rand_chacha v0.3.1
+    Checking sha2 v0.10.9
+    Checking polyval v0.7.3
+    Checking ed25519 v2.2.3
+    Checking fsym-calculus v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-calculus)
+   Compiling pyo3-macros-backend v0.27.2
+   Compiling pyo3-ffi v0.27.2
+    Checking aead v0.6.1
+    Checking errno v0.3.14
+    Checking fastrand v2.5.0
+   Compiling crc32fast v1.5.1
+    Checking smallvec v1.15.2
+    Checking once_cell v1.21.4
+   Compiling virtue-next v0.1.3
+    Checking scopeguard v1.2.0
+    Checking tinyvec_macros v0.1.1
+   Compiling bincode-next v3.1.1
+   Compiling signal-hook v0.4.4
+    Checking tinyvec v1.12.0
+    Checking lock_api v0.4.14
+   Compiling bincode_derive-next v3.1.1
+    Checking signal-hook-registry v1.4.8
+    Checking ed25519-dalek v2.2.0
+    Checking ghash v0.6.0
+   Compiling prost-derive v0.14.4
+    Checking rapidhash v4.5.1
+    Checking rand v0.8.7
+    Checking signatory v0.27.1
+    Checking aes v0.9.2
+    Checking poly1305 v0.9.1
+    Checking ctr v0.10.1
+    Checking fsym-sets v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-sets)
+    Checking franken-evidence v0.6.0 (/workspace/scratch/b53b2ff344ba/asupersync/franken_evidence)
+    Checking rmp v0.8.15
+   Compiling pin-project-internal v1.1.13
+    Checking franken-kernel v0.6.0 (/workspace/scratch/b53b2ff344ba/asupersync/franken_kernel)
+    Checking data-encoding v2.11.1
+    Checking futures-io v0.3.34
+    Checking unty-next v0.1.2
+   Compiling heck v0.5.0
+    Checking futures-core v0.3.34
+    Checking parking v2.2.1
+    Checking bytes v1.12.1
+   Compiling asupersync v0.6.0 (/workspace/scratch/b53b2ff344ba/asupersync)
+   Compiling pastey v0.2.3
+    Checking log v0.4.34
+    Checking pin-project-lite v0.2.17
+    Checking futures-lite v2.6.1
+    Checking nkeys v0.4.5
+    Checking prost v0.14.4
+    Checking rayon v1.12.0
+    Checking franken-decision v0.6.0 (/workspace/scratch/b53b2ff344ba/asupersync/franken_decision)
+    Checking pin-project v1.1.13
+    Checking rmp-serde v1.3.1
+    Checking fsym-solvers v0.1.0 (/workspace/scratch/b53b2ff344ba/frankensympy-residual-20261124/crates/fsym-solvers)
+    Checking aes-gcm v0.11.1
+    Checking chacha20poly1305 v0.11.0
+    Checking parking_lot v0.12.5
+    Checking unicode-normalization v0.1.25
+    Checking tempfile v3.27.0
+    Checking hmac v0.13.0
+    Checking sha2 v0.11.0
+    Checking sha1 v0.11.0
+    Checking polling v3.11.0
+    Checking xattr v1.6.1
+    Checking rand v0.10.3
+    Checking crossbeam-queue v0.3.13
+   Compiling pyo3 v0.27.2
+    Checking fsci-runtime v0.2.0 (/workspace/scratch/b53b2ff344ba/frankenscipy-pin/crates/fsci-runtime)
+    Checking sysinfo v0.39.6
+   Compiling asupersync-macros v0.6.0 (/workspace/scratch/b53b2ff344ba/asupersync/asupersync-macros)
+    Checking socket2 v0.6.5
+    Checking base64 v0.23.1
+    Checking slab v0.4.12
+    Checking fnp-ndarray v0.3.0 (/workspace/scratch/b53b2ff344ba/franken_numpy-pin/crates/fnp-ndarray)
+    Checking hex v0.4.3
+error: could not compile `asupersync` (lib)
+
+Caused by:
+  process didn't exit successfully: `rustc --crate-name asupersync --edition=2024 /workspace/scratch/b53b2ff344ba/asupersync/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata -C embed-bitcode=no --warn=unused '--warn=clippy::pedantic' '--warn=clippy::nursery' '--allow=clippy::wrong_self_convention' '--allow=clippy::useless_vec' '--allow=clippy::useless_conversion' '--allow=clippy::used_underscore_binding' '--allow=clippy::use_self' '--allow=clippy::unused_self' '--allow=clippy::unused_peekable' --allow=unused_doc_comments '--allow=clippy::unused_async' --deny=unsafe_code '--allow=clippy::unreadable_literal' '--allow=clippy::unnecessary_wraps' '--allow=clippy::unnecessary_sort_by' '--allow=clippy::unnecessary_lazy_evaluations' '--allow=clippy::unnecessary_debug_formatting' '--allow=clippy::unit_arg' '--allow=clippy::uninlined_format_args' --warn=unexpected_cfgs '--allow=clippy::type_complexity' '--allow=clippy::trivially_copy_pass_by_ref' '--allow=clippy::too_many_lines' '--allow=clippy::too_many_arguments' '--allow=clippy::suspicious_operation_groupings' '--allow=clippy::suboptimal_flops' '--allow=clippy::struct_field_names' '--allow=clippy::struct_excessive_bools' '--allow=clippy::single_match_else' '--allow=clippy::single_match' '--allow=clippy::similar_names' '--allow=clippy::significant_drop_tightening' '--allow=clippy::significant_drop_in_scrutinee' '--allow=clippy::should_implement_trait' '--allow=clippy::semicolon_if_nothing_returned' '--allow=clippy::return_self_not_must_use' '--allow=clippy::result_large_err' '--allow=clippy::redundant_pattern_matching' '--allow=clippy::redundant_field_names' '--allow=clippy::redundant_else' '--allow=clippy::redundant_closure_for_method_calls' '--allow=clippy::redundant_clone' '--allow=clippy::read_zero_byte_vec' '--allow=clippy::question_mark' '--allow=clippy::ptr_as_ptr' '--allow=clippy::or_fun_call' '--allow=clippy::option_option' '--allow=clippy::option_if_let_else' '--allow=clippy::no_effect_underscore_binding' '--allow=clippy::new_without_default' '--allow=clippy::needless_range_loop' '--allow=clippy::needless_pass_by_value' '--allow=clippy::needless_pass_by_ref_mut' '--allow=clippy::must_use_unit' '--allow=clippy::must_use_candidate' '--allow=clippy::module_name_repetitions' '--allow=clippy::module_inception' '--allow=clippy::missing_panics_doc' '--allow=clippy::missing_inline_in_public_items' '--allow=clippy::missing_fields_in_debug' '--allow=clippy::missing_errors_doc' --allow=missing_docs '--allow=clippy::missing_const_for_fn' '--allow=clippy::match_wild_err_arm' '--allow=clippy::match_same_arms' '--allow=clippy::match_like_matches_macro' '--allow=clippy::map_unwrap_or' '--allow=clippy::manual_slice_fill' '--allow=clippy::manual_let_else' '--allow=clippy::manual_is_multiple_of' '--allow=clippy::manual_div_ceil' '--allow=clippy::manual_clamp' '--allow=clippy::manual_checked_ops' '--allow=clippy::len_zero' '--allow=clippy::large_futures' '--allow=clippy::large_enum_variant' '--allow=clippy::iter_with_drain' '--allow=clippy::items_after_test_module' '--allow=clippy::items_after_statements' '--allow=clippy::inefficient_to_string' '--allow=clippy::implicit_clone' '--allow=clippy::ignored_unit_patterns' '--allow=clippy::if_not_else' '--allow=clippy::future_not_send' '--allow=clippy::format_push_string' '--allow=clippy::format_collect' '--allow=clippy::float_cmp' '--allow=clippy::field_reassign_with_default' '--allow=clippy::explicit_iter_loop' '--allow=clippy::explicit_into_iter_loop' '--allow=clippy::duration_suboptimal_units' '--allow=clippy::drain_collect' '--allow=clippy::double_must_use' '--allow=clippy::doc_markdown' '--allow=clippy::doc_lazy_continuation' '--allow=clippy::derive_partial_eq_without_eq' '--allow=clippy::default_trait_access' '--allow=clippy::collection_is_never_read' '--allow=clippy::collapsible_if' '--allow=clippy::cognitive_complexity' '--allow=clippy::cloned_ref_to_slice_refs' '--allow=clippy::chunks_exact_to_as_chunks' '--allow=clippy::cast_sign_loss' '--allow=clippy::cast_precision_loss' '--allow=clippy::cast_possible_truncation' '--allow=clippy::cast_lossless' '--allow=clippy::branches_sharing_code' '--allow=clippy::borrow_as_ptr' '--allow=clippy::bool_assert_comparison' '--allow=clippy::assign_op_pattern' '--allow=clippy::assertions_on_constants' '--allow=clippy::assert_is_empty' '--allow=clippy::arithmetic_side_effects' --check-cfg 'cfg(loom)' --check-cfg 'cfg(fuzzing)' --check-cfg 'cfg(feature, values("quic", "http3", "wasm-browser-preview", "simd-intrinsics", "messaging-fabric", "obligation-cleanup-e2e"))' --cfg 'feature="default"' --cfg 'feature="native-runtime"' --cfg 'feature="nightly-outcome-try"' --cfg 'feature="proc-macros"' --cfg 'feature="runtime-core"' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values("atp-cli", "atpd-daemon", "benchmark-adapters", "browser-io", "browser-trace", "cancel-correctness-oracle", "channel-mpsc-select-e2e", "ci-cross-platform", "cli", "compression", "config-file", "criterion-benches", "cross-subsystem-recovery-e2e", "debug-server", "default", "dependency-ledger", "desktop-runtime-profile", "deterministic-mode", "distributed-hash-snapshot-recovery-e2e", "fuzz", "h3-websocket-e2e", "http3", "io-uring", "kafka", "lab-stack-traces", "legacy-internal-test-harnesses", "lock-metrics", "loom-tests", "messaging-fabric", "metrics", "mysql", "native-runtime", "nightly-outcome-try", "obligation-cleanup-e2e", "obligation-leak-detection", "postgres", "proc-macros", "quic", "raptorq-roundtrip-e2e", "real-service-e2e", "remote-service", "runtime-core", "runtime-metrics", "serialization-golden-harnesses", "simd-intrinsics", "sqlite", "tailscale-path-provider", "test-internals", "tls", "tls-native-roots", "tls-webpki-roots", "tokio-compat", "tower", "trace-compression", "tracing-integration", "waker-profiling", "wasm-browser-deterministic", "wasm-browser-dev", "wasm-browser-minimal", "wasm-browser-preview", "wasm-browser-prod", "wasm-runtime"))' -C metadata=0b21747aa592b7af -C extra-filename=-149ee55f90bc7792 --out-dir /tmp/frankensympy-native-residual-20261124/target/debug/build/asupersync/149ee55f90bc7792/out -C strip=debuginfo -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/aead/a5a8f4d350476a85/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/aes/2e337120703d6124/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/aes-gcm/c0846a3d4b40f6ee/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/allocator-api2/4a2bae86dbb7f7d9/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/asupersync-macros/3d1f419410028a44/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/base64/76c6fb2ad2040d7b/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/base64ct/4197ab67755c3997/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/bincode-next/6f7de728be2de3db/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/bincode_derive-next/ad80718c656a5f61/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/bitflags/1991e117adcc3b7b/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/block-buffer/9bda73db37023b6f/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/block-buffer/a26cd7af243098a5/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/bytes/66f8c9f504e0637c/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/cfg-if/df2c9db87386e348/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/chacha20/51882daa6ebb1dd6/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/chacha20poly1305/3b39663d9584150e/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/cipher/fe1229c986f1ce11/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/cmov/61269dbf710ba48f/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/const-oid/79dd7b05eab797e1/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/const-oid/8aaf857fa890ce66/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/cpubits/fde2d37af58f4f3d/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/cpufeatures/14b1533d09cb2ff4/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/cpufeatures/f4613670661cd566/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/crc32fast/8aa238dce8d68e0a/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/crossbeam-queue/5931ded14a7ca7da/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/crossbeam-utils/f9e12006b543d90d/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/crypto-common/a62cc5e8025aaafa/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/crypto-common/d1ac55e181738466/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/ctr/9335648c6dfc6cde/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/ctutils/f5fb02e5e68df98d/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/curve25519-dalek/36399818223bb310/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/curve25519-dalek-derive/7204d153b03d22ed/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/data-encoding/db101498f70cbb8c/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/der/3f69b2295bb438e0/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/digest/4f2a9b605ce7ead5/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/digest/db726ef376e592a8/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/ed25519/5c9b71f8a07337d8/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/ed25519-dalek/7e39d92418df5639/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/equivalent/d26fe0aab9f8ccba/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/errno/226f2da1ab6a7984/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/fastrand/917798717e9c3050/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/foldhash/aa631e07c78f5a40/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/franken-decision/e0f7a36af853cc5b/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/franken-evidence/accc544e3dcfd071/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/franken-kernel/1a1460fb6a5ebba8/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/futures-core/1c1fd08cb8afc250/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/futures-io/6ed57981c1f0a34e/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/futures-lite/19ce8e80f6ff954f/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/generic-array/45932e09a5608ef7/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/getrandom/9ebc01ad26c475e1/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/getrandom/e877330af07c4d2b/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/ghash/1609ffd1155827cd/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/hashbrown/a935d9438120b48b/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/hex/01755e9272f2137b/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/hmac/22cef2e85cf31406/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/hybrid-array/94324016b78c4de4/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/indexmap/8f6855f6fe71a781/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/inout/3575de4ed86ec5a3/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/itoa/793f4fbafb036acb/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/libc/14db5b07ea0902fe/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/linux-raw-sys/f2bd26a74dca26a0/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/lock_api/1c87046fb588f448/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/log/4b938d5ecdd1499b/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/memchr/7131003da2600a7c/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/memoffset/da1897d23e55e806/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/nix/bca34a7faa75b70a/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/nkeys/8e8844041248e4e4/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/num-traits/1e043edd6fd69a98/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/once_cell/f60586e724d0e79f/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/parking/1710956c5e46fb0a/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/parking_lot/a404f1af89dcf462/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/parking_lot_core/ce906c245f860389/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/pastey/800c721d16819525/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/pem-rfc7468/48e1fa6e6bec6eb0/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/pin-project/2f5bc0174f39764a/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/pin-project-internal/9f95bc0b407337a7/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/pin-project-lite/35f4948aa8e4cffb/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/pkcs8/976cda81eb0637ae/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/polling/8d15de057b63c6ef/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/poly1305/0cb3b58a28e6e38b/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/polyval/c08d4effcfebbffe/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/ppv-lite86/c933d8ae0eb5a7e2/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/prost/abbe862b5fc8bf9c/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/prost-derive/f80be18dd4e60cfd/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/rand/a2a43a1a39f9923f/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/rand_chacha/498225d39405f272/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/rand_core/982f79aafeb9e539/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/rand_core/f0b89050f3fcca20/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/rapidhash/73008d2e36dacef8/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/rmp/a8008c88a97d0149/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/rmp-serde/6348d10bf57edb0c/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/rustix/9a0e4a3b68b0a532/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/rustversion/68f8267cee24947d/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/scopeguard/12be1c6c814b89a8/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/semver/a32ab6dd6686fd6f/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/serde/5380990a3b605c7d/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/serde_core/5372c4d900710919/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/serde_derive/ed88c2d2d8f2579a/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/serde_json/724f3a88721cf84b/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/sha1/22083d2979eceffd/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/sha2/c32927f2a994a696/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/sha2/ed4f294372ff735c/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/signal-hook/d1cc3da46a0b9e14/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/signal-hook-registry/5ad05c1c4a81b6ce/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/signatory/a6eee54bec1014fd/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/signature/ce17780c7805d041/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/slab/7f584c3792020165/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/smallvec/f9017302a7278735/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/socket2/27c4310127004141/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/spki/f48c29e9730b0226/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/subtle/43f9e54d6ff32c98/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/sysinfo/df82c557ce717022/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/tempfile/aa8c00227c0c7e57/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/thiserror/9566b3e9ae7f82fc/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/thiserror-impl/07e9e081a9cc781a/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/tinyvec/4c165ac1f7ed0190/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/tinyvec_macros/a786b84d83a26038/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/typenum/1cf5829d9837967b/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/unicode-normalization/fd90d19f051010c7/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/universal-hash/b9d0e7bebb2c978d/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/unty-next/da8409aefe34fa53/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/xattr/32723da477d112cf/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/zerocopy/5afaa5cda4724334/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/zeroize/f31ac168bedeef13/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/zeroize_derive/606281c23b745468/out -L dependency=/tmp/frankensympy-native-residual-20261124/target/debug/build/zmij/539180393737b066/out --extern aes_gcm=/tmp/frankensympy-native-residual-20261124/target/debug/build/aes-gcm/c0846a3d4b40f6ee/out/libaes_gcm-c0846a3d4b40f6ee.rmeta --extern asupersync_macros=/tmp/frankensympy-native-residual-20261124/target/debug/build/asupersync-macros/3d1f419410028a44/out/libasupersync_macros-3d1f419410028a44.so --extern base64=/tmp/frankensympy-native-residual-20261124/target/debug/build/base64/76c6fb2ad2040d7b/out/libbase64-76c6fb2ad2040d7b.rmeta --extern bincode=/tmp/frankensympy-native-residual-20261124/target/debug/build/bincode-next/6f7de728be2de3db/out/libbincode_next-6f7de728be2de3db.rmeta --extern chacha20poly1305=/tmp/frankensympy-native-residual-20261124/target/debug/build/chacha20poly1305/3b39663d9584150e/out/libchacha20poly1305-3b39663d9584150e.rmeta --extern crc32fast=/tmp/frankensympy-native-residual-20261124/target/debug/build/crc32fast/8aa238dce8d68e0a/out/libcrc32fast-8aa238dce8d68e0a.rmeta --extern crossbeam_queue=/tmp/frankensympy-native-residual-20261124/target/debug/build/crossbeam-queue/5931ded14a7ca7da/out/libcrossbeam_queue-5931ded14a7ca7da.rmeta --extern franken_decision=/tmp/frankensympy-native-residual-20261124/target/debug/build/franken-decision/e0f7a36af853cc5b/out/libfranken_decision-e0f7a36af853cc5b.rmeta --extern franken_evidence=/tmp/frankensympy-native-residual-20261124/target/debug/build/franken-evidence/accc544e3dcfd071/out/libfranken_evidence-accc544e3dcfd071.rmeta --extern franken_kernel=/tmp/frankensympy-native-residual-20261124/target/debug/build/franken-kernel/1a1460fb6a5ebba8/out/libfranken_kernel-1a1460fb6a5ebba8.rmeta --extern futures_lite=/tmp/frankensympy-native-residual-20261124/target/debug/build/futures-lite/19ce8e80f6ff954f/out/libfutures_lite-19ce8e80f6ff954f.rmeta --extern getrandom=/tmp/frankensympy-native-residual-20261124/target/debug/build/getrandom/9ebc01ad26c475e1/out/libgetrandom-9ebc01ad26c475e1.rmeta --extern hashbrown=/tmp/frankensympy-native-residual-20261124/target/debug/build/hashbrown/a935d9438120b48b/out/libhashbrown-a935d9438120b48b.rmeta --extern hex=/tmp/frankensympy-native-residual-20261124/target/debug/build/hex/01755e9272f2137b/out/libhex-01755e9272f2137b.rmeta --extern hmac=/tmp/frankensympy-native-residual-20261124/target/debug/build/hmac/22cef2e85cf31406/out/libhmac-22cef2e85cf31406.rmeta --extern libc=/tmp/frankensympy-native-residual-20261124/target/debug/build/libc/14db5b07ea0902fe/out/liblibc-14db5b07ea0902fe.rmeta --extern memchr=/tmp/frankensympy-native-residual-20261124/target/debug/build/memchr/7131003da2600a7c/out/libmemchr-7131003da2600a7c.rmeta --extern nix=/tmp/frankensympy-native-residual-20261124/target/debug/build/nix/bca34a7faa75b70a/out/libnix-bca34a7faa75b70a.rmeta --extern nkeys=/tmp/frankensympy-native-residual-20261124/target/debug/build/nkeys/8e8844041248e4e4/out/libnkeys-8e8844041248e4e4.rmeta --extern parking_lot=/tmp/frankensympy-native-residual-20261124/target/debug/build/parking_lot/a404f1af89dcf462/out/libparking_lot-a404f1af89dcf462.rmeta --extern pin_project=/tmp/frankensympy-native-residual-20261124/target/debug/build/pin-project/2f5bc0174f39764a/out/libpin_project-2f5bc0174f39764a.rmeta --extern polling=/tmp/frankensympy-native-residual-20261124/target/debug/build/polling/8d15de057b63c6ef/out/libpolling-8d15de057b63c6ef.rmeta --extern prost=/tmp/frankensympy-native-residual-20261124/target/debug/build/prost/abbe862b5fc8bf9c/out/libprost-abbe862b5fc8bf9c.rmeta --extern rmp_serde=/tmp/frankensympy-native-residual-20261124/target/debug/build/rmp-serde/6348d10bf57edb0c/out/librmp_serde-6348d10bf57edb0c.rmeta --extern semver=/tmp/frankensympy-native-residual-20261124/target/debug/build/semver/a32ab6dd6686fd6f/out/libsemver-a32ab6dd6686fd6f.rmeta --extern serde=/tmp/frankensympy-native-residual-20261124/target/debug/build/serde/5380990a3b605c7d/out/libserde-5380990a3b605c7d.rmeta --extern serde_json=/tmp/frankensympy-native-residual-20261124/target/debug/build/serde_json/724f3a88721cf84b/out/libserde_json-724f3a88721cf84b.rmeta --extern sha1=/tmp/frankensympy-native-residual-20261124/target/debug/build/sha1/22083d2979eceffd/out/libsha1-22083d2979eceffd.rmeta --extern sha2=/tmp/frankensympy-native-residual-20261124/target/debug/build/sha2/c32927f2a994a696/out/libsha2-c32927f2a994a696.rmeta --extern signal_hook=/tmp/frankensympy-native-residual-20261124/target/debug/build/signal-hook/d1cc3da46a0b9e14/out/libsignal_hook-d1cc3da46a0b9e14.rmeta --extern slab=/tmp/frankensympy-native-residual-20261124/target/debug/build/slab/7f584c3792020165/out/libslab-7f584c3792020165.rmeta --extern smallvec=/tmp/frankensympy-native-residual-20261124/target/debug/build/smallvec/f9017302a7278735/out/libsmallvec-f9017302a7278735.rmeta --extern socket2=/tmp/frankensympy-native-residual-20261124/target/debug/build/socket2/27c4310127004141/out/libsocket2-27c4310127004141.rmeta --extern subtle=/tmp/frankensympy-native-residual-20261124/target/debug/build/subtle/43f9e54d6ff32c98/out/libsubtle-43f9e54d6ff32c98.rmeta --extern sysinfo=/tmp/frankensympy-native-residual-20261124/target/debug/build/sysinfo/df82c557ce717022/out/libsysinfo-df82c557ce717022.rmeta --extern tempfile=/tmp/frankensympy-native-residual-20261124/target/debug/build/tempfile/aa8c00227c0c7e57/out/libtempfile-aa8c00227c0c7e57.rmeta --extern thiserror=/tmp/frankensympy-native-residual-20261124/target/debug/build/thiserror/9566b3e9ae7f82fc/out/libthiserror-9566b3e9ae7f82fc.rmeta --extern unicode_normalization=/tmp/frankensympy-native-residual-20261124/target/debug/build/unicode-normalization/fd90d19f051010c7/out/libunicode_normalization-fd90d19f051010c7.rmeta --extern xattr=/tmp/frankensympy-native-residual-20261124/target/debug/build/xattr/32723da477d112cf/out/libxattr-32723da477d112cf.rmeta --extern zeroize=/tmp/frankensympy-native-residual-20261124/target/debug/build/zeroize/f31ac168bedeef13/out/libzeroize-f31ac168bedeef13.rmeta -D warnings -Z unstable-options --jobs-frontend=1 --jobs-backend=1` (signal: 9, SIGKILL: kill)
+CHILD_MAX_RSS_KIB 4269084
+EXIT 101 ELAPSED_SECONDS 200.19
