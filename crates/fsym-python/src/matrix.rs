@@ -1566,10 +1566,80 @@ impl PyMatrix {
         }
     }
 
-    /// Exact LDL^T decomposition for symmetric matrix returning `(L, D)`.
-    pub fn ldl(&self) -> PyResult<(Self, Self)> {
+    /// Legacy exact-rational LDL^T, optionally requiring a positive diagonal.
+    /// The optional check inspects the independently accepted exact D.
+    /// Active requests use gaussian_ldl instead of this standalone legacy lane.
+    #[pyo3(signature = (*, positive=false))]
+    pub fn ldl(&self, positive: bool) -> PyResult<(Self, Self)> {
         let cert = self.inner.ldl().map_err(matrix_err)?;
+        if positive {
+            let zero = BigInt::from(0);
+            for index in 0..cert.d.rows() {
+                let entry = cert.d.get(index, index).map_err(matrix_err)?;
+                let is_positive = match entry {
+                    Expr::Integer(value) => value > &zero,
+                    Expr::Rational(value) => value.numer() > &zero && value.denom() > &zero,
+                    _ => return Err(matrix_err(MatrixError::UnsupportedCertificateDomain)),
+                };
+                if !is_positive {
+                    return Err(matrix_err(MatrixError::NotPositiveDefinite));
+                }
+            }
+        }
         Ok((Self { inner: cert.l }, Self { inner: cert.d }))
+    }
+
+    /// Checked positive-definite Hermitian Q(i) LDL with one cumulative request.
+    #[pyo3(signature = (*, session=None))]
+    pub fn gaussian_ldl(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<(Self, Self)> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result: PyResult<(Self, Self)> = (|| {
+            meter.checkpoint().map_err(to_value_error)?;
+            let factors = self
+                .inner
+                .metered_gaussian_ldl(&mut meter)
+                .map_err(matrix_err)?;
+            meter
+                .charge(Dimension::ComputeSteps, 3)
+                .map_err(to_value_error)?;
+            meter.checkpoint().map_err(to_value_error)?;
+            Ok((Self { inner: factors.l }, Self { inner: factors.d }))
+        })();
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
+    }
+
+    /// Checked positive-diagonal Hermitian Cholesky over exact Q(i).
+    /// Original source, LDL, positive roots and all output components are checked.
+    #[pyo3(signature = (*, session=None))]
+    pub fn gaussian_cholesky(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<Self> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result: PyResult<Self> = (|| {
+            meter.checkpoint().map_err(to_value_error)?;
+            let factor = self
+                .inner
+                .metered_gaussian_cholesky(&mut meter)
+                .map_err(matrix_err)?;
+            meter
+                .charge(Dimension::ComputeSteps, 2)
+                .map_err(to_value_error)?;
+            meter.checkpoint().map_err(to_value_error)?;
+            Ok(Self { inner: factor })
+        })();
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
     }
 
     /// Minor submatrix obtained by removing row `rem_r` and column `rem_c`.

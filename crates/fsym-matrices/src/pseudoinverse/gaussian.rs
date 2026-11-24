@@ -23,6 +23,8 @@ mod qr;
 pub use qr::GaussianQrCandidate;
 mod lu;
 pub use lu::GaussianLuCandidate;
+mod ldl;
+pub use ldl::{GaussianCholeskyCandidate, GaussianLdlCandidate};
 mod rref;
 pub use rref::{GaussianAffineCandidate, GaussianRrefCandidate, VerifiedGaussianAffineSolution};
 

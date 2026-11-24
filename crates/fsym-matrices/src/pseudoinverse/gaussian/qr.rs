@@ -234,7 +234,10 @@ fn verify(
 /// divisions plus one extraction per pair of radicand bits. Precharge its
 /// full bounded arithmetic/allocation envelope, with cancellation checks on
 /// both sides; no asynchronous or sub-scalar cancellation bound is claimed.
-fn square_root(value: &BigRational, work: &mut Work<'_, impl BudgetMeter>) -> Result<Expr> {
+pub(super) fn square_root(
+    value: &BigRational,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<Expr> {
     check_bits(value, MAX_GAUSSIAN_RATIONAL_INPUT_BITS)?;
     if !value.is_positive() {
         return Err(invalid("normalization requires a positive squared norm"));
@@ -276,7 +279,7 @@ fn square_root(value: &BigRational, work: &mut Work<'_, impl BudgetMeter>) -> Re
 /// normalization. No square-root generator, factorization or simplifier is
 /// invoked. Positivity fixes the principal branch; exact squaring checks the
 /// value, rather than trusting a successful generator return.
-fn positive_scale_square(
+pub(super) fn positive_scale_square(
     expression: &Expr,
     depth: usize,
     work: &mut Work<'_, impl BudgetMeter>,
@@ -416,7 +419,15 @@ fn normalized_shape(
     Ok(())
 }
 
-fn normalization_product(
+/// Bound a proposed normalized scalar before independent interpretation.
+pub(super) fn validate_normalized_scalar(
+    expression: &Expr,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<()> {
+    normalized_shape(expression, 0, &mut NormalizedShape::default(), work)
+}
+
+pub(super) fn normalization_product(
     left: &Expr,
     right: &Expr,
     work: &mut Work<'_, impl BudgetMeter>,

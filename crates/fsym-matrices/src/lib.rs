@@ -24,8 +24,9 @@ pub use sparse_rref::{
 };
 mod pseudoinverse;
 pub use pseudoinverse::{
-    GaussianAffineCandidate, GaussianLeastSquaresCandidate, GaussianLinearSystemCandidate,
-    GaussianLuCandidate, GaussianQrCandidate, GaussianRrefCandidate, PseudoinverseCertificate,
+    GaussianAffineCandidate, GaussianCholeskyCandidate, GaussianLdlCandidate,
+    GaussianLeastSquaresCandidate, GaussianLinearSystemCandidate, GaussianLuCandidate,
+    GaussianQrCandidate, GaussianRrefCandidate, PseudoinverseCertificate,
     VerifiedGaussianAffineSolution, VerifiedGaussianLeastSquaresFamily,
     verify_pseudoinverse_certificate,
 };
@@ -102,6 +103,10 @@ pub enum MatrixError {
     NotSquare(usize, usize),
     #[error("Singular matrix cannot be inverted")]
     SingularMatrix,
+    #[error("Matrix must be Hermitian.")]
+    NotHermitian,
+    #[error("Matrix must be positive-definite.")]
+    NotPositiveDefinite,
     #[error("The linear system is inconsistent")]
     InconsistentLinearSystem,
     #[error("Invalid affine solution parameters: {0}")]

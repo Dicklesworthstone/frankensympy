@@ -1382,7 +1382,16 @@ class Matrix(MatrixBase):
 
     def cholesky(self, hermitian=True):
         """Return the lower triangular Cholesky factor L such that L * L.H == self (if hermitian)
-        or L * L.T == self (if not hermitian)."""
+        or L * L.T == self (if not hermitian).
+
+        Closed Q(i) inputs through dimension 32 use independently checked
+        positive-root normalization and retain the complete original source.
+        """
+        from ._hermitian import decomposition_if_needed
+
+        checked = decomposition_if_needed(self, cholesky=True, hermitian=hermitian)
+        if checked is not None:
+            return checked
         from ..functions import sqrt
         if not self.is_square:
             raise ValueError("Matrix must be square.")
@@ -1711,12 +1720,22 @@ class Matrix(MatrixBase):
     def qr(self):
         return self.QRdecomposition()
 
-    def LDLdecomposition(self):
-        l, d = self._native.ldl()
+    def LDLdecomposition(self, hermitian=True):
+        """Return exact L,D with A=L*D*L.H and strictly positive pivots.
+
+        The checked Hermitian Q(i) lane supports dimension 32. The explicit
+        hermitian=False option retains the rational transpose decomposition.
+        """
+        from ._hermitian import decomposition_if_needed
+
+        checked = decomposition_if_needed(self, hermitian=hermitian)
+        if checked is not None:
+            return checked
+        l, d = self._native.ldl(positive=hermitian)
         return self._new(l), self._new(d)
 
-    def ldl(self):
-        return self.LDLdecomposition()
+    def ldl(self, hermitian=True):
+        return self.LDLdecomposition(hermitian=hermitian)
 
     def LDLsolve(self, b):
         return self.solve(b)

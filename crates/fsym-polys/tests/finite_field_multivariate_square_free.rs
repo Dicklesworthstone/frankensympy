@@ -151,7 +151,11 @@ fn nonlinear_components_preserve_units_and_exact_characteristic_multiplicities()
 #[test]
 fn pure_frobenius_powers_recover_the_root_and_all_p_adic_multiplicity() {
     let generators = ring(&["x", "y"]);
-    for (prime, exponents) in [(2, vec![2, 4, 8, 64]), (3, vec![3, 9, 27]), (5, vec![5, 25])] {
+    for (prime, exponents) in [
+        (2, vec![2, 4, 8, 64]),
+        (3, vec![3, 9, 27]),
+        (5, vec![5, 25]),
+    ] {
         let root = p(
             &generators,
             prime,
@@ -193,7 +197,9 @@ fn mixed_separable_and_inseparable_layers_preserve_sorted_distinct_groups() {
             input = product(&input, &power(polynomial, exponent));
             part = product(&part, polynomial);
         }
-        let expected: Vec<_> = known.into_iter().zip(exponents)
+        let expected: Vec<_> = known
+            .into_iter()
+            .zip(exponents)
             .map(|(polynomial, exponent)| factor(polynomial, exponent))
             .collect();
         let result = solve(&input);
@@ -278,7 +284,10 @@ fn zero_and_constants_preserve_declared_rings_and_public_part_conventions() {
                     result.square_free_part(),
                     &scalar(&generators, prime, u64::from(value != 0)),
                 );
-                assert_eq!(result.square_free_part().generators(), generators.as_slice());
+                assert_eq!(
+                    result.square_free_part().generators(),
+                    generators.as_slice()
+                );
                 verify(&input, result.certificate(), &mut Unbounded).unwrap();
             }
         }
@@ -291,13 +300,19 @@ fn eight_axes_keep_trivial_frobenius_support_and_general_gcd_refusals() {
     let root = p(
         &generators,
         2,
-        &[(&[1, 0, 0, 0, 0, 0, 0, 0], 1), (&[0, 0, 0, 0, 0, 0, 0, 1], 1)],
+        &[
+            (&[1, 0, 0, 0, 0, 0, 0, 0], 1),
+            (&[0, 0, 0, 0, 0, 0, 0, 1], 1),
+        ],
     );
     assert_eq!(solve(&power(&root, 64)).factors(), &[factor(root, 64)]);
     let needs_auxiliary = p(
         &generators,
         5,
-        &[(&[2, 0, 0, 0, 0, 0, 0, 0], 1), (&[0, 0, 0, 0, 0, 0, 0, 1], 1)],
+        &[
+            (&[2, 0, 0, 0, 0, 0, 0, 0], 1),
+            (&[0, 0, 0, 0, 0, 0, 0, 1], 1),
+        ],
     );
     let error = checked(&needs_auxiliary, &mut Unbounded, &mut Unbounded).unwrap_err();
     assert!(error.to_string().contains("auxiliary"));
@@ -331,11 +346,7 @@ fn correct_product_with_a_repeated_factor_is_not_a_square_free_certificate() {
     for prime in [2, 5] {
         let x = p(&generators, prime, &[(&[1, 0], 1)]);
         let input = power(&x, 2);
-        let certificate = hand_certificate(
-            1,
-            vec![factor(input.clone(), 1)],
-            input.clone(),
-        );
+        let certificate = hand_certificate(1, vec![factor(input.clone(), 1)], input.clone());
         assert_eq!(certificate.factors[0].polynomial, input);
         assert_ne!(
             certificate.radical_derivative_gcds.last().unwrap().gcd(),
@@ -352,11 +363,7 @@ fn overlapping_components_in_different_multiplicity_groups_are_rejected() {
     let xy = p(&generators, 5, &[(&[1, 1], 1)]);
     let input = product(&x, &power(&xy, 2));
     let false_part = product(&x, &xy);
-    let certificate = hand_certificate(
-        1,
-        vec![factor(x, 1), factor(xy, 2)],
-        false_part,
-    );
+    let certificate = hand_certificate(1, vec![factor(x, 1), factor(xy, 2)], false_part);
     // Both exact identities and weighted degree are correct. The independent
     // complete gradient GCD detects the overlap hidden between the groups.
     rejected(&input, &certificate);
@@ -368,11 +375,7 @@ fn square_free_part_identity_is_checked_separately_from_source_reconstruction() 
     let x = p(&generators, 5, &[(&[1, 0], 1)]);
     let y = p(&generators, 5, &[(&[0, 1], 1)]);
     let input = product(&power(&x, 2), &power(&y, 3));
-    let certificate = hand_certificate(
-        1,
-        vec![factor(x.clone(), 2), factor(y, 3)],
-        x,
-    );
+    let certificate = hand_certificate(1, vec![factor(x.clone(), 2), factor(y, 3)], x);
     // The forged part is square-free, and source reconstruction is correct.
     rejected(&input, &certificate);
 }
@@ -422,21 +425,17 @@ fn multiplicity_order_units_and_trivial_component_mutants_are_rejected() {
         rejected(&input, &certificate);
     }
     let mut certificate = result.certificate().clone();
-    certificate.factors.push(factor(scalar(&generators, 5, 1), 4));
+    certificate
+        .factors
+        .push(factor(scalar(&generators, 5, 1), 4));
     rejected(&input, &certificate);
     let mut certificate = result.certificate().clone();
     certificate.factors = vec![factor(x, 1); 65];
     rejected(&input, &certificate);
 
-    let square_free = product(
-        &p(&generators, 5, &[(&[1, 0], 1)]),
-        &y,
-    );
+    let square_free = product(&p(&generators, 5, &[(&[1, 0], 1)]), &y);
     let mut certificate = solve(&square_free).certificate().clone();
-    certificate.factors = vec![
-        factor(p(&generators, 5, &[(&[1, 0], 1)]), 1),
-        factor(y, 1),
-    ];
+    certificate.factors = vec![factor(p(&generators, 5, &[(&[1, 0], 1)]), 1), factor(y, 1)];
     // Equal multiplicities must be represented by one canonical group even
     // when splitting that group would preserve both identities.
     rejected(&square_free, &certificate);
@@ -454,8 +453,7 @@ fn omitted_reordered_or_foreign_gradient_evidence_is_rejected() {
     certificate.radical_derivative_gcds.swap(0, 1);
     rejected(&input, &certificate);
     let mut certificate = result.certificate().clone();
-    certificate.radical_derivative_gcds[1] =
-        Arc::clone(&certificate.radical_derivative_gcds[0]);
+    certificate.radical_derivative_gcds[1] = Arc::clone(&certificate.radical_derivative_gcds[0]);
     rejected(&input, &certificate);
     let mut certificate = result.certificate().clone();
     certificate.radical_derivative_gcds =
@@ -494,7 +492,11 @@ fn derivatives_that_vanish_modulo_p_cannot_be_replaced_by_formal_integer_terms()
     let generators = ring(&["x", "y"]);
     let input = p(&generators, 2, &[(&[2, 0], 1), (&[0, 1], 1)]);
     let result = solve(&input);
-    assert!(result.certificate().radical_derivative_gcds[0].right().is_zero());
+    assert!(
+        result.certificate().radical_derivative_gcds[0]
+            .right()
+            .is_zero()
+    );
     let forged = checked_gcd(
         &input,
         &p(&generators, 2, &[(&[1, 0], 1)]),
@@ -510,10 +512,7 @@ fn derivatives_that_vanish_modulo_p_cannot_be_replaced_by_formal_integer_terms()
 #[test]
 fn typed_same_name_axes_field_and_original_coefficients_remain_bound() {
     let plain = Symbol::new("x");
-    let distinct = Symbol::with_identity(
-        "x",
-        SymbolIdentity::from_assumptions_digest([101; 32]),
-    );
+    let distinct = Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([101; 32]));
     let generators = [plain.clone(), distinct.clone()];
     let x = p(&generators, 5, &[(&[1, 0], 1)]);
     let other_x = p(&generators, 5, &[(&[0, 1], 1)]);
@@ -537,8 +536,7 @@ fn typed_same_name_axes_field_and_original_coefficients_remain_bound() {
     let changed_source = product(&input, &scalar(&generators, 5, 2));
     rejected(&changed_source, result.certificate());
     let mut certificate = result.certificate().clone();
-    certificate.square_free_part =
-        p(&ring(&["x", "y"]), 5, &[(&[1, 1], 1)]);
+    certificate.square_free_part = p(&ring(&["x", "y"]), 5, &[(&[1, 1], 1)]);
     rejected(&input, &certificate);
 }
 
@@ -601,9 +599,7 @@ fn canonical_source_envelope_remains_enforced_by_typed_construction() {
         )
         .is_err()
     );
-    assert!(
-        Polynomial::new(&[Symbol::new("x".repeat(65_537))], 5, &Terms::new()).is_err()
-    );
+    assert!(Polynomial::new(&[Symbol::new("x".repeat(65_537))], 5, &Terms::new()).is_err());
     let three = ring(&["x", "y", "z"]);
     let mut excessive = Terms::new();
     'outer: for a in 0..=64 {

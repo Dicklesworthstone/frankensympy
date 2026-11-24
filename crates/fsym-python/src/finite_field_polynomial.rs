@@ -333,17 +333,11 @@ pub(crate) fn factor_with_budgets(
             "unknown prime-field factorization mode",
         ));
     }
-    let source = checked_prime_field_element_source(
-        &source.inner,
-        variable,
-        prime,
-        generator,
-        verifier,
-    )
-    .map_err(source_error)?;
-    let accepted =
-        checked_prime_field_factorization(source.polynomial(), generator, verifier)
-            .map_err(polynomial_error)?;
+    let source =
+        checked_prime_field_element_source(&source.inner, variable, prime, generator, verifier)
+            .map_err(source_error)?;
+    let accepted = checked_prime_field_factorization(source.polynomial(), generator, verifier)
+        .map_err(polynomial_error)?;
     charge(
         generator,
         accepted.factors().len() + 1,
@@ -371,13 +365,7 @@ pub(crate) fn factor_with_budgets(
         });
         for factor in ordered {
             factors.push((
-                lift(
-                    &factor.coefficients,
-                    variable,
-                    prime,
-                    symmetric,
-                    generator,
-                )?,
+                lift(&factor.coefficients, variable, prime, symmetric, generator)?,
                 factor.multiplicity,
             ));
         }
@@ -389,13 +377,9 @@ pub(crate) fn factor_with_budgets(
             } else {
                 factor.multiplicity
             };
-            let polynomial = PrimeFieldPolynomial::metered_new(
-                variable,
-                prime,
-                &factor.coefficients,
-                generator,
-            )
-            .map_err(polynomial_error)?;
+            let polynomial =
+                PrimeFieldPolynomial::metered_new(variable, prime, &factor.coefficients, generator)
+                    .map_err(polynomial_error)?;
             let polynomial = if let Some(previous) = groups.get(&multiplicity) {
                 checked_product(previous, &polynomial, generator, verifier)?
             } else {

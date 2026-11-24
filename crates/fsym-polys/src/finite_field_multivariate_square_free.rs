@@ -31,8 +31,8 @@ use crate::finite_field_multivariate::{
     reference_add, reference_head, reference_product, same_ring, scaled,
 };
 use crate::{
-    PolyError, PrimeFieldMultivariatePolynomial as Polynomial, PrimeFieldMultivariateTerms as Terms,
-    TermOrder, VerifiedPrimeFieldMultivariateGcd,
+    PolyError, PrimeFieldMultivariatePolynomial as Polynomial,
+    PrimeFieldMultivariateTerms as Terms, TermOrder, VerifiedPrimeFieldMultivariateGcd,
     checked_prime_field_multivariate_gcd,
 };
 use fsym_budget::BudgetMeter;
@@ -265,12 +265,8 @@ fn generate_layers(
         if multiplicity > input_degree as usize {
             return Err(refused("prime-field square-free multiplicity layer bound"));
         }
-        let layer = checked_prime_field_multivariate_gcd(
-            &remaining,
-            &common,
-            generation,
-            verification,
-        )?;
+        let layer =
+            checked_prime_field_multivariate_gcd(&remaining, &common, generation, verification)?;
         let factor = exact_quotient(&remaining, layer.gcd(), generation)?;
         if !is_one(&factor) {
             let exponent = multiplicity_scale
@@ -332,8 +328,8 @@ fn verify_derivative(
     let mut covered = 0;
     for (powers, coefficient) in input.terms() {
         work.tick(powers.len() + 1)?;
-        let expected = (u128::from(*coefficient) * u128::from(powers[axis]))
-            % u128::from(input.prime());
+        let expected =
+            (u128::from(*coefficient) * u128::from(powers[axis])) % u128::from(input.prime());
         if expected == 0 {
             continue;
         }
@@ -528,9 +524,7 @@ pub fn verify_prime_field_multivariate_square_free(
         weighted_degree = weighted_degree
             .checked_add(factor_degree * factor.multiplicity as u64)
             .filter(|&value| value <= input_degree)
-            .ok_or_else(|| {
-                refused("square-free weighted degree exceeds its original source")
-            })?;
+            .ok_or_else(|| refused("square-free weighted degree exceeds its original source"))?;
         previous = factor.multiplicity;
     }
     if weighted_degree != input_degree {
@@ -557,12 +551,7 @@ pub fn verify_prime_field_multivariate_square_free(
     let mut reconstructed = reference_one(input.generators().len(), &mut work)?;
     let mut part = reference_one(input.generators().len(), &mut work)?;
     for factor in &certificate.factors {
-        part = reference_multiply(
-            &part,
-            factor.polynomial.terms(),
-            input.prime(),
-            &mut work,
-        )?;
+        part = reference_multiply(&part, factor.polynomial.terms(), input.prime(), &mut work)?;
         for _ in 0..factor.multiplicity {
             reconstructed = reference_multiply(
                 &reconstructed,

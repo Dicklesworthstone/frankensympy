@@ -423,12 +423,9 @@ pub fn prime_field_multivariate_square_free_native(
     )
     .map_err(source_error)?
     .into_polynomial();
-    let accepted = checked_prime_field_multivariate_square_free(
-        &source,
-        &mut generator,
-        &mut verifier,
-    )
-    .map_err(polynomial_error)?;
+    let accepted =
+        checked_prime_field_multivariate_square_free(&source, &mut generator, &mut verifier)
+            .map_err(polynomial_error)?;
     let count = if mode == "sqf_part" {
         1
     } else {

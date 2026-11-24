@@ -2,9 +2,10 @@
 
 mod gaussian;
 pub use gaussian::{
-    GaussianAffineCandidate, GaussianLeastSquaresCandidate, GaussianLinearSystemCandidate,
-    GaussianLuCandidate, GaussianQrCandidate, GaussianRrefCandidate,
-    VerifiedGaussianAffineSolution, VerifiedGaussianLeastSquaresFamily,
+    GaussianAffineCandidate, GaussianCholeskyCandidate, GaussianLdlCandidate,
+    GaussianLeastSquaresCandidate, GaussianLinearSystemCandidate, GaussianLuCandidate,
+    GaussianQrCandidate, GaussianRrefCandidate, VerifiedGaussianAffineSolution,
+    VerifiedGaussianLeastSquaresFamily,
 };
 
 use super::{MAX_MATRIX_MULTIPLICATION_OPS, Matrix, MatrixError, numeric_value};

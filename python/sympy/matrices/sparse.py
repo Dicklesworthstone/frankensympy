@@ -1012,6 +1012,29 @@ class SparseMatrix(MatrixBase):
 
         return lu_decomposition(self, permutation_matrix=True)
 
+    def LDLdecomposition(self, hermitian=True):
+        """Return checked positive-definite Q(i) Hermitian factors through 32 axes."""
+        from ._hermitian import decomposition_if_needed
+
+        result = decomposition_if_needed(self, hermitian=hermitian)
+        if result is None:
+            raise NotImplementedError(
+                "sparse LDL requires closed exact Hermitian entries and hermitian=True")
+        return result
+
+    def ldl(self, hermitian=True):
+        return self.LDLdecomposition(hermitian=hermitian)
+
+    def cholesky(self, hermitian=True):
+        """Return the checked positive-diagonal Hermitian Cholesky factor."""
+        from ._hermitian import decomposition_if_needed
+
+        result = decomposition_if_needed(self, cholesky=True, hermitian=hermitian)
+        if result is None:
+            raise NotImplementedError(
+                "sparse Cholesky requires closed exact Hermitian entries and hermitian=True")
+        return result
+
     def LUsolve(self, b: Any):
         """Solve a square or consistent tall rational system, keeping RHS class.
 
