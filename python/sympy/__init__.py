@@ -1608,11 +1608,12 @@ from .simplify import (
 
 from .utilities.lambdify import (
     EvaluationBudget, EvaluationBudgetExceeded, EvaluationCancelled, NumericRootCandidate,
-    NumericParametricRootCandidate, NumericLeastSquaresCandidate,
+    NumericParametricRootCandidate, NumericLeastSquaresCandidate, NumericParametricLeastSquaresCandidate,
     compile_numeric, compile_residual_system, load_portable_residual_system,
     load_residual_system, lambdify,
 )
 from .utilities.hybrid import compile_numeric_hybrid
+from .utilities._bounded_least_squares import NumericBoundedLeastSquaresCandidate
 from .utilities.hybrid_system import compile_hybrid_residual_system
 from .utilities.objective import (
     MinimizationSearchError, NumericMinimizationCandidate,
@@ -2836,6 +2837,8 @@ __all__ = [
     "NumericRootCandidate",
     "NumericParametricRootCandidate",
     "NumericLeastSquaresCandidate",
+    "NumericBoundedLeastSquaresCandidate",
+    "NumericParametricLeastSquaresCandidate",
     "ResidualJacobianEnclosure",
     "RootBoxReceipt",
     "RootIsolationReceipt",

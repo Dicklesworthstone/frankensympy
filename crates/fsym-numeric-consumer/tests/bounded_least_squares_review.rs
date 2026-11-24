@@ -12,8 +12,7 @@ fn system(sources: &[&str]) -> VerifiedResidualSystem {
         .iter()
         .map(|source| parse_raw(source).unwrap())
         .collect();
-    VerifiedResidualSystem::try_compile(&sources, &[Symbol::new("x"), Symbol::new("y")])
-        .unwrap()
+    VerifiedResidualSystem::try_compile(&sources, &[Symbol::new("x"), Symbol::new("y")]).unwrap()
 }
 
 fn near(actual: f64, expected: f64, tolerance: f64) {
@@ -54,21 +53,11 @@ fn a_strictly_interior_point_cannot_borrow_a_nearby_bounds_kkt_condition() {
     let lower = [0.0, -1.0];
     let upper = [1.0, 1.0];
     assert!(matches!(
-        sparse_bounded_least_squares(
-            &source,
-            &[2.0_f64.powi(-60), 0.0],
-            &lower,
-            &upper,
-            &options,
-        ),
-        Err(SystemConsumerError::BoundedLeastSquaresNoConvergence {
-            iterations: 0,
-            ..
-        })
+        sparse_bounded_least_squares(&source, &[2.0_f64.powi(-60), 0.0], &lower, &upper, &options,),
+        Err(SystemConsumerError::BoundedLeastSquaresNoConvergence { iterations: 0, .. })
     ));
     let boundary =
-        sparse_bounded_least_squares(&source, &[0.0, 0.0], &lower, &upper, &options)
-            .unwrap();
+        sparse_bounded_least_squares(&source, &[0.0, 0.0], &lower, &upper, &options).unwrap();
     assert_eq!(boundary.gradient_norm, 1.0);
     assert_eq!(boundary.projected_gradient_norm, 0.0);
     assert_eq!(boundary.cost, 0.5);
@@ -183,10 +172,9 @@ fn coupled_affine_fits_match_independent_face_enumeration() {
         for (lower, upper) in boxes {
             let reference = face_reference(&rows, lower, upper);
             for initial in [lower, upper, [0.0, 0.0]] {
-                let result = sparse_bounded_least_squares(
-                    &source, &initial, &lower, &upper, &options,
-                )
-                .unwrap();
+                let result =
+                    sparse_bounded_least_squares(&source, &initial, &lower, &upper, &options)
+                        .unwrap();
                 for axis in 0..2 {
                     assert!(lower[axis] <= result.point[axis]);
                     assert!(result.point[axis] <= upper[axis]);

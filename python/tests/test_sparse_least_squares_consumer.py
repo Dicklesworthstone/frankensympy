@@ -310,3 +310,156 @@ def test_undefined_intrinsic_spelling_has_no_closed_solver_capability():
     x = s.Symbol("sparse_opaque_x")
     with pytest.raises(NotImplementedError):
         s.compile_residual_system([s.Function("sin")(x)], x)
+
+
+def test_parametric_sparse_fit_retains_full_source_cost_and_unknown_only_gradient():
+    x, p, q = s.symbols("fixed_fit_x fixed_fit_p fixed_fit_q")
+    program = s.compile_residual_system([x-p, 2*x-q, p], (x, p, q))
+    result = program.solve_parametric_least_squares(0, [1, 4])
+    assert type(result) is s.NumericParametricLeastSquaresCandidate
+    assert isinstance(result, s.NumericLeastSquaresCandidate)
+    assert result.native_system is program.native_system
+    assert result.variables == (x, p, q)
+    assert result.unknown_variables == (x,)
+    assert result.parameters == (p, q)
+    assert result.parameter_values == (1.0, 4.0)
+    assert result.point == pytest.approx((1.8,), abs=1e-10)
+    assert result.residuals == pytest.approx((0.8, -0.4, 1), abs=1e-10)
+    assert result.cost == pytest.approx(0.9, abs=1e-10)
+    assert result.gradient_norm <= 1e-10
+    assert result.backend == "sparse_lsqr" and result.evidence == "approximate"
+    assert result.termination == "gradient_tolerance"
+    assert not hasattr(result, "root") and not hasattr(result, "certificate")
+    rows, jacobian = program.evaluate(*(result.point + result.parameter_values))
+    gradient = [sum(row[column] * value for row, value in zip(jacobian, rows))
+                for column in range(3)]
+    assert abs(gradient[0]) <= 1e-10
+    assert max(map(abs, gradient[1:])) > 0.1
+    assert result.residuals == tuple(rows)
+
+
+def test_parametric_sparse_fit_reuses_frozen_sources_and_snapshots_parameter_values(monkeypatch):
+    import importlib
+    module = importlib.import_module("sympy.utilities.lambdify")
+    x, p, q = s.symbols("frozen_fit_x frozen_fit_p frozen_fit_q")
+    source = s.Matrix([x*x-p, x*x-q])
+    program = s.compile_residual_system(source, (x, p, q))
+    original = program.to_bytes()
+    source[0, 0] = x-999
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("parametric fitting rebuilt its original source")
+
+    monkeypatch.setattr(module, "compile_residual_system", forbidden)
+    monkeypatch.setattr(module, "_numeric_source", forbidden)
+    for parameters, expected in (([2, 4], math.sqrt(3)), ([8, 10], 3)):
+        result = program.solve_parametric_least_squares([1], parameters)
+        before = tuple(map(float, parameters))
+        parameters[:] = [999, 999]
+        assert result.point == pytest.approx((expected,), abs=1e-9)
+        assert result.cost == pytest.approx(1, abs=1e-10)
+        assert result.parameter_values == before
+    assert program.to_bytes() == original
+
+
+@pytest.mark.parametrize("transport", [None, "legacy", "portable"])
+def test_parametric_sparse_fit_preserves_typed_axes_and_transport(transport):
+    x = s.Symbol("same_fit_name")
+    p = s.Symbol("same_fit_name", positive=True)
+    unused = s.Dummy("same_fit_name")
+    sources, layout = [x-p, 2*x-2*p], ((x, unused), p)
+    program = s.compile_residual_system(sources, layout)
+    if transport == "legacy":
+        program = s.load_residual_system(program.to_bytes(), residuals=sources, args=layout)
+    elif transport == "portable":
+        program = s.load_portable_residual_system(
+            program.to_portable_bytes(), residuals=sources, args=layout,
+        )
+    result = program.solve_parametric_least_squares([0, -7], 3)
+    assert result.point == pytest.approx((3, -7), abs=1e-10)
+    assert result.variables == (x, unused, p)
+    assert all(a is b for a, b in zip(result.variables, (x, unused, p)))
+    assert result.unknown_variables == (x, unused)
+    assert result.parameters == (p,)
+
+
+def test_parametric_fit_result_cannot_change_source_identity_or_mutate():
+    from sympy.core import _native
+    from sympy.utilities import NumericParametricLeastSquaresCandidate
+
+    x, p = s.symbols("fit_owner_x fit_owner_p")
+    program = s.compile_residual_system([x-p], (x, p))
+    proposal = program.native_system.solve_parametric_least_squares([0], [2])
+    result = NumericParametricLeastSquaresCandidate(proposal, program.native_system, (x, p))
+    assert type(result) is s.NumericParametricLeastSquaresCandidate
+    other = s.compile_residual_system([x-p], (x, p))
+    with pytest.raises(ValueError, match="different residual system"):
+        NumericParametricLeastSquaresCandidate(proposal, other.native_system, (x, p))
+    with pytest.raises(ValueError, match="typed coordinate order"):
+        NumericParametricLeastSquaresCandidate(proposal, program.native_system, (p, x))
+    with pytest.raises(TypeError):
+        _native.NumericParametricLeastSquaresProposal()
+    for name in ("point", "parameter_values", "variables", "unknown_variables", "parameters",
+                 "native_system", "cost", "gradient_norm", "backend", "_proposal"):
+        with pytest.raises(AttributeError):
+            setattr(result, name, None)
+        with pytest.raises(AttributeError):
+            delattr(result, name)
+    with pytest.raises(AttributeError):
+        result.__init__(proposal, program.native_system, (x, p))
+    with pytest.raises(AttributeError):
+        proposal.parameter_values = (999.0,)
+
+
+@pytest.mark.parametrize("source_kind", ["pole", "derivative", "parameter_only"])
+def test_parametric_fits_never_discard_parameter_domains_or_constant_cost_rows(source_kind):
+    x, p = s.symbols("fit_guard_x fit_guard_p")
+    if source_kind == "parameter_only":
+        program = s.compile_residual_system([p], (x, p))
+        result = program.solve_parametric_least_squares(9, 2, maxiter=0)
+        assert result.point == (9.0,) and result.residuals == (2.0,)
+        assert result.cost == 2.0 and result.gradient_norm == 0.0
+        return
+    source = (x-s.sqrt(p) if source_kind == "derivative" else
+              s.Add(x, s.Mul(0, s.log(p), evaluate=False), evaluate=False))
+    program = s.compile_residual_system([source], (x, p))
+    with pytest.raises(ValueError):
+        program.solve_parametric_least_squares(0, 0, maxiter=0)
+
+
+@pytest.mark.parametrize("dimension", ["steps", "memory_bytes", "allocations"])
+def test_parametric_sparse_fit_budget_is_cumulative_and_cancellation_is_terminal(dimension):
+    x, p = s.symbols("fit_budget_x fit_budget_p")
+    program = s.compile_residual_system([x-p, 2*x-2*p], (x, p))
+    options = dict(max_steps=10**9, max_memory_bytes=10**9, max_allocations=10**9)
+    options["max_" + dimension] = 0
+    budget = s.EvaluationBudget(**options)
+    with pytest.raises(s.EvaluationBudgetExceeded):
+        program.solve_parametric_least_squares(0, 2, budget=budget)
+    with pytest.raises(s.EvaluationBudgetExceeded):
+        program.solve_parametric_least_squares(0, 2, budget=budget)
+    cancelled = s.EvaluationBudget()
+    cancelled.cancel()
+    with pytest.raises(s.EvaluationCancelled):
+        program.solve_parametric_least_squares(0, 2, budget=cancelled)
+
+
+@pytest.mark.parametrize("initial,parameters", [
+    ([], [1, 2]), ([0, 0], []), ([0], []), ([0], [1, 2]),
+    ([math.nan], [1]), ([0], [math.inf]),
+])
+def test_parametric_sparse_fit_rejects_malformed_coordinate_groups(initial, parameters):
+    x, p = s.symbols("fit_invalid_x fit_invalid_p")
+    program = s.compile_residual_system([x-p], (x, p))
+    for target in (program, program.native_system):
+        with pytest.raises((TypeError, ValueError)):
+            target.solve_parametric_least_squares(initial, parameters)
+
+
+@pytest.mark.parametrize("options", [{"gtol": True}, {"gtol": False}, {"max_step_norm": True}])
+def test_parametric_sparse_fit_rejects_boolean_controls_with_valid_coordinates(options):
+    x, p = s.symbols("fit_control_x fit_control_p")
+    program = s.compile_residual_system([x-p], (x, p))
+    for target in (program, program.native_system):
+        with pytest.raises(TypeError):
+            target.solve_parametric_least_squares([0], [1], **options)

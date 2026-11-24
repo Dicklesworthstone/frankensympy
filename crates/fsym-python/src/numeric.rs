@@ -38,18 +38,22 @@ use fsym_core::{
     verify_root_box, verify_root_isolation,
 };
 use fsym_numeric_consumer::{
-    LeastSquaresOptions, LeastSquaresTermination, MAX_CONSUMER_NEWTON_ITERATIONS,
-    MAX_CONSUMER_VARIABLES, MAX_LEAST_SQUARES_RESIDUALS, MAX_SPARSE_LEAST_SQUARES_RESIDUALS,
-    MAX_SPARSE_LEAST_SQUARES_VARIABLES, NewtonGuards, RootProposal, SystemConsumerError,
-    frankenscipy_analytic_system_with_meter, frankenscipy_fsolve_system_with_meter,
-    least_squares_with_meter, newton_refine_parametric_with_meter, newton_refine_with_meter,
-    sparse_least_squares_with_meter, sparse_newton_refine_with_meter, validate_sparse_root_shape,
+    LeastSquaresOptions, LeastSquaresProposal, LeastSquaresTermination,
+    MAX_CONSUMER_NEWTON_ITERATIONS, MAX_CONSUMER_VARIABLES, MAX_LEAST_SQUARES_RESIDUALS,
+    MAX_SPARSE_LEAST_SQUARES_RESIDUALS, MAX_SPARSE_LEAST_SQUARES_VARIABLES, NewtonGuards,
+    RootProposal, SystemConsumerError, frankenscipy_analytic_system_with_meter,
+    frankenscipy_fsolve_system_with_meter, least_squares_with_meter,
+    newton_refine_parametric_with_meter, newton_refine_with_meter,
+    sparse_least_squares_parametric_with_meter, sparse_least_squares_with_meter,
+    sparse_newton_refine_parametric_with_meter, sparse_newton_refine_with_meter,
+    validate_sparse_root_shape,
 };
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyFloat, PyInt, PyList, PyTuple};
 use std::collections::HashMap;
 
+pub(crate) mod bounded_least_squares;
 pub(crate) mod program_artifact;
 mod root_artifact;
 pub(crate) mod search;
@@ -1789,10 +1793,21 @@ pub struct PyNumericParametricRootProposal {
     proposal: RootProposal,
     system: Py<PyVerifiedResidualSystem>,
     parameters: Vec<f64>,
+    backend: &'static str,
 }
 
 #[pymethods]
 impl PyNumericParametricRootProposal {
+    #[getter]
+    fn unknown_count(&self) -> usize {
+        self.proposal.root.len()
+    }
+
+    #[getter]
+    fn backend(&self) -> &'static str {
+        self.backend
+    }
+
     #[getter]
     fn system(&self, py: Python<'_>) -> Py<PyVerifiedResidualSystem> {
         self.system.clone_ref(py)
@@ -1816,6 +1831,83 @@ impl PyNumericParametricRootProposal {
     #[getter]
     fn iterations(&self) -> usize {
         self.proposal.iterations
+    }
+
+    #[getter]
+    fn evidence(&self) -> &'static str {
+        "approximate"
+    }
+}
+
+/// Immutable stationary proposal with its original full source and fixed data.
+#[pyclass(
+    name = "NumericParametricLeastSquaresProposal",
+    module = "fsym_python",
+    frozen
+)]
+pub struct PyNumericParametricLeastSquaresProposal {
+    proposal: LeastSquaresProposal,
+    system: Py<PyVerifiedResidualSystem>,
+    parameters: Vec<f64>,
+}
+
+#[pymethods]
+impl PyNumericParametricLeastSquaresProposal {
+    #[getter]
+    fn system(&self, py: Python<'_>) -> Py<PyVerifiedResidualSystem> {
+        self.system.clone_ref(py)
+    }
+
+    #[getter]
+    fn unknown_count(&self) -> usize {
+        self.proposal.point.len()
+    }
+
+    #[getter]
+    fn point<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+        PyTuple::new(py, self.proposal.point.iter().copied())
+    }
+
+    #[getter]
+    fn parameter_values<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+        PyTuple::new(py, self.parameters.iter().copied())
+    }
+
+    #[getter]
+    fn residuals<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+        PyTuple::new(py, self.proposal.residuals.iter().copied())
+    }
+
+    #[getter]
+    fn cost(&self) -> f64 {
+        self.proposal.cost
+    }
+
+    #[getter]
+    fn gradient_norm(&self) -> f64 {
+        self.proposal.gradient_norm
+    }
+
+    #[getter]
+    fn iterations(&self) -> usize {
+        self.proposal.iterations
+    }
+
+    #[getter]
+    fn evaluations(&self) -> usize {
+        self.proposal.evaluations
+    }
+
+    #[getter]
+    fn termination(&self) -> &'static str {
+        match self.proposal.termination {
+            LeastSquaresTermination::GradientTolerance => "gradient_tolerance",
+        }
+    }
+
+    #[getter]
+    fn backend(&self) -> &'static str {
+        "sparse_lsqr"
     }
 
     #[getter]
@@ -1908,11 +2000,12 @@ impl PyVerifiedResidualSystem {
 
     /// Refine unknown coordinates while retaining every fixed parameter and
     /// every original-source and derivative domain in the checked program.
-    #[pyo3(signature = (initial, parameters, *, tol=None, maxiter=None, max_step_norm=None, budget=None))]
+    #[pyo3(signature = (initial, parameters, *, backend="dense", tol=None, maxiter=None, max_step_norm=None, budget=None))]
     fn solve_parametric_candidate(
         slf: &Bound<'_, Self>,
         initial: &Bound<'_, PyAny>,
         parameters: &Bound<'_, PyAny>,
+        backend: &str,
         tol: Option<&Bound<'_, PyAny>>,
         maxiter: Option<&Bound<'_, PyAny>>,
         max_step_norm: Option<&Bound<'_, PyAny>>,
@@ -1921,23 +2014,121 @@ impl PyVerifiedResidualSystem {
         with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
         let guards = donor_newton_guards(tol, maxiter, max_step_norm)?;
         let owner = slf.borrow();
-        let unknowns = owner.system.residuals().len();
         let total = owner.system.vars().len();
-        if !(1..total).contains(&unknowns) || total > MAX_CONSUMER_VARIABLES {
-            return Err(PyValueError::new_err(
-                "parametric root proposals require one unknown per residual, at least one parameter, and at most 16 total variables",
-            ));
-        }
+        let sparse = match backend {
+            "dense" => false,
+            "sparse" => true,
+            _ => {
+                return Err(PyValueError::new_err(
+                    "parametric root backend must be dense or sparse",
+                ));
+            }
+        };
+        let unknowns = if sparse {
+            validate_sparse_root_shape(total, owner.system.num_residuals())
+                .map_err(crate::to_value_error)?;
+            let count = container_length(initial, MAX_VARIABLES, "unknown point")?;
+            if !(1..total).contains(&count) {
+                return Err(PyValueError::new_err(
+                    "sparse parametric roots require nonempty unknown and parameter groups",
+                ));
+            }
+            count
+        } else {
+            let count = owner.system.num_residuals();
+            if !(1..total).contains(&count) || total > MAX_CONSUMER_VARIABLES {
+                return Err(PyValueError::new_err(
+                    "parametric root proposals require one unknown per residual, at least one parameter, and at most 16 total variables",
+                ));
+            }
+            count
+        };
         let inputs = input_values_metered(initial, unknowns, budget.as_deref())?;
         let parameters = input_values_metered(parameters, total - unknowns, budget.as_deref())?;
         let program = &owner.system;
         let py = slf.py();
         let proposal = with_evaluation_meter(py, budget.as_deref(), |meter| {
-            newton_refine_parametric_with_meter(program, &inputs, &parameters, &guards, meter)
+            if sparse {
+                sparse_newton_refine_parametric_with_meter(
+                    program,
+                    &inputs,
+                    &parameters,
+                    &guards,
+                    meter,
+                )
+            } else {
+                newton_refine_parametric_with_meter(program, &inputs, &parameters, &guards, meter)
+            }
         })?;
         let result = Py::new(
             py,
             PyNumericParametricRootProposal {
+                proposal,
+                system: slf.clone().unbind(),
+                parameters,
+                backend: if sparse { "sparse" } else { "frankennumpy" },
+            },
+        )?;
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
+    }
+
+    /// Optimize an unknown prefix while retaining the original full source and
+    /// every fixed parameter. Only the projected unknown gradient stops LSQR.
+    #[pyo3(signature = (initial, parameters, *, backend="sparse", gtol=None, maxiter=None, max_step_norm=None, budget=None))]
+    fn solve_parametric_least_squares(
+        slf: &Bound<'_, Self>,
+        initial: &Bound<'_, PyAny>,
+        parameters: &Bound<'_, PyAny>,
+        backend: &str,
+        gtol: Option<&Bound<'_, PyAny>>,
+        maxiter: Option<&Bound<'_, PyAny>>,
+        max_step_norm: Option<&Bound<'_, PyAny>>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Py<PyNumericParametricLeastSquaresProposal>> {
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        if backend != "sparse" {
+            return Err(PyValueError::new_err(
+                "parametric least-squares backend must be sparse",
+            ));
+        }
+        let shared_guards = donor_newton_guards(None, maxiter, max_step_norm)?;
+        let options = LeastSquaresOptions {
+            max_iterations: shared_guards.max_iterations,
+            gradient_tolerance: donor_float_option(
+                gtol,
+                LeastSquaresOptions::default().gradient_tolerance,
+                "gtol",
+                true,
+            )?,
+            max_step_norm: shared_guards.max_step_norm,
+        };
+        let owner = slf.borrow();
+        let total = owner.system.num_vars();
+        validate_sparse_root_shape(total, owner.system.num_residuals())
+            .map_err(crate::to_value_error)?;
+        let unknowns = container_length(initial, MAX_VARIABLES, "unknown point")?;
+        if !(1..total).contains(&unknowns) {
+            return Err(PyValueError::new_err(
+                "sparse parametric least squares requires nonempty unknown and parameter groups",
+            ));
+        }
+        let inputs = input_values_metered(initial, unknowns, budget.as_deref())?;
+        let parameters = input_values_metered(parameters, total - unknowns, budget.as_deref())?;
+        let py = slf.py();
+        let program = &owner.system;
+        let proposal = with_evaluation_meter(py, budget.as_deref(), |meter| {
+            sparse_least_squares_parametric_with_meter(
+                program,
+                &inputs,
+                &parameters,
+                &options,
+                meter,
+            )
+        })?;
+        let result = Py::new(
+            py,
+            PyNumericParametricLeastSquaresProposal {
                 proposal,
                 system: slf.clone().unbind(),
                 parameters,
@@ -2037,6 +2228,33 @@ impl PyVerifiedResidualSystem {
         let result = values.into_pyobject(py)?;
         with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
         Ok(result)
+    }
+
+    /// Fit inside explicit coordinate bounds, preserving every original domain.
+    #[pyo3(signature = (initial, lower, upper, *, gtol=None, maxiter=None, max_step_norm=None, budget=None))]
+    fn solve_bounded_least_squares<'py>(
+        slf: &Bound<'py, Self>,
+        initial: &Bound<'py, PyAny>,
+        lower: &Bound<'py, PyAny>,
+        upper: &Bound<'py, PyAny>,
+        gtol: Option<&Bound<'_, PyAny>>,
+        maxiter: Option<&Bound<'_, PyAny>>,
+        max_step_norm: Option<&Bound<'_, PyAny>>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Py<bounded_least_squares::PyNumericBoundedLeastSquaresProposal>> {
+        let defaults = LeastSquaresOptions::default();
+        let guards = donor_newton_guards(None, maxiter, max_step_norm)?;
+        let options = LeastSquaresOptions {
+            max_iterations: guards.max_iterations,
+            gradient_tolerance: donor_float_option(
+                gtol,
+                defaults.gradient_tolerance,
+                "gtol",
+                true,
+            )?,
+            max_step_norm: guards.max_step_norm,
+        };
+        bounded_least_squares::solve(slf, initial, lower, upper, &options, budget.as_deref())
     }
 
     /// Export the historical bounded residual bundle without changing its bytes.

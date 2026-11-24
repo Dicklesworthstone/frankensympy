@@ -396,3 +396,89 @@ def test_static_parametric_shape_is_admitted_before_input_conversion(kind):
     for target in (program, program.native_system):
         with pytest.raises(ValueError):
             target.solve_parametric_candidate(object(), object())
+
+
+@pytest.mark.parametrize("shape", ["square", "overdetermined", "underdetermined"])
+def test_sparse_parametric_roots_separate_unknown_count_from_residual_count(shape, monkeypatch):
+    x, y, unused, p = s.symbols("rectangular_x rectangular_y rectangular_unused rectangular_p")
+    if shape == "overdetermined":
+        sources, axes, initial = [x*x-p, 2*x*x-2*p], (x, p), [1]
+    elif shape == "underdetermined":
+        sources, axes, initial = [x+y-p], (x, y, unused, p), [0, 0, 17]
+    else:
+        sources, axes, initial = [x*x-p], (x, p), [1]
+    program = s.compile_residual_system(sources, axes)
+    original = program.to_bytes()
+    module = importlib.import_module("sympy.utilities.lambdify")
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("parametric sparse solving recompiled its frozen source")
+
+    monkeypatch.setattr(module, "compile_residual_system", forbidden)
+    monkeypatch.setattr(module, "_numeric_source", forbidden)
+    for parameter in (4, 9):
+        result = program.solve_parametric_candidate(initial, [parameter], backend="sparse")
+        assert type(result) is NumericParametricRootCandidate
+        assert result.backend == "sparse" and result.evidence == "approximate"
+        assert result.native_system is program.native_system
+        assert result.unknown_variables == axes[:-1]
+        assert result.parameters == (p,)
+        assert result.parameter_values == (float(parameter),)
+        assert result.residual_norm <= 1e-12
+        if shape == "underdetermined":
+            assert result.root[0] + result.root[1] == pytest.approx(parameter, abs=1e-11)
+            assert result.root[2] == 17
+        else:
+            assert result.root == pytest.approx((math.sqrt(parameter),), abs=1e-11)
+    assert program.to_bytes() == original
+
+
+def test_sparse_parametric_root_never_uses_fixed_values_to_repair_inconsistent_rows():
+    x, p, q = s.symbols("inconsistent_unknown inconsistent_parameter another_parameter")
+    program = s.compile_residual_system([x-p, x-q], (x, p, q))
+    with pytest.raises(ValueError, match="no convergence"):
+        program.solve_parametric_candidate(0, [1, 3], backend="sparse")
+    assert program.solve_parametric_candidate(0, [2, 2], backend="sparse").root == pytest.approx((2,))
+
+
+@pytest.mark.parametrize("hidden", ["zero_product", "parameter_derivative"])
+def test_sparse_parametric_root_keeps_all_fixed_parameter_domain_obligations(hidden):
+    x, p = s.symbols("sparse_guard_unknown sparse_guard_parameter")
+    expression = (x-s.sqrt(p) if hidden == "parameter_derivative" else
+                  s.Add(x, s.Mul(0, s.log(p), evaluate=False), evaluate=False))
+    program = s.compile_residual_system([expression], (x, p))
+    with pytest.raises(ValueError):
+        program.solve_parametric_candidate(0, 0, backend="sparse", maxiter=0)
+
+
+def test_sparse_parametric_root_supports_maximum_parameter_suffix_and_retains_signed_zero():
+    x = s.Symbol("sparse_many_fixed_unknown")
+    parameters = s.symbols("sparse_many_fixed_0:255")
+    program = s.compile_residual_system([x-parameters[-1]], (x,) + parameters)
+    values = [-0.0] * 254 + [3.0]
+    result = program.solve_parametric_candidate(0, values, backend="sparse")
+    assert result.root == pytest.approx((3.0,))
+    assert len(result.parameters) == 255
+    assert math.copysign(1, result.parameter_values[0]) == -1.0
+    values[0], values[-1] = 500, 500
+    assert math.copysign(1, result.parameter_values[0]) == -1.0
+    assert result.parameter_values[-1] == 3.0
+    with pytest.raises(ValueError, match="16 total variables"):
+        program.solve_parametric_candidate(0, values)
+
+
+@pytest.mark.parametrize("backend", ["auto", "frankennumpy", "SPARSE"])
+def test_parametric_root_rejects_unknown_backend_without_silent_fallback(backend):
+    program, _ = affine_program()
+    for target in (program, program.native_system):
+        with pytest.raises(ValueError, match="backend"):
+            target.solve_parametric_candidate([0], [1], backend=backend)
+
+
+@pytest.mark.parametrize("backend", ["dense", "sparse"])
+@pytest.mark.parametrize("options", [{"tol": True}, {"tol": False}, {"max_step_norm": True}])
+def test_parametric_root_rejects_boolean_controls_with_valid_coordinates(backend, options):
+    program, _ = affine_program()
+    for target in (program, program.native_system):
+        with pytest.raises(TypeError):
+            target.solve_parametric_candidate([0], [1], backend=backend, **options)

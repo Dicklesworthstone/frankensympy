@@ -33,6 +33,7 @@ from ._portable_program import load_portable_residual_system
 __all__ = [
     "EvaluationBudget", "EvaluationBudgetExceeded", "EvaluationCancelled", "NumericRootCandidate",
     "NumericParametricRootCandidate", "NumericLeastSquaresCandidate",
+    "NumericParametricLeastSquaresCandidate",
     "compile_numeric", "compile_residual_system", "load_residual_system",
     "load_portable_residual_system", "lambdify",
 ]
@@ -741,9 +742,10 @@ class NumericParametricRootCandidate:
     """Immutable approximate unknown root at fixed, source-bound parameters.
 
     The native proposal owns the original checked residual system. variables
-    retains the captured typed coordinate owners: the first m for m residuals
-    are unknowns, and the remaining suffix are parameters. No substitution or
-    recompilation changes the original residual and derivative domains.
+    retains the captured typed coordinate owners: the unknown prefix has the
+    same length as root, and the remaining suffix are parameters. The dense
+    route keeps one unknown per residual; the sparse route permits rectangular
+    systems. No substitution or recompilation changes the original domains.
 
     parameter_values records the actual finite binary64 values used, including
     any rounding from exact numeric inputs. No existence, uniqueness, rounding
@@ -797,11 +799,11 @@ class NumericParametricRootCandidate:
 
     @property
     def unknown_variables(self):
-        return self._variables[:self.native_system.residual_count]
+        return self._variables[:self._proposal.unknown_count]
 
     @property
     def parameters(self):
-        return self._variables[self.native_system.residual_count:]
+        return self._variables[self._proposal.unknown_count:]
 
     @property
     def parameter_values(self):
@@ -818,7 +820,7 @@ class NumericParametricRootCandidate:
 
     @property
     def backend(self):
-        return "frankennumpy"
+        return self._proposal.backend
 
     @property
     def evidence(self):
@@ -911,6 +913,77 @@ class NumericLeastSquaresCandidate:
 
     def __repr__(self):
         return (f"NumericLeastSquaresCandidate(point={self.point!r}, cost={self.cost!r}, "
+                f"gradient_norm={self.gradient_norm!r}, iterations={self.iterations!r})")
+
+
+class NumericParametricLeastSquaresCandidate(NumericLeastSquaresCandidate):
+    """Immutable stationary proposal in unknown coordinates at fixed parameters.
+
+    The native proposal owns the original checked residual system and the
+    actual binary64 parameter values. variables contains every captured typed
+    coordinate; point is ordered by unknown_variables. gradient_norm measures
+    only the unknown-coordinate gradient of the full residual cost. Fixed
+    parameter derivatives still undergo their original domain checks.
+
+    A small unknown gradient establishes no root, minimum, uniqueness, exact
+    rounding or uniform parameter-family certificate.
+    """
+
+    __slots__ = ("_proposal", "_native_system", "_source_variables")
+
+    def __init__(self, proposal, native_system, variables):
+        if hasattr(self, "_proposal"):
+            raise AttributeError("parametric least-squares candidates are immutable")
+        if type(proposal) is not _native.NumericParametricLeastSquaresProposal:
+            raise TypeError("an immutable native parametric least-squares proposal is required")
+        if type(native_system) is not _native.VerifiedResidualSystem:
+            raise TypeError("an immutable native residual system is required")
+        if native_system is not proposal.system:
+            raise ValueError("parametric least-squares proposal belongs to a different residual system")
+        from ._certified_numeric import _sequence
+        variables = _sequence(variables, native_system.variable_count, "parametric variables")
+        bindings = tuple(_native_expr(_require_symbol(axis)).symbol_binding for axis in variables)
+        if any(binding is None for binding in bindings):
+            raise ValueError("parametric variables must retain native symbol atoms")
+        supplied = tuple(_surface_binding_key(binding) for binding in bindings)
+        expected = tuple(_surface_binding_key(axis) for axis in native_system.variables)
+        if supplied != expected:
+            raise ValueError("parametric variables do not match the captured typed coordinate order")
+        super().__init__(
+            proposal.point, variables[:proposal.unknown_count], proposal.residuals,
+            proposal.cost, proposal.gradient_norm, proposal.iterations,
+            proposal.evaluations, proposal.termination, proposal.backend,
+        )
+        object.__setattr__(self, "_proposal", proposal)
+        object.__setattr__(self, "_native_system", native_system)
+        object.__setattr__(self, "_source_variables", variables)
+
+    @property
+    def native_system(self):
+        """The immutable original program retained by this proposal."""
+        return self._native_system
+
+    @property
+    def variables(self):
+        """All captured typed coordinate owners, unknowns then fixed parameters."""
+        return self._source_variables
+
+    @property
+    def unknown_variables(self):
+        return self._variables
+
+    @property
+    def parameters(self):
+        return self._source_variables[self._proposal.unknown_count:]
+
+    @property
+    def parameter_values(self):
+        """Actual finite binary64 values used in parameters order."""
+        return self._proposal.parameter_values
+
+    def __repr__(self):
+        return (f"NumericParametricLeastSquaresCandidate(point={self.point!r}, "
+                f"parameter_values={self.parameter_values!r}, cost={self.cost!r}, "
                 f"gradient_norm={self.gradient_norm!r}, iterations={self.iterations!r})")
 
 
@@ -1183,27 +1256,37 @@ class _ResidualCallable:
         _check_evaluation_budget(budget)
         return result
 
-    def solve_parametric_candidate(self, initial, parameters, *, tol=None, maxiter=None,
-                                   max_step_norm=None, budget=None):
+    def solve_parametric_candidate(self, initial, parameters, *, backend="dense",
+                                   tol=None, maxiter=None, max_step_norm=None, budget=None):
         """Solve unknown coordinates while keeping the declared parameters fixed.
 
-        For m residuals, the first m compiled variables are unknowns and all
-        remaining variables are parameters, matching certify_parametric_root_box.
-        Both groups must be nonempty, with at most 16 total variables. initial
-        and parameters are flat built-in lists/tuples in their respective
-        coordinate order; a one-coordinate group also accepts a scalar.
+        The default backend="dense" keeps one unknown per residual: the first
+        m compiled variables are unknowns and the remaining variables are
+        parameters, matching certify_parametric_root_box. Both groups must be
+        nonempty, with at most 16 total variables.
+
+        backend="sparse" determines the unknown prefix length from initial,
+        independently of the residual count. It supports 1..4096 rows and up
+        to 256 combined unknown and parameter coordinates, including under-
+        and overdetermined systems. Both groups remain nonempty. initial and
+        parameters are flat built-in lists/tuples in their respective order;
+        a one-coordinate group also accepts a scalar.
 
         The frozen full-source program is reused across parameter values.
         Every iteration evaluates the original residuals and all checked
         derivative domains at the combined point. Only unknown Jacobian columns
-        drive the pinned FrankenNumPy Newton solve; parameters never become
-        optimization variables. No source substitution or recompilation occurs.
+        drive the selected solver; parameters never become optimization
+        variables. No source substitution or recompilation occurs.
 
         Controls match solve_candidate's FrankenNumPy route: tol=1e-12,
         maxiter=64 (0..1024) and max_step_norm=1e6. A zero iteration limit only
-        checks the initial point. Oversized steps, singular nonconverged
-        Jacobians and invalid source/derivative domains refuse explicitly;
-        no alternative backend or finite differences are selected.
+        checks the initial point. The dense route refuses oversized steps or
+        singular nonconverged Jacobians. The sparse route uses damped LSQR,
+        clips steps and backtracks on mathematical trial-domain refusals, just
+        as solve_candidate(backend="sparse"). A nonzero stationary residual
+        never authorizes a root, and unused unknowns retain their initial values.
+        Operational errors remain terminal; no alternative backend or finite
+        differences are selected.
 
         NumericParametricRootCandidate retains the immutable source owner,
         original typed coordinate objects and actual binary64 parameter values.
@@ -1217,26 +1300,98 @@ class _ResidualCallable:
         from ..solvers.numerical import _candidate_options
 
         _check_evaluation_budget(budget)
-        unknowns = self.native_system.residual_count
+        if type(backend) is not str:
+            raise TypeError("parametric root backend must be an exact built-in string")
+        if backend not in ("dense", "sparse"):
+            raise ValueError("parametric root backend must be dense or sparse")
+        if type(tol) is bool or type(max_step_norm) is bool:
+            raise TypeError("parametric root numeric controls cannot be Boolean")
+        initial = initial if type(initial) in (list, tuple) else (initial,)
         total = self.native_system.variable_count
-        if not 1 <= unknowns < total <= 16:
+        unknowns = len(initial) if backend == "sparse" else self.native_system.residual_count
+        maximum = _MAX_VARIABLES if backend == "sparse" else 16
+        if not 1 <= unknowns < total <= maximum:
             raise ValueError(
+                "sparse parametric roots require nonempty unknown and parameter groups "
+                "and at most 256 total variables" if backend == "sparse" else
                 "parametric root proposals require one unknown per residual, at least one "
                 "parameter, and at most 16 total variables"
             )
         tol, maxiter, max_step_norm = _candidate_options(
             "frankennumpy", tol, maxiter, max_step_norm, allow_python=False,
         )
-        initial = initial if type(initial) in (list, tuple) else (initial,)
         parameters = parameters if type(parameters) in (list, tuple) else (parameters,)
         initial = _call_arguments((None,) * unknowns, initial, native=True)
         parameters = _call_arguments((None,) * (total - unknowns), parameters, native=True)
         _check_evaluation_budget(budget)
         proposal = self.native_system.solve_parametric_candidate(
-            initial, parameters, tol=tol, maxiter=maxiter,
+            initial, parameters, backend=backend, tol=tol, maxiter=maxiter,
             max_step_norm=max_step_norm, budget=budget,
         )
         result = NumericParametricRootCandidate(proposal, self.native_system, self.variables)
+        _check_evaluation_budget(budget)
+        return result
+
+    def solve_parametric_least_squares(
+            self, initial, parameters, *, backend="sparse", gtol=None,
+            maxiter=None, max_step_norm=None, budget=None):
+        """Fit an unknown prefix while holding the remaining coordinates fixed.
+
+        The unknown count is the length of initial, independently of the row
+        count. Both groups must be nonempty, with at most 256 combined declared
+        coordinates and 4096 residual rows. Scalar inputs are accepted for
+        one-coordinate groups. backend="sparse" is the supported route, using
+        the same damped LSQR and Armijo controls as solve_least_squares.
+
+        The original frozen residual and every derivative domain are evaluated
+        at the combined point before retaining unknown Jacobian columns. Fixed
+        parameters are never optimized, substituted into source or recompiled.
+        Every original row contributes its full unit-weight squared residual.
+        Rank-deficient and underdetermined systems are permitted; unused
+        unknowns keep their initial values.
+
+        Only a fresh unknown-gradient infinity norm at most gtol authorizes an
+        approximate stationary candidate. Its immutable native source owner,
+        typed variable groups, parameter values, full residuals and cost remain
+        available. A nonzero residual is permitted, and a stationary point may
+        be a saddle or maximum. No root or minimum certificate is granted.
+
+        Defaults are gtol=1e-10, maxiter=64 (0..1024), max_step_norm=1e6. The
+        step limit clips directions before bounded backtracking. Initial/final
+        source failures and all operational errors remain terminal. One supplied
+        EvaluationBudget covers native input snapshots, projection, every source
+        evaluation/LSQR/trial and publication without resetting consumed work.
+        """
+        from ..solvers.numerical import _candidate_options
+
+        _check_evaluation_budget(budget)
+        if type(backend) is not str:
+            raise TypeError("parametric least-squares backend must be an exact built-in string")
+        if backend != "sparse":
+            raise ValueError("parametric least-squares backend must be sparse")
+        if type(gtol) is bool or type(max_step_norm) is bool:
+            raise TypeError("parametric least-squares numeric controls cannot be Boolean")
+        initial = initial if type(initial) in (list, tuple) else (initial,)
+        total = self.native_system.variable_count
+        unknowns = len(initial)
+        if not 1 <= unknowns < total <= _MAX_VARIABLES:
+            raise ValueError(
+                "sparse parametric least squares requires nonempty unknown and parameter "
+                "groups and at most 256 total variables"
+            )
+        gtol, maxiter, max_step_norm = _candidate_options(
+            "frankennumpy", 1e-10 if gtol is None else gtol, maxiter,
+            max_step_norm, allow_python=False,
+        )
+        parameters = parameters if type(parameters) in (list, tuple) else (parameters,)
+        initial = _call_arguments((None,) * unknowns, initial, native=True)
+        parameters = _call_arguments((None,) * (total - unknowns), parameters, native=True)
+        _check_evaluation_budget(budget)
+        proposal = self.native_system.solve_parametric_least_squares(
+            initial, parameters, backend=backend, gtol=gtol, maxiter=maxiter,
+            max_step_norm=max_step_norm, budget=budget,
+        )
+        result = NumericParametricLeastSquaresCandidate(proposal, self.native_system, self.variables)
         _check_evaluation_budget(budget)
         return result
 
@@ -1307,6 +1462,46 @@ class _ResidualCallable:
         """
         from ._least_squares_objective import least_squares_objective
         return least_squares_objective(self, budget=budget)
+
+    def solve_bounded_least_squares(self, initial, bounds, *, gtol=None, maxiter=None,
+                                   max_step_norm=None, budget=None):
+        """Fit the original residuals inside explicit coordinate bounds.
+
+        ``bounds`` is a flat list/tuple of (lower, upper) pairs in variables
+        order. None denotes an unbounded endpoint; -oo/+oo and correctly
+        signed floating infinities are also admitted. Equal finite endpoints
+        fix a coordinate. The initial point must already lie in the box.
+        Endpoint values are converted to binary64 and the returned candidate
+        retains those actual values and the immutable original program.
+
+        This explicit sparse route admits 1..256 variables and 1..4096 rows,
+        including rectangular/rank-deficient systems. Masked LSQR directions,
+        projected Armijo trials and a projected-gradient direction keep every
+        evaluated point feasible. There is no dense Jacobian or normal matrix.
+        Controls default to gtol=1e-10, maxiter=64 and max_step_norm=1e6;
+        maxiter is 0..1024. Each iteration tries up to six LSQR directions
+        (up to 512 inner steps each) and one projected-gradient direction,
+        with up to 32 trial evaluations per direction.
+
+        Success requires a fresh projected-gradient infinity norm <= gtol.
+        Fixed coordinates and outward gradients at exact active bounds are
+        suppressed; interior coordinates retain their full gradient. The
+        immutable NumericBoundedLeastSquaresCandidate reports both this norm
+        and the original full gradient norm, every residual, cost and work
+        counts. It is approximate constrained stationarity, with no root or
+        minimum certificate; stationary maxima and saddles can also qualify.
+
+        All original residual and derivative domains are checked even for
+        fixed/active coordinates. Operational errors are terminal. One supplied
+        EvaluationBudget, or one private bounded ledger, spans native input
+        preparation, all rejected trials, linear work and final publication.
+        Python object allocation is outside that ledger.
+        """
+        from ._bounded_least_squares import solve_bounded_least_squares
+
+        return solve_bounded_least_squares(
+            self, initial, bounds, gtol, maxiter, max_step_norm, budget,
+        )
 
     def solve_least_squares(self, initial, *, backend="dense", gtol=None, maxiter=None,
                            max_step_norm=None, budget=None):

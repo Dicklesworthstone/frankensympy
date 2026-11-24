@@ -684,6 +684,74 @@ uniqueness or minimum-norm claim is made. Controls are bounded by 1,024 nonlinea
 iterations, six damping strengths per iteration, 512 LSQR steps per strength and
 32 line-search trials per direction.
 
+### Reuse a model with fixed parameters
+
+Sparse roots and least-squares fits can now keep a suffix of the declared
+coordinates fixed. The unknown-prefix length comes from the initial point,
+independently of the number of residuals:
+
+```python
+from sympy import compile_residual_system, symbols
+
+x, p = symbols("x p")
+model = compile_residual_system([x - p, x - 3*p], (x, p))
+fit = model.solve_parametric_least_squares(0, [2])
+# fit.point is approximately (4,); the fixed p=2 is never optimized.
+# fit.residuals is approximately (2, -2), and fit.cost is approximately 4.
+assert fit.parameter_values == (2.0,)
+assert fit.unknown_variables == (x,)
+assert fit.parameters == (p,)
+
+# Reuse the same immutable source and derivative programs at another p.
+next_fit = model.solve_parametric_least_squares(0, [5])
+```
+
+Use `solve_parametric_candidate(initial_unknowns, parameters, backend="sparse")`
+for roots of square, overdetermined or underdetermined systems. It requires
+every original residual to meet the root tolerance. Parametric least squares
+instead requires stationarity of the full residual cost with respect to the
+unknown coordinates; a parameter-only residual still contributes to that cost.
+Both groups must be nonempty, with at most 256 total declared coordinates and
+4,096 residuals. Every original derivative domain is checked before parameter
+columns are excluded from the linear model. There is no substitution,
+recompilation, minimum-norm or uniform parameter-family claim. The default
+parametric root backend retains the existing square FrankenNumPy route.
+
+### Fit within coordinate bounds
+
+`solve_bounded_least_squares` keeps all trial points inside an explicit box,
+including fixed coordinates and unbounded endpoints:
+
+```python
+from sympy import Symbol, compile_residual_system
+
+x = Symbol("bounded_value")
+model = compile_residual_system([x - 2], x)
+fit = model.solve_bounded_least_squares(0, [(0, 1)])
+assert fit.point == (1.0,)
+assert fit.bounds == ((0.0, 1.0),)
+assert fit.gradient_norm == 1.0
+assert fit.projected_gradient_norm == 0.0
+assert fit.termination == "projected_gradient_tolerance"
+```
+
+Bounds follow the original flat variable order. `None` denotes an unbounded
+endpoint, and equal finite endpoints fix a coordinate. An infeasible initial
+point refuses explicitly. Bounds and inputs are converted to binary64; the
+immutable candidate retains the actual bounds, typed variables and original
+compiled system. The sparse route supports 1–256 variables and 1–4,096 residuals,
+including rank-deficient systems. It uses masked LSQR directions, projected
+Armijo trials and a projected-gradient direction when the linear models cannot
+produce an accepted step, without constructing a dense Jacobian or normal matrix.
+
+Success requires a freshly evaluated constrained-stationarity residual: fixed
+coordinates and outward gradients at exact active endpoints are suppressed,
+while interior gradients remain unchanged. The original full gradient norm
+is reported separately. This is an approximate candidate, not a minimum or
+root certificate. All original residual and derivative domains remain active,
+even on fixed coordinates. One supplied `EvaluationBudget`, or one private
+bounded ledger when omitted, covers preparation, rejected trials and publication.
+
 ### Certified objectives for nonlinear fits
 
 A residual system can also produce a checked scalar objective directly from its

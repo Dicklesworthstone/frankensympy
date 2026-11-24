@@ -7,11 +7,12 @@ from .iterables import (
 from ..simplify.cse_main import numbered_symbols
 from .lambdify import (
     EvaluationBudget, EvaluationBudgetExceeded, EvaluationCancelled, NumericRootCandidate,
-    NumericParametricRootCandidate, NumericLeastSquaresCandidate,
+    NumericParametricRootCandidate, NumericLeastSquaresCandidate, NumericParametricLeastSquaresCandidate,
     compile_numeric, compile_residual_system, load_portable_residual_system,
     load_residual_system, lambdify,
 )
 from .hybrid import compile_numeric_hybrid
+from ._bounded_least_squares import NumericBoundedLeastSquaresCandidate
 from .hybrid_system import compile_hybrid_residual_system
 from .objective import (
     MinimizationSearchError, NumericMinimizationCandidate,
@@ -46,6 +47,8 @@ __all__ = [
     "NumericRootCandidate",
     "NumericParametricRootCandidate",
     "NumericLeastSquaresCandidate",
+    "NumericBoundedLeastSquaresCandidate",
+    "NumericParametricLeastSquaresCandidate",
     "StationarySearchError", "MinimizationSearchError", "NumericMinimizationCandidate",
     "ResidualJacobianEnclosure", "RootBoxReceipt",
     "RootIsolationReceipt",
