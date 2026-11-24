@@ -29,15 +29,9 @@ fn odd_multiple_root_has_existence_evidence_without_a_nonsingular_jacobian() {
     let x = Symbol::new("multiple_x");
     let source = power(Expr::Sym(x.clone()), 3);
     let proposed = witness(q(-1, 1000), q(1, 1000));
-    let receipt = certify_scalar_root_bracket(
-        &source,
-        &x,
-        &q(-1, 1),
-        &q(1, 1),
-        &q(1, 100),
-        &proposed,
-    )
-    .unwrap();
+    let receipt =
+        certify_scalar_root_bracket(&source, &x, &q(-1, 1), &q(1, 1), &q(1, 100), &proposed)
+            .unwrap();
     assert_eq!(receipt.expression(), &source);
     assert_eq!(receipt.variable(), &x);
     assert_eq!(receipt.lower(), &q(-1, 1));
@@ -154,26 +148,14 @@ fn wrong_source_and_same_spelling_different_identity_cannot_replay_a_root() {
     let proposed = witness(q(-1, 100), q(1, 100));
     let other = Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([7; 32]));
     assert!(matches!(
-        certify_scalar_root_bracket(
-            &source,
-            &other,
-            &q(-1, 1),
-            &q(1, 1),
-            &q(1, 10),
-            &proposed,
-        ),
-        Err(ScalarRootBracketError::Enclosure(RootBoxError::Unsupported(_)))
+        certify_scalar_root_bracket(&source, &other, &q(-1, 1), &q(1, 1), &q(1, 10), &proposed,),
+        Err(ScalarRootBracketError::Enclosure(
+            RootBoxError::Unsupported(_)
+        ))
     ));
     let changed = Expr::Add(vec![source, Expr::from_i64(1)]);
     assert!(matches!(
-        certify_scalar_root_bracket(
-            &changed,
-            &x,
-            &q(-1, 1),
-            &q(1, 1),
-            &q(1, 10),
-            &proposed,
-        ),
+        certify_scalar_root_bracket(&changed, &x, &q(-1, 1), &q(1, 1), &q(1, 10), &proposed,),
         Err(ScalarRootBracketError::NoSignChange)
     ));
 }
@@ -188,14 +170,7 @@ fn endpoint_containment_order_and_width_are_independently_checked() {
         witness(q(1, 2), q(-1, 2)),
     ] {
         assert!(matches!(
-            certify_scalar_root_bracket(
-                &source,
-                &x,
-                &q(-1, 1),
-                &q(1, 1),
-                &q(4, 1),
-                &proposed,
-            ),
+            certify_scalar_root_bracket(&source, &x, &q(-1, 1), &q(1, 1), &q(4, 1), &proposed,),
             Err(ScalarRootBracketError::InvalidBracket(_))
         ));
     }
@@ -393,26 +368,12 @@ fn invalid_requests_and_intrinsic_source_bounds_refuse_before_recursion() {
     let proposed = witness(q(0, 1), q(0, 1));
     for tolerance in [q(0, 1), q(-1, 1)] {
         assert!(matches!(
-            certify_scalar_root_bracket(
-                &source,
-                &x,
-                &q(-1, 1),
-                &q(1, 1),
-                &tolerance,
-                &proposed,
-            ),
+            certify_scalar_root_bracket(&source, &x, &q(-1, 1), &q(1, 1), &tolerance, &proposed,),
             Err(ScalarRootBracketError::InvalidTolerance)
         ));
     }
     assert!(matches!(
-        certify_scalar_root_bracket(
-            &source,
-            &x,
-            &q(1, 1),
-            &q(-1, 1),
-            &q(1, 10),
-            &proposed,
-        ),
+        certify_scalar_root_bracket(&source, &x, &q(1, 1), &q(-1, 1), &q(1, 10), &proposed,),
         Err(ScalarRootBracketError::InvalidBracket(_))
     ));
     let mut deep = source;
@@ -420,15 +381,10 @@ fn invalid_requests_and_intrinsic_source_bounds_refuse_before_recursion() {
         deep = power(deep, 1);
     }
     assert!(matches!(
-        certify_scalar_root_bracket(
-            &deep,
-            &x,
-            &q(-1, 1),
-            &q(1, 1),
-            &q(1, 10),
-            &proposed,
-        ),
-        Err(ScalarRootBracketError::Enclosure(RootBoxError::ResourceLimit(_)))
+        certify_scalar_root_bracket(&deep, &x, &q(-1, 1), &q(1, 1), &q(1, 10), &proposed,),
+        Err(ScalarRootBracketError::Enclosure(
+            RootBoxError::ResourceLimit(_)
+        ))
     ));
 }
 
@@ -481,8 +437,13 @@ fn reusable_evaluation_keeps_one_reservation_and_cumulative_work() {
     {
         let mut workspace = ScalarRootBracketWorkspace::new(&source, &x, 24, &mut budget).unwrap();
         for numerator in -4..=4 {
-            let value = workspace.enclose(&q(numerator, 4), &q(numerator, 4)).unwrap();
-            assert_eq!(value, RealBall::exact(q(numerator * numerator * numerator, 64)));
+            let value = workspace
+                .enclose(&q(numerator, 4), &q(numerator, 4))
+                .unwrap();
+            assert_eq!(
+                value,
+                RealBall::exact(q(numerator * numerator * numerator, 64))
+            );
         }
     }
     let consumed = budget.remaining(Dimension::MemoryBytes);

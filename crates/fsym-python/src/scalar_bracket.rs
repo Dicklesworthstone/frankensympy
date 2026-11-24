@@ -166,6 +166,9 @@ pub fn certified_scalar_root_bracket_native(
 
 pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyScalarRootBracketReceipt>()?;
-    module.add_function(wrap_pyfunction!(certified_scalar_root_bracket_native, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        certified_scalar_root_bracket_native,
+        module
+    )?)?;
     Ok(())
 }

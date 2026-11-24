@@ -77,7 +77,10 @@ def test_exact_rational_singular_values_do_not_sort_through_float(
         calls.append(True)
         raise AssertionError("rational spectral order must stay exact")
 
-    monkeypatch.setattr(Rational, "evalf", forbid_evalf)
+    # The exact-ordering implementation contract is native-specific; the
+    # upstream oracle may call evalf while proving unrelated sqrt assumptions.
+    if _CANDIDATE:
+        monkeypatch.setattr(Rational, "evalf", forbid_evalf)
     matrix = Matrix([[first, 0], [0, second]])
     assert matrix.singular_values() == [second, first]
     assert matrix.condition_number() == second / first

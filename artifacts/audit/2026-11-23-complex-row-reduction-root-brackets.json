@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "recorded_at": "2026-11-24T00:13:24Z",
+  "recorded_at": "2026-11-24T00:22:40Z",
   "session_date": "2026-11-23",
   "repository": "Dicklesworthstone/frankensympy",
   "baseline_commit": "05ff1cbc6cc30d49f48f0bff30eef44613882458",
@@ -20,6 +20,10 @@
     {
       "sha": "70795876e8d9176cfd055e314c03438918f9c9d8",
       "subject": "feat(python): expose certified scalar root brackets with caller budgets"
+    },
+    {
+      "sha": "ad98212ed640af019b8d6d3a13ec85832072cecb",
+      "subject": "fix(matrices): preserve wide singular values and exact condition ordering"
     }
   ],
   "scope": [
@@ -73,32 +77,64 @@
   ],
   "validation": {
     "independent_source_review": "completed for native/public matrix, native/public scalar bracket, and spectral correction",
-    "python_ast": "spectral dense.py and new spectral regression file passed; root attempt to parse all changed Python files was interrupted by executor loss",
+    "python_ast": "All 10 changed Python source/test files passed ast.parse in the recovered execution environment.",
     "pinned_rustfmt": {
       "toolchain": "nightly-2026-08-20",
       "version": "rustfmt 1.10.0-nightly (f7d782a3be 2026-08-19)",
       "local_result": "Formatter and immediate --check passed on 19 restored Rust files",
-      "remote_result": "Incomplete: six locally formatted files could not yet be recaptured after executor disconnect",
-      "pending_formatted_paths": [
-        "crates/fsym-python/src/lib.rs",
-        "crates/fsym-python/src/scalar_bracket.rs",
-        "crates/fsym-calculus/tests/scalar_bracket.rs",
-        "crates/fsym-core/tests/scalar_bracket_certificate.rs",
-        "crates/fsym-matrices/src/pseudoinverse/gaussian/rref.rs",
-        "crates/fsym-matrices/tests/gaussian_rref.rs"
+      "remote_result": "All six formatted outputs were captured and preserved as immutable GitHub blobs, included in this validation follow-up.",
+      "pending_formatted_paths": [],
+      "formatted_blobs": [
+        {
+          "path": "crates/fsym-python/src/lib.rs",
+          "sha": "01154ca4c2a274092847d2e2dc12bdba485c872a"
+        },
+        {
+          "path": "crates/fsym-python/src/scalar_bracket.rs",
+          "sha": "9d976817ef4ee2356c2d9a38e8c4ee26e2faddbb"
+        },
+        {
+          "path": "crates/fsym-calculus/tests/scalar_bracket.rs",
+          "sha": "31a0d14a079348dc4e186b209677c356f1b6b262"
+        },
+        {
+          "path": "crates/fsym-core/tests/scalar_bracket_certificate.rs",
+          "sha": "a6f6e482b305d239a7cc6298366dc92d3b1a6741"
+        },
+        {
+          "path": "crates/fsym-matrices/src/pseudoinverse/gaussian/rref.rs",
+          "sha": "bd735367b34406ede455b06dced2132966492d7c"
+        },
+        {
+          "path": "crates/fsym-matrices/tests/gaussian_rref.rs",
+          "sha": "ebadd6baeb5c44ea07ed67f17172d9f7ae4727fd"
+        }
       ]
     },
     "native_compilation": "not completed",
     "native_tests": "not executed",
     "actual_python_extension_tests": "not executed",
-    "isolated_sympy_oracle": "Earlier manual SymPy 1.14.0 four-class RREF/nullspace/affine class checks only; new full pytest suites were not executed",
+    "isolated_sympy_oracle": {
+      "version": "1.14.0",
+      "suites": [
+        "python/tests/test_matrix_complex_row_reduction.py",
+        "python/tests/test_matrix_singular_value_order.py"
+      ],
+      "passed": 76,
+      "skipped": 43,
+      "skipped_scope": "FrankenSymPy native source/ownership/budget/resource contracts only.",
+      "result": "76 passed, 43 skipped in 0.30s",
+      "initial_run": "74 passed, 43 skipped, 2 failures from applying native no-evalf instrumentation to upstream sqrt assumption checks.",
+      "resolution": "Restricted instrumentation to the native candidate while retaining every mathematical assertion for both candidate and isolated upstream; the full oracle rerun passed.",
+      "candidate_runtime_claim": false
+    },
     "hosted_ci": {
       "commit": "70795876e8d9176cfd055e314c03438918f9c9d8",
       "run_id": 45294430782,
       "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/45294430782",
       "last_observed_status": "queued"
     },
-    "blocker": "Execution environment repeatedly disconnected. Exact toolchain/pytest preparation was interrupted before compilation; brief final recovery permitted only formatter completion. No runtime gate is asserted."
+    "blocker": "Execution environment disconnected repeatedly. All changed Python syntax checks, isolated upstream fixture tests and pinned formatting completed during recovery. Targeted native compilation/tests are now being attempted; no native or actual-extension test result is yet asserted."
   },
   "baseline_ci_repairs": [
     {

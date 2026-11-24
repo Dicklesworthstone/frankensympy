@@ -514,7 +514,9 @@ fn check_affine(
     let transformed_rhs = reduction.transform.multiply(&b, work)?;
     if !consistent(&transformed_rhs, reduction.pivots.len(), work)? {
         if candidate.particular.is_some() || candidate.kernel.is_some() {
-            return Err(invalid("an inconsistent original system has proposed values"));
+            return Err(invalid(
+                "an inconsistent original system has proposed values",
+            ));
         }
         work.tick(1)?;
         return Ok(None);

@@ -123,8 +123,7 @@ fn row_swaps_and_skipped_columns_preserve_canonical_pivots() {
 #[test]
 fn determinant_anchors_cover_all_two_by_two_gaussian_patterns() {
     let values = [(0, 0), (1, 0), (0, 1), (1, 1)];
-    let product =
-        |a: (i64, i64), b: (i64, i64)| (a.0 * b.0 - a.1 * b.1, a.0 * b.1 + a.1 * b.0);
+    let product = |a: (i64, i64), b: (i64, i64)| (a.0 * b.0 - a.1 * b.1, a.0 * b.1 + a.1 * b.0);
     for &a in &values {
         for &b in &values {
             for &c in &values {
@@ -272,11 +271,7 @@ fn exact_affine_particular_and_kernel_keep_all_complex_solution_freedom() {
 
 #[test]
 fn multiple_right_hand_sides_have_independent_row_major_parameters() {
-    let source = matrix(
-        2,
-        3,
-        &[(1, 0), (0, 1), (0, 0), (0, 0), (0, 0), (0, 1)],
-    );
+    let source = matrix(2, 3, &[(1, 0), (0, 1), (0, 0), (0, 0), (0, 0), (0, 1)]);
     let rhs = matrix(2, 2, &[(1, 0), (2, 0), (0, 1), (0, 2)]);
     let family = source
         .metered_gaussian_affine_solution(&rhs, &mut Unbounded)

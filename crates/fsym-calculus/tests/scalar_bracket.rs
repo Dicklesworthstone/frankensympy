@@ -32,15 +32,9 @@ fn exact_bisection_encloses_an_odd_multiple_root_that_is_not_dyadic() {
     let x = Symbol::new("multiple_x");
     let source = power(shifted(&x), 3);
     let tolerance = q(1, 1_000_000_000);
-    let receipt = certified_scalar_root_bracket(
-        &source,
-        &x,
-        &q(0, 1),
-        &q(1, 1),
-        &tolerance,
-        options(),
-    )
-    .unwrap();
+    let receipt =
+        certified_scalar_root_bracket(&source, &x, &q(0, 1), &q(1, 1), &tolerance, options())
+            .unwrap();
     assert!(receipt.root_enclosure().contains(&q(1, 3)));
     assert!(receipt.root_enclosure().width() <= tolerance);
     assert!(receipt.endpoint_values()[0].is_negative());
@@ -58,15 +52,9 @@ fn a_nondyadic_absolute_value_corner_needs_no_classical_derivative() {
         Expr::Function("Abs".into(), vec![base]),
     ]);
     let tolerance = q(1, 1_000_000);
-    let receipt = certified_scalar_root_bracket(
-        &source,
-        &x,
-        &q(0, 1),
-        &q(1, 1),
-        &tolerance,
-        options(),
-    )
-    .unwrap();
+    let receipt =
+        certified_scalar_root_bracket(&source, &x, &q(0, 1), &q(1, 1), &tolerance, options())
+            .unwrap();
     // On the two sides this is x-1/3 and 3*(x-1/3), respectively.
     assert!(receipt.root_enclosure().contains(&q(1, 3)));
     assert!(receipt.root_enclosure().width() <= tolerance);
@@ -78,15 +66,9 @@ fn a_nondyadic_absolute_value_corner_needs_no_classical_derivative() {
 fn reversed_sign_orientation_produces_the_same_exact_bracket() {
     let x = Symbol::new("orientation_x");
     let source = power(shifted(&x), 3);
-    let positive = certified_scalar_root_bracket(
-        &source,
-        &x,
-        &q(0, 1),
-        &q(1, 1),
-        &q(1, 10_000),
-        options(),
-    )
-    .unwrap();
+    let positive =
+        certified_scalar_root_bracket(&source, &x, &q(0, 1), &q(1, 1), &q(1, 10_000), options())
+            .unwrap();
     let negative = certified_scalar_root_bracket(
         &Expr::Mul(vec![Expr::from_i64(-1), source]),
         &x,
@@ -120,15 +102,9 @@ fn exact_endpoint_roots_and_point_requests_do_not_spend_bisection_steps() {
         (Expr::from_i64(0), q(-1, 1), q(1, 1), q(-1, 1)),
         (Expr::from_i64(0), q(3, 1), q(3, 1), q(3, 1)),
     ] {
-        let receipt = certified_scalar_root_bracket(
-            &source,
-            &x,
-            &lower,
-            &upper,
-            &q(1, 1_000_000),
-            no_steps,
-        )
-        .unwrap();
+        let receipt =
+            certified_scalar_root_bracket(&source, &x, &lower, &upper, &q(1, 1_000_000), no_steps)
+                .unwrap();
         assert_eq!(receipt.root_enclosure(), &RealBall::exact(root));
     }
 }
@@ -176,14 +152,7 @@ fn lack_of_a_sign_bracket_and_exhausted_accuracy_remain_explicit() {
     // establish their existence through this bounded sign-bracket method.
     let two_roots = Expr::Add(vec![power(sx, 2), Expr::from_i64(-1)]);
     assert!(matches!(
-        certified_scalar_root_bracket(
-            &two_roots,
-            &x,
-            &q(-2, 1),
-            &q(2, 1),
-            &q(1, 100),
-            options(),
-        ),
+        certified_scalar_root_bracket(&two_roots, &x, &q(-2, 1), &q(2, 1), &q(1, 100), options(),),
         Err(ScalarRootBracketError::NoSignChange)
     ));
     assert!(matches!(
@@ -220,15 +189,8 @@ fn poles_behind_sign_changes_and_held_zeroes_never_enter_a_refinement() {
         ]),
     ] {
         assert!(
-            certified_scalar_root_bracket(
-                &source,
-                &x,
-                &q(-2, 1),
-                &q(2, 1),
-                &q(1, 100),
-                options(),
-            )
-            .is_err()
+            certified_scalar_root_bracket(&source, &x, &q(-2, 1), &q(2, 1), &q(1, 100), options(),)
+                .is_err()
         );
     }
 }
@@ -319,18 +281,13 @@ fn invalid_bounds_precision_and_search_limits_cannot_be_relaxed() {
                     ..options()
                 },
             ),
-            Err(ScalarRootBracketError::Enclosure(RootBoxError::InvalidPrecision))
+            Err(ScalarRootBracketError::Enclosure(
+                RootBoxError::InvalidPrecision
+            ))
         ));
     }
     assert!(matches!(
-        certified_scalar_root_bracket(
-            &source,
-            &x,
-            &q(1, 1),
-            &q(-1, 1),
-            &q(1, 100),
-            options(),
-        ),
+        certified_scalar_root_bracket(&source, &x, &q(1, 1), &q(-1, 1), &q(1, 100), options(),),
         Err(ScalarRootBracketError::InvalidBracket(_))
     ));
 }
