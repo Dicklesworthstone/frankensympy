@@ -134,6 +134,17 @@ class MatrixBase:
         from ._integer_solve import solve_integer
         return solve_integer(self, rhs)
 
+    def solve_mod(self, rhs, m):
+        """Return all modular solutions as ``(P, K, periods)``, or None.
+
+        Every solution of ``self*X == rhs (mod m)`` is ``P + K*T (mod m)``,
+        with independent ``0 <= T[i,j] < periods[i]`` for every RHS column.
+        Composite moduli and rectangular/singular matrices are supported.
+        This checked native extension preserves self's built-in class.
+        """
+        from ._modular_solve import solve_mod
+        return solve_mod(self, rhs, m)
+
     def hermite_normal_decomposition(self):
         """Checked integer ``(H, V, V_inverse)`` with ``self*V == [0 | H]``.
 

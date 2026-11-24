@@ -40,6 +40,11 @@ _ATOM_NAMES = ("_value", "_struct_args", "_surface_args")
 _ATOM_SLOTS = tuple(_DICT.__get__(Basic)[name] for name in _ATOM_NAMES)
 _MISSING = object()
 _NATIVE_EXPR = _native.Expr
+_NATIVE_SESSION = _native.SupervisedCallbackSession
+_SESSION_FLAGS = tuple(
+    _DICT.__get__(_NATIVE_SESSION)[name]
+    for name in ("cancelled", "unknown_effect_tainted")
+)
 _NATIVE = {Matrix: _native.Matrix, SparseMatrix: _native.SparseMatrix}
 _NATIVE_NAMES = (
     "shape", "validate_integer_normal_form_source",
@@ -104,16 +109,33 @@ class _NonliteralIntegerSource(NotImplementedError):
     """A source cell is outside the literal-integer lane."""
 
 
+def _request_unchanged(session):
+    if _active_callback_session() is not session:
+        raise RuntimeError("integer normal-form request changed during evaluation")
+    if session is not None:
+        if type(session) is not _NATIVE_SESSION:
+            raise TypeError("integer normal forms require an exact native request")
+        # These captured Rust getters only read the session state. Ownership
+        # checks can execute Python, so no such callback may follow the final
+        # original-source check or reopen its publication window.
+        if any(flag.__get__(session, _NATIVE_SESSION) for flag in _SESSION_FLAGS):
+            raise RuntimeError("cancelled or tainted callback session cannot publish a result")
+
+
 class _IntegerSource:
     def __init__(self, matrix):
-        if not any(type(matrix) is cls for cls in _CLASSES):
+        self.owner = type(matrix)
+        if not any(self.owner is cls for cls in _CLASSES):
             raise NotImplementedError("integer Smith form requires a built-in Matrix")
         self.session = _active_callback_session()
         # Terminal active requests stop before any retained/native cell copies.
         _charge_nested_if_active()
+        _request_unchanged(self.session)
+        if type(matrix) is not self.owner:
+            raise RuntimeError("integer matrix owner mutated during source admission")
         _interfaces()
         self.matrix = matrix
-        self.base = Matrix if type(matrix) in (Matrix, ImmutableDenseMatrix) else SparseMatrix
+        self.base = Matrix if self.owner in (Matrix, ImmutableDenseMatrix) else SparseMatrix
         native, shape, surface, generation = (
             slot.__get__(matrix, self.base) for slot in _SLOTS[self.base]
         )
@@ -131,6 +153,7 @@ class _IntegerSource:
         if native_shape.__get__(native, native_type) != shape:
             raise ValueError("integer Smith form native and retained shapes differ")
         self.atoms = []
+        self.atom_owners = []
         if surface is not None:
             storage_type = tuple if self.base is Matrix else dict
             if (type(surface) is not storage_type or len(surface) > rows * columns
@@ -144,7 +167,8 @@ class _IntegerSource:
                         raise ValueError("integer Smith form has an invalid retained coordinate")
             cells = surface if self.base is Matrix else dict.values(surface)
             for cell in cells:
-                if not any(type(cell) is atom for atom in _ATOMS):
+                owner = type(cell)
+                if not any(owner is atom for atom in _ATOMS):
                     raise _NonliteralIntegerSource("integer Smith form requires literal integer source atoms")
                 state = _atom_state(cell)
                 if type(state[0]) is not _NATIVE_EXPR:
@@ -154,9 +178,30 @@ class _IntegerSource:
                        for value in state[1:]):
                     raise ValueError("integer Smith form requires literal retained atoms")
                 self.atoms.append((cell, state))
+                self.atom_owners.append(owner)
         # Borrowed native admission bounds every integer before the existing
         # source binder copies any native coefficient or sparse dictionary.
         _charge_nested_if_active(rows * columns + 1)
+        _request_unchanged(self.session)
+        if type(matrix) is not self.owner:
+            raise RuntimeError("integer matrix owner mutated during source admission")
+        _interfaces()
+        current = tuple(slot.__get__(matrix, self.base) for slot in _SLOTS[self.base])
+        if (current[0] is not native or current[1] is not shape
+                or current[2] is not surface or type(current[3]) is not int
+                or current[3] != generation):
+            raise RuntimeError("integer matrix mutated during source admission")
+        if surface is not None:
+            cells = surface if self.base is Matrix else dict.values(surface)
+            if (len(surface) != len(self.atoms)
+                    or any(current is not old
+                           for current, (old, _) in zip(cells, self.atoms))):
+                raise RuntimeError("integer retained cells mutated during source admission")
+        for (cell, state), owner in zip(self.atoms, self.atom_owners):
+            if (type(cell) is not owner
+                    or any(current is not old
+                           for current, old in zip(_atom_state(cell), state))):
+                raise RuntimeError("integer source atom mutated during source admission")
         preflight(native)
         captured = _rational_source_snapshot(
             matrix, dense=self.base is Matrix, context="integer Smith form",
@@ -168,14 +213,19 @@ class _IntegerSource:
         self.unchanged()
 
     def unchanged(self):
-        if _active_callback_session() is not self.session:
-            raise RuntimeError("integer normal-form request changed during evaluation")
+        _request_unchanged(self.session)
+        if type(self.matrix) is not self.owner:
+            raise RuntimeError("integer matrix owner mutated during evaluation")
         _interfaces()
+        for (cell, _), owner in zip(self.atoms, self.atom_owners):
+            if type(cell) is not owner:
+                raise RuntimeError("integer source atom owner mutated during evaluation")
         _check_rational_source(self.snapshot)
         for cell, stored in self.atoms:
             if any(current is not previous
                    for current, previous in zip(_atom_state(cell), stored)):
                 raise RuntimeError("integer Smith source atom mutated during decomposition")
+        _request_unchanged(self.session)
 
     def calculate(self, decomposition, *, hermite=False):
         self.unchanged()
@@ -188,7 +238,7 @@ class _IntegerSource:
                 raise RuntimeError("integer Smith decomposition returned invalid result storage")
             native_type = _NATIVE[self.base]
             shapes = ((rows, columns), (rows, rows), (columns, columns))
-            matrix_type, base = type(self.matrix), self.base
+            matrix_type, base = self.owner, self.base
         else:
             native = (form(self.native, session=self.session),)
             native_type = _NATIVE[Matrix]
@@ -218,8 +268,8 @@ class _IntegerSource:
             for slot, item in zip(_SLOTS[base], (value, shape, None, 0)):
                 slot.__set__(matrix, item)
             result.append(matrix)
-        self.unchanged()
         _charge_nested_if_active()
+        self.unchanged()
         return tuple(result) if decomposition else result[0]
 
 

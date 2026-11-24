@@ -2190,7 +2190,7 @@ refuse difficult inputs. See [integer normal forms and systems](docs/INTEGER_NOR
 for the exact contracts, examples, failure semantics, and retained evidence.
 The broad WS10/WS19 and compatibility-profile gates remain open.
 
-### Native modular linear systems
+### Modular linear systems
 
 Native Rust `Matrix` and `SparseMatrix` provide `solve_mod(rhs, modulus)` for
 complete finite solution families of `A*X = B (mod m)`, including rectangular
@@ -2215,9 +2215,33 @@ independently ranging from zero through `periods[i] - 1`. Checked inconsistency
 returns a receipt with `is_consistent() == false` and absent family fields.
 The bounded native API admits moduli at least two, dimensions through 64 and
 original entries/moduli through 4096 bits; separate cumulative generation and
-verification budgets remain available through `metered_solve_mod`. These native
-methods add no Python surface or modular-rank claim. See the
-[implementation and validation record](artifacts/audit/2026-11-24-modular-linear-system-progress.json).
+verification budgets remain available through `metered_solve_mod`. The result
+makes no field-rank claim over a composite residue ring. See the
+[native implementation and validation record](artifacts/audit/2026-11-24-modular-linear-system-progress.json).
+
+The FrankenSymPy Python extension exposes `A.solve_mod(B, m)` on `Matrix`,
+`ImmutableDenseMatrix`, `SparseMatrix`, and `ImmutableSparseMatrix`, including
+mixed dense/sparse operands. Both result matrices preserve A's exact built-in
+class; the periods are a tuple of exact `Integer` values:
+
+```python
+from sympy import Matrix
+
+P, K, periods = Matrix([[2]]).solve_mod(Matrix([[2]]), 6)
+# P = Matrix([[1]]), K = Matrix([[3]]), periods = (Integer(2),)
+# x = 1 + 3*T (mod 6), T in {0, 1}: exactly the residues 1 and 4.
+```
+
+The return value is `(P, K, periods)`, with independent bounded parameters for
+every RHS column. `None` means independently checked inconsistency; nonunique
+families are successful results. Unsupported domains, changed inputs,
+exhausted work and cancellation raise instead of returning `None`. The same
+64-axis and 4096-bit source/modulus bounds apply. Shared source-publication
+checks also protect integer solves, modular inverses, and Smith/Hermite forms
+against changes during ownership callbacks, scalar-class swaps, and error
+printing. This is a native extension, not a SymPy compatibility-profile claim.
+The [Python implementation and validation record](artifacts/audit/2026-11-24-python-modular-solve-progress.json)
+distinguishes executed syntax checks from unexecuted native runtime tests.
 
 ## Exact complex dense linear solves (development API)
 

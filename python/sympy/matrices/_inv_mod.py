@@ -29,60 +29,74 @@ _INVERSES = {
 }
 
 
-def _interfaces():
+def _scalar_interfaces(operation="inv_mod"):
     _forms._interfaces()
     namespace = _forms._DICT.__get__(_forms._NATIVE_EXPR)
     if any(namespace.get(name) is not original
            for name, original in zip(_SCALAR_NAMES, _SCALAR_METHODS)):
-        raise NotImplementedError("inv_mod requires original native scalar interfaces")
+        raise NotImplementedError(
+            "%s requires original native scalar interfaces" % operation
+        )
+
+
+def _interfaces():
+    _scalar_interfaces()
     for base, method in _INVERSES.items():
         if _forms._DICT.__get__(_forms._NATIVE[base]).get("inverse_mod") is not method:
             raise NotImplementedError("inv_mod requires original native interfaces")
 
 
-def _literal_atom(value, native, label):
+def _literal_atom(value, native, label, operation="inv_mod"):
     integer = _SCALAR_METHODS[0].__get__(native, _forms._NATIVE_EXPR)
     rational = _SCALAR_METHODS[1].__get__(native, _forms._NATIVE_EXPR)
     if (not (integer or rational)
             or type(value) in (_forms.Integer, _forms.Zero, _forms.One,
                                _forms.NegativeOne) and not integer):
-        raise ValueError("inv_mod: %s payload does not match its literal owner" % label)
+        raise ValueError(
+            "%s: %s payload does not match its literal owner" % (operation, label)
+        )
     fixed = _FIXED_MODULI.get(type(value))
     if fixed is not None and _SCALAR_METHODS[2](native, fixed) is not True:
-        raise ValueError("inv_mod: fixed %s constant has inconsistent native storage" % label)
+        raise ValueError(
+            "%s: fixed %s constant has inconsistent native storage" % (operation, label)
+        )
 
 
 class _Modulus:
-    def __init__(self, value):
+    def __init__(self, value, operation="inv_mod"):
+        self.owner = type(value)
+        self.operation = operation
         self.session = _active_callback_session()
         self.original = value
         self.state = None
-        if type(value) is int:
+        if self.owner is int:
             if int.bit_length(value) > 4096:
-                raise ValueError("inv_mod: modulus exceeds 4096 bits")
+                raise ValueError("%s: modulus exceeds 4096 bits" % operation)
             self.native = value
-        elif any(type(value) is atom for atom in _forms._ATOMS):
+        elif any(self.owner is atom for atom in _forms._ATOMS):
             self.state = _forms._atom_state(value)
             if type(self.state[0]) is not _forms._NATIVE_EXPR:
-                raise ValueError("inv_mod: invalid native modulus storage")
+                raise ValueError("%s: invalid native modulus storage" % operation)
             if any(item is not _forms._MISSING and item is not None
                    and (type(item) is not tuple or len(item) != 0)
                    for item in self.state[1:]):
-                raise ValueError("inv_mod: modulus must be a literal integer atom")
+                raise ValueError("%s: modulus must be a literal integer atom" % operation)
             self.native = self.state[0]
-            _literal_atom(value, self.native, "modulus")
+            _literal_atom(value, self.native, "modulus", operation)
         else:
             # Do not run __int__, __index__, sympify, or custom scalar protocols.
-            raise TypeError("inv_mod: modulus m must be an integer")
+            raise TypeError("%s: modulus m must be an integer" % operation)
 
     def unchanged(self):
+        if type(self.original) is not self.owner:
+            raise RuntimeError("%s original modulus owner mutated during evaluation" % self.operation)
         if _active_callback_session() is not self.session:
-            raise RuntimeError("inv_mod request changed during evaluation")
+            raise RuntimeError("%s request changed during evaluation" % self.operation)
         if self.state is not None and any(
             current is not original
             for current, original in zip(_forms._atom_state(self.original), self.state)
         ):
-            raise RuntimeError("inv_mod original modulus mutated during evaluation")
+            raise RuntimeError("%s original modulus mutated during evaluation" % self.operation)
 
 
 def _unchanged(source, modulus):
@@ -121,9 +135,9 @@ def inverse_mod(matrix, m):
     except _forms._NonliteralIntegerSource as error:
         raise ValueError("inv_mod: matrix entries must be integers") from error
     _charge_nested_if_active(len(source.atoms) + 1)
+    _unchanged(source, modulus)
     for cell, state in source.atoms:
         _literal_atom(cell, state[0], "source")
-    _unchanged(source, modulus)
     native = _INVERSES[source.base](
         source.native, modulus.native, session=source.session,
     )
@@ -142,8 +156,13 @@ def inverse_mod(matrix, m):
             _forms._SLOTS[_forms.Matrix], (native, source.shape, None, 0),
         ):
             slot.__set__(result, item)
-    _unchanged(source, modulus)
-    _charge_nested_if_active()
+    # Formatting a public scalar can execute a replaceable printer. Prepare
+    # the failure before the final charge and original-source checks.
+    failure = None
     if result is None:
-        raise NonInvertibleMatrixError(f"Matrix is not invertible (mod {m})")
+        failure = NonInvertibleMatrixError(f"Matrix is not invertible (mod {m})")
+    _charge_nested_if_active()
+    _unchanged(source, modulus)
+    if failure is not None:
+        raise failure
     return result

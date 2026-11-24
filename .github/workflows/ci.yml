@@ -623,6 +623,7 @@ jobs:
               "python/tests/test_mixed_matrix_products.py",
               "python/tests/test_smith_normal_form.py",
               "python/tests/test_integer_solve.py",
+              "python/tests/test_matrix_modular_solve.py",
               "python/tests/test_sparse_affine.py",
               "python/tests/test_affine_linear_systems.py",
               "python/tests/test_sparse_linear_systems.py",

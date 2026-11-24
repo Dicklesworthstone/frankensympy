@@ -87,15 +87,15 @@ def solve_integer(matrix, rhs):
         for value, shape in zip(native, shapes):
             # Install checked native results without calling constructors,
             # replaceable setters, or conversions between public classes.
-            lifted = object.__new__(type(matrix))
+            lifted = object.__new__(coefficients.owner)
             for slot, item in zip(_forms._SLOTS[base], (value, shape, None, 0)):
                 slot.__set__(lifted, item)
             output.append(lifted)
         result = tuple(output)
     # Inconsistency is also a mathematical result: both original sources and
     # the active request remain authoritative until that result is published.
-    _unchanged(coefficients, right)
     _charge_nested_if_active()
+    _unchanged(coefficients, right)
     return result
 
 

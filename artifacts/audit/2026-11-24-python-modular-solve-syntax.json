@@ -1,0 +1,78 @@
+{
+  "checked_utc": "2026-11-24T21:09:41.462816+00:00",
+  "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+  "scope": "Exact-source Python AST parsing and in-memory bytecode compilation only",
+  "imported_project_or_native_extension": false,
+  "runtime_tests_executed": false,
+  "files": [
+    {
+      "path": "python/sympy/matrices/_modular_solve.py",
+      "blob_sha": "abf3cf8e368641a21e2efa2d27797c4406258458",
+      "utf8_bytes": 5859,
+      "ast_parse": "passed",
+      "compile": "passed",
+      "top_level_test_functions": 0,
+      "warnings": []
+    },
+    {
+      "path": "python/sympy/matrices/_inv_mod.py",
+      "blob_sha": "9d6a4b2bf4f0e82313a9ba5f59f6d74c2f57abc7",
+      "utf8_bytes": 7337,
+      "ast_parse": "passed",
+      "compile": "passed",
+      "top_level_test_functions": 0,
+      "warnings": []
+    },
+    {
+      "path": "python/sympy/matrices/_integer_solve.py",
+      "blob_sha": "ce0142b84df96c2d877fe202585982c0043e9edd",
+      "utf8_bytes": 4750,
+      "ast_parse": "passed",
+      "compile": "passed",
+      "top_level_test_functions": 0,
+      "warnings": []
+    },
+    {
+      "path": "python/sympy/matrices/normalforms.py",
+      "blob_sha": "9015ee2ed76ab0aa23ecae65e9424fcd8ce7f4da",
+      "utf8_bytes": 17040,
+      "ast_parse": "passed",
+      "compile": "passed",
+      "top_level_test_functions": 0,
+      "warnings": []
+    },
+    {
+      "path": "python/sympy/matrices/dense.py",
+      "blob_sha": "6cfd05976fa4520dacd5aaea01b93f4d3978df30",
+      "utf8_bytes": 109442,
+      "ast_parse": "passed",
+      "compile": "passed",
+      "top_level_test_functions": 0,
+      "warnings": []
+    },
+    {
+      "path": "python/sympy/matrices/__init__.py",
+      "blob_sha": "1f9c63ade63f6068df34ffdcc3d79ae5a6d70e22",
+      "utf8_bytes": 1478,
+      "ast_parse": "passed",
+      "compile": "passed",
+      "top_level_test_functions": 0,
+      "warnings": []
+    },
+    {
+      "path": "python/tests/test_matrix_modular_solve.py",
+      "blob_sha": "dd5ef4237a847040970abff37d53517076783904",
+      "utf8_bytes": 24812,
+      "ast_parse": "passed",
+      "compile": "passed",
+      "top_level_test_functions": 29,
+      "warnings": []
+    },
+    {
+      "path": "crates/fsym-python/src/matrix/modular_system.rs",
+      "blob_sha": "5c90a2666ab6dfdc3e45b4b063700f6a41890fa1",
+      "utf8_bytes": 6612,
+      "execution": "not_attempted"
+    }
+  ]
+}

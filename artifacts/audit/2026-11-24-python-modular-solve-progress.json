@@ -1,0 +1,143 @@
+{
+  "schema_version": 1,
+  "recorded_date": "2026-11-24",
+  "source_baseline_commit": "d31fdd888ee97b944d33e7d4a0515485d8ff7ea6",
+  "publication_parent": "624923915231aa0c32adc0f57013dd53aaac5b85",
+  "scope": "Public checked modular matrix solution families and original-source publication correctness",
+  "api": {
+    "signature": "A.solve_mod(B,m) -> (particular,generators,periods) | None",
+    "classes": [
+      "Matrix",
+      "ImmutableDenseMatrix",
+      "SparseMatrix",
+      "ImmutableSparseMatrix"
+    ],
+    "mixed_dense_sparse_operands": true,
+    "output_matrix_class": "the recorded exact class of A",
+    "period_type": "tuple of exact Integer values",
+    "family": "X=P+K*T mod m, independently 0<=T[i,j]<periods[i] for every RHS column",
+    "none_outcome": "independently verified inconsistency only",
+    "example": {
+      "A": [
+        [
+          2
+        ]
+      ],
+      "B": [
+        [
+          2
+        ]
+      ],
+      "modulus": 6,
+      "P": [
+        [
+          1
+        ]
+      ],
+      "K": [
+        [
+          3
+        ]
+      ],
+      "periods": [
+        2
+      ],
+      "residues": [
+        1,
+        4
+      ]
+    },
+    "limits": {
+      "maximum_dimension": 64,
+      "maximum_original_entry_bits": 4096,
+      "maximum_modulus_bits": 4096,
+      "minimum_modulus": 2
+    },
+    "accounting": "Separate existing private generation/verification caps share the caller's cumulative active request; no newly reserved protected Python verifier pool is claimed."
+  },
+  "correctness_fixes": [
+    "Charge before final callback-free original-source and terminal-state checks, including integer solving, modular inversion and Smith/Hermite forms",
+    "Bind original matrix, modulus and retained-atom class identities; lift to the recorded matrix class",
+    "Preserve the initially captured source slots, atom state and retained cell identities across preflight callbacks",
+    "Construct noninvertibility errors before final checks so public printer hooks cannot change the mathematical statement afterward",
+    "Precharge native period vector, Python list/scalars, matrix owners and result tuple before conversion"
+  ],
+  "authored_tests": {
+    "path": "python/tests/test_matrix_modular_solve.py",
+    "functions": 29,
+    "parametrized_cases": 148,
+    "real_ownership_hook_cases": 18,
+    "class_swap_cases": 10,
+    "admission_rebinding_cases": 2,
+    "printer_mutation_cases": 2,
+    "execution": "not_run"
+  },
+  "validation": {
+    "python": "3.12.14",
+    "ast_parse": "passed for seven final Python files",
+    "in_memory_compile": "passed for seven final Python files",
+    "warnings": 0,
+    "exact_source_evidence": "artifacts/audit/2026-11-24-python-modular-solve-syntax.json",
+    "independent_source_and_api_review": "completed; no remaining concrete blocker identified",
+    "project_imports": "not_run",
+    "native_extension_build": "not_run",
+    "pytest_runtime": "not_run",
+    "clippy": "not_run",
+    "rust_bridge_format": "not_run; standalone pinned rustfmt could not load librustc_driver-59857489213b2a36.so",
+    "earlier_native_format_scope": "The separate endpoint and native modular units passed pinned formatting for 14 Rust files; this does not cover the three Python bridge Rust files.",
+    "native_execution_context": "The preceding core endpoint test attempt received SIGKILL during dependency compilation, before any tests. Host resets removed the pinned compiler, Cargo cache and target. No cause was established.",
+    "native_attempt_status": "artifacts/audit/2026-11-24-continuous-native-attempt.json"
+  },
+  "source_blobs": [
+    {
+      "path": "crates/fsym-python/src/matrix/modular_system.rs",
+      "sha": "5c90a2666ab6dfdc3e45b4b063700f6a41890fa1"
+    },
+    {
+      "path": "crates/fsym-python/src/matrix/modular_inverse.rs",
+      "sha": "37d04e2b97216314cafd07e4ff90bfddb0253880"
+    },
+    {
+      "path": "crates/fsym-python/src/matrix.rs",
+      "sha": "48564b882f9eb9d6fb2cf8675bba52e0ef5532c1"
+    },
+    {
+      "path": "python/sympy/matrices/_modular_solve.py",
+      "sha": "abf3cf8e368641a21e2efa2d27797c4406258458"
+    },
+    {
+      "path": "python/sympy/matrices/_inv_mod.py",
+      "sha": "9d6a4b2bf4f0e82313a9ba5f59f6d74c2f57abc7"
+    },
+    {
+      "path": "python/sympy/matrices/_integer_solve.py",
+      "sha": "ce0142b84df96c2d877fe202585982c0043e9edd"
+    },
+    {
+      "path": "python/sympy/matrices/normalforms.py",
+      "sha": "9015ee2ed76ab0aa23ecae65e9424fcd8ce7f4da"
+    },
+    {
+      "path": "python/sympy/matrices/dense.py",
+      "sha": "6cfd05976fa4520dacd5aaea01b93f4d3978df30"
+    },
+    {
+      "path": "python/sympy/matrices/__init__.py",
+      "sha": "1f9c63ade63f6068df34ffdcc3d79ae5a6d70e22"
+    },
+    {
+      "path": "python/tests/test_matrix_modular_solve.py",
+      "sha": "dd5ef4237a847040970abff37d53517076783904"
+    }
+  ],
+  "integration": {
+    "ci": "Add the full public modular suite to the existing native-extension test selection",
+    "bead_notes": [
+      "fra-kfo",
+      "fra-7kf"
+    ],
+    "status_changes": false,
+    "compatibility_profile_promotions": false,
+    "dependencies_added": false
+  }
+}

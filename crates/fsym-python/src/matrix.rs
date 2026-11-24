@@ -4,6 +4,7 @@
 
 mod integer_system;
 mod modular_inverse;
+mod modular_system;
 
 use fsym_budget::{BudgetError, BudgetMeter, DIMENSION_COUNT, MeterError};
 use fsym_core::{BigInt, BigRational, Constant, Expr};
@@ -984,6 +985,18 @@ impl PyMatrix {
         session: Option<PyRef<'_, PySupervisedCallbackSession>>,
     ) -> PyResult<Option<(Self, Self)>> {
         integer_system::solve_dense(&self.inner, rhs, py, session.as_deref())
+    }
+
+    /// Complete finite modular family (P, K, periods), or checked inconsistency.
+    #[pyo3(signature = (rhs, m, *, session=None))]
+    pub fn solve_mod(
+        &self,
+        rhs: &Bound<'_, PyAny>,
+        m: &Bound<'_, PyAny>,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<Option<modular_system::DenseModularParts>> {
+        modular_system::solve_dense(&self.inner, rhs, m, py, session.as_deref())
     }
 
     /// Independently checked inertia of the real rational quadratic form.
@@ -2353,6 +2366,18 @@ impl PySparseMatrix {
         session: Option<PyRef<'_, PySupervisedCallbackSession>>,
     ) -> PyResult<Option<(Self, Self)>> {
         integer_system::solve_sparse(&self.inner, rhs, py, session.as_deref())
+    }
+
+    /// Complete finite modular family (P, K, periods), or checked inconsistency.
+    #[pyo3(signature = (rhs, m, *, session=None))]
+    pub fn solve_mod(
+        &self,
+        rhs: &Bound<'_, PyAny>,
+        m: &Bound<'_, PyAny>,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<Option<modular_system::SparseModularParts>> {
+        modular_system::solve_sparse(&self.inner, rhs, m, py, session.as_deref())
     }
 
     /// Independently checked inertia without public dense conversion.
