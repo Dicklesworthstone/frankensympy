@@ -14,7 +14,6 @@ use fsym_polys::{
     checked_pseudo_division, checked_recursive_division, metered_rational_source,
     verify_bounded_division,
 };
-use fsym_runtime::Budget;
 use pyo3::exceptions::{PyValueError, PyZeroDivisionError};
 use pyo3::prelude::*;
 use pyo3::types::PyList;
@@ -35,8 +34,8 @@ fn polynomial_error(error: PolyError) -> PyErr {
 pub(crate) fn polynomial_source(
     source: &Expr,
     variables: &[Symbol],
-    generator: &mut Budget,
-    verifier: &mut Budget,
+    generator: &mut impl BudgetMeter,
+    verifier: &mut impl BudgetMeter,
 ) -> PyResult<MultivariatePoly> {
     let polynomial =
         bounded_polynomial_from_expr(source, variables, generator).map_err(polynomial_error)?;
@@ -60,7 +59,10 @@ pub(crate) fn polynomial_source(
     Ok(polynomial)
 }
 
-pub(crate) fn integral(polynomial: &MultivariatePoly, meter: &mut Budget) -> PyResult<bool> {
+pub(crate) fn integral(
+    polynomial: &MultivariatePoly,
+    meter: &mut impl BudgetMeter,
+) -> PyResult<bool> {
     charge(meter, polynomial.terms().len(), 0)?;
     Ok(polynomial
         .terms()
@@ -76,8 +78,8 @@ pub(crate) fn original_domain(
     variables: &[Symbol],
     original_variables: Option<&Bound<'_, PyList>>,
     domain: Option<&str>,
-    generator: &mut Budget,
-    verifier: &mut Budget,
+    generator: &mut impl BudgetMeter,
+    verifier: &mut impl BudgetMeter,
 ) -> PyResult<()> {
     let (original_variables, domain) = match (original_variables, domain) {
         (None, None) => return Ok(()),
@@ -114,7 +116,7 @@ pub(crate) fn original_domain(
 
 pub(crate) fn checked_lift(
     polynomial: &MultivariatePoly,
-    verifier: &mut Budget,
+    verifier: &mut impl BudgetMeter,
 ) -> PyResult<PyExpr> {
     // Both complete output allocations were prepaid before the first lift.
     let expression = polynomial.to_expr().map_err(polynomial_error)?;

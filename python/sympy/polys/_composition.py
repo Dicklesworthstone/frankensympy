@@ -9,8 +9,8 @@ independent coefficient checking and publication of the complete result.
 from types import BuiltinFunctionType
 
 from ..core import (
-    Basic, Dummy, Symbol, _lift_native_result, _native, _surface_binding_key,
-    _symbol_binding,
+    Basic, Dummy, Symbol, _active_callback_session, _lift_native_result, _native,
+    _surface_binding_key, _symbol_binding,
 )
 from ..core._function_capabilities import _owner_matches, _owner_record
 from . import _finitefield
@@ -21,6 +21,44 @@ from .polyerrors import GeneratorsError, GeneratorsNeeded, PolynomialError, Unif
 _NATIVE_COMPOSE = getattr(_native, "polynomial_compose_native", None)
 _POLY_OWNERS = ()
 _MRO = type.__dict__["__mro__"]
+_SESSION_TYPE = _native.SupervisedCallbackSession
+_SESSION_CHARGE = _SESSION_TYPE.charge_nested_steps
+_SESSION_CANCEL = _SESSION_TYPE.cancel
+_SESSION_USED = _SESSION_TYPE.consumed_nested_steps
+_SESSION_LIMIT = _SESSION_TYPE.max_nested_steps
+_SESSION_CANCELLED = _SESSION_TYPE.cancelled
+_SESSION_TAINTED = _SESSION_TYPE.unknown_effect_tainted
+
+
+def _request_current(session):
+    if _active_callback_session() is not session:
+        raise RuntimeError("composition callback session changed during exact evaluation")
+    if session is not None and (
+        _SESSION_CANCELLED.__get__(session) or _SESSION_TAINTED.__get__(session)
+    ):
+        raise RuntimeError("cancelled or tainted callback session cannot publish composition")
+
+
+def _request_charge(session, steps):
+    _request_current(session)
+    if session is not None:
+        # Keep the original capability even if a callback replaces a public
+        # method or changes the thread's ambient request while checking owner.
+        _SESSION_CHARGE(session, steps)
+        _request_current(session)
+
+
+def _snapshot_cost(snapshot):
+    return (1 + len(snapshot.slots) + len(snapshot.fields)
+            + sum(1 + len(expressions) + len(generators)
+                  for _, _, _, expressions, generators in snapshot.bases)
+            + sum(1 + len(previous) for _, previous in snapshot.dictionaries))
+
+
+def _snapshot_unchanged(snapshot, session):
+    _request_charge(session, _snapshot_cost(snapshot))
+    snapshot.unchanged()
+    _request_current(session)
 
 
 def register_poly_owners(*classes):
@@ -54,8 +92,9 @@ def _axes(values):
     return values
 
 
-def _snapshot_symbols(snapshot):
+def _snapshot_symbols(snapshot, session):
     """An older immutable native atom cannot acquire a changed declaration."""
+    _request_charge(session, len(snapshot.slots) + 1)
     seen = set()
     for node, owner, name, _, native in snapshot.slots:
         if (owner is Basic and name == "_value" and type(node) in (Symbol, Dummy)
@@ -65,15 +104,10 @@ def _snapshot_symbols(snapshot):
                     or _surface_binding_key(native.symbol_binding)
                     != _surface_binding_key(_symbol_binding(node))):
                 raise ValueError("composition source symbol identity disagrees with its assumptions")
-    snapshot.unchanged()
+    _snapshot_unchanged(snapshot, session)
 
 
 def compose_entry(outer, inner, generators=(), options=None, *, method=False):
-    from .polytools import (
-        GroebnerBasis, Poly, PurePoly, _IdealQuotientSnapshot,
-        _elimination_generator_union, _rational_ideal_source, _sort_gens,
-    )
-
     options = {} if options is None else options
     # Select the existing field lane before rational admission. No exception
     # from either checked lane is caught and retried in a different domain.
@@ -81,6 +115,28 @@ def compose_entry(outer, inner, generators=(), options=None, *, method=False):
         modular = _finitefield.binary_entry(outer, inner, generators, options, "compose")
         if modular is not None:
             return modular
+    session = _active_callback_session()
+    if session is not None and type(session) is not _SESSION_TYPE:
+        raise TypeError("compose requires an original SupervisedCallbackSession")
+    try:
+        _request_current(session)
+        return _compose_rational_entry(outer, inner, generators, options, method, session)
+    except BaseException:
+        # Shared source/lifting helpers use the legacy public charge method,
+        # which records an overdraw (or saturates on overflow) before raising.
+        # Refusal with no remaining steps is terminal even outside a callback.
+        if (session is not None
+                and _SESSION_USED.__get__(session) >= _SESSION_LIMIT.__get__(session)):
+            _SESSION_CANCEL(session)
+        raise
+
+
+def _compose_rational_entry(outer, inner, generators, options, method, session):
+    from .polytools import (
+        GroebnerBasis, Poly, PurePoly, _IdealQuotientSnapshot,
+        _elimination_generator_union, _rational_ideal_source, _sort_gens,
+    )
+
     native_entry = _interfaces()
     for name in options:
         if name not in {"domain", "polys", "field", "gens"}:
@@ -135,17 +191,22 @@ def compose_entry(outer, inner, generators=(), options=None, *, method=False):
     retained = _IdealQuotientSnapshot(
         GroebnerBasis(list(originals), requested, "QQ", "lex"), *bases,
     )
-    _snapshot_symbols(retained)
+    # Retain source storage before the first ownership check can reenter
+    # Python. Cancellation was already checked without executing callbacks.
+    _request_charge(session, 1)
+    _snapshot_symbols(retained, session)
     sources, _, _, _ = retained.inputs()[0]
     source_symbols = [expression.free_symbols for expression in sources]
 
     def unchanged():
+        _request_charge(session, _snapshot_cost(retained) + len(containers) + 1)
         _interfaces()
         retained.unchanged()
         for container, original in containers:
             if (len(container) != len(original)
                     or any(current is not old for current, old in zip(container, original))):
                 raise RuntimeError("composition generator container mutated during evaluation")
+        _request_current(session)
 
     unchanged()
     carry_ring = method or all(state is not None for state in states)
@@ -184,7 +245,7 @@ def compose_entry(outer, inner, generators=(), options=None, *, method=False):
     snapshot = _IdealQuotientSnapshot(
         GroebnerBasis(list(originals), gens, "QQ", "lex"), *bases,
     )
-    _snapshot_symbols(snapshot)
+    _snapshot_symbols(snapshot, session)
     sources, gens, equations, bindings = snapshot.inputs()[0]
     unchanged()
     requested_domain = domain
@@ -200,18 +261,21 @@ def compose_entry(outer, inner, generators=(), options=None, *, method=False):
     raw, result_domain = native_entry(
         equations[0], equations[1], bindings, original_axes[0], original_axes[1],
         original_domains[0], original_domains[1], requested_domain or "auto", coordinates,
+        session=session,
     )
-    snapshot.unchanged()
+    _snapshot_unchanged(snapshot, session)
     unchanged()
     if type(result_domain) is not str or result_domain not in ("ZZ", "QQ"):
         raise RuntimeError("native composition returned an invalid coefficient domain")
+    _request_charge(session, len(sources) + len(gens) + 1)
     expression = _lift_native_result(raw, *sources, *gens)
-    snapshot.unchanged()
+    _snapshot_unchanged(snapshot, session)
     unchanged()
     want_polys = options.get("polys")
     if want_polys is None:
         want_polys = any(state is not None for state in states)
     want_polys = method or want_polys
+    _request_charge(session, len(gens) + 1)
     if want_polys:
         cls = type(outer) if carry_ring else Poly
         result = object.__new__(cls)
@@ -222,6 +286,6 @@ def compose_entry(outer, inner, generators=(), options=None, *, method=False):
         result._extra_syms = frozenset()
     else:
         result = expression
-    snapshot.unchanged()
+    _snapshot_unchanged(snapshot, session)
     unchanged()
     return result

@@ -228,3 +228,254 @@ def test_prime_field_composition_still_uses_its_existing_field_domain():
     expected = sp.Poly(x*x + 3*x*y + 2*y*y+y, x, y, modulus=5)
     result = sp.compose(sp.Poly(x*x+x*y+y, x, y, modulus=5), sp.Poly(x+y, x, y, modulus=5))
     assert result == expected and result.get_modulus() == 5
+
+
+# The following cases exercise the actual extension and its request ledger.
+# They intentionally are not part of the isolated upstream profile above.
+def _composition_session(steps=20_000_000):
+    from sympy.core import SupervisedCallbackSession
+
+    return SupervisedCallbackSession(max_nested_steps=steps, max_wall_time_ms=60_000)
+
+
+def test_native_composition_shares_one_exact_budget_across_source_generator_and_verifier():
+    from sympy.core import _lift_native_result, _native, _native_expr, _symbol_binding
+
+    x, y = sp.symbols("composition_budget_x composition_budget_y")
+    outer = _native_expr(x*x + y)
+    inner = _native_expr(x+y)
+    variables = [_symbol_binding(x), _symbol_binding(y)]
+    expected = x*x + 2*x*y + y*y + y
+
+    def invoke(session):
+        return _native.polynomial_compose_native(
+            outer, inner, variables, variables, variables, "QQ", "QQ", "QQ",
+            session=session,
+        )
+
+    measured = _composition_session()
+    value, domain = invoke(measured)
+    assert _lift_native_result(value, x, y) == expected and domain == "QQ"
+    cost = measured.consumed_nested_steps
+    assert cost > 20
+    exact = _composition_session(cost)
+    assert invoke(exact) == (value, "QQ")
+    assert exact.consumed_nested_steps == cost and not exact.cancelled
+
+    short = _composition_session(cost - 1)
+    with pytest.raises((ValueError, RuntimeError), match="budget|step|cancel"):
+        invoke(short)
+    assert short.cancelled
+    assert 0 < short.consumed_nested_steps <= short.max_nested_steps
+
+    cumulative = _composition_session(2*cost - 1)
+    assert invoke(cumulative) == (value, "QQ")
+    with pytest.raises((ValueError, RuntimeError), match="budget|step|cancel"):
+        invoke(cumulative)
+    assert cumulative.cancelled
+    assert cost <= cumulative.consumed_nested_steps <= cumulative.max_nested_steps
+    used = cumulative.consumed_nested_steps
+    with pytest.raises(RuntimeError, match="cancel"):
+        invoke(cumulative)
+    assert cumulative.consumed_nested_steps == used
+
+
+@pytest.mark.parametrize("lane", ["poly", "pure", "module"])
+def test_public_composition_forwards_the_active_request_and_never_resets_it(lane):
+    from sympy.core import supervised_callback_session
+
+    x, y, a, b = sp.symbols(
+        "composition_public_x composition_public_y composition_public_a composition_public_b"
+    )
+    if lane == "pure":
+        outer = sp.PurePoly(x*x+y, x, y, domain="QQ")
+        inner = sp.Poly(a+b, a, b, domain="ZZ")
+        invoke = lambda: outer.compose(inner)
+    elif lane == "poly":
+        outer = sp.Poly(x*x+y, x, y, domain="QQ")
+        inner = sp.Poly(x+y, x, y, domain="QQ")
+        invoke = lambda: outer.compose(inner)
+    else:
+        outer, inner = x*x+y, x+y
+        invoke = lambda: sp.compose(outer, inner, x, y, domain="QQ", polys=True)
+    expected = x*x + 2*x*y + y*y + y
+    # Warm existing interning caches before comparing deterministic request
+    # costs. Assertions and test-input construction happen outside the meter.
+    invoke()
+    measured = _composition_session()
+    with supervised_callback_session(measured):
+        result = invoke()
+    cls = sp.PurePoly if lane == "pure" else sp.Poly
+    assert_polynomial(result, cls, expected, (x, y), "QQ")
+    cost = measured.consumed_nested_steps
+    assert cost > 20
+
+    exact = _composition_session(cost)
+    with supervised_callback_session(exact):
+        result = invoke()
+    assert_polynomial(result, cls, expected, (x, y), "QQ")
+    assert exact.consumed_nested_steps == cost and not exact.cancelled
+
+    cumulative = _composition_session(2*cost - 1)
+    with supervised_callback_session(cumulative):
+        first = invoke()
+        with pytest.raises((ValueError, RuntimeError), match="budget|step|cancel"):
+            invoke()
+    assert_polynomial(first, cls, expected, (x, y), "QQ")
+    assert cumulative.cancelled
+    # Python's existing public charge API records its refused charge; native
+    # charges are atomic. Both paths must make all later work terminal.
+    used = cumulative.consumed_nested_steps
+    assert used >= cost
+    with supervised_callback_session(cumulative):
+        with pytest.raises(RuntimeError, match="cancel"):
+            invoke()
+    assert cumulative.consumed_nested_steps == used
+
+
+@pytest.mark.parametrize("public", [False, True])
+def test_cancelled_composition_request_cannot_publish_even_a_constant(public):
+    from sympy.core import _native, _native_expr, _symbol_binding, supervised_callback_session
+
+    x = sp.Symbol("composition_cancelled_x")
+    outer, inner = sp.Poly(0, x), sp.Poly(x+1, x)
+    original = _native_expr(outer.as_expr())
+    replacement = _native_expr(inner.as_expr())
+    variables = [_symbol_binding(x)]
+    request = _composition_session()
+    request.cancel()
+    with pytest.raises(RuntimeError, match="cancel"):
+        if public:
+            with supervised_callback_session(request):
+                outer.compose(inner)
+        else:
+            _native.polynomial_compose_native(
+                original, replacement, variables, session=request,
+            )
+    assert request.consumed_nested_steps == 0
+
+
+def test_public_source_admission_overdraw_is_terminal_even_outside_a_callback():
+    from sympy.core import supervised_callback_session
+
+    x = sp.Symbol("composition_admission_x")
+    outer, inner = sp.Poly(x*x+1, x), sp.Poly(x+1, x)
+    request = _composition_session(1)
+    with supervised_callback_session(request):
+        with pytest.raises((ValueError, RuntimeError), match="budget|step|cancel"):
+            outer.compose(inner)
+    assert request.cancelled
+    used = request.consumed_nested_steps
+    with supervised_callback_session(request):
+        with pytest.raises(RuntimeError, match="cancel"):
+            outer.compose(inner)
+    assert request.consumed_nested_steps == used
+
+
+def test_cancellation_during_public_lifting_prevents_result_publication(monkeypatch):
+    from sympy.core import supervised_callback_session
+    from sympy.polys import _composition
+
+    x = sp.Symbol("composition_lift_cancel_x")
+    outer, inner = sp.Poly(x*x+1, x), sp.Poly(x+1, x)
+    original = _composition._lift_native_result
+    request = _composition_session()
+
+    def cancel_after_lifting(*args, **kwargs):
+        result = original(*args, **kwargs)
+        request.cancel()
+        return result
+
+    monkeypatch.setattr(_composition, "_lift_native_result", cancel_after_lifting)
+    with supervised_callback_session(request):
+        with pytest.raises(RuntimeError, match="cancel"):
+            outer.compose(inner)
+    assert request.cancelled and request.consumed_nested_steps > 0
+
+
+def test_replacing_the_active_session_during_lifting_cannot_restart_the_budget(monkeypatch):
+    from sympy import core
+    from sympy.polys import _composition
+
+    x = sp.Symbol("composition_lift_session_x")
+    outer, inner = sp.Poly(x*x+1, x), sp.Poly(x+1, x)
+    original = _composition._lift_native_result
+    request, replacement = _composition_session(), _composition_session()
+
+    def replace_after_lifting(*args, **kwargs):
+        result = original(*args, **kwargs)
+        core._callback_tls.session = replacement
+        return result
+
+    monkeypatch.setattr(_composition, "_lift_native_result", replace_after_lifting)
+    with core.supervised_callback_session(request):
+        with pytest.raises(RuntimeError, match="session changed"):
+            outer.compose(inner)
+    assert request.consumed_nested_steps > 0
+    assert replacement.consumed_nested_steps == 0
+
+
+def test_native_owner_callback_cannot_change_the_retained_operation_ring(monkeypatch):
+    import threading
+    from sympy.core import _native, _native_expr, _symbol_binding
+
+    x, y = sp.symbols("composition_owner_x composition_owner_y")
+    outer, inner = _native_expr(x*x+1), _native_expr(x+1)
+    variables = [_symbol_binding(x)]
+    added = _symbol_binding(y)
+    request = _composition_session()
+    original_ident = threading.get_ident
+    mutated = False
+
+    def change_coordinates():
+        nonlocal mutated
+        if not mutated:
+            mutated = True
+            variables.append(added)
+        return original_ident()
+
+    monkeypatch.setattr(threading, "get_ident", change_coordinates)
+    with pytest.raises(RuntimeError, match="coordinates mutated"):
+        _native.polynomial_compose_native(outer, inner, variables, session=request)
+    assert mutated and request.consumed_nested_steps > 0
+
+
+def test_active_request_does_not_weaken_hidden_pole_source_admission():
+    from sympy.core import supervised_callback_session
+
+    x = sp.Symbol("composition_budget_pole_x")
+    outer, inner = sp.Poly(0, x), sp.Poly(0, x)
+    inner._expr = sp.Mul(0, sp.Pow(x, -1, evaluate=False), evaluate=False)
+    request = _composition_session()
+    with supervised_callback_session(request):
+        with pytest.raises(ValueError):
+            outer.compose(inner)
+    assert request.consumed_nested_steps > 0
+
+
+def test_transient_owner_callback_axis_swap_cannot_change_the_native_composition(monkeypatch):
+    import threading
+    from sympy.core import _lift_native_result, _native, _native_expr, _symbol_binding
+
+    x, y = sp.symbols("composition_swap_x composition_swap_y")
+    outer, inner = _native_expr(x*x+y), _native_expr(x+y)
+    variables = [_symbol_binding(x), _symbol_binding(y)]
+    original_variables = tuple(variables)
+    expected = x*x + 2*x*y + y*y + y
+    request = _composition_session()
+    original_ident = threading.get_ident
+    calls = 0
+
+    def swap_and_restore_coordinates():
+        nonlocal calls
+        calls += 1
+        if calls <= 2:
+            variables.reverse()
+        return original_ident()
+
+    monkeypatch.setattr(threading, "get_ident", swap_and_restore_coordinates)
+    result, domain = _native.polynomial_compose_native(
+        outer, inner, variables, session=request,
+    )
+    assert calls >= 2 and tuple(variables) == original_variables
+    assert _lift_native_result(result, x, y) == expected and domain == "ZZ"

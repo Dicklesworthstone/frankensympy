@@ -6,6 +6,7 @@
 use crate::binding::PySymbolBinding;
 use crate::expr::{PyExpr, PySymbol};
 use crate::{extract_symbol_arg, to_value_error};
+use fsym_budget::BudgetMeter;
 use fsym_core::{Expr, Symbol};
 use fsym_polys::{MultivariatePoly, VerifiedIdealOperation, bounded_polynomial_from_expr};
 use fsym_runtime::{Budget, BudgetLimits, Dimension};
@@ -19,9 +20,9 @@ pub(crate) fn budget() -> Budget {
     Budget::new(limits)
 }
 
-pub(crate) fn charge(meter: &mut Budget, steps: usize, bytes: usize) -> PyResult<()> {
+pub(crate) fn charge(meter: &mut impl BudgetMeter, steps: usize, bytes: usize) -> PyResult<()> {
     meter
-        .try_charge_batch(&[
+        .charge_batch(&[
             (Dimension::ComputeSteps, steps.max(1) as u64),
             (Dimension::MemoryBytes, bytes.max(1) as u64),
             (Dimension::AllocationCount, 1),
@@ -62,23 +63,30 @@ fn symbol_name_bytes(value: &Bound<'_, PyAny>) -> PyResult<usize> {
     ))
 }
 
-pub(crate) fn symbols(values: &Bound<'_, PyList>, meter: &mut Budget) -> PyResult<Vec<Symbol>> {
+pub(crate) fn symbols(
+    values: &Bound<'_, PyList>,
+    meter: &mut impl BudgetMeter,
+) -> PyResult<Vec<Symbol>> {
     if values.len() > 8 {
         return Err(PyValueError::new_err(
             "checked ideals support at most eight generators",
         ));
     }
+    // A request-aware meter can perform Python ownership checks. Retain the
+    // already bounded objects before charging so a reentrant list mutation
+    // cannot substitute larger, unadmitted names or an unbounded ring.
+    let retained: Vec<_> = values.iter().collect();
     let mut name_bytes = 0usize;
-    for value in values.iter() {
+    for value in &retained {
         name_bytes = name_bytes
-            .checked_add(symbol_name_bytes(&value)?)
+            .checked_add(symbol_name_bytes(value)?)
             .filter(|&bytes| bytes <= 65_536)
             .ok_or_else(|| PyValueError::new_err("ideal generator names exceed 65536 bytes"))?;
     }
-    charge(meter, values.len(), values.len() * 128 + name_bytes)?;
-    let symbols = values
+    charge(meter, retained.len(), retained.len() * 128 + name_bytes)?;
+    let symbols = retained
         .iter()
-        .map(|value| extract_symbol_arg(&value))
+        .map(extract_symbol_arg)
         .collect::<PyResult<Vec<_>>>()?;
     // Bind the complete typed ring, including duplicate and name-size checks,
     // before admitting an empty list of polynomial generators.
