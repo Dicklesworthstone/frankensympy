@@ -1708,14 +1708,25 @@ pub fn compiled_expression_matches_with_meter<M: BudgetMeter + ?Sized>(
                     if name == "Piecewise" {
                         return self.piecewise(arguments, depth);
                     }
-                    if name == "atan2" && arguments.len() == 2 {
+                    let binary = match name.as_str() {
+                        "atan2" => Some(CompiledOp::Atan2),
+                        "_fsym_atan2_dy" => Some(CompiledOp::Atan2DerivativeY),
+                        "_fsym_atan2_dx" => Some(CompiledOp::Atan2DerivativeX),
+                        "_fsym_atan2_dyy" => Some(CompiledOp::Atan2SecondDerivativeYY),
+                        "_fsym_atan2_dyx" => Some(CompiledOp::Atan2SecondDerivativeYX),
+                        "_fsym_atan2_dxx" => Some(CompiledOp::Atan2SecondDerivativeXX),
+                        _ => None,
+                    };
+                    if let Some(operation) = binary
+                        && arguments.len() == 2
+                    {
                         charge_compilation_work(self.meter, name.len() + 1, 0, 0)?;
                         for argument in arguments {
                             if !self.visit(argument, depth + 1)? {
                                 return Ok(false);
                             }
                         }
-                        return self.take(CompiledOp::Atan2);
+                        return self.take(operation);
                     }
                     if arguments.len() != 1 {
                         return Err(CompileError::UnsupportedFunction(compilation_diagnostic(

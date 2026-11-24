@@ -393,6 +393,13 @@ pub enum CompiledOp {
     /// than an overflowing square or prematurely underflowing inverse cube.
     AsinhDerivative,
     AsinhSecondDerivative,
+    /// Ordered binary partial derivatives of atan2(y, x), evaluated after
+    /// scaling both coordinates. Every jet rejects the origin and branch cut.
+    Atan2DerivativeY,
+    Atan2DerivativeX,
+    Atan2SecondDerivativeYY,
+    Atan2SecondDerivativeYX,
+    Atan2SecondDerivativeXX,
 }
 
 /// Bounded forward-only stack program evaluating an expression to an f64 value.
@@ -611,6 +618,11 @@ impl CompiledExpr {
             }
             CompiledOp::PowPositive
             | CompiledOp::Atan2
+            | CompiledOp::Atan2DerivativeY
+            | CompiledOp::Atan2DerivativeX
+            | CompiledOp::Atan2SecondDerivativeYY
+            | CompiledOp::Atan2SecondDerivativeYX
+            | CompiledOp::Atan2SecondDerivativeXX
             | CompiledOp::Equal
             | CompiledOp::NotEqual
             | CompiledOp::Less
@@ -949,11 +961,22 @@ impl CompiledExpr {
                 if name == "Piecewise" {
                     return Self::compile_piecewise(args, var_map, ops, depth, meter);
                 }
-                if name == "atan2" && args.len() == 2 {
-                    charge_compilation_work(meter, name.len() + 1, 0, 0)?;
-                    Self::compile_recursive(&args[0], var_map, ops, depth + 1, meter)?;
-                    Self::compile_recursive(&args[1], var_map, ops, depth + 1, meter)?;
-                    return Self::push_op(ops, CompiledOp::Atan2, meter);
+                if args.len() == 2 {
+                    let operation = match name.as_str() {
+                        "atan2" => Some(CompiledOp::Atan2),
+                        "_fsym_atan2_dy" => Some(CompiledOp::Atan2DerivativeY),
+                        "_fsym_atan2_dx" => Some(CompiledOp::Atan2DerivativeX),
+                        "_fsym_atan2_dyy" => Some(CompiledOp::Atan2SecondDerivativeYY),
+                        "_fsym_atan2_dyx" => Some(CompiledOp::Atan2SecondDerivativeYX),
+                        "_fsym_atan2_dxx" => Some(CompiledOp::Atan2SecondDerivativeXX),
+                        _ => None,
+                    };
+                    if let Some(operation) = operation {
+                        charge_compilation_work(meter, name.len() + 1, 0, 0)?;
+                        Self::compile_recursive(&args[0], var_map, ops, depth + 1, meter)?;
+                        Self::compile_recursive(&args[1], var_map, ops, depth + 1, meter)?;
+                        return Self::push_op(ops, operation, meter);
+                    }
                 }
                 if args.len() != 1 {
                     return Err(CompileError::UnsupportedFunction(compilation_diagnostic(
@@ -1440,6 +1463,53 @@ impl CompiledExpr {
                         y.atan2(x)
                     };
                     stack.push(angle);
+                }
+                CompiledOp::Atan2DerivativeY
+                | CompiledOp::Atan2DerivativeX
+                | CompiledOp::Atan2SecondDerivativeYY
+                | CompiledOp::Atan2SecondDerivativeYX
+                | CompiledOp::Atan2SecondDerivativeXX => {
+                    let x = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    let y = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    charge_evaluation_steps(meter, 20)?;
+                    if !x.is_finite() || !y.is_finite() {
+                        return Err(EvalError::NonFiniteValue);
+                    }
+                    if x == 0.0 && y == 0.0 {
+                        return Err(EvalError::UndefinedAngle);
+                    }
+                    if x < 0.0 && y == 0.0 {
+                        return Err(EvalError::NonsmoothAngle);
+                    }
+                    // At least one normalized coordinate has magnitude one,
+                    // so q stays in [1, 2]. Divide by the scale one power at a
+                    // time: s*s could overflow or underflow even when the
+                    // requested partial is representable.
+                    let scale = x.abs().max(y.abs());
+                    let a = y / scale;
+                    let b = x / scale;
+                    let q = a * a + b * b;
+                    let derivative = match op {
+                        CompiledOp::Atan2DerivativeY => (b / q) / scale,
+                        CompiledOp::Atan2DerivativeX => (-a / q) / scale,
+                        CompiledOp::Atan2SecondDerivativeYY => {
+                            (((-2.0 * a * b / q) / q) / scale) / scale
+                        }
+                        CompiledOp::Atan2SecondDerivativeYX => {
+                            // Difference of squares in factored form retains
+                            // near-diagonal curvature without cancellation of
+                            // two separately rounded squared coordinates.
+                            ((((a - b) * (a + b) / q) / q) / scale) / scale
+                        }
+                        CompiledOp::Atan2SecondDerivativeXX => {
+                            (((2.0 * a * b / q) / q) / scale) / scale
+                        }
+                        _ => unreachable!("matched atan2 partial operation"),
+                    };
+                    if !derivative.is_finite() {
+                        return Err(EvalError::NonFiniteValue);
+                    }
+                    stack.push(derivative);
                 }
                 CompiledOp::Sinh => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;

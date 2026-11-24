@@ -146,6 +146,11 @@ fn arity(operation: &CompiledOp) -> Option<usize> {
         CompiledOp::Add(count) | CompiledOp::Mul(count) => Some(*count),
         CompiledOp::PowPositive
         | CompiledOp::Atan2
+        | CompiledOp::Atan2DerivativeY
+        | CompiledOp::Atan2DerivativeX
+        | CompiledOp::Atan2SecondDerivativeYY
+        | CompiledOp::Atan2SecondDerivativeYX
+        | CompiledOp::Atan2SecondDerivativeXX
         | CompiledOp::Equal
         | CompiledOp::NotEqual
         | CompiledOp::Less

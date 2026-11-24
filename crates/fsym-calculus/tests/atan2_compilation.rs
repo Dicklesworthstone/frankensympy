@@ -11,6 +11,9 @@ use fsym_calculus::verified::{ResidualEvaluationError, VerifiedResidualSystem};
 use fsym_core::{Expr, Symbol, SymbolIdentity, parse};
 use std::collections::HashMap;
 
+#[path = "atan2_compilation/numeric_jets.rs"]
+mod numeric_jets;
+
 fn angle(y: Expr, x: Expr) -> Expr {
     Expr::Function("atan2".into(), vec![y, x])
 }
