@@ -318,3 +318,14 @@ def test_cancellation_at_publication_is_terminal(method, cls, monkeypatch):
         monkeypatch.setattr(_row_reduction, "_publish", cancel_before_publish)
         with pytest.raises(RuntimeError, match="cancelled|tainted"):
             getattr(coefficients, method)(rhs)
+
+
+@pytest.mark.parametrize("method", METHODS)
+@pytest.mark.parametrize("cls", [SparseMatrix, ImmutableSparseMatrix])
+def test_sparse_factor_solves_accept_the_named_rhs_argument(method, cls):
+    coefficients = cls([[1], [2*I]])
+    rhs = Matrix([1, 0])
+    result = getattr(coefficients, method)(rhs=rhs)
+    assert type(result) is cls
+    assert_exact(result, Matrix([[Rational(1, 5)]]))
+    assert_exact(coefficients.H*(coefficients*result-rhs), zeros(1, 1))

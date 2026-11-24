@@ -1218,7 +1218,7 @@ class SparseMatrix(MatrixBase):
                 "sparse Cholesky requires closed exact Hermitian entries and hermitian=True")
         return result
 
-    def LDLsolve(self, b):
+    def LDLsolve(self, rhs):
         """Solve a full-column-rank exact system, minimizing tall residuals.
 
         Square systems return the unique exact solution. Tall systems use
@@ -1227,7 +1227,7 @@ class SparseMatrix(MatrixBase):
         """
         from ._factor_solve import solve
 
-        return solve(self, b)
+        return solve(self, rhs)
 
     def cholesky_solve(self, rhs):
         """Return the unique exact Hermitian least-squares solution.
