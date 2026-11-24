@@ -1119,12 +1119,32 @@ class SparseMatrix(MatrixBase):
         return self.to_dense().det(method=method)
 
     def inv(self, method: Any = None, **kwargs: Any) -> "SparseMatrix":
+        from ..core import _active_callback_session
+        from ._pseudoinverse import _needs_gaussian, inverse_if_exact
+
+        if _active_callback_session() is not None or _needs_gaussian(self):
+            exact = inverse_if_exact(self)
+            if exact is not None:
+                return exact
         if self._native.is_exact_rational:
             return self.solve(SparseMatrix.eye(self.rows))
         return self._new(self.to_dense().inv(method=method, **kwargs))
 
     def solve(self, b: Any) -> "SparseMatrix":
-        """Solve a square exact rational sparse system without dense conversion."""
+        """Solve a square system, with original-source checks over exact Q(i).
+
+        Literal-rational sources retain the sparse elimination lane. Built-in
+        complex coefficient/RHS matrices use the bounded exact checker through
+        32 axes, preserving the pinned result class and original source owners.
+        """
+        from ._pseudoinverse import solve_exact
+        from ._row_reduction import _selected
+
+        if (any(type(self) is cls for cls in (SparseMatrix, ImmutableSparseMatrix))
+                and any(type(b) is cls for cls in
+                        (Matrix, ImmutableDenseMatrix, SparseMatrix, ImmutableSparseMatrix))
+                and (_selected(self) or _selected(b))):
+            return solve_exact(self, b)
         # SparseMatrix.solve and LUsolve have different rectangular contracts
         # in the pinned profile. The native solve also serves LUsolve below.
         if self.rows < self.cols:
@@ -1199,17 +1219,24 @@ class SparseMatrix(MatrixBase):
         return result
 
     def LUsolve(self, b: Any):
-        """Solve a square or consistent tall rational system, keeping RHS class.
+        """Solve a square or consistent tall exact system, keeping RHS class.
 
         Closed rational inputs use checked sparse elimination without a dense
         intermediate. Underdetermined, inconsistent, and rank-deficient
         systems are refused; no arbitrary free parameters are introduced.
+        Original Q(i) coefficient/RHS sources use the bounded checked unique
+        solve through 32 axes, sharing the active request through publication.
         """
         if not any(type(self) is cls for cls in (SparseMatrix, ImmutableSparseMatrix)):
             raise NotImplementedError("custom matrix subclasses require a supervised override lane")
         rhs_sparse = any(type(b) is cls for cls in (SparseMatrix, ImmutableSparseMatrix))
         if not rhs_sparse and not any(type(b) is cls for cls in (Matrix, ImmutableDenseMatrix)):
             raise TypeError("LUsolve requires a built-in Matrix right-hand side")
+        from ._pseudoinverse import solve_exact
+        from ._row_reduction import _selected
+
+        if _selected(self) or _selected(b):
+            return solve_exact(self, b, lu=True)
         left = _rational_source_snapshot(self, context="sparse LUsolve")
         right = _rational_source_snapshot(b, dense=not rhs_sparse, context="sparse LUsolve")
         if left is None or right is None:

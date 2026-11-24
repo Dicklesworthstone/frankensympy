@@ -597,6 +597,7 @@ jobs:
               "python/tests/test_sparse_surface_storage.py",
               "python/tests/test_sparse_complex_least_squares.py",
               "python/tests/test_sparse_complex_qr.py",
+              "python/tests/test_sparse_complex_exact_solve.py",
               "python/tests/test_sparse_structure.py",
               "python/tests/test_sparse_campaign.py",
               "python/tests/test_sparse_linear_algebra.py",

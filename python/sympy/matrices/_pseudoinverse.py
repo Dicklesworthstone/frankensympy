@@ -30,7 +30,7 @@ _SPARSE_METHODS = tuple(_source._DICT.__get__(_SPARSE_NATIVE)[name] for name in 
 def _interfaces(operation, context, base):
     _source._interfaces()
     namespace = _source._DICT.__get__(_NATIVE)
-    required = ((0, 1, 2, operation, 6) if operation in (3, 4, 5, 7, 10, 11, 12, 13, 14, 15, 17, 18, 19)
+    required = ((0, 1, 2, operation, 6) if operation in (3, 4, 5, 7, 8, 10, 11, 12, 13, 14, 15, 17, 18, 19)
                 else (0, 1, 2, operation))
     if operation in (8, 11, 12, 13, 16, 17, 18):
         required += (9,)
@@ -335,12 +335,18 @@ def solve_exact(matrix, rhs, *, lu=False):
     if gaussian and (original_matrix is not matrix or original_rhs is not rhs):
         raise NotImplementedError("custom matrix subclasses require a supervised override lane")
     left, (rows, columns), left_unchanged = _capture(
-        matrix, session, 7, "exact linear solve", force_gaussian=gaussian)
+        matrix, session, 7, "exact linear solve", allow_sparse=True, force_gaussian=gaussian)
     right, (rhs_rows, rhs_columns), right_unchanged = _capture(
         rhs, session, 7, "exact linear solve", allow_sparse=True, force_gaussian=gaussian)
     if rows != rhs_rows:
         raise ValueError("The matrices have incompatible number of rows")
     if rows != columns:
+        if not lu and any(type(original_matrix) is cls for cls in _SPARSE_CLASSES):
+            if rows < columns:
+                raise ValueError("Under-determined system.")
+            raise ValueError(
+                "For over-determined system, M, having more rows than columns, "
+                "try M.solve_least_squares(rhs).")
         if lu and rows < columns:
             raise NotImplementedError("Underdetermined systems not supported.")
         if not lu and columns != 0 and rhs_columns == 0:
@@ -356,11 +362,17 @@ def solve_exact(matrix, rhs, *, lu=False):
     solution = _METHODS[7](left, right, session=session)
     unchanged()
     shape = (columns, rhs_columns)
-    # The established rectangular LU contract keeps a built-in RHS class.
-    # A custom RHS previously used the coefficient owner's constructor.
-    owner = (original_rhs if lu and rows != columns
-             and any(type(original_rhs) is known for known in _CLASSES + _SPARSE_CLASSES)
-             else original_matrix)
+    # Sparse LUsolve keeps the RHS class for every shape. Ordinary sparse
+    # solve promotes mutable coefficients to the RHS class, while immutable
+    # sparse coefficients retain their own class. Dense rectangular LUsolve
+    # has the established RHS rule; its square contract retains the owner.
+    if any(type(original_matrix) is cls for cls in _SPARSE_CLASSES):
+        owner = (original_rhs if lu or type(original_matrix) is _source.SparseMatrix
+                 else original_matrix)
+    else:
+        owner = (original_rhs if lu and rows != columns
+                 and any(type(original_rhs) is known for known in _CLASSES + _SPARSE_CLASSES)
+                 else original_matrix)
     cls = type(owner)
     if not any(cls is known for known in _CLASSES + _SPARSE_CLASSES):
         # Keep the legacy subclass's construction hook, then recheck every
@@ -400,24 +412,29 @@ def inverse_if_exact(matrix):
     matrix, owner_unchanged = _legacy_rational_view(matrix, 8, context)
     if session is not None and original_matrix is not matrix:
         raise NotImplementedError("custom matrix subclasses require a supervised override lane")
-    _interfaces(8, context, _source.Matrix)
-    slots = _source._SLOTS[_source.Matrix]
-    state = tuple(slot.__get__(matrix, _source.Matrix) for slot in slots)
+    sparse = any(type(matrix) is cls for cls in _SPARSE_CLASSES)
+    base = _source.SparseMatrix if sparse else _source.Matrix
+    native_type = _SPARSE_NATIVE if sparse else _NATIVE
+    syntax = _SPARSE_METHODS[4] if sparse else _METHODS[9]
+    _interfaces(8, context, base)
+    slots = _source._SLOTS[base]
+    state = tuple(slot.__get__(matrix, base) for slot in slots)
     native, _shape, surface, _generation = state
     if native is None:
         return None
-    if type(native) is not _NATIVE:
+    if type(native) is not native_type:
         raise ValueError("exact matrix inverse requires intact native matrix storage")
     # Literal rational storage keeps the existing larger source bounds. A
     # Gaussian syntax walk is needed only for the newly admitted grammar.
-    exact = not _needs_gaussian(matrix) or _METHODS[9](native, session=session)
+    exact = not _needs_gaussian(matrix) or syntax(native, session=session)
     owner_unchanged()
-    _source._unchanged(matrix, _source.Matrix, state, surface)
+    _source._unchanged(matrix, base, state, surface)
     if not exact:
         if session is not None:
             raise NotImplementedError("active matrix inverse requests require closed exact Q(i) cells")
         return None
-    source, shape, source_unchanged = _capture(matrix, session, 8, context)
+    source, shape, source_unchanged = _capture(
+        matrix, session, 8, context, allow_sparse=True)
 
     def unchanged():
         owner_unchanged()
@@ -431,6 +448,10 @@ def inverse_if_exact(matrix):
         unchanged()
         _charge_nested_if_active()
         return result
+    if sparse:
+        from ._row_reduction import _publish as publish_matrix
+
+        return publish_matrix(inverse, shape, type(matrix), unchanged, context)
     return _publish(inverse, shape, type(matrix), unchanged, context)
 
 

@@ -2038,6 +2038,40 @@ are checked before and after native execution, and checked results are
 published through original storage descriptors rather than replaceable Python
 constructors.
 
+### Exact complex sparse unique solves
+
+Built-in sparse matrices also admit original-source exact Q(i) square
+`solve()` and `inv()`, plus consistent tall `LUsolve()` systems. Rational
+coefficients with a complex right-hand side use the same bounded checked
+route:
+
+```python
+from sympy import I, Matrix, SparseMatrix
+
+A = SparseMatrix([[1], [I]])
+B = Matrix([[2 - I], [1 + 2*I]])
+X = A.LUsolve(B)
+assert X == Matrix([[2 - I]])
+assert A*X == B
+```
+
+The native checker establishes a left inverse, the proposed solution and
+every original equation. Inconsistent and rank-deficient systems refuse,
+including empty right-hand sides that do not establish uniqueness. Sparse
+`solve()` remains square-only. The complex route admits at most 32 rows and
+columns and 4096-bit rational components, subject to existing intermediate
+growth limits. Original sparse storage is checked before a bounded dense
+native view is formed. Large literal-rational sparse solves retain the
+separate sparse algorithm and its larger bounds.
+
+Complex sparse `LUsolve()` preserves the RHS class. Complex square
+`solve()` returns the RHS class for mutable sparse coefficients and immutable
+sparse output for immutable sparse coefficients; `inv()` preserves the
+coefficient class and checks both inverse identities. Source and scalar
+mutation, replaced conversion interfaces, cumulative request exhaustion and
+cancellation prevent publication. Symbolic inverse inputs retain their
+existing separately selected symbolic path.
+
 ### Exact sparse least squares
 
 `SparseMatrix.solve_least_squares(B)` also handles inconsistent tall rational

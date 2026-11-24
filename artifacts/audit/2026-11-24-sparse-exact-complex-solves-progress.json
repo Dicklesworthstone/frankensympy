@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-24",
+  "base_commit": "ff9147c03d6e7c807eed9e48d82af94617e481de",
+  "bead": "fra-kfo",
+  "status": "implemented_execution_pending",
+  "scope": [
+    "Original-source sparse exact Q(i) square solve and inverse",
+    "Unique consistent tall complex LUsolve with complete original residual checking",
+    "Mixed rational coefficients and complex RHS, precise sparse/dense and mutability class behavior"
+  ],
+  "bounds": "At most 32 axes and 4096-bit rational components on the existing Gaussian checked path; original sparse admission precedes bounded dense conversion. Literal-rational sparse algorithms retain their prior bounds.",
+  "validation": {
+    "authored_public_cases": 58,
+    "ordinary_reference_compatible_cases": 38,
+    "native_contract_cases": 20,
+    "independent_source_review": "Root and implementing agent reviewed source capture, lane selection, shape/class publication and native left-inverse/residual identities; an unrelated oracle-incompatible least-squares assertion was removed.",
+    "execution": "No test or syntax result observed for this slice. The execution host disconnected before results; source files were reconstructed from exact recorded patches and immutable baselines, staged through GitHub and independently fetched.",
+    "actual_extension": "Pending; no candidate execution or compiler pass is claimed."
+  },
+  "claims": "No workstream, profile, campaign, performance or certification gate is closed or promoted."
+}
