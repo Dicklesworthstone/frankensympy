@@ -1,0 +1,24 @@
+ Downloading crates ...
+  Downloaded num-rational v0.4.2
+   Compiling fsym-modular v0.1.0 (/workspace/scratch/ab9781d06adb/frankensympy/crates/fsym-modular)
+   Compiling num-rational v0.4.2
+   Compiling fsym-rational v0.1.0 (/workspace/scratch/ab9781d06adb/frankensympy/crates/fsym-rational)
+    Finished `test` profile [unoptimized] target(s) in 4.27s
+     Running tests/metered_float_conversion.rs (/tmp/frankensympy-ab9781d06adb-target/debug/build/fsym-rational/3bdecc7c80959dcb/out/metered_float_conversion-3bdecc7c80959dcb)
+
+running 12 tests
+test exact_fit_trait_object_uses_one_ledger_and_cannot_retry_with_fresh_allowances ... ok
+test a_large_finite_quotient_refuses_inside_its_borrowed_coefficient_comparison ... ok
+test memory_and_allocation_refusals_are_atomic_for_each_work_unit ... ok
+test metadata_extremes_need_no_coefficient_clone_and_still_check_publication ... ok
+test every_checkpoint_including_final_publication_can_cancel_without_returning_a_float ... ok
+test overflow_is_decided_after_exact_rounding_at_the_last_finite_cell ... ok
+test binary_scaling_cancellation_survives_nearest_and_directed_conversion ... ok
+test normal_midpoints_choose_even_significands_and_carry_across_binades ... ok
+test subnormal_ties_and_underflow_preserve_the_arithmetic_sign_bit ... ok
+test overflowing_components_and_double_rounding_counterexamples_keep_exact_quotients ... ok
+test governed_results_belong_to_independently_constructed_exact_rounding_cells ... ok
+test direct_scaling_preserves_tight_rounding_for_large_sources_at_ieee_extremes ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+

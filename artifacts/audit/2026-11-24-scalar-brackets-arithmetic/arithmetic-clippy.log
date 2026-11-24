@@ -1,0 +1,40 @@
+    Checking libc v0.2.189
+    Checking cfg-if v1.0.4
+    Checking serde_core v1.0.229
+    Checking num-traits v0.2.19
+    Checking serde v1.0.229
+    Checking getrandom v0.3.4
+    Checking num-integer v0.1.47
+    Checking rand_core v0.9.5
+    Checking bitflags v2.13.1
+    Checking linux-raw-sys v0.12.1
+    Checking rustix v1.1.4
+    Checking getrandom v0.4.3
+    Checking zerocopy v0.8.56
+    Checking num-bigint v0.4.8
+    Checking fsym-budget v0.1.0 (/workspace/scratch/ab9781d06adb/frankensympy/crates/fsym-budget)
+    Checking fastrand v2.5.0
+    Checking once_cell v1.21.4
+    Checking tempfile v3.27.0
+    Checking ppv-lite86 v0.2.21
+    Checking wait-timeout v0.2.1
+    Checking bit-vec v0.8.0
+    Checking quick-error v1.2.3
+    Checking fnv v1.0.7
+    Checking rusty-fork v0.3.1
+    Checking bit-set v0.8.0
+    Checking rand_chacha v0.9.0
+    Checking zmij v1.0.23
+    Checking fsym-bigint v0.1.0 (/workspace/scratch/ab9781d06adb/frankensympy/crates/fsym-bigint)
+    Checking rand_xorshift v0.4.0
+    Checking rand v0.9.5
+    Checking itoa v1.0.18
+    Checking regex-syntax v0.8.11
+    Checking memchr v2.8.3
+    Checking unarray v0.1.4
+    Checking proptest v1.11.0
+    Checking serde_json v1.0.151
+    Checking fsym-modular v0.1.0 (/workspace/scratch/ab9781d06adb/frankensympy/crates/fsym-modular)
+    Checking num-rational v0.4.2
+    Checking fsym-rational v0.1.0 (/workspace/scratch/ab9781d06adb/frankensympy/crates/fsym-rational)
+    Finished `dev` profile [unoptimized] target(s) in 27.69s

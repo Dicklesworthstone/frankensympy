@@ -59,6 +59,7 @@ mod compiled_solvers;
 mod parametric;
 mod polynomial_solver;
 mod real_solver;
+mod scalar_bracket;
 pub use compiled::{CompiledResidualSystemId, MAX_SESSION_COMPILED_SYSTEMS};
 pub use compiled_objective::{CompiledObjectiveId, MAX_SESSION_COMPILED_OBJECTIVES};
 pub use compiled_solvers::{
@@ -72,6 +73,7 @@ pub use parametric::{
 };
 pub use polynomial_solver::ExactRealPolynomialSolutionSet;
 pub use real_solver::{ExactRealSolutionSet, RealInequalityRelation};
+pub use scalar_bracket::{MAX_SESSION_SCALAR_ROOT_BRACKETS, ScalarRootBracketId};
 
 pub const CERTIFICATION_REQUEST_SCHEMA: u32 = 1;
 /// The single-frame CLI subset leaves room for JSON escaping and the envelope.
@@ -408,6 +410,7 @@ pub enum ArtifactSource {
     ParametricFamily(ParametricFamilyId),
     CompiledResidualSystem(CompiledResidualSystemId),
     CompiledObjective(CompiledObjectiveId),
+    ScalarRootBracket(ScalarRootBracketId),
 }
 
 /// Bounded certification operations accepted by the native session and NDJSON
@@ -929,6 +932,39 @@ pub enum CertificationRequest {
         absolute_tolerance: String,
         artifact: String,
     },
+    /// Certify existence of at least one real root, without a uniqueness claim.
+    CertifyScalarRootBracket {
+        schema_version: u32,
+        system: ResidualSystemId,
+        bracket: ScalarRootBracketId,
+        lower: String,
+        upper: String,
+        absolute_tolerance: String,
+        precision_digits: u32,
+        max_bisections: usize,
+    },
+    ExportScalarRootBracket {
+        schema_version: u32,
+        bracket: ScalarRootBracketId,
+    },
+    ReplayScalarRootBracket {
+        schema_version: u32,
+        system: ResidualSystemId,
+        bracket: ScalarRootBracketId,
+        lower: String,
+        upper: String,
+        absolute_tolerance: String,
+        artifact: String,
+    },
+    ReplayScalarRootBracketFromArtifact {
+        schema_version: u32,
+        system: ResidualSystemId,
+        bracket: ScalarRootBracketId,
+        lower: String,
+        upper: String,
+        absolute_tolerance: String,
+        transfer: ArtifactTransferId,
+    },
     BeginArtifactExport {
         schema_version: u32,
         transfer: ArtifactTransferId,
@@ -1068,6 +1104,10 @@ impl CertificationRequest {
             | Self::ReleaseArtifactTransfer { schema_version, .. }
             | Self::ReplayRootCertificateFromArtifact { schema_version, .. }
             | Self::ReplayRootIsolationFromArtifact { schema_version, .. }
+            | Self::CertifyScalarRootBracket { schema_version, .. }
+            | Self::ExportScalarRootBracket { schema_version, .. }
+            | Self::ReplayScalarRootBracket { schema_version, .. }
+            | Self::ReplayScalarRootBracketFromArtifact { schema_version, .. }
             | Self::CertifyIntegral { schema_version, .. }
             | Self::ExportIntegralCertificate { schema_version, .. }
             | Self::ReplayIntegralCertificate { schema_version, .. }
@@ -1596,6 +1636,26 @@ pub enum CertificationResponse {
         isolation: RootIsolationId,
         artifact: String,
     },
+    ScalarRootBracketCertified {
+        schema_version: u32,
+        system: ResidualSystemId,
+        bracket: ScalarRootBracketId,
+        evidence: &'static str,
+        claim: &'static str,
+        lower: String,
+        upper: String,
+        absolute_tolerance: String,
+        enclosure: ExactInterval,
+        endpoint_values: Vec<ExactInterval>,
+        precision_digits: u32,
+        context_digest: [u8; 32],
+    },
+    ScalarRootBracketExported {
+        schema_version: u32,
+        system: ResidualSystemId,
+        bracket: ScalarRootBracketId,
+        artifact: String,
+    },
     IntegralCertified {
         schema_version: u32,
         system: ResidualSystemId,
@@ -1663,6 +1723,8 @@ pub enum CertificationSessionError {
     UnknownSearch,
     #[error("unknown accepted integral certificate")]
     UnknownIntegral,
+    #[error("unknown accepted scalar root bracket")]
+    UnknownScalarRootBracket,
     #[error("unknown scalar objective")]
     UnknownObjective,
     #[error("unknown compiled scalar objective")]
@@ -1747,6 +1809,8 @@ pub enum CertificationSessionError {
     ProgramAdmission(#[from] ProgramAdmissionError),
     #[error("integral certification refused: {0}")]
     Integration(#[from] IntegrationError),
+    #[error("scalar root bracket certification refused: {0}")]
+    ScalarBracket(#[from] crate::scalar_bracket::ScalarBracketError),
     #[error("global box optimization refused: {0}")]
     Optimization(#[from] OptimizationError),
     #[error("parameter-family certification refused: {0}")]
@@ -1781,6 +1845,7 @@ impl CertificationSessionError {
             | Self::UnknownIsolation
             | Self::UnknownSearch
             | Self::UnknownIntegral
+            | Self::UnknownScalarRootBracket
             | Self::UnknownObjective
             | Self::UnknownCompiledObjective
             | Self::UnknownStationaryPoint
@@ -1825,6 +1890,7 @@ impl CertificationSessionError {
                 }
             },
             Self::Integration(error) => integration_error_code(error),
+            Self::ScalarBracket(error) => scalar_bracket::error_code(error),
             Self::Optimization(error) => optimization_error_code(error),
             Self::Parametric(error) => parametric::error_code(error),
             Self::Transfer(error) => transfer_error_code(error),
@@ -2481,6 +2547,7 @@ pub(crate) struct CertificationState {
     compiled: compiled::CompiledState,
     compiled_objectives: compiled_objective::CompiledObjectiveState,
     parametric: parametric::ParametricState,
+    scalar_brackets: scalar_bracket::ScalarBracketState,
     objectives: BTreeMap<ObjectiveId, ObjectiveProblem>,
     stationary_points: BTreeMap<StationaryPointId, ResidentStationaryPoint>,
     optimizations: BTreeMap<BoxOptimizationId, ResidentBoxOptimization>,
@@ -4590,6 +4657,103 @@ impl CertificationState {
                 self.certificates.insert(certificate, (system, receipt));
                 Ok(response)
             }
+            CertificationRequest::CertifyScalarRootBracket {
+                system,
+                bracket,
+                lower,
+                upper,
+                absolute_tolerance,
+                precision_digits,
+                max_bisections,
+                ..
+            } => self.certify_scalar_bracket(
+                scalar_bracket::ScalarBracketStatement {
+                    system,
+                    bracket,
+                    lower,
+                    upper,
+                    absolute_tolerance,
+                },
+                fsym_calculus::scalar_bracket::ScalarRootBracketOptions {
+                    precision_digits,
+                    max_bisections,
+                },
+                context_digest,
+                budget,
+                lease,
+            ),
+            CertificationRequest::ExportScalarRootBracket { bracket, .. } => {
+                let (system, bytes) = self.export_scalar_bracket_bytes(&bracket, budget)?;
+                if bytes.len() > MAX_SESSION_ROOT_ARTIFACT_BYTES {
+                    return Err(CertificationSessionError::ArtifactLimit);
+                }
+                let artifact = String::from_utf8(bytes)
+                    .map_err(|error| CertificationSessionError::Serialization(error.to_string()))?;
+                let response = CertificationResponse::ScalarRootBracketExported {
+                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                    system,
+                    bracket,
+                    artifact,
+                };
+                admit_response(&response, budget)?;
+                Ok(response)
+            }
+            CertificationRequest::ReplayScalarRootBracket {
+                system,
+                bracket,
+                lower,
+                upper,
+                absolute_tolerance,
+                artifact,
+                ..
+            } => {
+                if artifact.len() > MAX_SESSION_ROOT_ARTIFACT_BYTES {
+                    return Err(CertificationSessionError::ArtifactLimit);
+                }
+                let statement = scalar_bracket::ScalarBracketStatement {
+                    system,
+                    bracket,
+                    lower,
+                    upper,
+                    absolute_tolerance,
+                };
+                let receipt = self.verify_scalar_bracket_artifact(
+                    &statement,
+                    artifact.as_bytes(),
+                    context_digest,
+                    budget,
+                    lease,
+                )?;
+                self.publish_scalar_bracket(statement, receipt, context_digest, budget)
+            }
+            CertificationRequest::ReplayScalarRootBracketFromArtifact {
+                system,
+                bracket,
+                lower,
+                upper,
+                absolute_tolerance,
+                transfer,
+                ..
+            } => {
+                let statement = scalar_bracket::ScalarBracketStatement {
+                    system,
+                    bracket,
+                    lower,
+                    upper,
+                    absolute_tolerance,
+                };
+                let bytes = self
+                    .artifact_import(&transfer)?
+                    .checked_bytes(ArtifactKind::ScalarRootBracket, budget)?;
+                let receipt = self.verify_scalar_bracket_artifact(
+                    &statement,
+                    bytes,
+                    context_digest,
+                    budget,
+                    lease,
+                )?;
+                self.publish_scalar_bracket(statement, receipt, context_digest, budget)
+            }
             CertificationRequest::CertifyIntegral {
                 system,
                 integral,
@@ -4766,6 +4930,10 @@ impl CertificationState {
                             ArtifactKind::RootIsolation,
                             export_root_isolation(receipt, context_digest, budget)?,
                         )
+                    }
+                    ArtifactSource::ScalarRootBracket(bracket) => {
+                        let (_, bytes) = self.export_scalar_bracket_bytes(&bracket, budget)?;
+                        (ArtifactKind::ScalarRootBracket, bytes)
                     }
                     ArtifactSource::IntegralCertificate(integral) => {
                         let slot = self

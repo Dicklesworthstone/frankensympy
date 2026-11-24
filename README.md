@@ -175,6 +175,18 @@ recomputing a transported claim. Verification draws from a protected cumulative
 budget, and source parsing retains original domain obligations such as
 `0*(1/x)`.
 
+`CertifyScalarRootBracket` also connects continuous scalar sign brackets to
+Rust Session and NDJSON. The independent checker accepts existence evidence for
+supported odd repeated roots, exact endpoint zeros and continuous Abs corners,
+including `(x-1)^3` and `x+abs(x)/2`. Distinct `bracket:` handles grant
+at-least-one-root evidence; uniqueness and complete enumeration remain separate
+claims. `ExportScalarRootBracket`, `ReplayScalarRootBracket` and the chunked
+artifact path bind the original source, complete interval, exact tolerance and
+context before recomputing the check. Equal endpoint signs remain inconclusive,
+and original poles cannot be hidden by narrowing a witness. See the
+[scalar root session guide](docs/NATIVE_CERTIFICATION_SESSION.md#certify-a-flat-or-nonsmooth-scalar-root)
+for requests, bounds and replay behavior.
+
 Native hosts can pass their owning request's cancellation check to
 `Session::certification_request_with_checkpoint`. Generation, protected
 verification, and final publication admission observe the same check. Cancelled

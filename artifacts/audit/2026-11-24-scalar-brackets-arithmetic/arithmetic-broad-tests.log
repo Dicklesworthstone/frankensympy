@@ -1,0 +1,221 @@
+   Compiling fsym-rational v0.1.0 (/workspace/scratch/ab9781d06adb/frankensympy/crates/fsym-rational)
+   Compiling fsym-bigint v0.1.0 (/workspace/scratch/ab9781d06adb/frankensympy/crates/fsym-bigint)
+    Finished `test` profile [unoptimized] target(s) in 6.05s
+     Running unittests src/lib.rs (/tmp/frankensympy-ab9781d06adb-target/debug/build/fsym-bigint/b51e0ef56cb5a471/out/fsym_bigint-b51e0ef56cb5a471)
+
+running 99 tests
+test ntt::tests::admission_proves_reconstruction_bound_before_allocation ... ok
+test ntt::tests::fixed_roots_have_the_required_exact_orders ... ok
+test ntt::tests::independent_checks_reject_planted_residue_and_output_corruption ... ok
+test ntt::tests::inverse_round_trip_and_crt_product_match_independent_scalar_lane ... ok
+test ntt::tests::zeroed_transform_buffer_checks_between_initialization_chunks ... ok
+test ntt::tests::zeroed_transform_buffer_observes_cancellation_after_allocation_charge ... ok
+test tests::all_lanes_agree_for_broad_balanced_operands ... ok
+test tests::binary32_to_integer_matches_exact_widening_and_ieee_decomposition ... ok
+test tests::binary64_to_integer_matches_ieee_bit_decomposition ... ok
+test tests::byte_decoders_refuse_oversize_payloads_before_substrate_parse ... ok
+test tests::byte_parser_size_preflight_precedes_utf8_validation ... ok
+test tests::caller_degree_root_handles_large_exact_and_adjacent_inputs ... ok
+test tests::caller_degree_roots_match_an_independent_scalar_floor_oracle ... ok
+test tests::caller_degree_roots_pin_domain_floor_and_exactness_boundaries ... ok
+test tests::caller_degree_roots_pin_exact_powers_neighbors_and_square_root_parity ... ok
+test tests::candidate_digit_buffers_charge_independently_derived_capacities ... ok
+test tests::capped_power_comparison_pins_strict_guard_and_extreme_control ... ok
+test tests::decoder_bit_admission_rejects_values_the_serde_adapter_also_refuses ... ok
+test tests::default_selector_requires_admission_before_using_optimized_lanes ... ok
+test tests::direct_integer_to_f32_avoids_double_rounding ... ok
+test tests::exact_division_and_gcd_apis_cover_signs_and_zero_boundaries ... ok
+test tests::exact_signed_128_bit_primitive_conversions_cover_the_full_range ... ok
+test tests::exact_signed_128_bit_primitive_conversions_round_trip ... ok
+test tests::exact_unsigned_128_bit_primitive_conversions_cover_the_full_range ... ok
+test tests::exact_unsigned_128_bit_primitive_conversions_round_trip ... ok
+test tests::explicit_strategies_agree_across_the_former_threshold_boundary ... ok
+test tests::fallible_radix_formatter_rejects_unsupported_radices_without_unwinding ... ok
+test tests::fallible_radix_parsers_preserve_valid_boundaries_and_parse_refusals ... ok
+test tests::fallible_radix_parsers_reject_unsupported_radices_without_unwinding ... ok
+test tests::float_to_bigint_truncates_wide_finite_values_and_refuses_nonfinite_values ... ok
+test tests::floor_square_root_pins_exact_square_boundaries_and_governed_lane ... ok
+test tests::floor_square_root_satisfies_the_defining_invariant ... ok
+test tests::governed_caller_degree_root_pins_resources_cancellation_and_publication ... ok
+test tests::governed_comparison_scans_common_prefixes_and_has_terminal_cancellation ... ok
+test tests::governed_greatest_perfect_power_pins_resources_cancellation_and_publication ... ok
+test tests::governed_power_and_root_cancel_at_every_observed_safe_point ... ok
+test tests::governed_power_matches_exact_signed_boundaries_and_preflights_extreme_control ... ok
+test tests::greatest_perfect_power_matches_an_independent_bounded_scalar_oracle ... ok
+test tests::greatest_perfect_power_selects_the_highest_admitted_nontrivial_exponent ... ok
+test tests::inherited_f32_conversion_uses_the_repaired_wide_float_path ... ok
+test tests::integer_to_f32_uses_ties_to_even_and_signed_overflow_boundaries ... ok
+test tests::karatsuba_refuses_zero_heavy_recursion_for_skewed_operands ... ok
+test tests::metered_add_sub_match_broad_signed_operands ... ok
+test tests::metered_addition_and_subtraction_match_signed_native_lanes ... ok
+test tests::metered_addition_cancels_inside_limb_work_and_before_publication ... ok
+test tests::metered_balanced_multiplication_matches_native_lane ... ok
+test tests::metered_division_cancels_inside_digit_batches ... ok
+test tests::metered_division_charges_both_native_lifts_before_publication ... ok
+test tests::metered_division_matches_native_lane_for_broad_signed_operands ... ok
+test tests::metered_division_preserves_truncating_sign_rules ... ok
+test tests::metered_exact_division_and_gcd_match_unmetered_apis ... ok
+test tests::metered_karatsuba_candidate_cancels_at_every_safe_point ... ok
+test tests::metered_karatsuba_candidate_covers_sign_cutoff_skew_and_nested_boundaries ... ok
+test tests::metered_karatsuba_candidate_exact_budgets_and_one_short_refusals ... ok
+test tests::metered_karatsuba_capacity_preflight_reports_size_overflow ... ok
+test tests::metered_multiplication_cancels_inside_limb_products ... ok
+test tests::metered_multiplication_charges_native_lift_before_publication ... ok
+test tests::metered_native_lifts_cancel_without_publishing_results ... ok
+test tests::metered_ntt_crt_candidate_cancels_at_every_observed_safe_point ... ok
+test tests::metered_ntt_crt_candidate_exact_budgets_and_one_short_refusals ... ok
+test tests::metered_ntt_crt_candidate_executes_exact_transform_for_all_signs ... ok
+test tests::metered_ntt_crt_candidate_handles_dense_carry_and_canonical_zero ... ok
+test tests::metered_ntt_crt_candidate_matches_broad_balanced_operands ... ok
+test tests::metered_ntt_crt_preflight_refuses_unsupported_domain_without_allocation ... ok
+test tests::metered_signed_sums_charge_native_lift_before_publication ... ok
+test tests::metered_toom3_candidate_cancels_at_every_safe_point ... ok
+test tests::metered_toom3_candidate_covers_real_branch_signs_and_canonicality ... ok
+test tests::metered_toom3_candidate_exact_budgets_and_one_short_refusals ... ok
+test tests::metered_toom3_evaluation_and_interpolation_match_direct_convolution ... ok
+test tests::metered_toom3_exact_small_division_is_signed_and_fail_closed ... ok
+test tests::metered_toom3_helper_allocations_and_recombination_are_explicit ... ok
+test tests::metered_toom3_structural_cutoff_skew_and_nested_boundaries_are_exercised ... ok
+test tests::metered_value_lanes_cancel_at_each_terminal_publication_class ... ok
+test tests::owned_gcd_lanes_agree_for_broad_signed_operands ... ok
+test tests::parser_digit_limits_match_shared_decoder_bit_budget ... ok
+test tests::product_candidate_lift_cancels_before_and_after_materialization ... ok
+test tests::product_candidate_lift_preserves_cumulative_accounting_and_sign ... ok
+test tests::product_candidate_lift_refuses_an_unfunded_native_repack ... ok
+test tests::production_metered_dispatch_reaches_the_selected_kernel ... ok
+test tests::production_metered_strategies_cancel_at_every_small_product_safe_point ... ok
+test tests::production_metered_strategies_match_independent_scalar_products ... ok
+test tests::production_metered_strategies_use_one_budget_through_publication ... ok
+test tests::public_serde_digit_limit_is_an_exact_boundary_without_a_json_hint ... ok
+test tests::refused_arithmetic_batch_does_not_burn_memory_allowance ... ok
+test tests::serde_absent_hint_capacity_growth_starts_small_and_doubles ... ok
+test tests::serde_digit_limit_handles_absent_underreported_and_hostile_hints ... ok
+test tests::serde_digit_reservation_failure_is_typed_instead_of_panicking ... ok
+test tests::serde_preserves_the_existing_canonical_sign_and_u32_digit_shape ... ok
+test tests::serde_rejects_noncanonical_or_malformed_sign_and_magnitude_tuples ... ok
+test tests::serde_validates_sign_before_reading_or_allocating_the_magnitude ... ok
+test tests::signed_integers_convert_directly_to_binary32 ... ok
+test tests::string_decoders_refuse_oversize_payloads_before_substrate_parse ... ok
+test tests::toom3_exact_division_helper_rejects_truncation - should panic ... ok
+test tests::toom3_interpolation_handles_signed_evaluations_and_carries ... ok
+test tests::toom3_nested_recursion_matches_reference ... ok
+test tests::toom3_skew_boundary_falls_back_only_without_a_top_third ... ok
+test tests::toom3_structural_cutoff_boundaries_match_reference ... ok
+test tests::unsigned_integers_convert_directly_to_binary32 ... ok
+test tests::zero_identities_hold_for_all_strategies ... ok
+
+test result: ok. 99 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.26s
+
+     Running tests/metered_shift.rs (/tmp/frankensympy-ab9781d06adb-target/debug/build/fsym-bigint/871fb768811fe09e/out/metered_shift-871fb768811fe09e)
+
+running 8 tests
+test broad_signed_sources_match_substrate_and_additive_shift_composition ... ok
+test canonical_zero_ignores_huge_shift_without_storage_and_still_checks_cancellation ... ok
+test direct_scaling_avoids_power_construction_and_multiplication_work ... ok
+test every_safe_point_including_output_copy_and_publication_can_cancel ... ok
+test exact_and_one_short_allowances_include_final_native_repacking ... ok
+test half_gigabyte_shift_request_is_refused_before_reserving_a_buffer ... ok
+test signed_digit_carries_match_the_separate_substrate_shift ... ok
+test unrepresentable_bit_height_fails_before_storage_admission ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src/lib.rs (/tmp/frankensympy-ab9781d06adb-target/debug/build/fsym-rational/d3ed618e0848772e/out/fsym_rational-d3ed618e0848772e)
+
+running 48 tests
+test tests::binary32_conversion_balances_large_coefficients_and_rounds_boundaries ... ok
+test tests::binary32_conversion_matches_small_float_ratios ... ok
+test tests::binary64_conversion_balances_large_coefficients_and_rounds_boundaries ... ok
+test tests::binary64_conversion_matches_exact_small_coefficient_division ... ok
+test tests::classified_fast_terminals_checkpoint_without_charging_work ... ok
+test tests::continued_fraction_growth_refuses_before_reserve_and_reports_allocator_failure ... ok
+test tests::continued_fraction_growth_topology_is_geometric_and_capped ... ok
+test tests::continued_fraction_lanes_support_late_cancellation ... ok
+test tests::continued_fraction_round_trips_broad_signed_rationals ... ok
+test tests::continued_fractions_use_floor_semantics_and_round_trip ... ok
+test tests::cross_cancelled_div_panics_on_zero_rhs_matching_docstring - should panic ... ok
+test tests::cross_cancelled_rem_panics_on_zero_rhs_matching_docstring - should panic ... ok
+test tests::decimal_from_str_refuses_malformed_and_zero_denominators_without_unwinding ... ok
+test tests::decimal_from_str_roundtrips_integer_and_fractional_display ... ok
+test tests::deserialization_rejects_noncanonical_raw_ratios ... ok
+test tests::exact_sqrt_tests ... ok
+test tests::generalized_integer_continued_fractions_remain_canonical ... ok
+test tests::governed_comparison_matches_order_and_enforces_resources_and_cancellation ... ok
+test tests::governed_comparison_topology_distinguishes_deep_chains_from_early_decisions ... ok
+test tests::governed_constructor_matches_independent_i128_normalization ... ok
+test tests::governed_constructor_normalizes_sign_reduction_and_large_coefficients ... ok
+test tests::governed_constructor_refuses_zero_and_pins_resource_topology ... ok
+test tests::governed_signed_power_handles_reciprocals_refusal_budget_and_cancellation ... ok
+test tests::height_reports_exact_canonical_coefficient_bits ... ok
+test tests::i128_and_u128_primitive_conversions_round_trip_exact_integers ... ok
+test tests::integer_conversions_to_128_bit_primitives_preserve_endpoints_and_truncation ... ok
+test tests::invariant_refusals_observe_one_terminal_checkpoint ... ok
+test tests::metered_continued_fractions_match_and_obey_budget ... ok
+test tests::metered_expansion_allocates_for_actual_sparse_output ... ok
+test tests::metered_expansion_cancels_at_every_observed_safe_point ... ok
+test tests::metered_expansion_enforces_the_logical_coefficient_bound ... ok
+test tests::metered_modular_reconstruction_checks_before_every_publication_class ... ok
+test tests::metered_scalar_lanes_match_owned_operators_and_refuse_zero_divisors ... ok
+test tests::metered_scalar_lanes_refuse_budget_and_terminal_cancellation ... ok
+test tests::modular_reconstruction_round_trips_unique_small_rationals ... ok
+test tests::modular_reconstruction_wraps_only_canonical_bounded_results ... ok
+test tests::normalization_is_value_preserving_and_coprime ... ok
+test tests::ordering_equality_and_hash_are_iterative_on_deep_euclidean_chains ... ok
+test tests::ordinary_and_metered_signed_powers_agree_and_remain_canonical ... ok
+test tests::ordinary_signed_power_is_total_and_matches_the_governed_owner ... ok
+test tests::owned_and_metered_scalar_lanes_match_naive_canonical_arithmetic ... ok
+test tests::owned_operator_and_assignment_paths_use_canonical_cross_cancelled_results ... ok
+test tests::owned_rational_is_canonical_and_supports_arithmetic ... ok
+test tests::radix_parser_inherits_bigint_admission_without_unwinding ... ok
+test tests::rational_order_matches_independent_i128_cross_products ... ok
+test tests::rational_string_decoders_refuse_oversize_components_before_parse ... ok
+test tests::serialization_preserves_the_canonical_pair_wire_shape ... ok
+test tests::signed_abs_sub_uses_the_stack_safe_wrapper_ordering ... ok
+
+test result: ok. 48 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.00s
+
+     Running tests/directed_float_conversion.rs (/tmp/frankensympy-ab9781d06adb-target/debug/build/fsym-rational/849e1757dfb1257f/out/directed_float_conversion-849e1757dfb1257f)
+
+running 9 tests
+test every_checkpoint_can_cancel_before_either_endpoint_is_published ... ok
+test exact_dyadics_keep_equal_endpoints_and_canonical_zero ... ok
+test exact_fit_trait_object_charges_one_ledger_and_never_resets_it ... ok
+test exact_interpolation_between_ieee_neighbors_always_recovers_those_neighbors ... ok
+test height_only_terminal_cases_allocate_nothing_and_still_check_publication ... ok
+test non_dyadic_values_and_huge_coefficients_have_exact_tight_enclosures ... ok
+test overflow_bounds_cover_values_on_both_sides_of_the_nearest_rounding_threshold ... ok
+test subnormal_underflow_and_the_normal_boundary_preserve_tightness_and_sign ... ok
+test the_directed_comparison_cannot_reuse_the_nearest_phases_spent_allowance ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/metered_float_conversion.rs (/tmp/frankensympy-ab9781d06adb-target/debug/build/fsym-rational/3bdecc7c80959dcb/out/metered_float_conversion-3bdecc7c80959dcb)
+
+running 12 tests
+test a_large_finite_quotient_refuses_inside_its_borrowed_coefficient_comparison ... ok
+test binary_scaling_cancellation_survives_nearest_and_directed_conversion ... ok
+test direct_scaling_preserves_tight_rounding_for_large_sources_at_ieee_extremes ... ok
+test every_checkpoint_including_final_publication_can_cancel_without_returning_a_float ... ok
+test exact_fit_trait_object_uses_one_ledger_and_cannot_retry_with_fresh_allowances ... ok
+test governed_results_belong_to_independently_constructed_exact_rounding_cells ... ok
+test memory_and_allocation_refusals_are_atomic_for_each_work_unit ... ok
+test metadata_extremes_need_no_coefficient_clone_and_still_check_publication ... ok
+test normal_midpoints_choose_even_significands_and_carry_across_binades ... ok
+test overflow_is_decided_after_exact_rounding_at_the_last_finite_cell ... ok
+test overflowing_components_and_double_rounding_counterexamples_keep_exact_quotients ... ok
+test subnormal_ties_and_underflow_preserve_the_arithmetic_sign_bit ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+   Doc-tests fsym_bigint
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests fsym_rational
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

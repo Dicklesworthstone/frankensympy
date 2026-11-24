@@ -1,0 +1,122 @@
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded bit-set v0.8.0
+  Downloaded autocfg v1.5.1
+  Downloaded arrayvec v0.7.8
+  Downloaded bit-vec v0.8.0
+  Downloaded cfg-if v1.0.4
+  Downloaded cpufeatures v0.3.0
+  Downloaded bitflags v2.13.1
+  Downloaded errno v0.3.14
+  Downloaded constant_time_eq v0.4.2
+  Downloaded fastrand v2.5.0
+  Downloaded itoa v1.0.18
+  Downloaded find-msvc-tools v0.1.11
+  Downloaded getrandom v0.4.3
+  Downloaded cc v1.4.4
+  Downloaded getrandom v0.3.4
+  Downloaded shlex v2.0.1
+  Downloaded zmij v1.0.23
+  Downloaded blake3 v1.8.7
+  Downloaded fnv v1.0.7
+  Downloaded serde v1.0.229
+  Downloaded rand_xorshift v0.4.0
+  Downloaded rand_chacha v0.9.0
+  Downloaded num-bigint v0.4.8
+  Downloaded serde_derive v1.0.229
+  Downloaded num-rational v0.4.2
+  Downloaded rusty-fork v0.3.1
+  Downloaded tempfile v3.27.0
+  Downloaded serde_core v1.0.229
+  Downloaded quick-error v1.2.3
+  Downloaded wait-timeout v0.2.1
+  Downloaded num-complex v0.4.6
+  Downloaded unarray v0.1.4
+  Downloaded ppv-lite86 v0.2.21
+  Downloaded quote v1.0.47
+  Downloaded thiserror-impl v2.0.20
+  Downloaded memchr v2.8.3
+  Downloaded once_cell v1.21.4
+  Downloaded thiserror v2.0.20
+  Downloaded num-integer v0.1.47
+  Downloaded rand_core v0.9.5
+  Downloaded num-traits v0.2.19
+  Downloaded unicode-ident v1.0.24
+  Downloaded proc-macro2 v1.0.107
+  Downloaded rand v0.9.5
+  Downloaded serde_json v1.0.151
+  Downloaded syn v3.0.3
+  Downloaded proptest v1.11.0
+  Downloaded zerocopy v0.8.56
+  Downloaded regex-syntax v0.8.11
+  Downloaded rustix v1.1.4
+  Downloaded libc v0.2.189
+  Downloaded linux-raw-sys v0.12.1
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+   Compiling syn v3.0.3
+   Compiling autocfg v1.5.1
+   Compiling serde_core v1.0.229
+   Compiling num-traits v0.2.19
+   Compiling cfg-if v1.0.4
+   Compiling serde v1.0.229
+   Compiling serde_derive v1.0.229
+   Compiling num-integer v0.1.47
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.11
+   Compiling libc v0.2.189
+   Compiling cc v1.4.4
+   Compiling num-bigint v0.4.8
+   Compiling fsym-budget v0.1.0 (/workspace/scratch/ab9781d06adb/frankensympy/crates/fsym-budget)
+   Compiling zmij v1.0.23
+   Compiling fsym-bigint v0.1.0 (/workspace/scratch/ab9781d06adb/frankensympy/crates/fsym-bigint)
+   Compiling blake3 v1.8.7
+   Compiling serde_json v1.0.151
+   Compiling thiserror v2.0.20
+   Compiling fsym-modular v0.1.0 (/workspace/scratch/ab9781d06adb/frankensympy/crates/fsym-modular)
+   Compiling num-rational v0.4.2
+   Compiling thiserror-impl v2.0.20
+   Compiling arrayvec v0.7.8
+   Compiling cpufeatures v0.3.0
+   Compiling constant_time_eq v0.4.2
+   Compiling itoa v1.0.18
+   Compiling memchr v2.8.3
+   Compiling fsym-rational v0.1.0 (/workspace/scratch/ab9781d06adb/frankensympy/crates/fsym-rational)
+   Compiling fsym-id v0.1.0 (/workspace/scratch/ab9781d06adb/frankensympy/crates/fsym-id)
+   Compiling num-complex v0.4.6
+   Compiling fsym-outcome v0.1.0 (/workspace/scratch/ab9781d06adb/frankensympy/crates/fsym-outcome)
+   Compiling fsym-core v0.1.0 (/workspace/scratch/ab9781d06adb/frankensympy/crates/fsym-core)
+   Compiling getrandom v0.3.4
+   Compiling zerocopy v0.8.56
+   Compiling getrandom v0.4.3
+   Compiling rustix v1.1.4
+   Compiling rand_core v0.9.5
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/ab9781d06adb/frankensympy/crates/fsym-assumptions)
+   Compiling bitflags v2.13.1
+   Compiling linux-raw-sys v0.12.1
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/ab9781d06adb/frankensympy/crates/fsym-proof-kernel)
+   Compiling once_cell v1.21.4
+   Compiling fastrand v2.5.0
+   Compiling tempfile v3.27.0
+   Compiling ppv-lite86 v0.2.21
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/ab9781d06adb/frankensympy/crates/fsym-evidence)
+   Compiling wait-timeout v0.2.1
+   Compiling quick-error v1.2.3
+   Compiling fnv v1.0.7
+   Compiling bit-vec v0.8.0
+   Compiling bit-set v0.8.0
+   Compiling rusty-fork v0.3.1
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/ab9781d06adb/frankensympy/crates/fsym-polys)
+   Compiling rand_chacha v0.9.0
+   Compiling rand_xorshift v0.4.0
+   Compiling rand v0.9.5
+   Compiling unarray v0.1.4
+   Compiling regex-syntax v0.8.11
+   Compiling proptest v1.11.0
+   Compiling fsym-simplify v0.1.0 (/workspace/scratch/ab9781d06adb/frankensympy/crates/fsym-simplify)
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/ab9781d06adb/frankensympy/crates/fsym-calculus)
+error: could not compile `fsym-calculus` (lib)
+
+Caused by:
+  process didn't exit successfully: `/workspace/scratch/ab9781d06adb/rustup-home/toolchains/nightly-2026-08-20-x86_64-unknown-linux-gnu/bin/rustc --crate-name fsym_calculus --edition=2024 crates/fsym-calculus/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -Z embed-metadata=no -C embed-bitcode=no --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=6b73d128415ad7b8 -C extra-filename=-8abb79e5a84a1114 --out-dir /workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/fsym-calculus/8abb79e5a84a1114/out -C strip=debuginfo -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/arrayvec/4b2be9c104b0cb2a/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/blake3/e888c649952cbce2/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/cfg-if/3e5ed29fba0a3052/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/constant_time_eq/4445cd445e7d9ce7/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/cpufeatures/968248503135fbec/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/fsym-assumptions/9e364b48e9a33bdc/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/fsym-bigint/41d800803380d704/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/fsym-budget/17e27f4cce50807d/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/fsym-core/b40a26263f4fb97a/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/fsym-evidence/bd0e205614aae885/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/fsym-id/ab1dc30a7a9e3e80/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/fsym-modular/169761e4f6b323cc/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/fsym-outcome/d242549f51dc0cd9/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/fsym-polys/d621b491235ce66c/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/fsym-proof-kernel/a86ffd047e237309/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/fsym-rational/3cc07adf53fe02e7/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/fsym-simplify/8ba0daf11c0c3d1c/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/itoa/fd1d233bcfbca7b6/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/memchr/2e7fc7483fc10f16/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/num-bigint/4b516616dde81fdb/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/num-complex/80e161edd9c6955f/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/num-integer/58c2c27e439ecd68/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/num-rational/cc169eb04b228d5c/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/num-traits/88ec45b5b3d89358/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/serde/360482ab740d4897/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/serde_core/20fd74034583823e/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/serde_derive/abe1cf2955fff35c/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/serde_json/b4331f6fa7071247/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/thiserror/3817d491707f2a56/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/thiserror-impl/0c5ab7b404752132/out -L dependency=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/zmij/11835262a6454cde/out --extern fsym_budget=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/fsym-budget/17e27f4cce50807d/out/libfsym_budget-17e27f4cce50807d.rmeta --extern fsym_core=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/fsym-core/b40a26263f4fb97a/out/libfsym_core-b40a26263f4fb97a.rmeta --extern fsym_evidence=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/fsym-evidence/bd0e205614aae885/out/libfsym_evidence-bd0e205614aae885.rmeta --extern fsym_polys=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/fsym-polys/d621b491235ce66c/out/libfsym_polys-d621b491235ce66c.rmeta --extern fsym_proof_kernel=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/fsym-proof-kernel/a86ffd047e237309/out/libfsym_proof_kernel-a86ffd047e237309.rmeta --extern fsym_simplify=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/fsym-simplify/8ba0daf11c0c3d1c/out/libfsym_simplify-8ba0daf11c0c3d1c.rmeta --extern num_complex=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/num-complex/80e161edd9c6955f/out/libnum_complex-80e161edd9c6955f.rmeta --extern num_traits=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/num-traits/88ec45b5b3d89358/out/libnum_traits-88ec45b5b3d89358.rmeta --extern serde=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/serde/360482ab740d4897/out/libserde-360482ab740d4897.rmeta --extern serde_json=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/serde_json/b4331f6fa7071247/out/libserde_json-b4331f6fa7071247.rmeta --extern thiserror=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/thiserror/3817d491707f2a56/out/libthiserror-3817d491707f2a56.rmeta -L native=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/blake3/4ddd6af3cc867136/out -L native=/workspace/scratch/ab9781d06adb/frankensympy/target/debug/build/blake3/4ddd6af3cc867136/out` (signal: 9, SIGKILL: kill)

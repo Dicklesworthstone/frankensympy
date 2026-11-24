@@ -1,0 +1,200 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-24",
+  "scope": "Native scalar root-existence API, Session/NDJSON portability, and governed rational binary scaling",
+  "status": "arithmetic_validated_scalar_bracket_session_execution_pending",
+  "repository": "Dicklesworthstone/frankensympy",
+  "base_commit": "7f4abb632cf8fe53ec6f06bd28e1d22644c4f64a",
+  "implementation_commits": {
+    "facade": "66130899f6ac478db4ec468209be80129625a4db",
+    "session": "containing commit",
+    "arithmetic": "fdef19b2c141dcb7544ee8eac8cb528a8827a7df"
+  },
+  "features": {
+    "scalar_brackets": {
+      "mathematical_claim": "at_least_one_real_root_in_closed_interval",
+      "scope": [
+        "continuous original scalar expression on the complete requested closed interval",
+        "exact rational request endpoints and positive width tolerance",
+        "odd repeated, nonsmooth, and endpoint roots within the existing bounded evaluator",
+        "independent verification of original-domain continuity, enclosure containment, width and endpoint evidence"
+      ],
+      "public_native_operations": [
+        "ResidualProblem::propose_scalar_root_bracket",
+        "ResidualProblem::verify_scalar_root_bracket",
+        "export_scalar_root_bracket",
+        "replay_scalar_root_bracket"
+      ],
+      "session_operations": [
+        "CertifyScalarRootBracket",
+        "ExportScalarRootBracket",
+        "ReplayScalarRootBracket",
+        "ReplayScalarRootBracketFromArtifact"
+      ],
+      "ownership": "Distinct bracket: handles; at most 32 resident accepted brackets; source and context retained; output admission before insertion.",
+      "transport": "Canonical bounded artifact binds original typed source, ordered axes, complete request interval, tolerance and receiver context. Untrusted witness is independently verified; no serialized accepted flag or generator retry.",
+      "streaming": "Distinct scalar_root_bracket artifact kind with appended stable digest tag 11; existing chunk integrity and complete-transfer checks precede protected replay.",
+      "resource_semantics": "Candidate generation uses ordinary resources; mathematical verification uses the protected verifier lease; cancellation and budget failure publish no new handle and do not refund spent work.",
+      "excluded_claims": [
+        "unique root",
+        "root multiplicity",
+        "complete root enumeration",
+        "compatibility-profile certification",
+        "new asynchronous cancellation endpoint"
+      ]
+    },
+    "arithmetic": {
+      "api": "fsym_bigint::metered_shift_left",
+      "behavior": "Compute exact signed binary scaling with checked output height/capacity, charged fallible digit-buffer reservation, linear digit/carry work and checkpoints before each digit write.",
+      "integration": "Governed nearest and directed binary64 conversion uses the direct shift at all six exact binary-scaling call sites, replacing repeated powers-of-two multiplication.",
+      "failure_semantics": "Meter failures propagate unchanged. Checked size or buffer-allocation refusal returns None from rational conversion without resetting resources or choosing an unmetered fallback.",
+      "policy": "Existing multiplication kernels, thresholds and selection defaults are unchanged.",
+      "materialization_limit": "The direct base-2^32 buffer is preflighted, charged and fallibly reserved. The provisional num-bigint substrate subsequently repacks those digits into native limbs with an infallible allocation and no internal cancellation safe points. That repack is charged and checkpointed immediately before and after execution; typed allocator failure and size-independent cancellation latency are not guaranteed inside it.",
+      "performance_claim": "No wall-time, speedup or benchmark result is established."
+    }
+  },
+  "authored_tests": {
+    "scalar_bracket_transport": 17,
+    "scalar_bracket_session": 14,
+    "metered_shift": 8,
+    "metered_float_conversion_new": 2,
+    "total_new_regression_functions": 41,
+    "executed_passing_new_regressions": 10,
+    "note": "The eight new shift tests and two new metered-float conversion tests passed in the 176-test arithmetic run. Scalar-bracket transport and Session counts remain authored functions without passing execution evidence."
+  },
+  "source_review": {
+    "facade": "Independent source-binding, canonical decoding, original-domain, witness mutation and protected-budget review.",
+    "session": "Independent protocol, ownership, handler/schema/NDJSON wiring, artifact-kind, cancellation and publication review. Out-of-range precision maps to invalid_input.",
+    "arithmetic": "Independent sign/carry, checked-size, cumulative budget, cancellation, conversion-call-site and IEEE-boundary review. Unsupported From<u128> in one test oracle was corrected to decimal parsing before publication.",
+    "historical_manual_session_formatting": {
+      "executed_rustfmt": false,
+      "method": "Whitespace-only manual formatting with exact lexical-token equality, including comments and string/char literals.",
+      "module_lexical_tokens": 1519,
+      "test_lexical_tokens": 4235,
+      "module_blob": "14be7fceb1a271435455052ad69b08b2ad2e027a",
+      "test_blob": "e8f5e18e63dbe0389a0ce91e7793066da7204d92"
+    },
+    "pinned_formatting": "Pinned nightly-2026-08-20 rustfmt --check passed for all four arithmetic files. Pinned formatting completed successfully for all six indexed scalar-bracket Session files, superseding historical manual formatting; the recovered files match those exact indexed hashes.",
+    "repeated_session_review": "A second independent read-only review checked the restored module and tests against current facade/core signatures, request-budget adapters and protocol dispatch; no concrete API, mathematical expectation or publication-binding blocker was found."
+  },
+  "executable_validation": {
+    "toolchain": "nightly-2026-08-20",
+    "rustc_commit": "f7d782a3be46d6bb4b9792fe69a61db389ba1769",
+    "formatting": "Passed: pinned rustfmt --check for the four final arithmetic files. Pinned rustfmt completed successfully on all six bracket-only Session files; their exact resulting Git blob identities were recorded and recovered after executor loss. Earlier facade formatting remains recorded in historical_executable_validation.",
+    "arithmetic": "Passed: 176 tests, 0 failed, 0 ignored across fsym-bigint and fsym-rational. Focused shift (8) and metered-float conversion (12) suites also passed separately; they are included, not added again, in the 176 total.",
+    "strict_clippy": "Passed: cargo +nightly-2026-08-20 clippy -p fsym-bigint -p fsym-rational --all-targets --locked -- -D warnings. Root/Session Clippy remains unvalidated.",
+    "full_workspace": "No full-workspace pass. The latest selected root check exited 101 in dependency syn 3.0.3 with SIGKILL before project checking; a serial retry started but its outcome became unknown after executor loss.",
+    "core_calculus": "No passing scalar-bracket suite execution observed after the historical compilation failures.",
+    "root_transport": "No passing execution observed.",
+    "session": "Pending executable validation. The latest root check failed before project checking; its serial retry outcome is unknown after executor loss.",
+    "component_fallback": "Historical locked metadata only. During the latest recovery the fallback was inspected, but no component build or Session test executed.",
+    "remote_ci": "Existing CI selections now include both new scalar bracket targets, session cancellation, direct shift and metered float conversion. No remote pass is claimed.",
+    "details": "validation-status.json",
+    "retained_failure_log": "native-build-failure.log",
+    "retained_arithmetic_logs": [
+      "arithmetic-format.log",
+      "arithmetic-shift-tests.log",
+      "arithmetic-float-tests.log",
+      "arithmetic-broad-tests.log",
+      "arithmetic-clippy.log"
+    ]
+  },
+  "beads": {
+    "updated_notes_only": [
+      "fra-62c",
+      "fra-7kf",
+      "fra-rc-cli-gate-0jr"
+    ],
+    "status_priority_dependencies_changed": false,
+    "workstreams_closed": false
+  },
+  "claims": {
+    "new_native_test_pass_claimed": true,
+    "performance_improvement_measured": false,
+    "full_runtime_validated": false,
+    "compatibility_profile_certified": false,
+    "mathematical_evidence_tier_promoted": false
+  },
+  "publication": {
+    "method": "Direct GitHub commits to main using non-forced fast-forward ref updates; no pull request.",
+    "verified_before_containing_commit": [
+      "66130899f6ac478db4ec468209be80129625a4db",
+      "fdef19b2c141dcb7544ee8eac8cb528a8827a7df"
+    ],
+    "verification_note": "Final independent commit-message/path/blob and branch-head verification is reported after publication; an immutable containing commit cannot include its own post-publication result.",
+    "interruption": "GitHub REST reads and tree creation returned API rate limit exceeded beginning at 2026-11-24T05:45:27Z. Source snapshots were retained as immutable blobs.",
+    "expected_sha_wrapper": "The optional expected_sha wrapper returned a GraphQL error. Publication used no expected_sha argument and no forced update.",
+    "arithmetic": {
+      "commit": "fdef19b2c141dcb7544ee8eac8cb528a8827a7df",
+      "parent": "897a6909e6832586a6a3d14735da41aa8e306682",
+      "tree": "0a9ab45daf22899f11de64c827dd527e32038f85",
+      "independently_verified": true,
+      "validation_source": "The four arithmetic blobs match local validated commit 44a5e47d4ebc2646b8a89d29adb44eaa75456eba exactly."
+    }
+  },
+  "source_blobs": [
+    {
+      "path": "src/scalar_bracket.rs",
+      "git_blob": "b448d115e3a17da8b42845bb783f413ebe5dd410"
+    },
+    {
+      "path": "tests/scalar_bracket_transport.rs",
+      "git_blob": "646ddf0dc0dd752e8a0d31352813f7ba9fdcb429"
+    },
+    {
+      "path": "crates/fsym-bigint/src/lib.rs",
+      "git_blob": "c7cca83172fa6979b25fc3d1d5aad625f4cb8b89"
+    },
+    {
+      "path": "crates/fsym-rational/src/lib.rs",
+      "git_blob": "392b0f176f86239053e27be99faefa2ee4feb385"
+    },
+    {
+      "path": "crates/fsym-rational/tests/metered_float_conversion.rs",
+      "git_blob": "e134dbe94acc568595e99f9392caf35a76b3d4de"
+    },
+    {
+      "path": "crates/fsym-bigint/tests/metered_shift.rs",
+      "git_blob": "8eb9ab0d87d1dbeffb49b7ada0837056b1f47478"
+    },
+    {
+      "path": "src/certification_session.rs",
+      "git_blob": "19728ab7411352f9563fd4e0efd0196897c8377a"
+    },
+    {
+      "path": "src/session.rs",
+      "git_blob": "650c16e84c8a61ea6db6ae1e107e1c7d6bb9f166"
+    },
+    {
+      "path": "src/artifact_stream.rs",
+      "git_blob": "286ae0e978af80ad2c3edfa6ae616e8415f6b600"
+    },
+    {
+      "path": "src/lib.rs",
+      "git_blob": "077742b129cf1db7efa6f2585e62135241a3fc56"
+    },
+    {
+      "path": "src/certification_session/scalar_bracket.rs",
+      "git_blob": "fdddc60ae3cc51ba36784a1be7cb71d49ae920b0"
+    },
+    {
+      "path": "tests/scalar_bracket_session.rs",
+      "git_blob": "c9f3e176c3d7993a71f0f44b6d1cd1616e4fa3cd"
+    }
+  ],
+  "historical_executable_validation": {
+    "toolchain": "nightly-2026-08-20",
+    "formatting": "Pinned rustfmt completed for the facade, transport tests and original arithmetic patch before executor loss. The later one-line arithmetic test oracle correction and Session integration have not been run through rustfmt.",
+    "full_workspace": "Blocked: pinned asupersync compilation terminated with SIGKILL before root checking.",
+    "core_calculus": "Blocked: fsym-calculus compilation terminated with SIGKILL before either selected suite ran.",
+    "arithmetic": "Blocked: dependency syn compilation stopped on shared-filesystem exhaustion before tests ran.",
+    "root_transport": "Interrupted while waiting for the shared build lock; no tests executed.",
+    "session": "Unexecuted after executor disconnection.",
+    "component_fallback": "Locked metadata only; no final-source compilation, tests or Clippy completed.",
+    "strict_clippy": "Not completed.",
+    "remote_ci": "Existing CI selections now include both new scalar bracket targets, session cancellation, direct shift and metered float conversion. No remote pass is claimed.",
+    "details": "validation-status.json",
+    "retained_failure_log": "native-build-failure.log"
+  },
+  "source_blob_basis": "Arithmetic blobs were rehashed after successful tests and strict Clippy. The six Session wiring/module/test identities were read from the staged Git index, preserving the bracket-only snapshot while unrelated least-squares work remained unstaged."
+}

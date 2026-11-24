@@ -4,11 +4,12 @@ This development interface connects the root Rust library and the `frankensympy`
 NDJSON command to the existing original-source numerical and exact algebraic
 checkers. Its scope is complete finite real polynomial and rational systems,
 complete real rational equations, inequalities and Boolean constraint combinations,
-exact real residual/Jacobian enclosures, unique nonsingular local roots and
+exact real residual/Jacobian enclosures, continuous scalar root-existence brackets,
+unique nonsingular local roots and
 complete finite-box root sets, objective/gradient/Hessian enclosures, locally
 classified stationary points, global box optimum value bounds, proper finite real
 definite integrals, complete parameter-root families and implicit sensitivities.
-Portable artifacts cover local roots, root isolation, stationary points, global
+Portable artifacts cover scalar existence brackets, local roots, root isolation, stationary points, global
 optimization, integrals, candidate search checkpoints and compiled derivative
 programs. This interface does not close the complete Certified
 Jacobian campaign or certify a SymPy compatibility profile.
@@ -82,6 +83,85 @@ outside that box. For this example the contraction bound is `1/15`.
 The rational matrix is an untrusted preconditioner proposal. Its entries, a
 small residual, a solver convergence flag or a previously stored acceptance
 flag cannot authorize a root certificate.
+
+## Certify a flat or nonsmooth scalar root
+
+`CertifyScalarRootBracket` connects the continuous scalar sign-bracket engine
+to the session. It requires one registered original residual and one ordered
+typed variable. Its independent checker proves **at least one real root** in a
+closed subinterval of the requested interval, with width no greater than an
+exact positive tolerance. This claim supports odd repeated roots and supported
+continuous absolute-value corners without requiring a nonzero derivative.
+
+For example, a derivative-based nonsingular-root certificate cannot cover the
+triple root of `(x-1)^3`. The following session finds and independently checks it:
+
+```json
+{"id":"flat-source","type":"RegisterResidualSystem","payload":{"schema_version":1,"system":"system:flat","residuals":["(x-1)^3"],"variables":["x"]}}
+{"id":"flat-root","type":"CertifyScalarRootBracket","payload":{"schema_version":1,"system":"system:flat","bracket":"bracket:flat","lower":"0","upper":"2","absolute_tolerance":"1/1000","precision_digits":24,"max_bisections":64}}
+{"id":"flat-export","type":"ExportScalarRootBracket","payload":{"schema_version":1,"bracket":"bracket:flat"}}
+```
+
+The accepted response uses `kind: "scalar_root_bracket_certified"`,
+`evidence: "certified_numeric"`, and
+`claim: "at_least_one_real_root_in_closed_interval"`. It includes the complete
+original bounds and tolerance, the certified root `enclosure`, independently
+computed `endpoint_values`, precision, and assumption-context digest. In this
+example the root enclosure is exactly `{"lower":"1","upper":"1"}`.
+
+Other supported cases include `x+abs(x)/2` on `[-1,1]` and an exactly zero
+endpoint of `(x-2)^2` on `[2,3]`. A zero-width input interval is admitted only
+when evaluation proves that point is exactly zero. The full requested interval
+must have certified source continuity: `(x-1)/x` on `[-2,2]` is refused even
+though a proposed narrow interval around 1 would avoid its pole.
+
+| Request or outcome | Meaning |
+| --- | --- |
+| `precision_digits` | Certified function-value precision, from 8 through 128. |
+| `max_bisections` | Candidate search bound, from 0 through 1024. Zero can still accept an existing sufficiently narrow sign bracket or exact endpoint zero. |
+| `absolute_tolerance` | Exact positive rational upper bound on the returned interval width. |
+| `inconclusive` | The supported search cannot establish sufficiently narrow endpoint evidence. Equal endpoint signs do not prove root absence. |
+| `domain_not_certified` | The complete original interval contains an unresolved source-domain obligation, such as a pole. |
+| `bracket:` handle | Existence evidence only; it cannot be used as a `certificate:` unique-root handle or an `isolation:` complete-root-set handle. |
+
+The sign-change lane does not enumerate all roots, establish multiplicity or
+prove uniqueness. For instance, `x^2` on `[-1,1]` has a root but equal positive
+endpoint signs, so this search reports `inconclusive`. A wider accepted bracket
+may contain several roots. Rounding that merely encloses zero is never treated
+as an exactly zero function value.
+
+### Portable bracket replay
+
+`ExportScalarRootBracket` returns canonical artifact bytes containing the
+original typed source, variable, complete request interval, tolerance, context,
+and candidate witness. It carries no trusted acceptance flag or endpoint value.
+A fresh receiver first registers its own source, then supplies the same expected
+statement in `ReplayScalarRootBracket`:
+
+```json
+{"type":"ReplayScalarRootBracket","payload":{"schema_version":1,"system":"system:flat","bracket":"bracket:received","lower":"0","upper":"2","absolute_tolerance":"1/1000","artifact":"<exact artifact string returned by ExportScalarRootBracket>"}}
+```
+
+Replay rejects source, axis, context, interval or tolerance substitutions before
+constructing the bounded witness. It rechecks original continuity, containment,
+width and endpoint evidence without invoking candidate search. Canonical byte
+checks reject extra fields, duplicate keys and alternate encodings.
+
+The chunked transfer API uses a distinct `scalar_root_bracket` artifact kind:
+pass `{"scalar_root_bracket":"bracket:flat"}` as the
+`BeginArtifactExport` source, then use
+`ReplayScalarRootBracketFromArtifact` with the imported `transfer` and the
+same receiver-selected source, bounds and tolerance. Byte integrity alone never
+publishes a mathematical receipt. Inline artifacts retain the existing 24 KiB
+session bound; chunked artifacts retain the existing 1 MiB bound.
+
+Rust hosts can retrieve accepted evidence through
+`Session::scalar_root_bracket(&ScalarRootBracketId)`. There are at most
+`MAX_SESSION_SCALAR_ROOT_BRACKETS` (32) resident brackets. The independent
+checker spends the session's protected verifier pool; generation, transport and
+output consume ordinary cumulative resources. Host cancellation reaches both
+phases and final publication. Any failed verification or output admission leaves
+the new handle absent, and a later retry does not refund spent resources.
 
 ## Solve complete finite real polynomial systems
 

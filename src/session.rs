@@ -15,7 +15,7 @@ use crate::certification_session::{
     CertificationSessionError, CertificationState, CompiledObjectiveId, CompiledResidualSystemId,
     ObjectiveId, ParametricFamilyId, ParametricFamilyReceipt, ParametricProblemId,
     ParametricSensitivityId, ResidualSystemId, RootCertificateId, RootIsolationId,
-    RootIsolationSearchId, StationaryPointId,
+    RootIsolationSearchId, ScalarRootBracketId, StationaryPointId,
 };
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_budget::{Budget, BudgetLimits, Dimension, VerifierLease};
@@ -576,6 +576,15 @@ impl Session {
     /// The independently verified complete root set in its declared closed box.
     pub fn root_isolation(&self, id: &RootIsolationId) -> Option<&fsym_core::RootIsolationReceipt> {
         self.certification.isolation(id)
+    }
+
+    /// An independently checked scalar existence bracket. This does not
+    /// establish uniqueness, multiplicity or a complete root enumeration.
+    pub fn scalar_root_bracket(
+        &self,
+        id: &ScalarRootBracketId,
+    ) -> Option<&fsym_core::ScalarRootBracketReceipt> {
+        self.certification.scalar_root_bracket(id)
     }
 
     /// An independently checked proper definite-integral enclosure.
@@ -1205,6 +1214,10 @@ impl Session {
                     | "ReleaseArtifactTransfer"
                     | "ReplayRootCertificateFromArtifact"
                     | "ReplayRootIsolationFromArtifact"
+                    | "CertifyScalarRootBracket"
+                    | "ExportScalarRootBracket"
+                    | "ReplayScalarRootBracket"
+                    | "ReplayScalarRootBracketFromArtifact"
                     | "CertifyIntegral"
                     | "ExportIntegralCertificate"
                     | "ReplayIntegralCertificate"

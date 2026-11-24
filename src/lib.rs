@@ -50,10 +50,11 @@ pub use certification_session::{
     ExactParametricRootWitness, ExactRealPolynomialSolutionSet, ExactRealSolutionSet,
     ExactRootWitness, IntegralCertificateId, IsolatedRoot, MAX_SESSION_ARTIFACT_TRANSFERS,
     MAX_SESSION_COMPILED_OBJECTIVES, MAX_SESSION_COMPILED_SYSTEMS,
-    MAX_SESSION_OPTIMIZATION_SEARCHES, MAX_SESSION_ROOT_SEARCHES, ObjectiveId, ParametricFamilyId,
-    ParametricFamilyReceipt, ParametricProblemId, ParametricSensitivityId, RealFormula,
-    RealInequalityRelation, RealRelation, ResidualSystemId, RootCertificateId, RootIsolationId,
-    RootIsolationSearchId, StationaryPointClassification, StationaryPointId,
+    MAX_SESSION_OPTIMIZATION_SEARCHES, MAX_SESSION_ROOT_SEARCHES, MAX_SESSION_SCALAR_ROOT_BRACKETS,
+    ObjectiveId, ParametricFamilyId, ParametricFamilyReceipt, ParametricProblemId,
+    ParametricSensitivityId, RealFormula, RealInequalityRelation, RealRelation, ResidualSystemId,
+    RootCertificateId, RootIsolationId, RootIsolationSearchId, ScalarRootBracketId,
+    StationaryPointClassification, StationaryPointId,
 };
 pub use durable_search::{
     DURABLE_ROOT_SEARCH_SCHEMA, DurableSearchError, PreparedRootSearchCheckpoint,

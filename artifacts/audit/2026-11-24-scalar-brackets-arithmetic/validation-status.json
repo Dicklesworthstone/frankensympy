@@ -1,0 +1,261 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-24",
+  "scope": "Resumed pinned-toolchain arithmetic validation and scalar-bracket validation attempts; Session and full-runtime execution remain unvalidated.",
+  "status": "arithmetic_passed_scalar_bracket_session_execution_pending",
+  "toolchain": {
+    "channel": "nightly-2026-08-20",
+    "rustc": "1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "governed_compiler_installed_and_observed": true,
+    "recovered_installation": "Pinned toolchain restored under task-local /tmp RUSTUP_HOME; original release manifest and archive SHA256 verification retained, without compiler or source substitution.",
+    "previous_recovered_installation": "Task-local RUSTUP_HOME on workspace disk; no compiler/source substitution.",
+    "rustc_commit": "f7d782a3be46d6bb4b9792fe69a61db389ba1769"
+  },
+  "donor_pins": {
+    "asupersync": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+    "franken_numpy": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+    "frankenscipy": "213a417c739025ed865a3875c89a7d86726ecb5a"
+  },
+  "preparation": {
+    "donor_bootstrap": "The unchanged scripts/fetch_workspace_donors.py completed successfully before and after the first executor reset.",
+    "build_policy": {
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0"
+    },
+    "dependency_policy": "Original production manifests and Cargo.lock retained. No tracked production source was edited by the build-environment task."
+  },
+  "attempts": [
+    {
+      "command": "rustfmt +nightly-2026-08-20 --check --edition 2024 crates/fsym-bigint/src/lib.rs crates/fsym-rational/src/lib.rs crates/fsym-rational/tests/metered_float_conversion.rs crates/fsym-bigint/tests/metered_shift.rs",
+      "exit_code": 0,
+      "result": "Passed for the four final arithmetic blobs.",
+      "retained_log": "arithmetic-format.log",
+      "note": "Successful formatter output is empty; terminal exit 0 was observed."
+    },
+    {
+      "tool": "rustfmt +nightly-2026-08-20",
+      "operation": "pinned formatting",
+      "exit_code": 0,
+      "result": "Pinned nightly-2026-08-20 formatting completed successfully for all six scalar-bracket Session files. The exact resulting staged blob identities below were recorded before executor loss and recovered byte-for-byte.",
+      "source_blobs": [
+        {
+          "path": "src/artifact_stream.rs",
+          "git_blob": "286ae0e978af80ad2c3edfa6ae616e8415f6b600"
+        },
+        {
+          "path": "src/certification_session.rs",
+          "git_blob": "19728ab7411352f9563fd4e0efd0196897c8377a"
+        },
+        {
+          "path": "src/certification_session/scalar_bracket.rs",
+          "git_blob": "fdddc60ae3cc51ba36784a1be7cb71d49ae920b0"
+        },
+        {
+          "path": "src/lib.rs",
+          "git_blob": "077742b129cf1db7efa6f2585e62135241a3fc56"
+        },
+        {
+          "path": "src/session.rs",
+          "git_blob": "650c16e84c8a61ea6db6ae1e107e1c7d6bb9f166"
+        },
+        {
+          "path": "tests/scalar_bracket_session.rs",
+          "git_blob": "c9f3e176c3d7993a71f0f44b6d1cd1616e4fa3cd"
+        }
+      ],
+      "evidence": "Observed by the coordinating task before executor loss; this supersedes historical manual formatting.",
+      "command": "rustfmt --edition 2024 --config skip_children=true,unstable_features=true src/certification_session.rs src/session.rs src/artifact_stream.rs src/lib.rs src/certification_session/scalar_bracket.rs tests/scalar_bracket_session.rs"
+    },
+    {
+      "command": "cargo +nightly-2026-08-20 test -p fsym-bigint --test metered_shift --locked",
+      "exit_code": 0,
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0,
+      "retained_log": "arithmetic-shift-tests.log"
+    },
+    {
+      "command": "cargo +nightly-2026-08-20 test -p fsym-rational --test metered_float_conversion --locked",
+      "exit_code": 0,
+      "passed": 12,
+      "failed": 0,
+      "ignored": 0,
+      "retained_log": "arithmetic-float-tests.log"
+    },
+    {
+      "command": "cargo +nightly-2026-08-20 test -p fsym-bigint -p fsym-rational --locked -- --test-threads=1",
+      "exit_code": 0,
+      "passed": 176,
+      "failed": 0,
+      "ignored": 0,
+      "suites": {
+        "bigint_unit": 99,
+        "metered_shift": 8,
+        "rational_unit": 48,
+        "directed_float_conversion": 9,
+        "metered_float_conversion": 12,
+        "bigint_doctests": 0,
+        "rational_doctests": 0
+      },
+      "retained_log": "arithmetic-broad-tests.log",
+      "note": "The focused suites are included in this total; their separate runs are not double-counted."
+    },
+    {
+      "command": "cargo +nightly-2026-08-20 clippy -p fsym-bigint -p fsym-rational --all-targets --locked -- -D warnings",
+      "exit_code": 0,
+      "result": "Passed.",
+      "retained_log": "arithmetic-clippy.log"
+    },
+    {
+      "command": "cargo +nightly-2026-08-20 check --locked -p frankensympy --lib --test scalar_bracket_transport --test scalar_bracket_session --test session_least_squares_objective --test session_cancellation -j1",
+      "started_at": "2026-11-24T17:54:37Z",
+      "ended_at": "2026-11-24T17:54:54Z",
+      "elapsed_seconds": 17.062,
+      "exit_code": 101,
+      "result": "The syn 3.0.3 full/visit dependency compiler received SIGKILL before any project crate or test was checked. The headroom guard did not fire. No kernel OOM cause is inferred.",
+      "compiler_wrapper": "Serialized frontend/backend jobs for heavy project crates only.",
+      "original_manifest_and_lock": true,
+      "source_snapshot": "The build-environment task compared nine pending source files before and after the attempt; all hashes were unchanged. Snapshot base was bbb52c0eab9f38052b40444373b976828ded5a69.",
+      "raw_evidence": "The complete 5775-byte root-native-check.log, root-native-check.json and source identity snapshots were retained by the build-environment task before executor loss."
+    },
+    {
+      "command": "cargo +nightly-2026-08-20 check --locked -p frankensympy --lib --test scalar_bracket_transport --test scalar_bracket_session --test session_least_squares_objective --test session_cancellation -j1",
+      "status": "started_outcome_unknown",
+      "exit_code": null,
+      "compiler_wrapper": "Serial frontend/backend jobs for every rustc invocation.",
+      "result": "The retry started, but its existing-session status could not be recovered after the execution environment became unavailable. No terminal completion, project check or test pass is claimed.",
+      "intended_log": "root-native-check-serial.log",
+      "intended_status": "root-native-check-serial.json",
+      "logs_recovered": false
+    }
+  ],
+  "uncompleted_work": [
+    "Separate core-only scalar_bracket_certificate test execution",
+    "New scalar_bracket_transport tests",
+    "New scalar_bracket_session tests and CLI cases",
+    "Strict Clippy for the root/Session targets",
+    "Full workspace check and tests",
+    "Terminal outcome of the latest serial root-check retry, unavailable after executor loss"
+  ],
+  "remote_ci_observation": {
+    "commit": "66130899f6ac478db4ec468209be80129625a4db",
+    "run_id": 45334281764,
+    "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/45334281764",
+    "observed_status": "queued",
+    "conclusion": null,
+    "note": "Point-in-time observation only; queued CI is not a pass."
+  },
+  "claims": {
+    "observed_passing_tests_in_this_record": 176,
+    "full_runtime_validated": false,
+    "compatibility_profile_certified": false,
+    "workstream_closed": false,
+    "mathematical_evidence_tier_promoted": false,
+    "counting_policy": "Counts the successful full arithmetic run once; separate focused reruns are not added."
+  },
+  "historical_attempts": [
+    {
+      "command": "cargo +nightly-2026-08-20 check --workspace --all-targets --locked",
+      "result": "Initial attempt failed during crate download because the default Cargo cache filesystem had no free space. Retried with a task-local Cargo home on workspace disk."
+    },
+    {
+      "command": "cargo +nightly-2026-08-20 check --workspace --all-targets --locked",
+      "result": "Retry exited 101: the pinned asupersync library compiler was terminated by signal 9 (SIGKILL) during metadata checking, before root/runtime validation.",
+      "raw_log": "Lost with the first executor reset; terminal failure was observed in tool output. No full-workspace pass is claimed."
+    },
+    {
+      "command": "cargo +nightly-2026-08-20 test --locked -p fsym-core --test scalar_bracket_certificate -p fsym-calculus --test scalar_bracket",
+      "result": "An attempt before the first reset stopped at an in-progress fsym-bigint type-inference error. The implementation author corrected the annotation afterward; this attempt ran no tests."
+    },
+    {
+      "command": "cargo +nightly-2026-08-20 test --locked -p fsym-core --test scalar_bracket_certificate -p fsym-calculus --test scalar_bracket",
+      "result": "Recovered original-workspace attempt exited 101 when fsym-calculus code generation was terminated by signal 9 (SIGKILL), before either selected test suite ran.",
+      "retained_log": "native-build-failure.log",
+      "retained_log_git_blob": "d675330c45c77483dc7cedf5372f5176d5b5adbd",
+      "retained_log_bytes": 10530,
+      "log_is_complete_observed_transcript": true,
+      "log_readback_matched": true
+    },
+    {
+      "command": "cargo +nightly-2026-08-20 test --locked --test scalar_bracket_transport",
+      "result": "Stopped deliberately with Ctrl-C, exit 130, after dependency download while waiting for the shared build lock. No root test or repeated asupersync compilation ran in this attempt."
+    }
+  ],
+  "historical_source_component": {
+    "purpose": "Previously documented source-faithful fallback, prepared only after observing the original production build failure.",
+    "recipe": "artifacts/validation/2026-11-15-continuation/session-component; relocated only absolute path prefixes and added selected test targets in scratch.",
+    "locked_metadata_completed": true,
+    "registry_packages_with_versions_and_checksums_matched_to_production_lock": 58,
+    "complete_original_path_packages": 25,
+    "whole_original_synchronous_runtime_modules": 5,
+    "whole_pinned_codec_modules": 14,
+    "recorded_source_files": 782,
+    "source_functions_replaced": [],
+    "tests_executed": false,
+    "limitation": "Metadata admission is not execution evidence. No component library/test/Clippy command completed. The complete inventory and scratch harness became unavailable during executor disconnection; no final-source hash equivalence is asserted.",
+    "exclusions": [
+      "Full production asynchronous runtime and transport dependency graph",
+      "Asynchronous scheduling/cancellation behavior",
+      "Full workspace, Python compatibility, campaign and certification gates"
+    ]
+  },
+  "historical_resource_observations": {
+    "disk": "The shared 20 GiB workspace filesystem reached ENOSPC twice; no files were deleted or destructively cleaned.",
+    "memory": "After the recovered calculus compiler failure, available memory was approximately 1.3 GiB and workspace free space approximately 709 MiB.",
+    "cause_boundary": "SIGKILL was observed; no kernel OOM cause is asserted from those measurements alone.",
+    "executor": "The first reset replaced the filesystem with a fresh environment. A second disconnection left no usable execution environment."
+  },
+  "arithmetic_source_equivalence": {
+    "tested_local_commit": "44a5e47d4ebc2646b8a89d29adb44eaa75456eba",
+    "published_commit": "fdef19b2c141dcb7544ee8eac8cb528a8827a7df",
+    "four_blobs_match_exactly": true,
+    "source_blobs": [
+      {
+        "path": "crates/fsym-bigint/src/lib.rs",
+        "git_blob": "c7cca83172fa6979b25fc3d1d5aad625f4cb8b89"
+      },
+      {
+        "path": "crates/fsym-rational/src/lib.rs",
+        "git_blob": "392b0f176f86239053e27be99faefa2ee4feb385"
+      },
+      {
+        "path": "crates/fsym-rational/tests/metered_float_conversion.rs",
+        "git_blob": "e134dbe94acc568595e99f9392caf35a76b3d4de"
+      },
+      {
+        "path": "crates/fsym-bigint/tests/metered_shift.rs",
+        "git_blob": "8eb9ab0d87d1dbeffb49b7ada0837056b1f47478"
+      }
+    ]
+  },
+  "retained_arithmetic_logs": [
+    {
+      "path": "arithmetic-format.log",
+      "git_blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "bytes": 0
+    },
+    {
+      "path": "arithmetic-shift-tests.log",
+      "git_blob": "42e4945f387fc3317603d56965fbbaa86d4e1164",
+      "bytes": 3617
+    },
+    {
+      "path": "arithmetic-float-tests.log",
+      "git_blob": "c9d4dd694cbc28582b2d9c758b97f564e61f607c",
+      "bytes": 1648
+    },
+    {
+      "path": "arithmetic-broad-tests.log",
+      "git_blob": "af02a8506531d2d6c4c02af9adc59ba5cf0a8442",
+      "bytes": 15986
+    },
+    {
+      "path": "arithmetic-clippy.log",
+      "git_blob": "b75fb2d663e612f3c222b6552fd3da7b2cf6c084",
+      "bytes": 1508
+    }
+  ],
+  "current_component_status": "Only inspected after the latest native failure; no component build, tests or Clippy executed."
+}

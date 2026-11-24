@@ -120,6 +120,7 @@ pub enum ArtifactKind {
     BoxOptimizationCheckpoint,
     CompiledResidualSystem,
     CompiledObjective,
+    ScalarRootBracket,
 }
 
 impl ArtifactKind {
@@ -135,6 +136,7 @@ impl ArtifactKind {
             Self::BoxOptimizationCheckpoint => 8,
             Self::CompiledResidualSystem => 9,
             Self::CompiledObjective => 10,
+            Self::ScalarRootBracket => 11,
         }
     }
 }
