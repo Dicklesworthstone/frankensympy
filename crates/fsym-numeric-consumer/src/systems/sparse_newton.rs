@@ -17,6 +17,7 @@ use super::sparse_linear::{
     DAMPING_ATTEMPTS, LinearModel, column_scales, dot, finite_scalar, lsqr_scaled_direction,
     trial_domain_failure,
 };
+use super::sparse_source::SparseConsumerSource;
 use super::{
     RootProposal, SystemConsumerError, charge, copy_values, finite, infinity_norm, point_dimension,
     publication_checkpoint, validate_guards, zeros,
@@ -75,6 +76,54 @@ pub fn validate_sparse_root_shape(
 /// finite-arithmetic or mathematical-domain failures of trial points backtrack.
 pub fn sparse_newton_refine_with_meter<M: BudgetMeter>(
     system: &VerifiedResidualSystem,
+    initial: &[f64],
+    guards: &NewtonGuards,
+    meter: &mut M,
+) -> Result<RootProposal, SystemConsumerError> {
+    sparse_newton_source_with_meter(&SparseConsumerSource::full(system), initial, guards, meter)
+}
+
+/// Refine an unknown prefix while keeping every remaining coordinate fixed.
+///
+/// Both groups must be nonempty, their combined length at most 256, and the
+/// original program may have any 1..=4096 residual rows. The unknown count is
+/// `initial_unknowns.len()`, independently of the residual count. Every full
+/// original residual and derivative is evaluated before projecting unknown
+/// Jacobian columns. No source substitution or recompilation occurs.
+pub fn sparse_newton_refine_parametric(
+    system: &VerifiedResidualSystem,
+    initial_unknowns: &[f64],
+    parameters: &[f64],
+    guards: &NewtonGuards,
+) -> Result<RootProposal, SystemConsumerError> {
+    sparse_newton_refine_parametric_with_meter(
+        system,
+        initial_unknowns,
+        parameters,
+        guards,
+        &mut Unbounded,
+    )
+}
+
+/// One cumulative ledger funds projection, rejected trials and publication.
+/// The returned point contains only unknown coordinates. A fresh original
+/// residual norm authorizes an approximate proposal, never a root-family,
+/// uniqueness, existence or minimum-norm claim.
+pub fn sparse_newton_refine_parametric_with_meter<M: BudgetMeter>(
+    system: &VerifiedResidualSystem,
+    initial_unknowns: &[f64],
+    parameters: &[f64],
+    guards: &NewtonGuards,
+    meter: &mut M,
+) -> Result<RootProposal, SystemConsumerError> {
+    meter.checkpoint()?;
+    validate_guards(guards)?;
+    let source = SparseConsumerSource::parametric(system, initial_unknowns, parameters, meter)?;
+    sparse_newton_source_with_meter(&source, initial_unknowns, guards, meter)
+}
+
+fn sparse_newton_source_with_meter<M: BudgetMeter>(
+    system: &SparseConsumerSource<'_>,
     initial: &[f64],
     guards: &NewtonGuards,
     meter: &mut M,
@@ -238,14 +287,14 @@ fn stopped(iterations: usize, state: &Evaluation) -> SystemConsumerError {
 }
 
 fn evaluate<M: BudgetMeter>(
-    system: &VerifiedResidualSystem,
+    system: &SparseConsumerSource<'_>,
     point: &[f64],
     residual_count: usize,
     meter: &mut M,
 ) -> Result<Evaluation, SystemConsumerError> {
     // Even an empty Jacobian pattern or a later zero direction cannot erase
     // any original residual or derivative domain check.
-    let values = system.evaluate_sparse_with_meter(point, meter)?;
+    let values = system.evaluate_with_meter(point, meter)?;
     if values.residuals.len() != residual_count
         || values.jacobian.len() != system.jacobian_pattern().len()
     {
@@ -253,8 +302,6 @@ fn evaluate<M: BudgetMeter>(
             "sparse Newton evaluation dimensions",
         ));
     }
-    finite(&values.residuals, "sparse Newton residuals", meter)?;
-    finite(&values.jacobian, "sparse Newton Jacobian", meter)?;
     let residual_norm = infinity_norm(&values.residuals, meter)?;
     Ok(Evaluation {
         residuals: values.residuals,

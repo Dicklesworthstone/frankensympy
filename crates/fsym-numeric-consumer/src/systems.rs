@@ -25,6 +25,7 @@ mod sparse_least_squares;
 pub use sparse_least_squares::*;
 mod sparse_linear;
 mod sparse_newton;
+mod sparse_source;
 pub use sparse_newton::*;
 
 use crate::{NewtonGuards, exact_binary64_rational};

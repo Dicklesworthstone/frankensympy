@@ -27,6 +27,7 @@ use super::sparse_linear::{
     DAMPING_ATTEMPTS, LinearModel, column_scales, dot, finite_scalar, lsqr_direction,
     trial_domain_failure,
 };
+use super::sparse_source::SparseConsumerSource;
 use super::{
     LeastSquaresOptions, LeastSquaresProposal, LeastSquaresTermination,
     MAX_CONSUMER_NEWTON_ITERATIONS, SystemConsumerError, charge, copy_values, finite,
@@ -68,16 +69,52 @@ pub fn sparse_least_squares_with_meter<M: BudgetMeter>(
     options: &LeastSquaresOptions,
     meter: &mut M,
 ) -> Result<LeastSquaresProposal, SystemConsumerError> {
+    sparse_least_squares_source_with_meter(
+        &SparseConsumerSource::full(system),
+        initial,
+        options,
+        meter,
+    )
+}
+
+/// Minimize the full residual cost in an unknown prefix at fixed parameters.
+///
+/// The unknown count is `initial_unknowns.len()`, independently of the row
+/// count. Both coordinate groups must be nonempty, with at most 256 combined
+/// coordinates and 4096 original residuals. Every original derivative domain
+/// is checked, including discarded parameter columns. The returned stationary
+/// candidate contains unknown coordinates only and makes no minimum claim.
+pub fn sparse_least_squares_parametric(
+    system: &VerifiedResidualSystem,
+    initial_unknowns: &[f64],
+    parameters: &[f64],
+    options: &LeastSquaresOptions,
+) -> Result<LeastSquaresProposal, SystemConsumerError> {
+    sparse_least_squares_parametric_with_meter(
+        system,
+        initial_unknowns,
+        parameters,
+        options,
+        &mut Unbounded,
+    )
+}
+
+/// Source evaluation, unknown-column projection, every LSQR/line-search trial
+/// and final publication share one cumulative caller meter.
+pub fn sparse_least_squares_parametric_with_meter<M: BudgetMeter>(
+    system: &VerifiedResidualSystem,
+    initial_unknowns: &[f64],
+    parameters: &[f64],
+    options: &LeastSquaresOptions,
+    meter: &mut M,
+) -> Result<LeastSquaresProposal, SystemConsumerError> {
     meter.checkpoint()?;
-    let n = system.vars().len();
-    let m = system.residuals().len();
-    if !(1..=MAX_SPARSE_LEAST_SQUARES_VARIABLES).contains(&n)
-        || !(1..=MAX_SPARSE_LEAST_SQUARES_RESIDUALS).contains(&m)
-    {
-        return Err(SystemConsumerError::InvalidRequest(
-            "sparse least squares requires 1..=256 variables and 1..=4096 residuals",
-        ));
-    }
+    validate_options(options)?;
+    let source = SparseConsumerSource::parametric(system, initial_unknowns, parameters, meter)?;
+    sparse_least_squares_source_with_meter(&source, initial_unknowns, options, meter)
+}
+
+fn validate_options(options: &LeastSquaresOptions) -> Result<(), SystemConsumerError> {
     if options.max_iterations > MAX_CONSUMER_NEWTON_ITERATIONS {
         return Err(SystemConsumerError::InvalidRequest(
             "maximum sparse least-squares iterations exceeds 1024",
@@ -93,6 +130,26 @@ pub fn sparse_least_squares_with_meter<M: BudgetMeter>(
             "sparse least-squares maximum step norm must be finite and positive",
         ));
     }
+    Ok(())
+}
+
+fn sparse_least_squares_source_with_meter<M: BudgetMeter>(
+    system: &SparseConsumerSource<'_>,
+    initial: &[f64],
+    options: &LeastSquaresOptions,
+    meter: &mut M,
+) -> Result<LeastSquaresProposal, SystemConsumerError> {
+    meter.checkpoint()?;
+    let n = system.num_vars();
+    let m = system.num_residuals();
+    if !(1..=MAX_SPARSE_LEAST_SQUARES_VARIABLES).contains(&n)
+        || !(1..=MAX_SPARSE_LEAST_SQUARES_RESIDUALS).contains(&m)
+    {
+        return Err(SystemConsumerError::InvalidRequest(
+            "sparse least squares requires 1..=256 variables and 1..=4096 residuals",
+        ));
+    }
+    validate_options(options)?;
     point_dimension(initial, n, "sparse least-squares initial point")?;
     finite(initial, "sparse least-squares initial point", meter)?;
     let mut point = copy_values(initial, meter)?;
@@ -223,21 +280,19 @@ fn stopped(iterations: usize, state: &Evaluation) -> SystemConsumerError {
 }
 
 fn evaluate<M: BudgetMeter>(
-    system: &VerifiedResidualSystem,
+    system: &SparseConsumerSource<'_>,
     point: &[f64],
     m: usize,
     n: usize,
     meter: &mut M,
 ) -> Result<Evaluation, SystemConsumerError> {
-    let values = system.evaluate_sparse_with_meter(point, meter)?;
+    let values = system.evaluate_with_meter(point, meter)?;
     let pattern = system.jacobian_pattern();
     if values.residuals.len() != m || values.jacobian.len() != pattern.len() {
         return Err(SystemConsumerError::ConsumerContract(
             "sparse least-squares evaluation dimensions",
         ));
     }
-    finite(&values.residuals, "sparse least-squares residuals", meter)?;
-    finite(&values.jacobian, "sparse least-squares Jacobian", meter)?;
     let mut gradient = zeros(n, meter)?;
     charge(meter, (5 * pattern.len() + 3 * m + 1) as u64, 0, 0)?;
     let mut sum_squared = 0.0;
