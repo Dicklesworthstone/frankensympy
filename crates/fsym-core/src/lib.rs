@@ -1013,24 +1013,17 @@ impl Expr {
                 if matches!(b.as_ref(), Expr::Const(Constant::E)) {
                     return e.eval_complex_ball(extra)?.exp(precision_digits);
                 }
-                // Principal square root of negative real: sqrt(-a) = i * sqrt(a)
+                // For a literal half-integer exponent, use the principal
+                // complex square root before taking the signed integer power.
+                // Evaluate the original base once and preserve any refusal.
                 if let Expr::Rational(r) = e.as_ref()
                     && r.denom() == &BigInt::from(2)
                     && let Some(p) = r.numer().to_i32()
-                    && let Ok(bb) = b.eval_complex_ball(extra)
-                    && bb.imag().lower().is_zero()
-                    && bb.imag().upper().is_zero()
                 {
-                    let bits = extra.saturating_mul(4).saturating_add(64);
-                    if bb.real().is_negative() {
-                        let mag_root = bb.real().neg().sqrt(bits)?;
-                        let i_root = ComplexBall::new(RealBall::from_i64(0), mag_root);
-                        return i_root.pow(p);
-                    } else if !bb.real().contains_zero() || bb.real().lower() >= BigRational::zero()
-                    {
-                        let root = bb.real().sqrt(bits)?;
-                        return ComplexBall::from_real(root).pow(p);
-                    }
+                    return b
+                        .eval_complex_ball(extra)?
+                        .sqrt(precision_digits)?
+                        .pow(p);
                 }
                 Ok(ComplexBall::from_real(
                     self.eval_real_ball(precision_digits)?,
@@ -1043,6 +1036,8 @@ impl Expr {
                 let arg = args[0].eval_complex_ball(extra)?;
                 match name.as_str() {
                     "exp" => arg.exp(precision_digits),
+                    "log" | "ln" => arg.ln(precision_digits),
+                    "sqrt" => arg.sqrt(precision_digits),
                     "sin" => arg.sin(precision_digits),
                     "cos" => arg.cos(precision_digits),
                     "tan" => {

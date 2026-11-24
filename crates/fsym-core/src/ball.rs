@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 mod atan2;
+mod complex;
 mod error_functions;
 mod inverse_circular;
 mod inverse_hyperbolic;
@@ -1423,8 +1424,17 @@ impl ComplexBall {
         Ok(self.mul(&inv_other))
     }
 
-    /// Certified integer power $z^k$.
+    /// Certified integer power $z^k$ with bounded intermediate arithmetic.
+    ///
+    /// Each inversion/product is admitted before allocating its exact
+    /// rational intermediates. This is an intrinsic fixed-work envelope,
+    /// not a caller-owned budget. Exact unit cycles remain admissible even
+    /// at the signed exponent limits.
     pub fn pow(&self, exp: i32) -> Result<Self, BallError> {
+        checked_work_bits(
+            "ComplexBall integer power",
+            [self.power_height().saturating_mul(4).saturating_add(8)],
+        )?;
         if exp == 0 {
             if self.contains_zero() {
                 return Err(BallError::IndeterminatePower(
@@ -1437,18 +1447,55 @@ impl ComplexBall {
             return Ok(self.clone());
         }
         let mut mag = exp.unsigned_abs();
-        let mut base = if exp < 0 { self.inv()? } else { self.clone() };
+        let mut base = if exp < 0 {
+            // Squared-modulus endpoints, reciprocal endpoints, and both
+            // component divisions can multiply unrelated denominators.
+            checked_work_bits(
+                "ComplexBall negative integer power",
+                [self.power_height().saturating_mul(512).saturating_add(256)],
+            )?;
+            self.inv()?
+        } else {
+            self.clone()
+        };
         let mut acc = Self::from_i64(1);
         while mag > 0 {
             if mag % 2 == 1 {
-                acc = acc.mul(&base);
+                acc = acc.checked_power_product(&base)?;
             }
             mag /= 2;
             if mag > 0 {
-                base = base.mul(&base);
+                base = base.checked_power_product(&base)?;
             }
         }
         Ok(acc)
+    }
+
+    fn power_height(&self) -> u64 {
+        [
+            self.real.midpoint.height().max_bits(),
+            self.real.radius.height().max_bits(),
+            self.imag.midpoint.height().max_bits(),
+            self.imag.radius.height().max_bits(),
+        ]
+        .into_iter()
+        .max()
+        .unwrap_or(0)
+    }
+
+    fn checked_power_product(&self, other: &Self) -> Result<Self, BallError> {
+        // Each real radius is a sum of three products; a complex component
+        // combines two real products. Six denominator products plus guards
+        // fit under this conservative bound, including transient sums.
+        let height = self
+            .power_height()
+            .saturating_add(other.power_height())
+            .saturating_add(2);
+        checked_work_bits(
+            "ComplexBall integer-power product",
+            [height.saturating_mul(16)],
+        )?;
+        Ok(self.mul(other))
     }
 
     /// Certified complex exponential $\exp(x + i y) = e^x (\cos y + i \sin y)$.
