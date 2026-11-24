@@ -122,6 +122,138 @@ def test_sparse_rectangular_program_retains_all_equations_and_coordinate_order()
         s.nsolve_certified(source, (y, x), [0, 0], backend="sparse")
 
 
+def test_underdetermined_sparse_roots_preserve_public_shapes_and_unused_axes():
+    x, y, unused = s.symbols("underdetermined_x underdetermined_y underdetermined_unused")
+    equations = [x + 2*y - 5, 2*x + 4*y - 10]
+    variables = (y, unused, x)
+    program = s.compile_residual_system(equations, variables)
+    candidate = program.solve_candidate([0, 7, 0], backend="sparse")
+    assert candidate.root[2] + 2*candidate.root[0] == pytest.approx(5, abs=1e-12)
+    assert candidate.root[1] == 7 and candidate.iterations > 0
+    assert candidate.variables == variables
+    assert candidate.backend == "sparse" and candidate.evidence == "approximate"
+    assert candidate.residual_norm == max(map(abs, program.residuals(*candidate.root)))
+    assert candidate.residual_norm <= 1e-12
+    assert not hasattr(candidate, "certificate")
+    native, norm, _ = program.native_system.solve_candidate([0, 7, 0], backend="sparse")
+    assert native == pytest.approx(candidate.root) and norm <= 1e-12
+    result = s.nsolve(equations, variables, [0, 7, 0], backend="sparse")
+    assert result.shape == (3, 1)
+    assert [float(value) for value in result] == pytest.approx(candidate.root)
+    mapping, = s.nsolve(equations, variables, [0, 7, 0], backend="sparse", dict=True)
+    assert list(mapping) == list(variables)
+    assert [float(mapping[axis]) for axis in variables] == pytest.approx(candidate.root)
+    existing = program.solve_candidate([0, -11, 5], backend="sparse", maxiter=0, tol=0)
+    assert existing.root == (0.0, -11.0, 5.0) and existing.iterations == 0
+
+
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_underdetermined_nonlinear_sparse_roots_follow_the_initial_component(sign):
+    x, y = s.symbols("underdetermined_circle_x underdetermined_circle_y")
+    program = s.compile_residual_system([x*x + y*y - 1], (x, y))
+    candidate = program.solve_candidate([sign*0.75, sign*0.75], backend="sparse")
+    assert candidate.root == pytest.approx([sign/math.sqrt(2)] * 2, abs=1e-11)
+    assert candidate.root[0]**2 + candidate.root[1]**2 == pytest.approx(1, abs=1e-12)
+    assert candidate.residual_norm <= 1e-12
+
+
+def test_underdetermined_sparse_replay_retains_same_named_typed_axes_and_argument_layout():
+    plain = s.Symbol("underdetermined_same")
+    positive = s.Symbol("underdetermined_same", positive=True)
+    unused = s.Dummy("underdetermined_same")
+    variables = (positive, unused, plain)
+    arguments = [positive, (unused, plain)]
+    source = [positive + 2*plain - 5]
+    program = s.compile_residual_system(source, arguments)
+    restored = s.load_residual_system(program.to_bytes(), residuals=source, args=arguments)
+    candidate = restored.solve_candidate([1, 9, 0], backend="sparse")
+    assert all(actual is expected for actual, expected in zip(candidate.variables, variables))
+    assert candidate.root[0] + 2*candidate.root[2] == pytest.approx(5, abs=1e-12)
+    assert candidate.root[1] == 9
+    assert max(map(abs, restored.residuals(candidate.root[0], candidate.root[1:]))) <= 1e-12
+    assert candidate.root == program.solve_candidate([1, 9, 0], backend="sparse").root
+
+
+def test_underdetermined_sparse_nonroots_cannot_succeed_on_stationarity():
+    x, y, unused = s.symbols("underdetermined_nonroot_x underdetermined_nonroot_y unused")
+    for sources, variables in (
+        ([x*x + y*y + 1], (x, y)),
+        ([x+y-1, x+y-3], (x, y, unused)),
+        ([s.Integer(1)], (x, y)),
+    ):
+        program = s.compile_residual_system(sources, variables)
+        initial = [0] * len(variables)
+        with pytest.raises(ValueError):
+            program.solve_candidate(initial, backend="sparse")
+        with pytest.raises(ValueError):
+            s.nsolve(sources, variables, initial, backend="sparse")
+
+
+def test_underdetermined_sparse_source_domains_survive_zero_derivative_columns():
+    x, y = s.symbols("underdetermined_domain_x underdetermined_domain_y")
+    hidden = s.Mul(0, s.log(y), evaluate=False)
+    source = s.Add(x-1, hidden, evaluate=False)
+    program = s.compile_residual_system([source], (x, y))
+    for initial in ([0, -1], [1, -1], [1, 0]):
+        with pytest.raises(ValueError):
+            program.solve_candidate(initial, backend="sparse")
+        with pytest.raises(ValueError):
+            s.nsolve([source], (x, y), initial, backend="sparse")
+    candidate = program.solve_candidate([0, 2], backend="sparse")
+    assert candidate.root == pytest.approx([1, 2], abs=1e-12)
+    assert max(map(abs, program.residuals(*candidate.root))) <= 1e-12
+
+
+def test_underdetermined_sparse_opt_in_preserves_default_and_certificate_shape_rules():
+    x, y = s.symbols("underdetermined_policy_x underdetermined_policy_y")
+    source = [x+y-1]
+    program = s.compile_residual_system(source, (x, y))
+    for target in (program, program.native_system):
+        with pytest.raises(ValueError, match="square"):
+            target.solve_candidate([0, 0])
+    with pytest.raises(ValueError):
+        s.nsolve(source, (x, y), [0, 0])
+    with pytest.raises(ValueError, match="square"):
+        s.nsolve_certified(source, (x, y), [0, 0], backend="sparse")
+    candidate = program.solve_candidate([0, 0], backend="sparse")
+    assert sum(candidate.root) == pytest.approx(1, abs=1e-12)
+    assert candidate.evidence == "approximate"
+
+
+@pytest.mark.parametrize("limit,remaining", [
+    ("max_steps", "remaining_steps"),
+    ("max_memory_bytes", "remaining_memory_bytes"),
+    ("max_allocations", "remaining_allocations"),
+])
+def test_underdetermined_sparse_rejected_trials_and_publication_share_one_budget(limit, remaining):
+    x, unused = s.symbols("underdetermined_budget_x underdetermined_budget_unused")
+    program = s.compile_residual_system([s.log(x)], (x, unused))
+    measured = s.EvaluationBudget()
+    before = getattr(measured, remaining)
+    root = program.solve_candidate([10, 7], backend="sparse", budget=measured).root
+    assert root == pytest.approx([1, 7], abs=1e-12)
+    cost = before - getattr(measured, remaining)
+    assert cost > 0
+    exact = s.EvaluationBudget(**{limit: cost})
+    assert program.solve_candidate([10, 7], backend="sparse", budget=exact).root == root
+    assert getattr(exact, remaining) == 0
+    with pytest.raises(s.EvaluationBudgetExceeded):
+        program.solve_candidate([10, 7], backend="sparse", budget=exact)
+    with pytest.raises(s.EvaluationBudgetExceeded):
+        program.solve_candidate(
+            [10, 7], backend="sparse", budget=s.EvaluationBudget(**{limit: cost-1}),
+        )
+    cancelled = s.EvaluationBudget()
+    cancelled.cancel()
+    for call in (
+        lambda: program.solve_candidate([10, 7], backend="sparse", budget=cancelled),
+        lambda: program.native_system.solve_candidate([10, 7], backend="sparse", budget=cancelled),
+        lambda: s.nsolve([s.log(x)], (x, unused), [10, 7], backend="sparse", budget=cancelled),
+    ):
+        with pytest.raises(s.EvaluationCancelled):
+            call()
+
+
 def test_sparse_rectangular_root_rejects_nonzero_residual_at_stationarity():
     x = s.Symbol("inconsistent_rectangular_x")
     with pytest.raises(ValueError):
@@ -269,11 +401,11 @@ def test_backend_selectors_require_strings_at_every_entrypoint(backend):
         s.nsolve(x-1, x, 0, backend=backend)
 
 
-def test_underdetermined_empty_and_oversized_requests_refuse_before_input_hooks_or_work():
+def test_empty_and_oversized_requests_refuse_before_input_hooks_or_work():
     x, y = s.symbols("sparse_root_shape_x sparse_root_shape_y")
     programs = (
         s.compile_residual_system([], ()),
-        s.compile_residual_system([x+y], (x, y)),
+        s.compile_residual_system([], (x, y)),
     )
     for program in programs:
         for target in (program, program.native_system):

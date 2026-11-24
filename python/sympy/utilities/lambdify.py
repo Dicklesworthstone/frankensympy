@@ -1135,8 +1135,9 @@ class _ResidualCallable:
         with at most 16 variables. It does not substitute finite differences
         when a derivative or linear solve refuses.
 
-        ``sparse`` admits 1..256 variables and between variable_count and 4096
-        residual rows. It uses checked sparse Jacobian values with damped LSQR directions. It shares the FrankenNumPy route's
+        ``sparse`` admits 1..256 variables and 1..4096 residual rows, including
+        underdetermined systems. It uses checked sparse Jacobian values with
+        damped LSQR directions. It shares the FrankenNumPy route's
         controls and defaults, while retaining sparse storage throughout the
         iteration. ``max_step_norm`` clips each proposed direction's infinity
         norm before backtracking. At most six damping strengths, 512 LSQR
@@ -1147,6 +1148,9 @@ class _ResidualCallable:
         least-squares stationarity, a tiny step or a singular Jacobian cannot
         by themselves authorize a returned root candidate. Rank-deficient
         systems can succeed when the original residual criterion is met.
+        Underdetermined results are single approximate points, without
+        uniqueness, minimum-norm or complete-family claims. Coordinates
+        absent from every residual retain their initial values.
         Initial and final source/derivative failures are terminal; mathematical
         trial-domain failures may backtrack within the same cumulative budget.
         No backend silently falls back to another algorithm.

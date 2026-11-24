@@ -155,6 +155,190 @@ fn consistent_rank_deficiency_and_unused_coordinates_do_not_require_an_inverse()
 }
 
 #[test]
+fn underdetermined_linear_roots_retain_unused_coordinates_and_check_all_rows() {
+    let source = system(&["x+2*y-5", "2*x+4*y-10"], &["x", "y", "unused"]);
+    let guards = NewtonGuards::default();
+    let proposal = sparse_newton_refine(&source, &[0.0, 0.0, 7.0], &guards).unwrap();
+    near(proposal.root[0] + 2.0 * proposal.root[1], 5.0, 1e-12);
+    assert_eq!(proposal.root[2], 7.0);
+    assert!(proposal.iterations > 0);
+    check_original_residuals(&source, &proposal, guards.residual_tolerance);
+
+    // Another point in the same family remains valid without demanding an
+    // inverse or replacing the caller's coordinates with a selected norm.
+    let existing = sparse_newton_refine(
+        &source,
+        &[5.0, 0.0, -11.0],
+        &NewtonGuards {
+            max_iterations: 0,
+            residual_tolerance: 0.0,
+            ..guards
+        },
+    )
+    .unwrap();
+    assert_eq!(existing.root, [5.0, 0.0, -11.0]);
+    assert_eq!(existing.iterations, 0);
+    check_original_residuals(&source, &existing, 0.0);
+}
+
+#[test]
+fn underdetermined_nonlinear_roots_preserve_the_selected_initial_component() {
+    let source = system(&["x*x+y*y-1"], &["x", "y"]);
+    let guards = NewtonGuards::default();
+    for sign in [-1.0, 1.0] {
+        let proposal = sparse_newton_refine(&source, &[sign * 0.75; 2], &guards).unwrap();
+        for &coordinate in &proposal.root {
+            near(coordinate, sign / 2.0_f64.sqrt(), 1e-11);
+        }
+        check_original_residuals(&source, &proposal, guards.residual_tolerance);
+    }
+}
+
+#[test]
+fn underdetermined_stationary_nonroots_and_inconsistent_rows_refuse() {
+    for source in [
+        system(&["x*x+y*y+1"], &["x", "y"]),
+        system(&["x+y-1", "x+y-3"], &["x", "y", "unused"]),
+        system(&["1"], &["x", "y"]),
+    ] {
+        let error = sparse_newton_refine(
+            &source,
+            &vec![0.0; source.num_vars()],
+            &NewtonGuards::default(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error, SystemConsumerError::NoConvergence { residual_norm, .. } if residual_norm >= 1.0)
+        );
+    }
+}
+
+#[test]
+fn underdetermined_held_domains_survive_zero_derivative_columns() {
+    let variables = [Symbol::new("x"), Symbol::new("domain_axis")];
+    let source = Expr::Add(vec![
+        Expr::Sym(variables[0].clone()),
+        Expr::from_i64(-1),
+        Expr::Mul(vec![
+            Expr::from_i64(0),
+            Expr::Function("log".into(), vec![Expr::Sym(variables[1].clone())]),
+        ]),
+    ]);
+    let source = VerifiedResidualSystem::try_compile(&[source], &variables).unwrap();
+    let guards = NewtonGuards::default();
+    for point in [[0.0, -1.0], [1.0, -1.0], [1.0, 0.0]] {
+        assert!(matches!(
+            sparse_newton_refine(&source, &point, &guards),
+            Err(SystemConsumerError::SparseEvaluation(
+                ResidualEvaluationError::Evaluation(_)
+            ))
+        ));
+    }
+    let proposal = sparse_newton_refine(&source, &[0.0, 2.0], &guards).unwrap();
+    near(proposal.root[0], 1.0, 1e-12);
+    assert_eq!(proposal.root[1], 2.0);
+    check_original_residuals(&source, &proposal, guards.residual_tolerance);
+}
+
+#[test]
+fn underdetermined_sparse_system_uses_every_axis_at_the_full_variable_bound() {
+    let variables: Vec<_> = (0..256).map(|i| Symbol::new(format!("x{i}"))).collect();
+    let sources: Vec<_> = variables
+        .chunks_exact(2)
+        .enumerate()
+        .map(|(index, pair)| {
+            Expr::Add(vec![
+                Expr::Sym(pair[0].clone()),
+                Expr::Sym(pair[1].clone()),
+                Expr::from_i64(-((index % 7 + 1) as i64)),
+            ])
+        })
+        .collect();
+    let source = VerifiedResidualSystem::try_compile(&sources, &variables).unwrap();
+    assert_eq!(source.num_residuals(), 128);
+    assert_eq!(source.jacobian_pattern().len(), 256);
+    let guards = NewtonGuards::default();
+    let mut measured = Recorder::default();
+    let proposal =
+        sparse_newton_refine_with_meter(&source, &[0.0; 256], &guards, &mut measured).unwrap();
+    for (index, pair) in proposal.root.chunks_exact(2).enumerate() {
+        near(pair[0] + pair[1], (index % 7 + 1) as f64, 1e-12);
+    }
+    check_original_residuals(&source, &proposal, guards.residual_tolerance);
+    // A dense 128-by-256 Jacobian would need 256 KiB by itself.
+    assert!(measured.max_memory_charge <= 32 * 1024);
+}
+
+#[test]
+fn underdetermined_replay_preserves_same_named_typed_coordinates() {
+    let plain = Symbol::new("x");
+    let typed = Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([7; 32]));
+    let unused = Symbol::new("unused");
+    let variables = [typed.clone(), unused, plain.clone()];
+    let sources = [Expr::Add(vec![
+        Expr::Sym(typed),
+        Expr::Mul(vec![Expr::from_i64(2), Expr::Sym(plain)]),
+        Expr::from_i64(-5),
+    ])];
+    let source = VerifiedResidualSystem::try_compile(&sources, &variables).unwrap();
+    let restored =
+        VerifiedResidualSystem::from_json_bytes(&source.to_json_bytes().unwrap()).unwrap();
+    let guards = NewtonGuards::default();
+    let original = sparse_newton_refine(&source, &[0.0, 9.0, 0.0], &guards).unwrap();
+    let replay = sparse_newton_refine(&restored, &[0.0, 9.0, 0.0], &guards).unwrap();
+    assert_eq!(original, replay);
+    near(replay.root[0] + 2.0 * replay.root[2], 5.0, 1e-12);
+    assert_eq!(replay.root[1], 9.0);
+    check_original_residuals(&source, &replay, guards.residual_tolerance);
+}
+
+#[test]
+fn underdetermined_cancellation_and_exhaustion_cannot_publish_a_candidate() {
+    let source = system(&["log(x)"], &["x", "unused"]);
+    let initial = [10.0, 7.0];
+    let guards = NewtonGuards::default();
+    let mut measured = Recorder::default();
+    let proposal =
+        sparse_newton_refine_with_meter(&source, &initial, &guards, &mut measured).unwrap();
+    assert_eq!(proposal.root[1], 7.0);
+    check_original_residuals(&source, &proposal, guards.residual_tolerance);
+
+    for checkpoint in [1, measured.checkpoints / 2, measured.checkpoints] {
+        let mut meter = Recorder {
+            stop: Some(checkpoint),
+            ..Recorder::default()
+        };
+        let error = sparse_newton_refine_with_meter(&source, &initial, &guards, &mut meter)
+            .expect_err("published underdetermined candidate after cancellation");
+        assert_eq!(meter_cause(&error), Some(MeterError::Cancelled));
+        assert_eq!(meter.checkpoints, checkpoint);
+        assert!(meter.stopped);
+    }
+    for (dimension, total) in [
+        (Dimension::ComputeSteps, measured.compute),
+        (Dimension::MemoryBytes, measured.bytes),
+        (Dimension::AllocationCount, measured.allocations),
+    ] {
+        let mut limits = BudgetLimits::uniform(1_000_000_000, 37);
+        limits.dimensions[dimension.index()] = total;
+        let mut exact = Budget::new(limits);
+        let repeated =
+            sparse_newton_refine_with_meter(&source, &initial, &guards, &mut exact).unwrap();
+        assert_eq!(repeated, proposal);
+        assert_eq!(exact.remaining(dimension), 0);
+        assert_eq!(exact.verifier_remaining(), 37);
+        limits.dimensions[dimension.index()] -= 1;
+        let mut short = Budget::new(limits);
+        let error = sparse_newton_refine_with_meter(&source, &initial, &guards, &mut short)
+            .expect_err("published underdetermined candidate without final resource unit");
+        assert!(
+            matches!(meter_cause(&error), Some(MeterError::Budget(BudgetError::Exhausted { dimension: exhausted, .. })) if exhausted == dimension)
+        );
+        assert_eq!(short.verifier_remaining(), 37);
+    }
+}
+
+#[test]
 fn nonlinear_coupling_and_column_units_preserve_the_original_equations() {
     let guards = NewtonGuards::default();
     for (source, initial, expected) in [
@@ -297,6 +481,7 @@ fn sparse_root_row_cap_includes_the_boundary() {
     use fsym_numeric_consumer::{MAX_SPARSE_NEWTON_RESIDUALS, validate_sparse_root_shape};
 
     assert!(validate_sparse_root_shape(1, MAX_SPARSE_NEWTON_RESIDUALS).is_ok());
+    assert!(validate_sparse_root_shape(256, 1).is_ok());
     assert!(matches!(
         validate_sparse_root_shape(1, MAX_SPARSE_NEWTON_RESIDUALS + 1),
         Err(SystemConsumerError::UnsupportedSparseRootShape { .. })
@@ -305,7 +490,7 @@ fn sparse_root_row_cap_includes_the_boundary() {
 
 #[test]
 fn unsupported_shapes_are_rejected_before_any_numerical_charges() {
-    for (rows, columns) in [(0, 0), (0, 1), (1, 0), (1, 2), (257, 257)] {
+    for (rows, columns) in [(0, 0), (0, 1), (1, 0), (257, 257)] {
         let variables: Vec<_> = (0..columns).map(|i| Symbol::new(format!("x{i}"))).collect();
         let source =
             VerifiedResidualSystem::try_compile(&vec![Expr::from_i64(0); rows], &variables)

@@ -567,8 +567,8 @@ def _candidate_shape(program, backend):
     rows = program.native_system.residual_count
     if backend == "sparse":
         if not (1 <= columns <= _MAX_SPARSE_ROOT_VARIABLES
-                and columns <= rows <= _MAX_SPARSE_ROOT_RESIDUALS):
-            raise ValueError("sparse roots require 1..256 variables and variable_count..4096 residuals")
+                and 1 <= rows <= _MAX_SPARSE_ROOT_RESIDUALS):
+            raise ValueError("sparse roots require 1..256 variables and 1..4096 residuals")
     elif not 1 <= columns <= 16 or rows != columns:
         raise ValueError("numerical consumers require a square system with 1..16 variables")
     return columns
@@ -735,8 +735,9 @@ def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False, budget=Non
     scalar solver cannot be combined with the sparse backend, and bisection
     does not accept residual systems or invoke symbolic differentiation.
 
-    ``backend="sparse"`` selects native damped LSQR for square or overdetermined
-    systems with 1..256 variables and up to 4096 residuals, including a scalar equation. It keeps checked sparse
+    ``backend="sparse"`` selects native damped LSQR for square, overdetermined
+    or underdetermined systems with 1..256 variables and 1..4096 residuals,
+    including a scalar equation. It keeps checked sparse
     Jacobian storage and requires a freshly evaluated original residual
     infinity norm <= tol, never least-squares stationarity alone. Every source
     and stored derivative is checked even at an initially acceptable point.
@@ -746,6 +747,9 @@ def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False, budget=Non
     tol=1e-12 and maxiter=200 apply when those arguments are omitted.
     The sparse route never falls back to the Python or dense donor algorithms.
     Existing native source, work and stored-operation limits still apply.
+    An underdetermined result is one approximate point, with no uniqueness,
+    minimum-norm or complete-family claim. Unused coordinates keep their
+    initial values; the initial point can select among multiple roots.
 
     Return a ``Float`` for a scalar or a column ``Matrix`` for a system.
     ``dict=True`` returns one solution mapping inside a list. Results are
@@ -785,8 +789,6 @@ def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False, budget=Non
         if is_system:
             variables = _vector(var, "variables", _MAX_SPARSE_ROOT_VARIABLES)
             residuals = _vector(expr, "residuals", _MAX_SPARSE_ROOT_RESIDUALS)
-            if len(variables) > len(residuals):
-                raise ValueError("sparse nsolve needs at least as many residuals as variables")
             variables = [_require_symbol(value) for value in variables]
         else:
             variables = [_require_symbol(var)]

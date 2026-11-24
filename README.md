@@ -520,8 +520,9 @@ typed sources explicitly; identities are never inferred from printed names.
 
 ### Sparse nonlinear root solving
 
-An explicit sparse backend extends approximate square-system root searches to
-256 variables while retaining the checked sparse Jacobian throughout the solve:
+An explicit sparse backend admits approximate roots of square, overdetermined
+and underdetermined systems with up to 256 variables while retaining the checked
+sparse Jacobian throughout the solve:
 
 ```python
 from sympy import compile_residual_system, symbols
@@ -543,12 +544,15 @@ The native search uses column-scaled LSQR directions, bounded damping and
 backtracking. Its numerical buffers scale with stored Jacobian entries and
 vector lengths; it does not assemble a dense Jacobian or normal matrix.
 Consistent rank-deficient systems are admitted, including unused coordinates.
+An underdetermined result is one approximate point, without a uniqueness,
+minimum-norm or complete-family claim. Coordinates absent from all residuals
+retain their initial values.
 Success requires a fresh evaluation of every original residual with infinity
 norm at most `tol`. A small least-squares gradient, a small step or an exhausted
 linear iteration cannot authorize a root candidate. Stationary points with
 nonzero residuals therefore refuse instead of reporting convergence.
 
-The route accepts square systems with 1..256 variables, at most 1,024 nonlinear
+The route accepts 1..256 variables and 1..4096 residuals, at most 1,024 nonlinear
 iterations, six damping strengths per iteration, 512 LSQR steps per strength
 and 32 backtracking trials per direction. `max_step_norm` clips the proposed
 step before backtracking. Initial source or derivative domain failures refuse;

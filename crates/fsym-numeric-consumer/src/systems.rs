@@ -80,7 +80,7 @@ pub enum SystemConsumerError {
     )]
     UnsupportedShape { variables: usize, residuals: usize },
     #[error(
-        "sparse roots require 1..=256 variables and variable_count..=4096 residuals; got {variables} variables and {residuals} residuals"
+        "sparse roots require 1..=256 variables and 1..=4096 residuals; got {variables} variables and {residuals} residuals"
     )]
     UnsupportedSparseRootShape { variables: usize, residuals: usize },
     #[error("{input} has {actual} coordinates; expected {expected}")]

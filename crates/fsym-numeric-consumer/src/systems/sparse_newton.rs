@@ -50,7 +50,7 @@ pub fn validate_sparse_root_shape(
     residuals: usize,
 ) -> Result<(), SystemConsumerError> {
     if !(1..=MAX_SPARSE_NEWTON_VARIABLES).contains(&variables)
-        || !(variables..=MAX_SPARSE_NEWTON_RESIDUALS).contains(&residuals)
+        || !(1..=MAX_SPARSE_NEWTON_RESIDUALS).contains(&residuals)
     {
         return Err(SystemConsumerError::UnsupportedSparseRootShape {
             variables,
@@ -60,7 +60,13 @@ pub fn validate_sparse_root_shape(
     Ok(())
 }
 
-/// Propose a root of a square or overdetermined system with 1..=256 variables.
+/// Propose a root with 1..=256 variables and 1..=4096 residuals.
+///
+/// Rectangular systems in either orientation are admitted. LSQR proposes one
+/// direction even with a nontrivial nullspace; only a fresh original-residual
+/// check authorizes a result. An underdetermined proposal is one approximate
+/// point, not a complete family or a unique/minimum-norm solution. Coordinates
+/// absent from every residual keep their initial values.
 ///
 /// Admission bounds nonlinear iterations by 1024. Each iteration admits at
 /// most six damping attempts, 512 LSQR steps per direction, and 32 line-search

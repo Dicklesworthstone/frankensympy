@@ -673,7 +673,7 @@ the registered source, or select a replacement backend after a refusal.
 
 | Request | Explicit backend | Successful numerical result |
 | --- | --- | --- |
-| `SolveCompiledResidualSystem` | `frankennumpy`, `frankenscipy`, `frankenscipy_analytic`, or `sparse` | A point meeting the residual tolerance in every row. Sparse accepts square and overdetermined systems with 1–256 variables and up to 4096 rows. The other backends require square systems |
+| `SolveCompiledResidualSystem` | `frankennumpy`, `frankenscipy`, `frankenscipy_analytic`, or `sparse` | A point meeting the residual tolerance in every row. Sparse accepts square, overdetermined and underdetermined systems with 1–256 variables and 1–4096 rows. The other backends require square systems |
 | `SolveCompiledParametricSystem` | Fixed `frankennumpy` | A root of the unknown prefix at the supplied fixed parameter suffix |
 | `SolveCompiledLeastSquares` | `dense` or `sparse` | A point meeting the tolerance for the gradient of `0.5 * sum(residuals^2)` |
 | `MinimizeCompiledObjective` | Fixed Hessian-assisted descent using the admitted FrankenNumPy adapter | A point meeting the objective-gradient tolerance |
@@ -692,6 +692,12 @@ selected backend, and `termination: "residual_tolerance"`. Point coordinates
 always follow the frozen declared variable order, including after workspace
 rebinding. The result also identifies the original system, program, and frozen
 context digest.
+
+An underdetermined sparse root proposal is one approximate point, not a unique
+solution, a minimum-norm solution or a complete family. Coordinates absent from
+every residual retain their initial values. The separate root-certificate
+operations still require a square system and independently check its original
+source on the requested box.
 
 Least squares retains every residual row, including inconsistent and constant
 rows. For residuals `["x-1", "x-3"]` and variable `["x"]`, either least-squares
