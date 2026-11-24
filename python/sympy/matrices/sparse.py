@@ -1159,6 +1159,22 @@ class SparseMatrix(MatrixBase):
 
         return lu_decomposition(self, permutation_matrix=True)
 
+    def QRdecomposition(self):
+        """Return checked sparse thin QR factors over exact Q(i).
+
+        Q has Hermitian-orthonormal columns and R retains every original
+        column, including dependent ones. Both factors preserve this class,
+        with shapes (rows, rank) and (rank, columns). Original sparse storage
+        is admitted before a bounded dense computation through 32 axes and
+        4096-bit rational components; active requests share one budget.
+        """
+        from ._qr import gaussian_qr
+
+        return gaussian_qr(self)
+
+    def qr(self):
+        return self.QRdecomposition()
+
     def LDLdecomposition(self, hermitian=True):
         """Return checked positive-definite Q(i) Hermitian factors through 32 axes."""
         from ._hermitian import decomposition_if_needed

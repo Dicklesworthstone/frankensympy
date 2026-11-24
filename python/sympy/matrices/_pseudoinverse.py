@@ -30,7 +30,7 @@ _SPARSE_METHODS = tuple(_source._DICT.__get__(_SPARSE_NATIVE)[name] for name in 
 def _interfaces(operation, context, base):
     _source._interfaces()
     namespace = _source._DICT.__get__(_NATIVE)
-    required = ((0, 1, 2, operation, 6) if operation in (3, 4, 5, 7, 11, 12, 13, 14, 15, 17, 18, 19)
+    required = ((0, 1, 2, operation, 6) if operation in (3, 4, 5, 7, 10, 11, 12, 13, 14, 15, 17, 18, 19)
                 else (0, 1, 2, operation))
     if operation in (8, 11, 12, 13, 16, 17, 18):
         required += (9,)

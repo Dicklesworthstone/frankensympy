@@ -7,16 +7,17 @@ Both returned objects are private until source and request checks complete.
 """
 
 from ..core import _active_callback_session, _charge_nested_if_active
-from ._pseudoinverse import _METHODS, _NATIVE, _capture, _publish
+from ._pseudoinverse import _METHODS, _NATIVE, _capture
+from ._row_reduction import _publish
 
 
 def gaussian_qr(matrix, *, normalize=True):
-    """Return both checked factors with the original dense matrix class."""
+    """Return both checked factors with the original dense or sparse class."""
     if type(normalize) is not bool:
         raise TypeError("QR normalization must be a bool")
     session = _active_callback_session()
     native, (rows, columns), unchanged = _capture(
-        matrix, session, 10, "QR decomposition", force_gaussian=True)
+        matrix, session, 10, "QR decomposition", allow_sparse=True, force_gaussian=True)
     unchanged()
     q, r = _METHODS[10](native, normalize=normalize, session=session)
     unchanged()

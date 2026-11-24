@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-24",
+  "base_commit": "3ddd9859768948cdf4aed3177837bb6b26f40539",
+  "bead": "fra-kfo",
+  "status": "implemented_candidate_execution_pending",
+  "scope": [
+    "Sparse mutable and immutable exact thin QR over Q(i)",
+    "Tall, wide, deficient-rank, zero-rank and empty factors with original matrix classes",
+    "Original sparse-source admission, conjugate inner products, source and interface mutation checks, cumulative request budgets and atomic pair publication"
+  ],
+  "bounds": "At most 32 rows and columns; 4096-bit rational components and existing checked Gaussian QR resource limits. Original sparse storage is admitted before the bounded dense native computation; no sparse scaling claim.",
+  "validation": {
+    "python_ast": "Passed for all three changed source files and the new regression module",
+    "whitespace": "git diff --check passed",
+    "independent_source_review": "Root reviewed original-source capture, checked factor shape/class publication and native interface guards",
+    "isolated_sympy_1_14_0": {
+      "passed": 32,
+      "skipped_native_contracts": 12,
+      "scope": "Reference fixtures only, not candidate execution"
+    },
+    "actual_candidate": "Pending. The exact pinned compiler reached fsym-calculus in the audited scoped component build before a host SIGKILL; no candidate test binary ran."
+  },
+  "claims": "No workstream, compatibility profile, performance claim or campaign/certification gate is closed or promoted."
+}

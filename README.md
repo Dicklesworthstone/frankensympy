@@ -1791,9 +1791,10 @@ the dimension limit fits the arithmetic-growth budget.
 
 ## Exact complex QR decomposition (development API)
 
-Dense `Matrix.QRdecomposition()` and its `qr()` alias now admit bounded exact
-Gaussian-rational entries: rational real and imaginary components, including
-defined held expressions in that domain.
+Dense and sparse `Matrix.QRdecomposition()` and their `qr()` aliases admit
+bounded exact Gaussian-rational entries: rational real and imaginary
+components, including defined held expressions in that domain. Mutable and
+immutable factors preserve the source matrix class.
 
 ```python
 from sympy import I, Matrix
@@ -1802,6 +1803,15 @@ A = Matrix([[1, 1 + I], [I, 2]])
 Q, R = A.QRdecomposition()
 # Exact factors satisfy A = Q*R and Q.H*Q = eye(2).
 ```
+
+`SparseMatrix` and `ImmutableSparseMatrix` use the same checked factorization.
+Their original stored coordinates and retained scalar owners are admitted
+before forming a bounded dense native view; both returned factors are sparse.
+For example, `SparseMatrix([[1], [I]]).QRdecomposition()` returns the normalized
+column `[[sqrt(2)/2], [I*sqrt(2)/2]]` and `[[sqrt(2)]]`. This route supports at
+most 32 rows and columns, including rational sparse inputs; it makes no sparse
+scaling claim. Source conversion and sparse publication share the active
+request and are checked for replacement, mutation and cancellation.
 
 The complex route uses the Hermitian inner product. In particular, the nonzero
 column `Matrix([1, I])` has squared norm 2 and is retained. Tall, wide and
