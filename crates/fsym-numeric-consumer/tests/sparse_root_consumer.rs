@@ -244,7 +244,9 @@ fn underdetermined_held_domains_survive_zero_derivative_columns() {
 fn underdetermined_sparse_system_uses_every_axis_at_the_full_variable_bound() {
     let variables: Vec<_> = (0..256).map(|i| Symbol::new(format!("x{i}"))).collect();
     let sources: Vec<_> = variables
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .enumerate()
         .map(|(index, pair)| {
             Expr::Add(vec![
@@ -261,7 +263,7 @@ fn underdetermined_sparse_system_uses_every_axis_at_the_full_variable_bound() {
     let mut measured = Recorder::default();
     let proposal =
         sparse_newton_refine_with_meter(&source, &[0.0; 256], &guards, &mut measured).unwrap();
-    for (index, pair) in proposal.root.chunks_exact(2).enumerate() {
+    for (index, pair) in proposal.root.as_chunks::<2>().0.iter().enumerate() {
         near(pair[0] + pair[1], (index % 7 + 1) as f64, 1e-12);
     }
     check_original_residuals(&source, &proposal, guards.residual_tolerance);

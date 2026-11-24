@@ -709,6 +709,12 @@ fn fresh_cli_exchanges_both_proof_kinds_above_the_inline_limit_in_bounded_frames
                             integral: integral.clone(),
                         }
                     }
+                    ArtifactSource::ScalarRootBracket(bracket) => {
+                        CertificationRequest::ExportScalarRootBracket {
+                            schema_version: 1,
+                            bracket: bracket.clone(),
+                        }
+                    }
                     ArtifactSource::RootIsolationSearch(search) => {
                         CertificationRequest::ExportRootIsolationSearch {
                             schema_version: 1,

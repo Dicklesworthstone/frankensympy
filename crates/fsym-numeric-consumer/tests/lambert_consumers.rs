@@ -39,7 +39,7 @@ fn near(actual: f64, expected: f64, tolerance: f64) {
     );
 }
 
-fn cause<E: Error + 'static>(error: &(dyn Error + 'static)) -> Option<&E> {
+fn cause<'a, E: Error + 'static>(error: &'a (dyn Error + 'static)) -> Option<&'a E> {
     let mut current = Some(error);
     while let Some(error) = current {
         if let Some(found) = error.downcast_ref::<E>() {
