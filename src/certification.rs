@@ -128,6 +128,10 @@ impl ResidualProblem {
         Self::new(expressions, symbols, meter)
     }
 
+    pub(crate) fn sources(&self) -> &RootCertificateSources {
+        &self.sources
+    }
+
     pub fn residuals(&self) -> &[Expr] {
         self.sources.residuals()
     }

@@ -18,6 +18,8 @@ use serde::{Deserialize, Serialize};
 
 pub use fsym_core::RootIsolationCounters;
 
+pub mod checkpoint;
+
 type Result<T> = std::result::Result<T, RootIsolationError>;
 
 /// Search limits do not weaken the independent completeness obligations.
