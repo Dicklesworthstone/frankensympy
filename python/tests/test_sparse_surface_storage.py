@@ -421,3 +421,252 @@ def test_sparse_assignment_rejects_reinitialization_during_result_conversion():
         source[0, 0] = Reinitializer()
     assert source.shape == (1, 2)
     assert source.todok() == {(0, 0): 7, (0, 1): 8}
+
+
+@pytest.mark.parametrize("cls", [SparseMatrix, ImmutableSparseMatrix])
+def test_sparse_complex_conjugation_and_adjoint_keep_the_matrix_class(cls):
+    from sympy import I
+
+    source = cls([[1 + 2*I, 0, -I], [3, 4*I, 0]])
+    expected = cls([[1 - 2*I, 0, I], [3, -4*I, 0]])
+    for result in (source.conjugate(), source.C):
+        assert type(result) is cls
+        assert result == expected
+    for result in (source.H, source.adjoint()):
+        assert type(result) is cls
+        assert result == expected.T
+        assert result.shape == (3, 2)
+    assert source.H.H == source
+    assert source.C.C == source
+    assert source.mutation_generation == 0
+
+
+@pytest.mark.parametrize("cls", [SparseMatrix, ImmutableSparseMatrix])
+def test_sparse_hermitian_products_and_cholesky_compose_without_densification(cls, monkeypatch):
+    from sympy import I
+
+    source = cls([[1, I], [2*I, 3]])
+    positive = cls([[1, -I], [I, 2]])
+    factor = positive.cholesky()
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("sparse Hermitian composition must not densify")
+
+    monkeypatch.setattr(SparseMatrix, "to_dense", forbidden)
+    assert source.H*source == cls([[5, -5*I], [5*I, 10]])
+    assert (source.H*source).is_hermitian is True
+    assert factor*factor.H == positive
+    assert positive.is_hermitian is True
+
+
+@pytest.mark.parametrize("cls", [SparseMatrix, ImmutableSparseMatrix])
+def test_huge_sparse_conjugation_only_visits_stored_coordinates(cls, monkeypatch):
+    from sympy import I
+
+    source = cls(1_000_000, 1_000_003, {(9, 999_999): 3 + 4*I})
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("sparse conjugation must not scan the dense shape")
+
+    monkeypatch.setattr(SparseMatrix, "to_dense", forbidden)
+    monkeypatch.setattr(SparseMatrix, "__getitem__", forbidden)
+    result = source.H
+    assert type(result) is cls
+    assert result.shape == (1_000_003, 1_000_000)
+    assert result.todok() == {(999_999, 9): 3 - 4*I}
+    assert source.C.todok() == {(9, 999_999): 3 - 4*I}
+    assert cls(1_000_000, 1_000_000, {}).is_hermitian is True
+    assert cls(1_000_000, 1_000_000, {(9, 99): I}).is_hermitian is False
+
+
+@pytest.mark.parametrize("cls", [SparseMatrix, ImmutableSparseMatrix])
+@pytest.mark.parametrize("rows,cols", [(0, 0), (0, 7), (7, 0)])
+def test_sparse_conjugation_preserves_empty_shapes(cls, rows, cols):
+    source = cls(rows, cols, {})
+    assert source.C.shape == (rows, cols)
+    assert source.H.shape == (cols, rows)
+    assert type(source.C) is cls and type(source.H) is cls
+    assert source.C.nnz == source.H.nnz == 0
+    assert source.is_hermitian is (rows == cols)
+
+
+def test_sparse_hermitian_predicate_retains_unknown_and_checks_later_obstructions():
+    from sympy import I
+
+    unknown = Symbol("sparse_hermitian_unknown")
+    real = Symbol("sparse_hermitian_real", real=True)
+    assert SparseMatrix([[unknown]]).is_hermitian is None
+    assert SparseMatrix([[real]]).is_hermitian is True
+    assert SparseMatrix([[I]]).is_hermitian is False
+    assert SparseMatrix([[1, 2*I], [-2*I, 3]]).is_hermitian is True
+    # An unresolved diagonal must not conceal a proved off-diagonal mismatch.
+    assert SparseMatrix([[unknown, 1], [0, 0]]).is_hermitian is False
+    assert SparseMatrix([[1, 0]]).is_hermitian is False
+
+
+def test_sparse_conjugation_preserves_same_named_opaque_scalar_owners():
+    from sympy import conjugate
+
+    x = Symbol("sparse_conjugate_owner")
+    first = type("SparseConjugateLaw", (Function,), {})(x)
+    second = type("SparseConjugateLaw", (Function,), {})(x)
+    source = SparseMatrix(2, 2, {(0, 1): first, (1, 0): second})
+    result = source.H
+    assert type(result[1, 0]) is conjugate
+    assert type(result[0, 1]) is conjugate
+    assert result[1, 0].args[0] is first
+    assert result[0, 1].args[0] is second
+    assert source[0, 1] is first and source[1, 0] is second
+
+
+def test_sparse_conjugation_executes_each_unknown_effect_occurrence_once():
+    from sympy.core import supervised_callback_session
+
+    effects = []
+
+    class Occurrence(Function):
+        def conjugate(self):
+            effects.append(self)
+            return Integer(len(effects))
+
+    value = Occurrence(Symbol("sparse_conjugate_occurrence"))
+    source = SparseMatrix(1, 2, {(0, 0): value, (0, 1): value})
+    with supervised_callback_session(max_invocations=8) as session:
+        result = source.H
+    assert effects == [value, value]
+    assert result.todok() == {(0, 0): 1, (1, 0): 2}
+    assert session.invocations == 2
+
+
+@pytest.mark.parametrize("mutation", ["assignment", "retained"])
+def test_sparse_conjugation_refuses_source_changes_during_scalar_hooks(mutation):
+    class Mutating(Function):
+        def conjugate(self):
+            if mutation == "assignment":
+                source[0, 0] = 9
+            else:
+                source._surface[(0, 0)] = Integer(9)
+            return Integer(3)
+
+    source = SparseMatrix([[Mutating(Symbol("sparse_conjugate_mutation"))]])
+    with pytest.raises(RuntimeError, match="mutated"):
+        source.H
+
+
+def test_sparse_conjugation_refuses_effectful_result_conversion_that_changes_source():
+    class Converter:
+        def _sympy_(self):
+            source[0, 0] = 9
+            return Integer(3)
+
+    class Converts(Function):
+        def conjugate(self):
+            return Converter()
+
+    source = SparseMatrix([[Converts(Symbol("sparse_conjugate_converter"))]])
+    with pytest.raises(RuntimeError, match="mutated"):
+        source.conjugate()
+
+
+@pytest.mark.parametrize("during", [False, True])
+def test_sparse_conjugation_keeps_cancellation_terminal(during):
+    from sympy.core import SupervisedCallbackSession, supervised_callback_session
+
+    effects = []
+    session = SupervisedCallbackSession()
+
+    class Cancelling(Function):
+        def conjugate(self):
+            effects.append(self)
+            session.cancel()
+            return Integer(1)
+
+    source = SparseMatrix([[Cancelling(Symbol("sparse_conjugate_cancel"))]])
+    if not during:
+        session.cancel()
+    with supervised_callback_session(session):
+        with pytest.raises(RuntimeError, match="cancelled"):
+            source.H
+    assert len(effects) == int(during)
+
+
+def test_sparse_conjugation_shares_callback_budget_across_stored_cells():
+    from sympy.core import supervised_callback_session
+
+    effects = []
+
+    class Counted(Function):
+        def conjugate(self):
+            effects.append(self)
+            return Integer(1)
+
+    value = Counted(Symbol("sparse_conjugate_budget"))
+    source = SparseMatrix(1, 2, {(0, 0): value, (0, 1): value})
+    with supervised_callback_session(max_invocations=1):
+        with pytest.raises(ValueError, match="invocation"):
+            source.conjugate()
+    assert effects == [value]
+
+
+def test_sparse_conjugation_refuses_mutation_during_result_construction():
+    from sympy import I
+
+    class Rebuilding(SparseMatrix):
+        mutate = False
+
+        def __init__(self, *args):
+            super().__init__(*args)
+            if self.mutate:
+                source[0, 0] = 9
+
+    source = Rebuilding([[I]])
+    Rebuilding.mutate = True
+    with pytest.raises(RuntimeError, match="mutated"):
+        source.H
+
+
+def test_sparse_conjugation_bounds_a_later_graph_changed_by_an_earlier_hook():
+    effects = []
+
+    class Later(Function):
+        def conjugate(self):
+            effects.append("later")
+            return Integer(2)
+
+    later = Later(Symbol("sparse_conjugate_later"))
+
+    class ChangesLater(Function):
+        def conjugate(self):
+            effects.append("first")
+            later._args = (Integer(1),) * 8193
+            return Integer(1)
+
+    first = ChangesLater(Symbol("sparse_conjugate_first"))
+    source = SparseMatrix(1, 2, {(0, 0): first, (0, 1): later})
+    with pytest.raises(ValueError, match="input.*node limit"):
+        source.conjugate()
+    assert effects == ["first"]
+
+
+def test_sparse_conjugation_readmits_later_scalar_hooks_after_an_earlier_effect(monkeypatch):
+    from sympy.core import supervised_callback_session
+
+    effects = []
+    later = Integer(7)
+
+    def replacement(self):
+        effects.append("unsupervised later hook")
+        return Integer(2)
+
+    class ChangesBinding(Function):
+        def conjugate(self):
+            effects.append("first")
+            monkeypatch.setattr(type(later), "conjugate", replacement)
+            return Integer(1)
+
+    first = ChangesBinding(Symbol("sparse_conjugate_changes_binding"))
+    source = SparseMatrix(1, 2, {(0, 0): first, (0, 1): later})
+    with supervised_callback_session(max_invocations=1):
+        with pytest.raises(ValueError, match="invocation"):
+            source.conjugate()
+    assert effects == ["first"]

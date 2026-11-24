@@ -17,6 +17,7 @@ from .dense import Matrix, MatrixBase, ImmutableDenseMatrix, _matrix_dimensions,
 _NativeSparseMatrix = _native.SparseMatrix
 _NATIVE_SPARSE_CONSTRUCTION = (_NativeSparseMatrix.__new__, _NativeSparseMatrix.__init__)
 _STRUCTURAL_NATIVE_NNZ = type.__dict__["__dict__"].__get__(_NativeSparseMatrix)["nnz"]
+_SPARSE_SCALAR_CONJUGATE = Expr.conjugate
 
 
 # Sparse dimensions do not impose a dense-area bound. Only explicit cells and
@@ -919,6 +920,151 @@ class SparseMatrix(MatrixBase):
         if self._surface is None:
             return self._new(self._native_storage.transpose())
         return self._new(self.cols, self.rows, {(c, r): value for (r, c), value in self.todok().items()})
+
+    def _conjugated(self, *, transpose=False):
+        """Conjugate a frozen sparse source without visiting absent cells."""
+        from ..core import (
+            _active_callback_session, _charge_nested_if_active,
+            _expr_node_count, supervised_callback_session,
+        )
+        from ..core._opaque_arithmetic import contains_opaque, stored_args
+
+        _charge_nested_if_active()
+        snapshot = _structural_sources(self)
+        sources = snapshot[0]
+        rows, cols = sources[0][4]
+        entries = _stored_entries(self._operation_entries())
+        _check_structural_sources(snapshot)
+        if len(entries) > _MAX_SPARSE_PRODUCTS:
+            raise ValueError("sparse conjugation exceeds the stored-work limit")
+
+        # Ordinary scalar conjugation keeps its existing implementation.
+        # Unknown Python occurrences are supervised separately and never
+        # memoized merely because the same object appears in two cells.
+        effectful = {
+            coordinate: (contains_opaque(value)
+                         or not _reduction_default_access(type(value))
+                         or _reduction_binding(type(value), "conjugate")
+                         is not _SPARSE_SCALAR_CONJUGATE)
+            for coordinate, value in entries.items()
+        }
+        _check_structural_sources(snapshot)
+
+        def transform(session):
+            result = {}
+            for (row, col), value in entries.items():
+                _charge_nested_if_active()
+                # An earlier callback can change a later scalar's graph or
+                # class. Re-admit each occurrence before choosing its lane.
+                needs_callback = (
+                    effectful[(row, col)] or contains_opaque(value)
+                    or not _reduction_default_access(type(value))
+                    or _reduction_binding(type(value), "conjugate")
+                    is not _SPARSE_SCALAR_CONJUGATE
+                )
+                _check_structural_sources(snapshot)
+
+                def conjugate_cell():
+                    return _checked_entry(value.conjugate(), sources)
+
+                if needs_callback:
+                    # Count retained inputs through their actual storage,
+                    # without consulting a custom public args descriptor.
+                    pending, seen, visited = [value], set(), 0
+                    while pending:
+                        _charge_nested_if_active()
+                        visited += 1
+                        if visited > 8192:
+                            raise ValueError("sparse conjugation input exceeds the node limit")
+                        node = pending.pop()
+                        if id(node) in seen:
+                            continue
+                        seen.add(id(node))
+                        if isinstance(node, Basic):
+                            children = stored_args(node) or ()
+                            if len(pending) + len(children) > 8192 - visited:
+                                raise ValueError("sparse conjugation input exceeds the node limit")
+                            pending.extend(children)
+                    cell = session.invoke_fresh(
+                        "conjugate", "sparse-matrix-entry", len(seen),
+                        conjugate_cell, (), _expr_node_count,
+                    )
+                else:
+                    cell = conjugate_cell()
+                _check_structural_sources(snapshot)
+                coordinate = (col, row) if transpose else (row, col)
+                result[coordinate] = cell
+
+            _charge_nested_if_active()
+            shape = (cols, rows) if transpose else (rows, cols)
+            matrix = self._finish_operation(*shape, result, sources)
+            _check_structural_sources(snapshot)
+            _charge_nested_if_active()
+            return matrix
+
+        session = _active_callback_session()
+        if session is None and any(effectful.values()):
+            with supervised_callback_session() as session:
+                return transform(session)
+        return transform(session)
+
+    def conjugate(self):
+        """Return the entrywise conjugate, preserving sparse storage and class."""
+        return self._conjugated()
+
+    @property
+    def C(self):
+        return self.conjugate()
+
+    def adjoint(self):
+        """Return the conjugate transpose in one stored-coordinate traversal."""
+        return self._conjugated(transpose=True)
+
+    @property
+    def H(self):
+        return self.adjoint()
+
+    @property
+    def is_hermitian(self):
+        """Decide Hermitian symmetry, retaining None for unknown scalar facts."""
+        from ..core import _charge_nested_if_active
+        from ..core._opaque_arithmetic import contains_opaque
+
+        _charge_nested_if_active()
+        snapshot = _structural_sources(self)
+        rows, cols = snapshot[0][0][4]
+        if rows != cols:
+            _check_structural_sources(snapshot)
+            _charge_nested_if_active()
+            return False
+        adjoint = self.adjoint()
+        _check_structural_sources(snapshot)
+        left = _stored_entries(self._operation_entries())
+        right = _stored_entries(adjoint._operation_entries())
+        unknown = False
+        for coordinate in left.keys() | right.keys():
+            _charge_nested_if_active()
+            value, other = left.get(coordinate, _ZERO), right.get(coordinate, _ZERO)
+            if value is other:
+                continue
+            if contains_opaque(value) or contains_opaque(other):
+                unknown = True
+                continue
+            difference = _checked_entry(value - other, snapshot[0])
+            _check_structural_sources(snapshot)
+            if contains_opaque(difference):
+                unknown = True
+                continue
+            zero = difference.is_zero
+            _check_structural_sources(snapshot)
+            _charge_nested_if_active()
+            if zero is False:
+                return False
+            if zero is not True:
+                unknown = True
+        _check_structural_sources(snapshot)
+        _charge_nested_if_active()
+        return None if unknown else True
 
     def trace(self) -> Any:
         if not self.is_square:

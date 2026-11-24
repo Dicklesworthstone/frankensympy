@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-24",
+  "base_commit": "44fb3c85c17f4ca82a534c0db2b0c1183c20e98c",
+  "scope": "Sparse conjugation, adjoints and conservative Hermitian predicates compose with existing complex matrix operations.",
+  "beads": [
+    "fra-kfo"
+  ],
+  "implementation": [
+    "Sparse conjugate/C and adjoint/H traverse stored coordinates and preserve matrix class and shape.",
+    "Three-valued Hermitian checks retain unknown scalar facts while detecting definite mismatches.",
+    "Supervised per-occurrence callbacks preserve cumulative invocation/cancellation budgets.",
+    "Original matrix and retained dictionary changes are rejected through result construction; later mutated input graphs retain bounded traversal.",
+    "Each stored occurrence rechecks callback admission after earlier hooks; changed scalar bindings cannot bypass the shared supervisor."
+  ],
+  "source_files": [
+    "python/sympy/matrices/sparse.py",
+    "python/tests/test_sparse_surface_storage.py"
+  ],
+  "authored_tests": {
+    "functions": 14,
+    "parameterized_cases": 24,
+    "ci_module": "python/tests/test_sparse_surface_storage.py"
+  },
+  "validation": {
+    "independent_source_review": "root reviewed exact Gram anchors, callback/source snapshots and later-input traversal bounds",
+    "exact_gram_fixture": "For A=[[1,i],[2i,3]], A.H*A=[[5,-5i],[5i,10]] was checked by hand.",
+    "whitespace": "No trailing whitespace in reviewed source.",
+    "python_parse": "not_run: execution environment unavailable",
+    "actual_python_extension": "not_run: execution environment unavailable",
+    "runtime_tests": "not_run: execution environment unavailable",
+    "remote_blob_readback": "Exact content matched both reviewed candidates; the concurrent native-construction capture was preserved."
+  },
+  "limitations": [
+    "Scalar facts that remain unknown are not promoted to booleans.",
+    "Callback supervision cannot forcibly interrupt arbitrary noncooperative Python code.",
+    "This commit does not establish broad sparse compatibility, a numerical certificate or a performance improvement."
+  ],
+  "claim_effects": "No WS10, profile or campaign gate closure. Existing status, priority and dependencies remain unchanged.",
+  "integration_parent": "9715a1fd598f1c51698354b48cb8678abc30bd8b"
+}
