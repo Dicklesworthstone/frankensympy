@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-24",
+  "base_commit": "ec22b154a5c48426555666706c2f59978901d990",
+  "bead": "fra-kfo",
+  "status": "implemented_native_verified_public_execution_pending",
+  "scope": [
+    "Expose independently checked Q(i) integer powers through all four built-in dense/sparse mutable/immutable matrix classes",
+    "Admit original held sources even at exponents zero and one, preserve matrix identity at exponent one after checking, and retain matrix/scalar/exponent owners through publication",
+    "Support literal Python and SymPy integer exponents without arbitrary coercion hooks; require signed i64 in the checked lane",
+    "Retain bounded original sparse admission before a dense native view, with output class restored through pinned native interfaces",
+    "Preserve separately selected standalone dense symbolic and large literal-rational behavior; ordinary inherited dense rational subclasses retain construction hooks and owner checks"
+  ],
+  "envelope": {
+    "maximum_axis": 32,
+    "exact_input_output_component_bits": 4096,
+    "intermediate_component_bits": 8192,
+    "native_cumulative_steps": 20000000,
+    "native_cumulative_logical_bytes": 268435456,
+    "exponent": "signed i64"
+  },
+  "validation": {
+    "native_commit": "787993186b4928f5031d5bf53312ffa366bf10fa",
+    "native_power_tests_passed": 10,
+    "strict_clippy": "Passed fsym-core and fsym-matrices --all-targets -- -D warnings on the pinned nightly and unmodified locked/offline graph",
+    "independent_oracle": "Isolated upstream SymPy1.14.0: 116 passed, 59 native-contract cases skipped. Oracle confirms independent Jordan/binomial/triangular formulas, class/identity behavior, exact integer exponents, nilpotent/singular and empty/rectangular semantics. This is fixture evidence, not candidate runtime execution.",
+    "oracle_log": "artifacts/audit/2026-11-24-matrix-power-oracle.log",
+    "authored_public_cases": 175,
+    "authored_native_contract_cases": 59,
+    "source_review": "Independent native and public boundary reviews completed. Corrected early refusal of new sparse subclasses, terminal shell attempted-charge accounting in tests and the original-source copy sentinel.",
+    "python_ast": "All changed modules and the public suite parse successfully.",
+    "whitespace": "git diff --check passed.",
+    "candidate_python": "Unexecuted: unchanged pinned asupersync was SIGKILLed during PyO3 metadata compilation before reaching fsym-python. Exact failure log: artifacts/audit/2026-11-24-python-bridge-check.log. No actual-extension or remote CI pass is claimed.",
+    "ci": "Public suite added to the existing actual-extension gate."
+  },
+  "limits": [
+    "Sparse powers above32 axes are not supported by this bounded dense-view lane; no scalable sparse-power algorithm is claimed.",
+    "New custom sparse subclasses refuse before computation; arbitrary exponent protocols and fractional powers are not admitted.",
+    "Standalone dense symbolic/large literal-rational paths do not claim the bounded Gaussian checker.",
+    "No portable power artifact or independently reserved verifier pool is added."
+  ],
+  "claims": "Bead notes reflect code and observed evidence only; statuses, priorities and dependencies remain unchanged. No workstream, profile, performance, compatibility or release gate is promoted."
+}

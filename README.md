@@ -1953,6 +1953,41 @@ standalone literal-rational square calls retain their larger native envelope
 when `rankcheck` is false. These are development APIs with same-crate reference
 checks; no compatibility profile is certified by this addition.
 
+## Exact integer matrix powers (development API)
+
+Dense and sparse mutable and immutable matrices support checked integer powers
+over exact Gaussian-rational entries. Negative powers use a verified two-sided
+inverse; zero powers still admit every original source cell before returning
+the identity:
+
+```python
+from sympy import I, Integer, SparseMatrix
+
+A = SparseMatrix([[1, I], [0, 1]])
+assert A**7 == SparseMatrix([[1, 7*I], [0, 1]])
+assert A**-3 == SparseMatrix([[1, -3*I], [0, 1]])
+assert A**Integer(0) == SparseMatrix.eye(2)
+assert A**1 is A
+```
+
+The checked lane admits built-in Python integers and literal SymPy integers
+in the signed 64-bit range, with at most 32 rows and columns, 4096-bit
+input/output rational components and 8192-bit intermediate components. One
+cumulative native allowance covers admission, inversion, generation, independent
+replay and publication: 20 million charged steps and 256 MiB of logical
+allocation. An active supervised callback request also spans source/exponent
+capture and public result construction. Exhaustion, cancellation, source
+mutation, hidden poles and noninvertible negative powers refuse without
+returning a partial matrix.
+
+Generation and verification use opposite binary-exponent scan directions and
+different matrix multiplication loops. Sparse sources enter a bounded dense
+native view only after admission, then return their original sparse class;
+this lane does not provide powers of large sparse matrices. Standalone dense
+symbolic powers and the existing large literal-rational route remain separately
+selected. Fractional powers and arbitrary exponent coercion hooks are outside
+this integer API. No portable matrix-power certificate is exported.
+
 ## Exact Hermitian LDL and Cholesky (development API)
 
 Dense and sparse matrices with rational real and imaginary components support

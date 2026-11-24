@@ -43,6 +43,7 @@ from . import normalforms
 from . import _integer_solve
 from . import _inv_mod
 from . import _pseudoinverse
+from . import _power
 
 __all__ = [
     "DenseMatrix",

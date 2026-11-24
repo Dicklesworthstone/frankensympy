@@ -2187,27 +2187,10 @@ class Matrix(MatrixBase):
         raise TypeError(f"Cannot divide Matrix by {type(other)}")
 
     def __pow__(self, n):
-        if not isinstance(n, int):
-            raise TypeError("Matrix power only supports integers")
-        if self._native_storage is None and n >= 0:
-            if not self.is_square:
-                raise ValueError(f"Matrix must be square: shape is {self.rows}x{self.cols}")
-            if n.bit_length() > 64:
-                raise ValueError("shell matrix power exceeds its exponent limit")
-            products = n.bit_count() + max(0, n.bit_length() - 1)
-            if products * self.rows ** 3 > _MAX_MATRIX_MULTIPLICATION_OPS:
-                raise ValueError("shell matrix power exceeds its aggregate operation limit")
-            result, factor = self._new(eye(self.rows)), self
-            while n:
-                if n & 1:
-                    result = result @ factor
-                n >>= 1
-                if n:
-                    factor = factor @ factor
-            return result
-        if n < 0:
-            return self._new(self.inv()._native ** (-n))
-        return self._new(self._native ** n)
+        """Integer powers, with checked bounded exact Q(i) arithmetic."""
+        from ._power import power
+
+        return power(self, n)
 
     def copy(self):
         """Return a copy of the matrix."""

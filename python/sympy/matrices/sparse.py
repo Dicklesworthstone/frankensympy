@@ -1984,6 +1984,16 @@ class SparseMatrix(MatrixBase):
             return other.__matmul__(self)
         raise TypeError(f"Cannot multiply {type(other)} and SparseMatrix")
 
+    def __pow__(self, n):
+        """Checked exact Q(i) integer powers through dimension 32.
+
+        Zero and negative powers retain original source admission. The bounded
+        dense native view is created only after the sparse source is admitted.
+        """
+        from ._power import power
+
+        return power(self, n)
+
     @classmethod
     def eye(cls, n: int) -> "SparseMatrix":
         return cls(_NativeSparseMatrix.eye(int(n)))
