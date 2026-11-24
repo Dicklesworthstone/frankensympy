@@ -1118,6 +1118,25 @@ pub(crate) fn check_certified_sources(sources: &[Expr], variables: &[Symbol]) ->
             Expr::Function(name, arguments) if name == "atan2" && arguments.len() == 2 => {
                 pending.extend(arguments.iter().map(|argument| (argument, false)));
             }
+            Expr::Function(name, arguments) if name == "LambertW" => {
+                let argument = match arguments.as_slice() {
+                    [argument] => argument,
+                    [argument, Expr::Integer(branch)]
+                        if branch.is_zero() || *branch == fsym_core::BigInt::from(-1) =>
+                    {
+                        argument
+                    }
+                    _ => {
+                        return Err(PyValueError::new_err(
+                            "LambertW requires a literal integer branch 0 or -1",
+                        ));
+                    }
+                };
+                // The selected real branch is structural metadata, not a
+                // numerical coordinate. Domain and smoothness still belong
+                // to the independent checker of the original argument.
+                pending.push((argument, false));
+            }
             Expr::Function(name, arguments)
                 if matches!(
                     name.as_str(),
@@ -2531,6 +2550,50 @@ mod tests {
         // Admitting the two real Gaussian kernels does not authorize related
         // special functions or spellings without an independent checker.
         for name in ["erfi", "erfinv", "erfcinv", "Erf", "Erfc"] {
+            let source = Expr::Function(name.into(), vec![Expr::Sym(x.clone())]);
+            assert!(check_certified_sources(&[source], std::slice::from_ref(&x)).is_err());
+        }
+    }
+
+    #[test]
+    fn certified_lambert_sources_require_fixed_real_branches_and_bound_arguments() {
+        let x = Symbol::new("lambert_source");
+        let other = Symbol::with_identity(
+            "lambert_source",
+            SymbolIdentity::from_assumptions_digest([1; 32]),
+        );
+        for arguments in [
+            vec![Expr::Sym(x.clone())],
+            vec![Expr::Sym(x.clone()), Expr::from_i64(0)],
+            vec![Expr::Sym(x.clone()), Expr::from_i64(-1)],
+        ] {
+            let source = Expr::Function("LambertW".into(), arguments);
+            assert!(check_certified_sources(&[source], std::slice::from_ref(&x)).is_ok());
+        }
+        for arguments in [
+            vec![],
+            vec![Expr::Sym(x.clone()), Expr::from_i64(1)],
+            vec![Expr::Sym(x.clone()), Expr::from_i64(-2)],
+            vec![Expr::Sym(x.clone()), Expr::Sym(x.clone())],
+            vec![Expr::Sym(x.clone()), Expr::Rational(BigRational::from(-1))],
+            vec![
+                Expr::Sym(x.clone()),
+                Expr::Add(vec![Expr::from_i64(-1), Expr::from_i64(0)]),
+            ],
+            vec![Expr::Sym(x.clone()), Expr::from_i64(-1), Expr::from_i64(0)],
+            vec![Expr::Sym(other)],
+        ] {
+            let source = Expr::Function("LambertW".into(), arguments);
+            assert!(check_certified_sources(&[source], std::slice::from_ref(&x)).is_err());
+        }
+        for name in [
+            "lambertw",
+            "LambertWDerivative",
+            "_fsym_lambert_w0_d1",
+            "_fsym_lambert_w0_d2",
+            "_fsym_lambert_wm1_d1",
+            "_fsym_lambert_wm1_d2",
+        ] {
             let source = Expr::Function(name.into(), vec![Expr::Sym(x.clone())]);
             assert!(check_certified_sources(&[source], std::slice::from_ref(&x)).is_err());
         }

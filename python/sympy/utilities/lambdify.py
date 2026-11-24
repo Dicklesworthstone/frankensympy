@@ -154,7 +154,7 @@ def _math_csch(value):
 def _require_numeric_function_arity(name, size):
     if name == "LambertW":
         if size not in (1, 2):
-            raise ValueError("LambertW requires one argument and an optional real branch")
+            raise ValueError("LambertW requires one argument and an optional literal branch 0 or -1")
         return
     expected = 2 if name == "atan2" else 1
     if size != expected:
@@ -162,20 +162,29 @@ def _require_numeric_function_arity(name, size):
         raise ValueError(f"{name} requires exactly {arguments}")
 
 
-def _require_lambert_numeric_branch(branch):
-    """Admit literal real branch metadata before numeric normalization."""
-    if type(branch) is _native.Expr:
-        native = branch
-    elif (any(type(branch) is builtin for builtin in _exact_surface_types())
-          and isinstance(branch, Integer)):
-        native = _BASIC_VALUE.__get__(branch, Basic)
+def _require_lambert_numeric_branch(value):
+    """Retain a literal branch without coercion, evaluation or user hooks."""
+    cls = type(value)
+    if cls is int:
+        if value in (0, -1):
+            return _native.py_integer(value)
     else:
-        raise ValueError("LambertW real branch must be a literal Integer 0 or -1")
-    # Native equality borrows integer limbs. Do not materialize an unbounded
-    # Python integer merely to reject unsupported branch metadata.
-    if (type(native) is not _native.Expr or not native.is_integer
-            or (native != _native.py_integer(0) and native != _native.py_integer(-1))):
-        raise ValueError("LambertW real branch must be a literal Integer 0 or -1")
+        native = None
+        if cls is _native.Expr:
+            native = value
+        elif any(cls is builtin for builtin in _exact_surface_types()) and isinstance(value, Integer):
+            native = _BASIC_VALUE.__get__(value, Basic)
+        if type(native) is _native.Expr:
+            # Validate before inspecting an integer payload. A held expression,
+            # Float, assumed-integer Symbol or custom Integer subclass cannot
+            # turn an approximate/conditional branch into a literal index.
+            _native.CompiledFunction._validate_source(native)
+            # Native equality borrows integer limbs; branch admission never
+            # materializes a Python integer from the source payload.
+            if native.is_integer and (native == _native.py_integer(0)
+                                      or native == _native.py_integer(-1)):
+                return native
+    raise ValueError("LambertW requires a literal integer branch 0 or -1")
 
 
 def _functions():
@@ -501,10 +510,16 @@ def _native_numeric_source(source, count, depth, *, inexact=None):
             kind = "function"
         children = node.args
         if kind == "function":
-            _require_numeric_function_arity(name, len(children))
-            if name == "LambertW" and len(children) == 2:
-                _require_lambert_numeric_branch(children[1])
-        lowered = [visit(child, level + 1) for child in children]
+            if name == "LambertW":
+                _require_numeric_function_arity(name, len(children))
+            elif len(children) != (2 if name == "atan2" else 1):
+                raise ValueError("native numerical function has the wrong number of arguments")
+        if kind == "function" and name == "LambertW" and len(children) == 2:
+            _charge(count, level + 1)
+            branch = _require_lambert_numeric_branch(children[1])
+            lowered = [visit(children[0], level + 1), branch]
+        else:
+            lowered = [visit(child, level + 1) for child in children]
         if kind == "add":
             return _native.Add(*lowered, evaluate=False).as_expr()
         if kind == "mul":
@@ -557,9 +572,14 @@ def _numeric_source(value, functions, count, depth=0, *, inexact=None):
                 _numeric_condition_source(condition, functions, count, depth + 2, inexact=inexact),
             ))
         return _native.py_function("Piecewise", *lowered)
-    from ..functions.elementary.exponential import LambertW
-    function = (("LambertW", None) if cls is LambertW else
-                next((spec for builtin, spec in functions.items() if cls is builtin), None))
+    function = next((spec for builtin, spec in functions.items() if cls is builtin), None)
+    if function is None:
+        # Lambert W belongs to the native finite-real lane. Keep it outside
+        # the math function table: Python's math module has no such function,
+        # and symbolic source admission must never introduce a hidden backend.
+        from ..functions.elementary.exponential import LambertW
+        if cls is LambertW:
+            function = ("LambertW", None)
     if function is not None:
         _require_closed_function_class(cls)
     if not any(cls is builtin for builtin in _exact_surface_types()) and function is None:
@@ -581,10 +601,14 @@ def _numeric_source(value, functions, count, depth=0, *, inexact=None):
             raise ValueError("numeric source requires bounded exact stored arguments")
         if function is not None:
             _require_numeric_function_arity(function[0], len(arguments))
-            if function[0] == "LambertW" and len(arguments) == 2:
-                _require_lambert_numeric_branch(arguments[1])
-        children = [_numeric_source(arg, functions, count, depth + 1, inexact=inexact)
-                    for arg in arguments]
+        if function is not None and function[0] == "LambertW" and len(arguments) == 2:
+            _charge(count, depth + 1)
+            branch = _require_lambert_numeric_branch(arguments[1])
+            children = [_numeric_source(arguments[0], functions, count, depth + 1, inexact=inexact),
+                        branch]
+        else:
+            children = [_numeric_source(arg, functions, count, depth + 1, inexact=inexact)
+                        for arg in arguments]
         if cls is Add:
             return _native.Add(*children, evaluate=False).as_expr()
         if cls is Mul:
@@ -1725,7 +1749,11 @@ def _math_native_program(source, positions, functions, count, program, depth):
             if native_name is None:
                 raise NotImplementedError("custom or opaque objects have no closed numerical lowering")
             _require_closed_native_function_tag(tag)
-            function = next(spec[1] for _, spec in functions.items() if spec[0] == native_name)
+            function = next((spec[1] for _, spec in functions.items() if spec[0] == native_name), None)
+            if function is None:
+                raise NotImplementedError(
+                    f"{native_name} requires the explicit native numerical backend"
+                )
             kind = "function"
         children = node.args
         if kind == "function":

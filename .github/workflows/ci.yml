@@ -226,6 +226,7 @@ jobs:
           cargo test --locked -p fsym-python --lib expr::multiquadratic_source_tests -j1
           cargo test --locked -p fsym-python --lib expr::bounded_function_probe_tests -j1
           cargo test --locked -p fsym-python --lib numeric::tests::certified_gaussian_sources_require_unary_bound_arguments -j1
+          cargo test --locked -p fsym-python --lib numeric::tests::certified_lambert_sources_require_fixed_real_branches_and_bound_arguments -j1
           cargo test --locked -p fsym-python --lib numeric::tests::actual_python_ -j1
           cargo test --locked -p fsym-core --test raw_product_value -j1
           cargo test --locked -p fsym-core --test binding_substitution -j1
@@ -430,6 +431,7 @@ jobs:
               "python/tests/test_certified_scalar_root_bracket.py",
               "python/tests/test_real_lambert_solving.py",
               "python/tests/test_lambert_real_evalf.py",
+              "python/tests/test_lambert_numeric.py",
               "python/tests/test_certified_objective.py",
               "python/tests/test_stationary_search.py",
               "python/tests/test_box_extremum.py",

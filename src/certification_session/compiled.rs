@@ -19,6 +19,7 @@ use fsym_calculus::compile::{CompileError, EvalError};
 use fsym_calculus::program_artifact::admit_residual_candidate;
 use fsym_calculus::sparse_jacobian::{JacobianVerificationError, SparseJacobian};
 use fsym_calculus::verified::{ResidualEvaluationError, VerifiedCompilationError};
+use fsym_core::{BallError, LambertWError};
 use fsym_numeric_consumer::LeastSquaresTermination;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
@@ -577,7 +578,10 @@ pub(super) fn eval_error_code(error: &EvalError, refused: &'static str) -> &'sta
         EvalError::Meter(MeterError::Budget(_)) => "budget_exhausted",
         EvalError::OpLimitExceeded { .. }
         | EvalError::DimensionOverflow
-        | EvalError::AllocationFailure => "resource_limit_exceeded",
+        | EvalError::AllocationFailure
+        | EvalError::LambertW(LambertWError::Ball(BallError::ResourceLimitExceeded { .. })) => {
+            "resource_limit_exceeded"
+        }
         _ => refused,
     }
 }
