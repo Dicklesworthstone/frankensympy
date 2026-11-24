@@ -56,6 +56,9 @@ pub const RULE_DIFF_ATAN2_DX: &str = "diff_atan2_dx";
 pub const RULE_DIFF_ASINH: &str = "diff_asinh";
 /// Exact real chain rule for the private asinh first-derivative node.
 pub const RULE_DIFF_ASINH_D1: &str = "diff_asinh_d1";
+/// Fixed integer-branch Lambert-W chain rule for public symbolic receipts.
+/// This identity does not discharge an original-source domain obligation.
+pub const RULE_DIFF_LAMBERT_W: &str = "diff_lambert_w";
 /// Numeric-only analytic chain rule for literal real Lambert-W branches.
 /// Original-source evaluation must still establish the smooth branch domain.
 pub const RULE_DIFF_LAMBERT_W_REAL: &str = "diff_lambert_w_real";
@@ -128,6 +131,8 @@ pub fn classify_diff_rule(expr: &Expr, var: &Symbol) -> &'static str {
             ("sinc", 1) => RULE_DIFF_SINC,
             ("_fsym_sinc_d1", 1) => RULE_DIFF_SINC_D1,
             ("sqrt", 1) => RULE_DIFF_SQRT,
+            ("LambertW", 1) => RULE_DIFF_LAMBERT_W,
+            ("LambertW", 2) if matches!(args[1], Expr::Integer(_)) => RULE_DIFF_LAMBERT_W,
             _ => RULE_DIFF_GENERAL,
         },
     }
@@ -189,6 +194,13 @@ fn classify_diff_rule_with_form(expr: &Expr, var: &Symbol, form: DerivativeForm)
                 _ => {}
             }
         }
+    }
+    // Symbolic Lambert receipts gain their own rule without changing the
+    // published numeric rules or either historical reconstruction recipe.
+    if form != DerivativeForm::Symbolic
+        && matches!(expr, Expr::Function(name, _) if name == "LambertW")
+    {
+        return RULE_DIFF_GENERAL;
     }
     classify_diff_rule(expr, var)
 }
@@ -672,6 +684,32 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
                         ]),
                     ])
                 }
+            }
+        }
+        Expr::Function(name, args)
+            if form == DerivativeForm::Symbolic
+                && name == "LambertW"
+                && matches!(args.as_slice(), [_] | [_, Expr::Integer(_)]) =>
+        {
+            let argument = &args[0];
+            let inner = reference_sub_derivative(argument, var);
+            if inner.is_zero() {
+                Expr::from_i64(0)
+            } else {
+                // Independently reconstruct the unchanged public formula;
+                // retain the full fixed-branch source in both W occurrences.
+                let w = expr.clone();
+                Expr::Mul(vec![
+                    w.clone(),
+                    Expr::pow(
+                        Expr::Mul(vec![
+                            argument.clone(),
+                            Expr::Add(vec![w, Expr::from_i64(1)]),
+                        ]),
+                        Expr::from_i64(-1),
+                    ),
+                    inner,
+                ])
             }
         }
         Expr::Function(name, args) if form.has_lambert_jets() && name == "LambertW" => {
@@ -1606,6 +1644,26 @@ fn verify_rule_reduction_semantics(
                 return Err(KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Inverse curvature disagrees with the independent real chain rule"
+                        .to_string(),
+                });
+            }
+        }
+        RULE_DIFF_LAMBERT_W => {
+            if form != DerivativeForm::Symbolic
+                || !matches!(expr, Expr::Function(name, arguments)
+                    if name == "LambertW"
+                        && matches!(arguments.as_slice(), [_] | [_, Expr::Integer(_)]))
+            {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Expected a symbolic fixed-integer-branch Lambert-W source".to_string(),
+                });
+            }
+            let expected = reference_unsimplified_diff(expr, var);
+            if deriv != &expected {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Lambert-W symbolic derivative disagrees with the independent branch-preserving chain rule"
                         .to_string(),
                 });
             }

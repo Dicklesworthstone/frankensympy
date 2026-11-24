@@ -678,6 +678,67 @@ at zero is nonfinite. The native working ceiling is 128 decimal digits with
 `.evalf()` calls need guard digits, so their output-precision ceiling can be
 lower. Other complex branches remain outside this numerical lane.
 
+### Compiled values, Jacobians, and Hessians
+
+The native numerical source boundary admits the exact built-in `LambertW`
+class on the two fixed real branches. It connects the existing inverse kernel
+to `compile_numeric`, `lambdify(..., modules="frankensympy")`, compiled
+residual systems and scalar objectives:
+
+```python
+from sympy import (
+    LambertW, Symbol, compile_numeric, compile_objective,
+    compile_residual_system, enclose_objective,
+)
+
+x = Symbol("x")
+principal = LambertW(x, evaluate=False)
+lower = LambertW(x, -1, evaluate=False)
+
+value = compile_numeric(x, lower)(-0.25)  # approximately -2.15329236411035
+system = compile_residual_system(principal, x)
+assert system.evaluate(0) == ([0.0], [[1.0]])
+
+objective = compile_objective(principal, x)
+assert objective.evaluate(0) == (0.0, [1.0], [[-2.0]])
+
+bounds = enclose_objective(principal, x, [(0, 0)])
+assert bounds.value == (0, 0)
+assert bounds.gradient == ((1, 1),)
+assert bounds.hessian == (((-2, -2),),)
+```
+
+One argument selects branch zero; an explicit branch must be an original
+integer literal `0` or `-1`. Symbolic, floating-point and held arithmetic
+branch selectors refuse. Unknown classes, replaced hooks and private
+derivative tags cannot acquire built-in authority.
+
+Compiled values and derivatives are approximate binary64 outputs. Incoming
+floats retain their exact dyadic value for real-domain admission: the rounded
+float `-1.0 / math.e` lies slightly below the true branch point and is refused,
+rather than clamped. Stable derivative operations preserve the principal
+branch's analytic zero values and avoid unnecessary intermediate overflow on
+the lower branch. Independent proof and opcode checks retain the chosen branch
+through sparse Jacobian/Hessian products and saved-program replay.
+
+The separate original-source interval checker supplies whole-box C1 and C2
+enclosures. It checks the argument before applying any outer chain factor,
+requires strict separation from the derivative singularity at `-1/e`, and
+retains the lower branch's exclusion of zero. These checks also compose with
+the existing root-box, stationary-point, quadrature and scalar-bracket
+verification paths. A finite value, sampled derivative or compiled program
+alone does not establish those claims. Inconclusive domain or resource bounds
+remain explicit refusals.
+
+All inverse, derivative and publication stages share the supplied cumulative
+budget. The original-source checker also retains its intrinsic total ceilings
+across repeated Lambert-W nodes. The ordinary math backend, default scalar
+`nsolve` admission and opaque hybrid callback compilers remain outside this
+bounded native integration. See
+`artifacts/audit/2026-11-24-lambert-pipeline-progress.json` for the exact
+execution evidence and outstanding extension/workspace gates; no full
+compatibility profile is certified.
+
 ## Bracketed scalar roots (development API)
 
 Scalar `nsolve` has a derivative-free bisection route for a known finite real

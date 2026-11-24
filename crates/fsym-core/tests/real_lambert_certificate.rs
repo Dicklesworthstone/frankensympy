@@ -379,7 +379,7 @@ fn explicit_lambert_branches_have_profile_correct_exact_special_values() {
     let zero = Expr::from_i64(0);
     let minus_one = Expr::from_i64(-1);
     assert_eq!(
-        eval_function("LambertW", &[zero.clone()]),
+        eval_function("LambertW", std::slice::from_ref(&zero)),
         Some(zero.clone())
     );
     assert_eq!(

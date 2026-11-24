@@ -1,15 +1,16 @@
-//! Real Lambert-W bytecode evaluation through the bounded exact inverse kernel.
+//! Real Lambert-W bytecode and stable first/second derivatives.
 //!
-//! A binary64 input is converted to its exact dyadic rational, never a decimal
-//! approximation. The existing branch-aware rational-ball solver supplies a
-//! tightly enclosed value; rounding its midpoint produces an ordinary numeric
-//! approximation. Derivative jets are evaluated without the artificial W0(0)
-//! pole. These floats carry no certificate: source-bound C1/C2 verification is
-//! performed separately by fsym-core's original-expression interval checker.
+//! The binary64 input is retained as an exact dyadic rational before the
+//! existing certified real-branch kernel admits its domain. In particular,
+//! the rounded binary64 value `-1.0 / E` lies below the real branch point and
+//! must not be clamped to -1. Returned binary64 values are approximations;
+//! the surrounding compiled program does not acquire an enclosure receipt.
 
 use super::{EvalError, charge_evaluation_steps};
 use fsym_budget::{BudgetMeter, Dimension, MeterError};
-use fsym_core::{BigInt, BigRational, LambertWError, RealBall};
+use fsym_core::arith::RationalArithmeticError;
+use fsym_core::ball::{LambertWError, RealBall};
+use fsym_core::{BigInt, BigRational};
 
 #[derive(Clone, Copy)]
 pub(super) enum LambertOrder {
@@ -18,17 +19,16 @@ pub(super) enum LambertOrder {
     Second,
 }
 
-/// Adapt a possibly unsized request meter without creating or resetting any
-/// allowance. The inverse kernel retains its own intrinsic work ceilings too.
-struct ForwardMeter<'a, M: BudgetMeter + ?Sized>(&'a mut M);
+/// Adapt an unsized caller meter without creating or replenishing a budget.
+struct CallerMeter<'a, M: BudgetMeter + ?Sized>(&'a mut M);
 
-impl<M: BudgetMeter + ?Sized> BudgetMeter for ForwardMeter<'_, M> {
-    fn checkpoint(&mut self) -> Result<(), MeterError> {
-        self.0.checkpoint()
-    }
-
+impl<M: BudgetMeter + ?Sized> BudgetMeter for CallerMeter<'_, M> {
     fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
         self.0.charge(dimension, amount)
+    }
+
+    fn checkpoint(&mut self) -> Result<(), MeterError> {
+        self.0.checkpoint()
     }
 
     fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
@@ -36,127 +36,202 @@ impl<M: BudgetMeter + ?Sized> BudgetMeter for ForwardMeter<'_, M> {
     }
 }
 
-fn evaluation_error(error: LambertWError) -> EvalError {
+fn failed(error: LambertWError) -> EvalError {
     match error {
-        LambertWError::Meter(error) => EvalError::Meter(error),
+        LambertWError::Meter(error)
+        | LambertWError::Arithmetic(RationalArithmeticError::Meter(error)) => {
+            EvalError::Meter(error)
+        }
+        LambertWError::Arithmetic(RationalArithmeticError::SizeOverflow) => {
+            EvalError::DimensionOverflow
+        }
+        LambertWError::Arithmetic(RationalArithmeticError::AllocationFailure) => {
+            EvalError::AllocationFailure
+        }
         other => EvalError::LambertW(other),
     }
 }
 
-fn exact_binary64<M: BudgetMeter + ?Sized>(
-    value: f64,
+fn arithmetic(error: RationalArithmeticError) -> EvalError {
+    failed(error.into())
+}
+
+fn finite_rational<M: BudgetMeter + ?Sized>(
+    rational: &BigRational,
     meter: &mut M,
-) -> Result<BigRational, EvalError> {
+) -> Result<f64, EvalError> {
+    rational
+        .metered_to_f64(meter)?
+        .filter(|value| value.is_finite())
+        .ok_or(EvalError::NonFiniteValue)
+}
+
+fn exact_input<M: BudgetMeter>(value: f64, meter: &mut M) -> Result<BigRational, EvalError> {
     meter.checkpoint()?;
     if !value.is_finite() {
         return Err(EvalError::NonFiniteValue);
     }
-    // A finite binary64 value needs at most 1075 bits in either raw
-    // coefficient. Precharge their bounded construction before allocation;
-    // reduction and all subsequent arithmetic use the governed kernels.
+    // A finite double needs at most 1075 denominator bits or 1024 numerator
+    // bits. Precharge the bounded shifts and their temporary storage before
+    // constructing the exact ratio; normalization is separately metered.
     meter.charge_batch(&[
         (Dimension::ComputeSteps, 128),
         (Dimension::MemoryBytes, 1024),
         (Dimension::AllocationCount, 8),
     ])?;
+    meter.checkpoint()?;
     let bits = value.to_bits();
-    let exponent_bits = ((bits >> 52) & 0x7ff) as i32;
+    let exponent = ((bits >> 52) & 0x7ff) as i32;
     let fraction = bits & ((1u64 << 52) - 1);
-    let (significand, exponent) = if exponent_bits == 0 {
+    let (mantissa, shift) = if exponent == 0 {
         (fraction, -1074)
     } else {
-        (fraction | (1u64 << 52), exponent_bits - 1075)
+        (fraction | (1u64 << 52), exponent - 1023 - 52)
     };
-    let (numerator, denominator) = if exponent >= 0 {
-        (
-            BigInt::from(significand) << exponent as u32,
-            BigInt::from(1),
-        )
+    let mut numerator = BigInt::from(mantissa);
+    let mut denominator = BigInt::from(1);
+    if shift >= 0 {
+        numerator = numerator << shift as u32;
     } else {
-        (
-            BigInt::from(significand),
-            BigInt::from(1) << (-exponent) as u32,
-        )
-    };
-    let numerator = if value.is_sign_negative() {
-        -numerator
-    } else {
-        numerator
-    };
-    let result = BigRational::metered_new(&numerator, &denominator, &mut ForwardMeter(meter))
-        .map_err(LambertWError::from)
-        .map_err(evaluation_error)?;
+        denominator = denominator << shift.unsigned_abs();
+    }
+    if value.is_sign_negative() {
+        numerator = -numerator;
+    }
+    BigRational::metered_new(&numerator, &denominator, meter).map_err(arithmetic)
+}
+
+pub(super) fn evaluate_lambert<M: BudgetMeter + ?Sized>(
+    value: f64,
+    branch: i32,
+    order: LambertOrder,
+    meter: &mut M,
+) -> Result<f64, EvalError> {
+    let result = evaluate(value, branch, order, &mut CallerMeter(meter))?;
+    // Lambert-W bytecode retains its finite real output contract even when
+    // the surrounding scalar program does not request the finite-only lane.
+    if !result.is_finite() {
+        return Err(EvalError::NonFiniteValue);
+    }
     meter.checkpoint()?;
     Ok(result)
 }
 
-pub(super) fn evaluate_lambert<M: BudgetMeter + ?Sized>(
-    argument: f64,
+fn evaluate<M: BudgetMeter>(
+    value: f64,
     branch: i32,
     order: LambertOrder,
     meter: &mut M,
 ) -> Result<f64, EvalError> {
     charge_evaluation_steps(meter, 1)?;
-    if !argument.is_finite() {
-        return Err(EvalError::NonFiniteValue);
-    }
-    if branch == 0 && argument == 0.0 {
-        let value = match order {
-            LambertOrder::Value => argument,
-            LambertOrder::First => 1.0,
-            LambertOrder::Second => -2.0,
-        };
-        charge_evaluation_steps(meter, 1)?;
-        return Ok(value);
-    }
-    let point = RealBall::exact(exact_binary64(argument, meter)?);
-    // The kernel keeps relative accuracy for tiny W0 arguments and proves the
-    // complete real branch domain, including the irrational -1/e boundary.
-    let enclosure = point
-        .metered_lambert_w(branch, 17, &mut ForwardMeter(meter))
-        .map_err(evaluation_error)?;
-    let w = enclosure
-        .midpoint()
-        .metered_to_f64(meter)?
-        .filter(|value| value.is_finite())
-        .ok_or(EvalError::NonFiniteValue)?;
-    let denominator = 1.0 + w;
-    if (branch == 0 && denominator <= 0.0) || (branch == -1 && denominator >= 0.0) {
-        return Err(EvalError::NonsmoothSource("LambertW"));
-    }
-    charge_evaluation_steps(meter, 16)?;
-    let value = match order {
-        LambertOrder::Value => w,
-        LambertOrder::First | LambertOrder::Second => {
-            let slope = if branch == 0 {
-                // This analytic form retains W0'(0)=1 without dividing by
-                // the original argument, including tiny subnormal inputs.
-                (-w).exp() / denominator
-            } else {
-                // W_-1 is separated from zero. Dividing the bounded ratio
-                // by x avoids an overflowing exp(-w) before normalization.
-                (w / denominator) / argument
-            };
-            if matches!(order, LambertOrder::First) {
-                slope
-            } else {
-                // W''=-(W+2)/(W+1)*(W')^2. Scale before multiplying the
-                // slopes, avoiding premature square overflow/underflow.
-                (-((w + 2.0) / denominator) * slope) * slope
-            }
-        }
-    };
     if !value.is_finite() {
         return Err(EvalError::NonFiniteValue);
     }
-    charge_evaluation_steps(meter, 1)?;
-    Ok(value)
+    if branch == 0 && value == 0.0 {
+        return Ok(match order {
+            LambertOrder::Value => value,
+            LambertOrder::First => 1.0,
+            LambertOrder::Second => -2.0,
+        });
+    }
+    let input = exact_input(value, meter)?;
+    // 24 decimal places resolve 1+W at the closest admissible binary64
+    // argument above -1/e. Curvature on W-1 also has cancellation in W+2
+    // near its inflection at -2/e^2. Select extra precision before the one
+    // kernel call in that small window; this is only an accuracy choice,
+    // and exact rational domain admission and all resource caps still apply.
+    let digits = if branch == -1
+        && matches!(order, LambertOrder::Second)
+        && (-0.28..=-0.26).contains(&value)
+    {
+        32
+    } else {
+        24
+    };
+    // The native kernel retains relative accuracy for tiny principal
+    // arguments, including binary64 subnormals.
+    let enclosure = RealBall::exact(input)
+        .metered_lambert_w(branch, digits, meter)
+        .map_err(failed)?;
+    evaluate_midpoint(value, branch, order, enclosure.midpoint(), meter)
+}
+
+// Only successful real-kernel admission reaches this arithmetic in production.
+// Keeping it separate also lets tests cover representable derivative tails
+// without promising that every such inverse solve fits the kernel's budget.
+fn evaluate_midpoint<M: BudgetMeter>(
+    value: f64,
+    branch: i32,
+    order: LambertOrder,
+    w: &BigRational,
+    meter: &mut M,
+) -> Result<f64, EvalError> {
+    let rounded = finite_rational(w, meter)?;
+    if matches!(order, LambertOrder::Value) {
+        return Ok(rounded);
+    }
+
+    // Form 1+w before rounding: rounding w alone near -1 would lose several
+    // digits of the small denominator and corrupt both derivatives.
+    let one = BigRational::from_integer(BigInt::from(1));
+    let denominator = w.metered_add(&one, meter).map_err(arithmetic)?;
+    let denominator_f64 = finite_rational(&denominator, meter)?;
+    if (branch == 0 && denominator_f64 <= 0.0) || (branch == -1 && denominator_f64 >= 0.0) {
+        return Err(EvalError::NonsmoothSource("LambertW"));
+    }
+    charge_evaluation_steps(meter, 24)?;
+    let slope = if branch == 0 {
+        // exp(-w)/(1+w) is regular at zero and finite for real W0. Its
+        // numerator cannot overflow because w > -1 on this domain.
+        (-rounded).exp() / denominator_f64
+    } else {
+        // exp(-w) can overflow for W-1(-1e-308) even though its derivative
+        // remains finite. W/(x*(1+W)) in this order avoids that intermediate.
+        let ratio = w.metered_div(&denominator, meter).map_err(arithmetic)?;
+        finite_rational(&ratio, meter)? / value
+    };
+    if matches!(order, LambertOrder::First) {
+        return Ok(slope);
+    }
+    let two = BigRational::from_integer(BigInt::from(2));
+    let numerator = w.metered_add(&two, meter).map_err(arithmetic)?;
+    let ratio = numerator
+        .metered_div(&denominator, meter)
+        .map_err(arithmetic)?;
+    let ratio = finite_rational(&ratio, meter)?;
+    // W'' = -(W')^2*(W+2)/(W+1). Do not first form exp(-2W), x*x,
+    // or (1+W)^3. The final finite-real policy rejects actual overflow.
+    Ok(-slope * (slope * ratio))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use fsym_budget::Unbounded;
+
+    #[test]
+    fn midpoint_jets_avoid_overflow_and_preserve_representable_tail_slopes() {
+        // Independent high-precision W values are rounded only for this
+        // arithmetic test. They are not accepted inverse enclosures: the
+        // production entry point must first succeed in the certified kernel.
+        let lower_w = -715.769_566_923_421_3_f64;
+        assert!((-lower_w).exp().is_infinite());
+        let w = exact_input(lower_w, &mut Unbounded).unwrap();
+        let slope =
+            evaluate_midpoint(-1e-308, -1, LambertOrder::First, &w, &mut Unbounded).unwrap();
+        let expected = -1.001_399_052_290_802_5e308;
+        assert!(slope.is_finite());
+        assert!((slope - expected).abs() <= 3e-15 * expected.abs());
+        let curvature =
+            evaluate_midpoint(-1e-308, -1, LambertOrder::Second, &w, &mut Unbounded).unwrap();
+        assert!(curvature.is_infinite() && curvature.is_sign_negative());
+
+        let w = exact_input(703.227_033_104_770_2, &mut Unbounded).unwrap();
+        let slope =
+            evaluate_midpoint(f64::MAX, 0, LambertOrder::First, &w, &mut Unbounded).unwrap();
+        assert!(slope > 0.0 && slope.is_subnormal());
+        assert!((slope - 5.554_785_652_925_27e-309).abs() <= 200.0 * f64::from_bits(1));
+    }
 
     #[test]
     fn exact_input_conversion_preserves_every_binary64_regime() {
@@ -172,12 +247,12 @@ mod tests {
             1.0,
             f64::MAX,
         ] {
-            let rational = exact_binary64(value, &mut Unbounded).unwrap();
+            let rational = exact_input(value, &mut Unbounded).unwrap();
             assert_eq!(rational.to_f64(), Some(value));
         }
         for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
             assert_eq!(
-                exact_binary64(value, &mut Unbounded),
+                exact_input(value, &mut Unbounded),
                 Err(EvalError::NonFiniteValue)
             );
         }

@@ -67,11 +67,11 @@ pub use fsym_calculus::box_optimization::{
 };
 pub use fsym_calculus::parametric_cover::ParametricRootCoverOptions;
 pub use fsym_calculus::quadrature::QuadratureOptions;
-pub use fsym_calculus::scalar_bracket::ScalarRootBracketOptions;
 pub use fsym_calculus::root_isolation::{
     MAX_ROOT_ISOLATION_ADVANCE_CELLS, RootIsolationCounters, RootIsolationOptions,
     RootIsolationProgress, RootIsolationSearch, RootIsolationSearchCheckpoint,
 };
+pub use fsym_calculus::scalar_bracket::ScalarRootBracketOptions;
 pub use fsym_core::{
     BigInt, BigRational, BoxExtremumKind, BoxOptimizationError, BoxOptimizationReceipt,
     BoxOptimizationWitness, BoxPartitionStep, Expr, IntegralEnclosureReceipt, ObjectiveEnclosure,

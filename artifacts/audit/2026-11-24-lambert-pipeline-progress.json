@@ -2,88 +2,141 @@
   "schema_version": 1,
   "date": "2026-11-24",
   "base_commit": "7f4abb632cf8fe53ec6f06bd28e1d22644c4f64a",
-  "scope": "Connect the existing real Lambert-W kernel to the compiled and independently certified Jacobian/objective pipeline.",
+  "scope": "Integrate fixed real Lambert-W branches with original-source certification and public numeric APIs; stabilize compiled derivatives and independently verify symbolic derivatives.",
   "beads": [
     "fra-campaign-jacobian-bundle-ukp",
     "fra-7kf"
   ],
-  "implemented": [
-    "Original-source C1 residual/Jacobian enclosures for the fixed real branches 0 and -1",
-    "Original-source C2 objective/gradient/Hessian enclosures, with exact analytic W0 zero jets",
-    "The same smooth primitive in the independent Lipschitz evaluator used by integral and scalar bracket checks",
-    "Atomic nested charging preserves both caller budgets and the source checker's intrinsic cumulative work/allocation limits"
+  "known_session_commits": [
+    "44fb3c85c17f4ca82a534c0db2b0c1183c20e98c",
+    "6362a46043c720a1dcc8ba2411bae0083bf890e9"
   ],
+  "concurrent_implementation_preserved": {
+    "native_lambert": "43920ec1cc94c06840847a1ab6d092862a64519f",
+    "public_lambert": "c0ff541452a296fc2f542d11fff2cb465900b465",
+    "latest_reviewed_atan2_and_formatting": "4f827ee8288ddeea18bcfe9209b49b007a2cba97",
+    "contract": "Retain published opcode order, EvalError::LambertW, four unary private jet tags, numeric REAL proof rules, all seventeen authored native tests, and concurrent matrix, solver, differentiation and polynomial work."
+  },
+  "implemented": [
+    "Original-source C1 residual/Jacobian and C2 objective/gradient/Hessian enclosures for branches 0 and -1, including exact W0 zero jets",
+    "The same primitive in the independent Lipschitz evaluator used by scalar brackets and quadrature",
+    "Atomic nested charging preserves caller budgets and the source checker's intrinsic cumulative work/allocation ceilings",
+    "Public exact-class/native source admission, literal branch preservation, typed-coordinate checks and original-domain preservation",
+    "Public Rust preflight for certified residual/objective sources and precise nested Session resource-error classification",
+    "Stable compiled first/second derivatives: rational 1+W and W+2 before conversion, 24 digits normally and 32 for lower curvature near its inflection",
+    "Independent symbolic fixed-integer-branch derivative verification while preserving numeric and historical recipe profiles",
+    "Branch/order forgery rejection, saved-program replay, sparse derivative products, finite-output policy, cancellation and output atomicity"
+  ],
+  "numerical_contract": {
+    "branches": "One argument means W0; explicit real numeric branches must be original Integer literals 0 or -1.",
+    "input": "Retain each binary64 input as its exact dyadic rational. The rounded -1.0/E below the true branch point is refused.",
+    "smoothness": "Whole-source derivative enclosures require separation from -1/e; the lower branch excludes zero.",
+    "approximation": "Compiled binary64 values and jets are approximations, not certified enclosures.",
+    "precision_window": "The 32-digit request applies only to lower-branch second derivatives for inputs in [-0.28,-0.26]. This selects accuracy before a single inverse call; it does not alter domain admission or work caps."
+  },
   "validation": {
     "pinned_toolchain": "nightly-2026-08-20",
-    "core_test_binary_compilation": "passed",
-    "changed_core_rustfmt_check": "passed",
-    "diff_whitespace_check": "passed",
-    "executed_core_tests": {
-      "passed": 3,
-      "names": [
-        "principal_zero_has_exact_analytic_value_gradient_and_curvature",
-        "multivariate_composition_retains_inner_hessian_and_mixed_terms",
-        "branches_are_fixed_literal_real_indices_and_malformed_calls_fail_closed"
-      ]
+    "core": {
+      "integration": {
+        "passed": 14,
+        "command": "cargo test --locked -p fsym-core --test lambert_certification -- --test-threads=1",
+        "elapsed_seconds": 133.14
+      },
+      "meter_units": {
+        "passed": 2,
+        "command": "cargo test --locked -p fsym-core --lib root_certificate::lambert::tests"
+      }
     },
-    "full_new_core_suite": "running at this checkpoint; no completed suite result claimed",
-    "core_meter_unit_tests": "pending",
-    "independent_source_review": "completed by architecture_triage; no blocking mathematical or atomic-accounting defect found",
-    "workspace_check": "pending",
-    "workspace_clippy": "pending",
-    "workspace_tests": "pending",
-    "actual_python_extension": "pending",
-    "environment": "Execution repeatedly disconnected and the shared workspace exhausted its disk. Source was preserved as GitHub blobs; local execution recovered long enough for the recorded compilation and tests."
-  },
-  "todo": [
-    {
-      "item": "Read comprehensive plan, constitution, architecture registries and authoritative Beads",
-      "status": "done"
+    "calculus": {
+      "reconciled_integration": {
+        "passed": 24,
+        "execution": "One symbolic receipt test followed by the remaining 23 tests; remaining suite elapsed 395.44 seconds.",
+        "command": "cargo test --locked -p fsym-calculus --test lambert_programs -j1 -- --test-threads=1",
+        "retention": "Twelve concurrent integration tests plus twelve adapted numerical/domain/proof regressions."
+      },
+      "latest_atan2_merge_focused": {
+        "passed": 6,
+        "execution": "Symbolic verification, exact branch admission, independent value/jet anchors, inflection, source replay, and a new nested W0(W0(x)) zero/HVP test; 55.11 seconds.",
+        "unique_lambert_cases_executed": 25,
+        "note": "Five focused cases repeat earlier cases; the nested composition is one additional case."
+      },
+      "compatibility_before_latest_atan2_merge": {
+        "atan2_compilation": 18,
+        "inverse_derivative_legacy": 4
+      },
+      "latest_compatibility": {
+        "status": "passed",
+        "atan2_compilation": 36,
+        "inverse_derivative_legacy": 4,
+        "command": "cargo test --locked -p fsym-calculus --test atan2_compilation --test inverse_derivative_legacy -j1 -- --test-threads=1",
+        "note": "Expanded atan2 gate includes PreAtan2/Lambert legacy replay, zero cancellation, stable programs and cumulative retries."
+      },
+      "clippy_before_latest_atan2_merge": {
+        "status": "passed",
+        "command": "cargo clippy --locked -p fsym-core -p fsym-calculus --all-targets -j1 -- -D warnings",
+        "elapsed_seconds": 17.13
+      },
+      "latest_clippy": {
+        "status": "passed",
+        "command": "cargo clippy --locked -p fsym-core -p fsym-calculus --all-targets -j1 -- -D warnings",
+        "elapsed_seconds": 16.49
+      },
+      "private_library_units": "Source checked by all-targets Clippy. Runtime execution blocked: monolithic fsym-calculus lib-test rustc was killed with SIGKILL before assertions. No substitute harness was used."
     },
-    {
-      "item": "Identify a feature integration that advances the existing Jacobian campaign",
-      "status": "done"
+    "python": {
+      "authored_test_functions": 19,
+      "authored_parametrized_cases": 66,
+      "ast": "passed",
+      "pinned_rustfmt": "passed",
+      "runtime": "not executed",
+      "actual_extension_build": {
+        "status": "blocked",
+        "command": "cargo build --locked -p fsym-python --lib --features extension-module -j1",
+        "error": "rustc compiling fsym-solvers received SIGKILL; the genuine extension was not produced."
+      }
     },
-    {
-      "item": "Preserve literal real branch identities and original child-domain checks",
-      "status": "done"
+    "workspace": {
+      "formatting": "passed on the merged worktree with concurrent source files synchronized",
+      "whitespace": "passed",
+      "planning_integrity": "passed on delivery worktree",
+      "check": {
+        "status": "blocked",
+        "command": "cargo check --locked --workspace --all-targets -j1",
+        "error": "rustc compiling libc received SIGKILL; no Rust source diagnostic was emitted."
+      },
+      "clippy": "Full workspace gate not completed because dependency builds were killed; changed core/calculus crates have separate passing evidence.",
+      "tests": "Full workspace execution not completed because required large builds were killed."
     },
-    {
-      "item": "Implement independent first- and second-order interval rules",
-      "status": "done"
-    },
-    {
-      "item": "Preserve intrinsic and caller budget accounting through inverse evaluation",
-      "status": "done"
-    },
-    {
-      "item": "Add native branch, chain, domain, witness and cancellation regressions",
-      "status": "done"
-    },
-    {
-      "item": "Execute all new core integration and adapter tests",
-      "status": "in_progress"
-    },
-    {
-      "item": "Add compiled real branch operations, stable numeric derivatives and independent source replay",
-      "status": "in_progress"
-    },
-    {
-      "item": "Connect exact public Python constructors and native-only numeric admission",
-      "status": "in_progress"
-    },
-    {
-      "item": "Execute compiled and public API regressions, including transport mutations",
-      "status": "pending"
-    },
-    {
-      "item": "Run applicable workspace checks and report concrete environment limits",
-      "status": "pending"
-    },
-    {
-      "item": "Keep broad campaign/profile Beads open until their full named gates pass",
-      "status": "ongoing"
+    "independent_review": "Architecture reviewer checked mathematical formulas, original-source domains, atomic accounting, exact dyadic admission, public closed-source guards, canonical published identities, historical recipes, retained tests and concurrent atan2 changes.",
+    "native_unique_cases_executed": {
+      "core": 16,
+      "lambert": 25,
+      "atan2": 36,
+      "inverse_derivative_legacy": 4,
+      "total": 81,
+      "note": "Counts exclude earlier repeated runs. Full Lambert suite precedes the final atan2 merge; six focused Lambert cases, including one new nested composition, ran after that merge."
     }
+  },
+  "observed_limit": {
+    "argument": "Exact binary64 -1e-308 on W-1",
+    "outcome": "The inherited inverse kernel exhausted its intrinsic 512,000,000 ComputeSteps limit with an Unbounded caller before returning a value.",
+    "response": "No caps increased and no numerical fallback added. The final suite checks typed prompt refusal under a small caller budget; it does not require this input to fail forever.",
+    "measured_accepted_tail": "Value, slope and curvature at exact binary64 -1e-100 passed independent high-precision anchors.",
+    "conditional_arithmetic": "The private midpoint test covers extreme slope scaling conditional on a supplied midpoint; it is not end-to-end extreme inverse acceptance and its runtime gate was blocked."
+  },
+  "remaining": [
+    "Execute the genuine fsym-python extension regressions and retained calculus library units on a host that can complete the builds.",
+    "Complete full workspace check, Clippy and tests without compiler SIGKILLs.",
+    "Default math/scalar nsolve admission and opaque hybrid callback compilers remain outside this bounded Lambert integration.",
+    "Keep broad campaign/profile Beads open until all their named gates pass."
   ],
-  "claim_effects": "No validated/certified profile, performance, portable-proof or complete-campaign promotion. C1/C2 bounds concern only the admitted whole real argument interval; finite or smooth-inconclusive inputs may refuse."
+  "claim_effects": "No compatibility profile, complete campaign, performance win or general binary64-range acceptance is promoted. Independent interval receipts and ordinary compiled approximations retain separate evidence classes.",
+  "final_native_source_hashes": {
+    "crates/fsym-calculus/src/compile.rs": "f3d9e4e57e52a5cf9e075641f968441ec6f7a62a",
+    "crates/fsym-calculus/src/compile/lambert.rs": "54eac4bb0cf362b49c52162f2e723119aa0d86cf",
+    "crates/fsym-calculus/src/lib.rs": "d07b1c2cd92cde7603b39eeb37bb5204b0d3960b",
+    "crates/fsym-calculus/src/proof.rs": "70561a93327830ffa6680846c1688ced91980804",
+    "crates/fsym-calculus/src/sparse_jacobian.rs": "bb4978dc23f708a1d3e3d2a3fc2a40cb071336a1",
+    "crates/fsym-calculus/tests/lambert_programs.rs": "92c341cbb47a453009b4a4f49016f7eae02a4492"
+  }
 }
