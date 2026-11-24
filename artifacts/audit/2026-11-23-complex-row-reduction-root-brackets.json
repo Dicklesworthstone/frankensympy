@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-24T00:13:24Z",
+  "session_date": "2026-11-23",
+  "repository": "Dicklesworthstone/frankensympy",
+  "baseline_commit": "05ff1cbc6cc30d49f48f0bff30eef44613882458",
+  "feature_commits": [
+    {
+      "sha": "2077df4f9675e96fe36fdd0b7aebb4d602046295",
+      "subject": "feat(matrices): verify exact complex row reduction and complete affine solutions"
+    },
+    {
+      "sha": "4cd6f885759532dc258842baae6e6ebd6f106379",
+      "subject": "feat(python): expose checked complex matrix reduction and affine families"
+    },
+    {
+      "sha": "ccd0ca9e7dd8331a05afb28117c7e6dd096f6f26",
+      "subject": "feat(calculus): certify scalar root existence with exact sign brackets"
+    },
+    {
+      "sha": "70795876e8d9176cfd055e314c03438918f9c9d8",
+      "subject": "feat(python): expose certified scalar root brackets with caller budgets"
+    }
+  ],
+  "scope": [
+    {
+      "bead": "fra-kfo",
+      "feature": "exact Q(i) RREF, rank, complete nullspace and multi-RHS affine families",
+      "admission": "closed original Gaussian-rational sources; each matrix axis at most 32; original poles retained",
+      "acceptance": "U*A=R; U*V=V*U=I; canonical RREF; original AX=B and AK=0; checked rank/nullity and identity on free coordinates",
+      "public": "dense/sparse mutable/immutable classes, canonical parameters, existing symbolic/Float paths and rational sparse RREF class, cumulative callback accounting"
+    },
+    {
+      "bead": "fra-7kf",
+      "feature": "certified scalar sign brackets",
+      "acceptance": "continuity of original source over full requested interval, contained witness width at most exact tolerance, exact endpoint zero or certified opposite signs",
+      "claim": "at least one real root; no uniqueness, nonsingularity, multiplicity or enumeration claim",
+      "public": "certified_root_bracket, immutable ScalarRootBracketReceipt, exact typed sources, separate or shared caller EvaluationBudgets"
+    },
+    {
+      "bead": "fra-kfo",
+      "feature": "singular-value shape and exact rational spectral ordering",
+      "behavior": "Pad to column count; sort rational Gram eigenvalues before square root; preserve checked CRootOf order; empty condition 0, zero matrix nan, other singular matrices zoo; bound sparse output padding"
+    }
+  ],
+  "new_regression_suites": [
+    {
+      "path": "crates/fsym-matrices/tests/gaussian_rref.rs",
+      "test_functions": 20,
+      "includes": "256 determinant/rank anchors; forged witnesses; completeness; domains; separate 32-axis limits; budgets and cancellation"
+    },
+    {
+      "path": "crates/fsym-core/tests/scalar_bracket_certificate.rs",
+      "test_functions": 16
+    },
+    {
+      "path": "crates/fsym-calculus/tests/scalar_bracket.rs",
+      "test_functions": 12
+    },
+    {
+      "path": "python/tests/test_matrix_complex_row_reduction.py",
+      "test_functions": 17
+    },
+    {
+      "path": "python/tests/test_certified_scalar_root_bracket.py",
+      "test_functions": 17
+    },
+    {
+      "path": "python/tests/test_matrix_singular_value_order.py",
+      "ordinary_cases": 28,
+      "native_only_resource_cases": 4
+    }
+  ],
+  "validation": {
+    "independent_source_review": "completed for native/public matrix, native/public scalar bracket, and spectral correction",
+    "python_ast": "spectral dense.py and new spectral regression file passed; root attempt to parse all changed Python files was interrupted by executor loss",
+    "pinned_rustfmt": {
+      "toolchain": "nightly-2026-08-20",
+      "version": "rustfmt 1.10.0-nightly (f7d782a3be 2026-08-19)",
+      "local_result": "Formatter and immediate --check passed on 19 restored Rust files",
+      "remote_result": "Incomplete: six locally formatted files could not yet be recaptured after executor disconnect",
+      "pending_formatted_paths": [
+        "crates/fsym-python/src/lib.rs",
+        "crates/fsym-python/src/scalar_bracket.rs",
+        "crates/fsym-calculus/tests/scalar_bracket.rs",
+        "crates/fsym-core/tests/scalar_bracket_certificate.rs",
+        "crates/fsym-matrices/src/pseudoinverse/gaussian/rref.rs",
+        "crates/fsym-matrices/tests/gaussian_rref.rs"
+      ]
+    },
+    "native_compilation": "not completed",
+    "native_tests": "not executed",
+    "actual_python_extension_tests": "not executed",
+    "isolated_sympy_oracle": "Earlier manual SymPy 1.14.0 four-class RREF/nullspace/affine class checks only; new full pytest suites were not executed",
+    "hosted_ci": {
+      "commit": "70795876e8d9176cfd055e314c03438918f9c9d8",
+      "run_id": 45294430782,
+      "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/45294430782",
+      "last_observed_status": "queued"
+    },
+    "blocker": "Execution environment repeatedly disconnected. Exact toolchain/pytest preparation was interrupted before compilation; brief final recovery permitted only formatter completion. No runtime gate is asserted."
+  },
+  "baseline_ci_repairs": [
+    {
+      "path": "crates/fsym-numeric-consumer/tests/parametric_root_proposal.rs",
+      "change": "copy MeterError rather than clone Copy value",
+      "evidence_job": 137524404440
+    },
+    {
+      "path": "crates/fsym-matrices/tests/rectangular_solve.rs",
+      "change": "use Pi for unsupported-domain fixture and explicitly test supported I/singular behavior",
+      "evidence_job": 137524404353
+    }
+  ],
+  "claim_status": "implemented_uncertified",
+  "beads_closed": [],
+  "portable_gaussian_certificate": false,
+  "compatibility_profile_closed": false,
+  "performance_claims": false
+}

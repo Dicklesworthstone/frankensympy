@@ -343,6 +343,7 @@ jobs:
               "python/tests/test_matrix_complex_least_squares_family.py",
               "python/tests/test_matrix_complex_exact_solve.py",
               "python/tests/test_matrix_complex_row_reduction.py",
+              "python/tests/test_matrix_singular_value_order.py",
               "python/tests/test_matrix_least_squares_parameter_budget.py",
               "python/tests/test_matrix_pseudoinverse.py",
               "python/tests/test_matrix_definiteness_budget.py",

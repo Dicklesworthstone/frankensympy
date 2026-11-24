@@ -1300,23 +1300,28 @@ class Matrix(MatrixBase):
         raise NotImplementedError("Matrix exponential could not be computed in closed form")
 
     def singular_values(self):
-        """Return the singular values of this matrix in descending order."""
+        """Return the singular values in descending order, including column zeros."""
+        if self.cols > _MAX_MATRIX_ENTRIES:
+            raise ValueError(
+                "singular-value count exceeds the supported matrix entry limit"
+            )
         if self.rows == 0 or self.cols == 0:
-            return []
+            return [Rational(0)] * self.cols
+        from fractions import Fraction
+        from ..core import _exact_ratio
         from ..functions import sqrt
-        # Gram matrix: M^H * M (or M * M^H, whichever is smaller)
+
+        # Use the smaller Gram matrix, then restore the column nullity.
         if self.rows >= self.cols:
             gram = self.H * self
         else:
             gram = self * self.H
 
-        # If gram is 1x1
         if gram.rows == 1:
             val = gram[0, 0]
             s = sqrt(val) if val >= 0 else sqrt(-val)
-            return [s]
+            return [s] + [Rational(0)] * (self.cols - 1)
 
-        # If gram is diagonal
         is_diag = True
         for r in range(gram.rows):
             for c in range(gram.cols):
@@ -1326,40 +1331,48 @@ class Matrix(MatrixBase):
             if not is_diag:
                 break
         if is_diag:
-            s_vals = [sqrt(gram[i, i]) for i in range(gram.rows)]
+            evals = [gram[i, i] for i in range(gram.rows)]
+        else:
+            evals = gram.eigenvalues()
+            from ..polys.rootoftools import CRootOf
+
+            if any(type(value) is CRootOf for value in evals):
+                # The complete algebraic fallback returns all real eigenvalues
+                # in exact increasing order. Keep that checked order before
+                # sqrt: sqrt(CRootOf) need not support numerical comparison.
+                values = [sqrt(value) for value in reversed(evals)]
+                return values + [Rational(0)] * (self.cols - len(values))
+
+        ratios = [_exact_ratio(value) for value in evals]
+        if all(ratio is not None for ratio in ratios):
+            # Sort the exact squared values: distinct rationals may round to
+            # the same float, and their square roots need not be rational.
+            ordered = sorted(
+                zip(evals, ratios),
+                key=lambda item: Fraction(*item[1]),
+                reverse=True,
+            )
+            values = [sqrt(value) for value, _ in ordered]
+        else:
+            values = [sqrt(value) for value in evals]
             try:
-                s_vals.sort(key=lambda s: float(s.evalf()), reverse=True)
+                values.sort(key=lambda value: float(value.evalf()), reverse=True)
             except Exception:
                 pass
-            return s_vals
-
-        evals = gram.eigenvalues()
-        from ..polys.rootoftools import CRootOf
-
-        if any(type(value) is CRootOf for value in evals):
-            # The complete algebraic fallback returns all real eigenvalues
-            # in exact increasing order. Reverse that checked order before
-            # applying sqrt: sqrt(CRootOf) need not support numerical evalf.
-            return [sqrt(value) for value in reversed(evals)]
-        s_vals = []
-        for ev in evals:
-            s_vals.append(sqrt(ev))
-        try:
-            s_vals.sort(key=lambda s: float(s.evalf()), reverse=True)
-        except Exception:
-            pass
-        return s_vals
+        return values + [Rational(0)] * (self.cols - len(values))
 
     def condition_number(self):
         """Return the condition number sigma_max / sigma_min."""
+        if self.rows == 0 or self.cols == 0:
+            return Rational(0)
         s = self.singular_values()
         if not s:
-            return Rational(1)
+            return Rational(0)
         s_max = s[0]
         s_min = s[-1]
         if s_min == 0:
-            from ..core import zoo
-            return zoo
+            from ..core import nan, zoo
+            return nan if s_max == 0 else zoo
         return s_max / s_min
 
     def cholesky(self, hermitian=True):

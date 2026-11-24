@@ -1773,6 +1773,17 @@ zeroth powers. Active callback cancellation and budgets cover source admission,
 elimination, checking, rendering and publication. These are bounded implemented
 development operations; they do not close a compatibility profile.
 
+### Singular-value shape and exact ordering
+
+`singular_values()` includes one entry per column, padding the smaller Gram
+spectrum with the missing zero singular values for wide matrices. For example,
+`Matrix([[1, 0]]).singular_values()` returns `[1, 0]`, and its
+`condition_number()` is `zoo`. Rational Gram eigenvalues are ordered exactly
+before square roots, avoiding binary64 ties and overflow while preserving
+the existing checked algebraic-root ordering. Empty matrices have condition
+number zero; nonempty all-zero matrices yield `nan`. Spectrum-list size stays
+within the existing matrix entry limit, including sparse zero-area inputs.
+
 ### Complete exact affine solution families
 
 For literal rational entries, dense and sparse `gauss_jordan_solve()` use one
