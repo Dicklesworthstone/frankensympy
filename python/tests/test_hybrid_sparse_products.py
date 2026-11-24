@@ -650,3 +650,51 @@ def test_exact_atom_provenance_survives_native_numeric_lowering(origin, stored, 
     assert program.jacobian_vector_product([3], 2) == [3*coefficient]
     assert program.jacobian_transpose_vector_product([5], 2) == [5*coefficient]
     assert effects == [2.0, 2.0, 2.0]
+
+
+@pytest.mark.parametrize("immutable", [False, True])
+def test_large_sparse_source_keeps_only_stored_derivatives_and_preserves_effect_order(immutable):
+    variables = [s.Symbol(f"large_hybrid_{i}") for i in range(64)]
+    rows = 80
+    seen = []
+
+    class Probe(s.Function):
+        pass
+
+    first, last = variables[0], variables[-1]
+    residuals = [Probe(first, evaluate=False)] + [0] * (rows - 1)
+    matrix = s.SparseMatrix(rows, 64, {
+        (rows - 1, 63): Probe(last, evaluate=False),
+        (0, 0): Probe(first, evaluate=False),
+    })
+    source = matrix.as_immutable() if immutable else matrix
+    program = compile_hybrid_residual_system(
+        residuals, variables, jacobian=source,
+        callbacks={Probe: lambda value: seen.append(value) or value},
+    )
+    matrix[0, 0] = 99
+    point = list(range(1, 65))
+    assert program.jacobian_pattern == ((0, 0), (rows - 1, 63))
+    ledger = dict(session=_session(), budget=_budget())
+    assert program.evaluate_sparse(*point, **ledger) == ([1] + [0] * (rows - 1), [1, 64])
+    assert program.jacobian_vector_product(point, *point, **ledger) == [1] + [0] * (rows - 2) + [4096]
+    assert seen == [1, 1, 64] * 2
+    for dense_request in (
+        lambda: program(*point), lambda: program.jacobian(*point),
+        lambda: program.solve(point), lambda: program.evaluate_batch([point]),
+    ):
+        with pytest.raises(ValueError, match="dense entry"):
+            dense_request()
+    assert seen == [1, 1, 64] * 2
+
+
+def test_large_native_only_sparse_jacobian_captures_coordinates_without_dense_reads():
+    from sympy.core import _native
+
+    variables = [s.Symbol(f"native_sparse_{i}") for i in range(64)]
+    original = s.SparseMatrix(65, 64, {(64, 3): 7})
+    matrix = s.SparseMatrix(original._native)
+    assert type(matrix._native_storage) is _native.SparseMatrix and matrix._surface is None
+    program = compile_hybrid_residual_system([0] * 65, variables, jacobian=matrix, callbacks={})
+    assert program.jacobian_pattern == ((64, 3),)
+    assert program.evaluate_sparse(*([0] * 64), budget=_budget(), session=_session()) == ([0] * 65, [7])

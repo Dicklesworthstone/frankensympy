@@ -15,7 +15,7 @@ from .hybrid import (
 )
 from .lambdify import (
     _MAX_OUTPUTS, _argument_layout, _batch_arguments, _call_arguments, _charge,
-    _check_evaluation_budget, _functions, _outputs,
+    _check_evaluation_budget, _functions, _numeric_matrix_snapshot,
 )
 
 __all__ = ["compile_hybrid_residual_system"]
@@ -83,13 +83,13 @@ def _snapshot_equation(value, bindings, functions, count):
 def _source_vectors(residuals, jacobian, columns):
     """Snapshot both inputs before inspecting their admitted vector shapes."""
     from ..matrices import ImmutableDenseMatrix, ImmutableSparseMatrix, Matrix, SparseMatrix
-    from ..solvers.numerical import _MAX_JACOBIAN_ENTRIES, _MAX_SYSTEM_RESIDUALS
+    from ..solvers.numerical import _MAX_SYSTEM_RESIDUALS
 
     cls = type(residuals)
     residual_is_matrix = any(cls is kind for kind in (
         Matrix, ImmutableDenseMatrix, SparseMatrix, ImmutableSparseMatrix,
     ))
-    captured_residuals, captured_jacobian = _output_snapshot((residuals, jacobian))
+    captured_residuals = _output_snapshot(residuals)
     if residual_is_matrix:
         if len(captured_residuals) == 1:
             values = list(captured_residuals[0])
@@ -106,15 +106,30 @@ def _source_vectors(residuals, jacobian, columns):
         raise ValueError("hybrid residuals must contain 1 through 256 entries")
     if any(_is_sequence(value) for value in values):
         raise TypeError("hybrid residuals must be a scalar or a flat vector")
-    if rows * columns > _MAX_JACOBIAN_ENTRIES or rows * (columns + 1) > _MAX_OUTPUTS:
-        raise ValueError("hybrid residual/Jacobian exceeds the dense entry or combined output limit")
+    if type(jacobian) is SparseMatrix or type(jacobian) is ImmutableSparseMatrix:
+        m, n, entries = _numeric_matrix_snapshot(jacobian, sparse_coordinates=True)
+        if (m, n) != (rows, columns):
+            raise TypeError("hybrid Jacobian shape must match the residual and variable counts")
+        if rows + len(entries) > _MAX_OUTPUTS:
+            raise ValueError("hybrid residual/Jacobian exceeds the combined stored output limit")
+        return values, entries
+    _require_dense_shape(rows, columns)
+    captured_jacobian = _output_snapshot(jacobian)
     if not _is_sequence(captured_jacobian) or len(captured_jacobian) != rows:
         raise TypeError("hybrid Jacobian must have one explicit row per residual")
     if any(not _is_sequence(row) or len(row) != columns for row in captured_jacobian):
         raise TypeError("hybrid Jacobian rows must match the flat variable order")
     if any(_is_sequence(value) for row in captured_jacobian for value in row):
         raise TypeError("hybrid Jacobian entries must be scalar expressions")
-    return values, [list(row) for row in captured_jacobian]
+    return values, (((r, c), entry) for r, row in enumerate(captured_jacobian)
+                    for c, entry in enumerate(row))
+
+
+def _require_dense_shape(rows, columns):
+    from ..solvers.numerical import _MAX_JACOBIAN_ENTRIES
+
+    if rows * columns > _MAX_JACOBIAN_ENTRIES or rows * (columns + 1) > _MAX_OUTPUTS:
+        raise ValueError("hybrid residual/Jacobian exceeds the dense entry or combined output limit")
 
 
 def _initial_point(initial, columns):
@@ -314,6 +329,7 @@ class _HybridResidualSystem:
 
     def evaluate(self, *values, budget=None, session=None):
         """Return residual values and dense Jacobian rows in source order."""
+        _require_dense_shape(self._rows, self._columns)
         _check_evaluation_budget(budget)
         with _evaluation_session(session) as active, _evaluation_budget(budget) as budget:
             inputs = _call_arguments(self._program._layout, values, native=True)
@@ -343,6 +359,7 @@ class _HybridResidualSystem:
         This evaluates residual callback occurrences too: an asserted derivative
         must not erase the original source's domain checks or observable effects.
         """
+        _require_dense_shape(self._rows, self._columns)
         _check_evaluation_budget(budget)
         with _evaluation_session(session) as active, _evaluation_budget(budget) as budget:
             inputs = _call_arguments(self._program._layout, values, native=True)
@@ -405,6 +422,7 @@ class _HybridResidualSystem:
         Every row is admitted before effects start. A later failure publishes
         no partial result list; already completed Python effects remain visible.
         """
+        _require_dense_shape(self._rows, self._columns)
         _check_evaluation_budget(budget)
         with _evaluation_session(session) as active, _evaluation_budget(budget) as budget:
             # The public batch still returns dense rows, so its original
@@ -453,6 +471,7 @@ class _HybridResidualSystem:
         from ..matrices import Matrix
         from ..solvers.numerical import _iterate_system_functions, _newton_options
 
+        _require_dense_shape(self._rows, self._columns)
         _check_evaluation_budget(budget)
         with _evaluation_session(session) as active, _evaluation_budget(budget) as budget:
             tolerance = _newton_options(tol, maxiter)
@@ -553,8 +572,11 @@ def compile_hybrid_residual_system(residuals, args, *, jacobian, callbacks):
     callback work, CPython object allocation and compilation remain outside native accounting;
     callbacks have no forced cancellation guarantee.
 
-    Up to 64 variables, 256 residuals and 4096 dense Jacobian entries are
-    admitted, subject also to the existing 4096 combined output/action and
+    Exact sparse Jacobian matrices are captured in row-major stored-coordinate
+    order. Their implicit zeros require no source traversal or graph actions.
+    Up to 64 variables and 256 residuals are admitted. Dense evaluation and
+    solves require at most 4096 combined dense outputs. Sparse evaluation
+    and products admit larger shapes within the 4096 stored output/action and
     65536 native instruction caps. Results carry explicit approximate/user
     provenance. This API exposes no checked native system, derivative proof,
     interval/root certificate, or portable/pickle artifact.
@@ -574,34 +596,18 @@ def compile_hybrid_residual_system(residuals, args, *, jacobian, callbacks):
     residuals, jacobian = _source_vectors(residuals, jacobian, columns)
     rows = len(residuals)
     count = [0]
-    leaf_index = 0
-    stored_derivatives = []
-
-    def snapshot(value):
-        nonlocal leaf_index
-        is_residual = leaf_index < rows
-        leaf_index += 1
-        if is_residual and type(value) is Eq:
-            return _snapshot_equation(value, bindings, functions, count)
-        node = _snapshot_source(value, bindings, functions, count)
-        if not is_residual:
-            stored_derivatives.append(not _canonical_zero(value, node))
-        return node
-
-    shape, roots = _outputs(
-        (residuals, jacobian), snapshot, native=True,
-    )
-    # Every original cell passes source admission before any omission. Keep
-    # float zeros, held expressions and opaque nodes even when their admitted
-    # numerical value is zero. No new derivative or purity claim is inferred.
-    pattern = tuple(
-        (index // columns, index % columns)
-        for index, stored in enumerate(stored_derivatives) if stored
-    )
-    roots = roots[:rows] + [
-        node for node, stored in zip(roots[rows:], stored_derivatives) if stored
+    roots = [
+        _snapshot_equation(value, bindings, functions, count) if type(value) is Eq
+        else _snapshot_source(value, bindings, functions, count)
+        for value in residuals
     ]
-    residual_shape = shape[1][0]
+    pattern = []
+    for coordinate, value in jacobian:
+        node = _snapshot_source(value, bindings, functions, count)
+        if not _canonical_zero(value, node):
+            pattern.append(coordinate)
+            roots.append(node)
+    residual_shape = (list, tuple(range(rows)))
     shape = (tuple, (residual_shape, (list, tuple(range(rows, len(roots))))))
     actions, outputs, slots, operations = _compile_graph(roots, variables, bindings=axis_bindings)
     program = _HybridCallable(layout, shape, variables, actions, outputs, slots, operations)

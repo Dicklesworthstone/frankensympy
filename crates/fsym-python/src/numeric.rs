@@ -40,11 +40,10 @@ use fsym_core::{
 use fsym_numeric_consumer::{
     LeastSquaresOptions, LeastSquaresTermination, MAX_CONSUMER_NEWTON_ITERATIONS,
     MAX_CONSUMER_VARIABLES, MAX_LEAST_SQUARES_RESIDUALS, MAX_SPARSE_LEAST_SQUARES_RESIDUALS,
-    MAX_SPARSE_LEAST_SQUARES_VARIABLES, NewtonGuards, RootProposal,
-    SystemConsumerError, frankenscipy_analytic_system_with_meter,
-    frankenscipy_fsolve_system_with_meter, least_squares_with_meter,
-    newton_refine_parametric_with_meter, newton_refine_with_meter, sparse_least_squares_with_meter,
-    sparse_newton_refine_with_meter, validate_sparse_root_shape,
+    MAX_SPARSE_LEAST_SQUARES_VARIABLES, NewtonGuards, RootProposal, SystemConsumerError,
+    frankenscipy_analytic_system_with_meter, frankenscipy_fsolve_system_with_meter,
+    least_squares_with_meter, newton_refine_parametric_with_meter, newton_refine_with_meter,
+    sparse_least_squares_with_meter, sparse_newton_refine_with_meter, validate_sparse_root_shape,
 };
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -1415,7 +1414,8 @@ impl PyCompiledFunction {
 
     /// Check all borrowed matrix entries before Python snapshots native cells.
     #[staticmethod]
-    fn _validate_matrix_source(source: &Bound<'_, PyAny>) -> PyResult<()> {
+    #[pyo3(signature = (source, *, stored_only=false))]
+    fn _validate_matrix_source(source: &Bound<'_, PyAny>, stored_only: bool) -> PyResult<()> {
         fn dimensions(rows: usize, columns: usize) -> PyResult<()> {
             if rows > MAX_OUTPUTS
                 || columns > MAX_OUTPUTS
@@ -1439,10 +1439,19 @@ impl PyCompiledFunction {
             }
         } else if source.is_exact_instance(&source.py().get_type::<PySparseMatrix>()) {
             let source = source.extract::<PyRef<'_, PySparseMatrix>>()?;
-            dimensions(source.inner.rows(), source.inner.cols())?;
-            // Missing sparse cells are scalar zeros. Account for them before
-            // traversing the borrowed, explicitly stored expressions.
-            nodes = source.inner.rows() * source.inner.cols() - source.inner.entries().len();
+            if stored_only {
+                if source.inner.rows().max(source.inner.cols()) > MAX_OUTPUTS
+                    || source.inner.entries().len() > MAX_OUTPUTS
+                {
+                    return Err(PyValueError::new_err(
+                        "numeric sparse matrix exceeds the axis or stored-entry limit",
+                    ));
+                }
+            } else {
+                dimensions(source.inner.rows(), source.inner.cols())?;
+                // A dense snapshot materializes implicit scalar zeros.
+                nodes = source.inner.rows() * source.inner.cols() - source.inner.entries().len();
+            }
             for cell in source.inner.entries().values() {
                 check_source(cell, &mut nodes)?;
             }
@@ -2605,11 +2614,11 @@ mod tests {
         Python::attach(|py| {
             let check_dense = |inner| {
                 let source = Py::new(py, PyMatrix { inner }).unwrap();
-                PyCompiledFunction::_validate_matrix_source(source.bind(py).as_any())
+                PyCompiledFunction::_validate_matrix_source(source.bind(py).as_any(), false)
             };
             let check_sparse = |inner| {
                 let source = Py::new(py, PySparseMatrix { inner }).unwrap();
-                PyCompiledFunction::_validate_matrix_source(source.bind(py).as_any())
+                PyCompiledFunction::_validate_matrix_source(source.bind(py).as_any(), false)
             };
             check_dense(Matrix::zeros(2, 2).unwrap()).unwrap();
             check_sparse(SparseMatrix::zeros(2, 2)).unwrap();

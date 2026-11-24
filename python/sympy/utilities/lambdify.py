@@ -251,11 +251,15 @@ def _call_arguments(layout, supplied, *, native):
     return flat
 
 
-def _numeric_matrix_snapshot(value):
+def _numeric_matrix_snapshot(value, *, sparse_coordinates=False):
     """Capture exact matrix cells without entering Python class-name lifting."""
     from ..matrices import ImmutableSparseMatrix, Matrix, SparseMatrix
 
+    from ..matrices.sparse import _REDUCTION_NATIVE_MEMBERS
+
     sparse = type(value) is SparseMatrix or type(value) is ImmutableSparseMatrix
+    if sparse_coordinates and not sparse:
+        raise TypeError("stored coordinates require an exact sparse matrix")
     owner = SparseMatrix if sparse else Matrix
     # Read the owning slots rather than _native: shell-only matrices have
     # real retained cells, but deliberately have no native algebra handle.
@@ -274,35 +278,45 @@ def _numeric_matrix_snapshot(value):
         raise ValueError("numeric matrix has an invalid retained shape")
     rows, columns = shape
     size = rows * columns
-    if max(rows, columns) > _MAX_OUTPUTS or size > _MAX_OUTPUTS:
+    if max(rows, columns) > _MAX_OUTPUTS or (not sparse_coordinates and size > _MAX_OUTPUTS):
         raise ValueError("numeric matrix exceeds the output limit")
     if matrix is not None:
         # Borrow the complete native source before indexing can clone cells.
         # A retained surface is not permission to skip admission of a native
         # payload which the matrix also claims to carry.
-        _native.CompiledFunction._validate_matrix_source(matrix)
-        if matrix.shape != shape:
+        if sparse_coordinates and type(matrix) is not _native.SparseMatrix:
+            raise TypeError("stored coordinates require exact native sparse storage")
+        _native.CompiledFunction._validate_matrix_source(matrix, stored_only=sparse_coordinates)
+        native_shape = (_REDUCTION_NATIVE_MEMBERS["shape"].__get__(matrix, type(matrix))
+                        if sparse_coordinates else matrix.shape)
+        if native_shape != shape:
             raise ValueError("numeric matrix native and retained shapes differ")
     if sparse and surface is not None:
         if type(surface) is not dict or len(surface) > size:
             raise ValueError("numeric sparse matrix has an invalid retained source snapshot")
         count = len(surface)
+        if count > _MAX_OUTPUTS:
+            raise ValueError("numeric sparse matrix exceeds the stored-entry limit")
         # A bounded coordinate copy preserves the original Python objects.
         # Reading through native getters would lose custom class identity.
         try:
-            coordinates = tuple(islice(dict.items(surface), size + 1))
+            coordinates = tuple(islice(dict.items(surface), count + 1))
         except RuntimeError:
             raise ValueError("numeric matrix changed during its source snapshot") from None
         if len(coordinates) != count or len(surface) != count:
             raise ValueError("numeric matrix changed during its source snapshot")
-        cells = [0] * size
-        for key, entry in coordinates:
+        for key, _ in coordinates:
             if (type(key) is not tuple or len(key) != 2
                     or any(type(index) is not int for index in key)
                     or not (0 <= key[0] < rows and 0 <= key[1] < columns)):
                 raise ValueError("numeric sparse matrix has an invalid retained coordinate")
-            cells[key[0] * columns + key[1]] = entry
-        entries = tuple(cells)
+        if sparse_coordinates:
+            entries = tuple(sorted(coordinates, key=lambda item: item[0]))
+        else:
+            cells = [0] * size
+            for (row, column), entry in coordinates:
+                cells[row * columns + column] = entry
+            entries = tuple(cells)
     elif surface is not None:
         if (type(surface) is not list and type(surface) is not tuple) or len(surface) != size:
             raise ValueError("numeric matrix has an invalid retained source snapshot")
@@ -315,14 +329,25 @@ def _numeric_matrix_snapshot(value):
     else:
         if matrix is None:
             raise ValueError("numeric matrix has neither native nor retained cells")
-        entries = tuple(matrix[(row, column)] for row in range(rows) for column in range(columns))
+        if sparse_coordinates:
+            stored = _REDUCTION_NATIVE_MEMBERS["todok"](matrix)
+            entries = tuple(sorted(stored.items(), key=lambda item: item[0]))
+        else:
+            entries = tuple(matrix[(row, column)] for row in range(rows) for column in range(columns))
     current_generation = generation_slot.__get__(value, owner)
     changed = (storage_slot.__get__(value, owner) is not matrix
                or shape_slot.__get__(value, owner) is not shape
                or surface_slot.__get__(value, owner) is not surface
                or type(current_generation) is not int
                or current_generation != generation
-               or (matrix is not None and matrix.shape != shape))
+               or (sparse_coordinates and surface is not None and (
+                   len(surface) != count or any(
+                       key is not previous_key or entry is not previous_entry
+                       for (key, entry), (previous_key, previous_entry)
+                       in zip(dict.items(surface), coordinates)
+                   )
+               ))
+               or (matrix is not None and not sparse_coordinates and matrix.shape != shape))
     if changed:
         raise ValueError("numeric matrix changed during its source snapshot")
     return rows, columns, entries
