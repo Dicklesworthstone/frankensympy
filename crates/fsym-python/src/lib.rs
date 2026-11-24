@@ -2142,6 +2142,8 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<numeric::PyResidualJacobianEnclosure>()?;
     m.add_class::<numeric::PyRootBoxReceipt>()?;
     m.add_class::<numeric::PyRootIsolationReceipt>()?;
+    m.add_class::<numeric::search::PyRootIsolationProgress>()?;
+    m.add_class::<numeric::search::PyRootIsolationSearch>()?;
     m.add_class::<numeric::PyParametricRootBoxReceipt>()?;
     m.add_class::<numeric::PyParametricRootCoverReceipt>()?;
     m.add_class::<numeric::PyParametricSensitivityReceipt>()?;

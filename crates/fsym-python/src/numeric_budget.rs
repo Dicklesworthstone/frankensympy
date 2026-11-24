@@ -60,6 +60,15 @@ pub struct PyEvaluationBudget {
 }
 
 impl PyEvaluationBudget {
+    /// One owned ledger for an incremental certification's whole lifetime.
+    /// Unlike the per-call fallback, this is retained by the search handle.
+    pub(crate) fn certification_default() -> Self {
+        Self {
+            ledger: Mutex::new(Budget::new(BudgetLimits::uniform(512 * 1024 * 1024, 0))),
+            cancelled: AtomicBool::new(false),
+        }
+    }
+
     fn ledger(&self) -> PyResult<MutexGuard<'_, Budget>> {
         match self.ledger.try_lock() {
             Ok(ledger) => Ok(ledger),

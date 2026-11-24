@@ -473,6 +473,51 @@ their causes. Candidate generation and optional certification share a supplied
 `fsolve`; `frankenscipy_analytic` selects the analytic nonlinear driver. A floating
 candidate alone carries no root-existence, uniqueness or rounding guarantee.
 
+### Resumable certified root isolation
+
+Complete root isolation can yield after bounded cell transitions and save its
+unfinished search. A restored search uses the same exact residual source,
+ordered typed variables, domain and search options:
+
+```python
+from sympy import EvaluationBudget, Symbol, compile_residual_system
+
+x = Symbol("x")
+program = compile_residual_system([x**2 - 1], x)
+budget = EvaluationBudget()
+search = program.begin_root_isolation(
+    [(-2, 2)], precision=16, max_leaves=64, budget=budget,
+)
+progress = search.advance(1)
+saved = search.checkpoint()
+
+resumed = program.restore_root_isolation(
+    saved, [(-2, 2)], precision=16, max_leaves=64, budget=budget,
+)
+while not resumed.progress.ready_for_verification:
+    resumed.advance(4)
+receipt = resumed.finish()
+assert receipt.root_count == 2
+```
+
+`advance` accepts 1 through 2,047 cell transitions. Its immutable progress
+snapshot reports processed, pending, excluded and candidate-root counts;
+those counts are search diagnostics. `finish` independently verifies the
+complete original-source cover before returning a `RootIsolationReceipt`.
+An unfinished or rejected search provides no accepted root count or absence
+claim. Existing smooth-domain, boundary-root and nonsingular-root limitations
+of complete isolation still apply.
+
+One captured `EvaluationBudget` covers the live search's advances, checkpoint
+exports and final verification. Save a checkpoint before cancellation or budget
+exhaustion because saving also consumes that ledger. Canonical checkpoints are
+bounded to 1 MiB and contain normalized candidate state, not Python objects or
+accepted flags. Restore checks the receiver's source, domain, options and
+context, reconstructs candidate progress, retains intrinsic consumed counters
+and charges replay to the receiver's supplied budget. It does not authenticate
+another process's resource ledger. A new process must recreate the expected
+typed sources explicitly; identities are never inferred from printed names.
+
 ### Sparse nonlinear root solving
 
 An explicit sparse backend extends approximate square-system root searches to

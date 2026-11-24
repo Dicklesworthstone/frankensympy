@@ -52,6 +52,7 @@ use std::collections::HashMap;
 
 pub(crate) mod program_artifact;
 mod root_artifact;
+pub(crate) mod search;
 
 const MAX_VARIABLES: usize = 256;
 const MAX_OUTPUTS: usize = 4096;
@@ -1603,6 +1604,46 @@ impl PySourceResidualSystem {
             .collect()
     }
 
+    /// Start candidate root discovery that can yield between bounded cell batches.
+    #[pyo3(signature = (domain, precision_digits=32, max_leaves=512, *, budget=None))]
+    fn begin_root_isolation(
+        &self,
+        domain: &Bound<'_, PyAny>,
+        precision_digits: u32,
+        max_leaves: usize,
+        budget: Option<Py<PyEvaluationBudget>>,
+    ) -> PyResult<search::PyRootIsolationSearch> {
+        search::begin(
+            &self.residuals,
+            &self.variables,
+            domain,
+            precision_digits,
+            max_leaves,
+            budget,
+        )
+    }
+
+    /// Restore only source/domain/options-bound candidate state, not a receipt.
+    #[pyo3(signature = (data, domain, precision_digits=32, max_leaves=512, *, budget=None))]
+    fn restore_root_isolation(
+        &self,
+        data: &Bound<'_, PyAny>,
+        domain: &Bound<'_, PyAny>,
+        precision_digits: u32,
+        max_leaves: usize,
+        budget: Option<Py<PyEvaluationBudget>>,
+    ) -> PyResult<search::PyRootIsolationSearch> {
+        search::restore(
+            &self.residuals,
+            &self.variables,
+            data,
+            domain,
+            precision_digits,
+            max_leaves,
+            budget,
+        )
+    }
+
     /// Bind canonical bytes to these frozen sources and rerun root verification.
     #[pyo3(signature = (data, *, budget=None))]
     fn replay_root_certificate(
@@ -2168,6 +2209,48 @@ impl PyVerifiedResidualSystem {
         let result = PyRootBoxReceipt { receipt };
         with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
         Ok(result)
+    }
+
+    /// Start source-bound candidate root discovery with one persistent ledger.
+    #[pyo3(signature = (domain, precision_digits=32, max_leaves=512, *, budget=None))]
+    fn begin_root_isolation(
+        &self,
+        domain: &Bound<'_, PyAny>,
+        precision_digits: u32,
+        max_leaves: usize,
+        budget: Option<Py<PyEvaluationBudget>>,
+    ) -> PyResult<search::PyRootIsolationSearch> {
+        let source = self.system.sparse_jacobian();
+        search::begin(
+            &source.residuals,
+            &source.vars,
+            domain,
+            precision_digits,
+            max_leaves,
+            budget,
+        )
+    }
+
+    /// Restore the existing native checkpoint format against this frozen source.
+    #[pyo3(signature = (data, domain, precision_digits=32, max_leaves=512, *, budget=None))]
+    fn restore_root_isolation(
+        &self,
+        data: &Bound<'_, PyAny>,
+        domain: &Bound<'_, PyAny>,
+        precision_digits: u32,
+        max_leaves: usize,
+        budget: Option<Py<PyEvaluationBudget>>,
+    ) -> PyResult<search::PyRootIsolationSearch> {
+        let source = self.system.sparse_jacobian();
+        search::restore(
+            &source.residuals,
+            &source.vars,
+            data,
+            domain,
+            precision_digits,
+            max_leaves,
+            budget,
+        )
     }
 
     /// Discover every nonsingular real root in a finite box, or prove it root-free.

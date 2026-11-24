@@ -1481,6 +1481,51 @@ class _ResidualCallable:
             self, unknown_box, parameter_box, precision, max_leaves, budget=budget,
         )
 
+    def begin_root_isolation(self, box, *, precision=32, max_leaves=512, budget=None):
+        """Start a resumable complete-root search on an exact finite box.
+
+        The immutable source, ordered typed coordinates and captured symbol
+        assumptions remain fixed. Exact bounds follow ``enclose``; the system
+        must be square with 1..16 variables and positive-width coordinates.
+        Precision is 8..128 digits and max_leaves is 1..1024.
+
+        ``RootIsolationSearch.advance(max_cells)`` attempts a bounded number
+        of cell transitions. Its progress describes candidate work only.
+        Once ready, ``finish()`` independently checks the complete cover and
+        alone returns a ``RootIsolationReceipt``. Singular or boundary roots,
+        unresolved cells and resource exhaustion never grant completeness.
+
+        One supplied EvaluationBudget, or one private bounded ledger, covers
+        exact-input preparation, every advance, checkpoint and final replay.
+        It cannot be replaced between steps. ``checkpoint()`` returns native
+        Session-compatible candidate bytes for ``restore_root_isolation``.
+        Save before exhausting or cancelling the ledger; export is metered.
+        """
+        from ._root_isolation_search import begin_root_isolation
+        return begin_root_isolation(self, box, precision, max_leaves, budget=budget)
+
+    def restore_root_isolation(self, data, box, *, precision=32, max_leaves=512, budget=None):
+        """Restore an untrusted checkpoint against this system and exact box.
+
+        ``data`` must be exact built-in bytes, at most 1 MiB, from the native
+        root-isolation checkpoint format. The receiver supplies the expected
+        original residuals through this compiled system, the ordered typed
+        coordinates, exact domain, precision and max_leaves. Every binding
+        must match; held source operations and symbol assumptions are retained.
+        Python argument nesting is not part of the mathematical coordinates.
+
+        Native replay reconstructs pending cells and independently checks the
+        prefix before returning candidate progress. It restores consumed
+        intrinsic search counters; it does not authenticate remote budget
+        history or restore Python state. Replay and all future operations use
+        one supplied EvaluationBudget or one private bounded ledger. Reusing
+        a live ledger preserves its spend; an exhausted ledger is not reset.
+        No serialized flag can grant a receipt: ``finish()`` must still pass
+        the independent complete-cover verifier with the receiving budget.
+        """
+        from ._root_isolation_search import restore_root_isolation
+        return restore_root_isolation(self, data, box, precision, max_leaves, budget=budget)
+
     def isolate_roots_certified(self, box, *, precision=32, max_leaves=512, budget=None):
         """Discover and certify every nonsingular real root in a finite box.
 

@@ -23,6 +23,7 @@ from .source_certification import (
 )
 from ._certified_numeric import ResidualJacobianEnclosure, RootBoxReceipt
 from ._root_isolation import RootIsolationReceipt
+from ._root_isolation_search import RootIsolationProgress, RootIsolationSearch
 from ._parametric_root import ParametricRootBoxReceipt
 from ._parametric_cover import ParametricRootCoverReceipt
 from ._parametric_sensitivity import ParametricSensitivityReceipt
@@ -45,6 +46,7 @@ __all__ = [
     "StationarySearchError", "MinimizationSearchError", "NumericMinimizationCandidate",
     "ResidualJacobianEnclosure", "RootBoxReceipt",
     "RootIsolationReceipt",
+    "RootIsolationProgress", "RootIsolationSearch",
     "ParametricRootBoxReceipt",
     "ParametricRootCoverReceipt",
     "ParametricSensitivityReceipt",

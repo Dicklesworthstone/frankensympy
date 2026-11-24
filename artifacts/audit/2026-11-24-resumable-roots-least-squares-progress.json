@@ -1,0 +1,231 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-24",
+  "base_commit_before_public_root_integration": "b85bddb6dc7d13c9a654bc0b3adc05515a1a6e05",
+  "native_feature_commits": [
+    "4d892d8da9a59d09a899d3953f96c9d59682f41d",
+    "919fa914a71d65c1f4903799772582310425e43a"
+  ],
+  "public_least_squares_commit": "b85bddb6dc7d13c9a654bc0b3adc05515a1a6e05",
+  "preserved_concurrent_commits": [
+    "085f1a9f8389ded26bebbd6ac34400b1ea85aca2",
+    "ecda068b8becd4d00314a1138d70a53451c0141c"
+  ],
+  "beads": [
+    "fra-campaign-jacobian-bundle-ukp",
+    "fra-7kf"
+  ],
+  "status": "native_tests_passed_public_runtime_blocked",
+  "implementation": {
+    "least_squares_objective": [
+      "VerifiedResidualSystem composes the exact held source 1/2 sum(r_i^2) from every ordered original residual, including duplicate rows, constants, zero rows and retained domain obligations.",
+      "Separate proposal and independent admission reconstruct the expected source and preserve typed coordinates and full residual curvature in the Hessian. Protected verifier pools and one cumulative ledger remain available.",
+      "The public least_squares_objective() returns the existing checked objective interface while retaining argument nesting, frozen assumptions and Float-origin approximation restrictions."
+    ],
+    "resumable_root_isolation": [
+      "Shared source-bound checkpoint transport resides below the Python bridge; root Session facades preserve the existing canonical wire format and independent verification boundary.",
+      "begin_root_isolation()/restore_root_isolation() expose owned searches with immutable candidate progress, bounded advance(), canonical checkpoint() and independent complete-cover finish().",
+      "Each live search captures one strong budget reference. Preparation, all advances, checkpoint export, restore replay and final publication charge cumulatively; omitted budgets are retained private ledgers rather than per-advance replacements.",
+      "Restore checks expected original sources, ordered typed variables, exact domain, options and context before admitting normalized candidate state. Intrinsic consumed counters persist; imported bytes do not authenticate a remote caller ledger."
+    ]
+  },
+  "bounds": {
+    "objective_total_source_nodes": 256,
+    "objective_source_depth": 16,
+    "objective_variables": 64,
+    "certified_box_variables": 16,
+    "root_advance_cell_range": [
+      1,
+      2047
+    ],
+    "root_leaf_range": [
+      1,
+      1024
+    ],
+    "checkpoint_max_bytes": 1048576,
+    "checkpoint_cancellation_rule": "Export itself is metered. Save before cancelling or exhausting the captured ledger."
+  },
+  "validation": {
+    "toolchain": "nightly-2026-08-20 (rustc 1.100.0-nightly f7d782a3b)",
+    "native_tests": {
+      "command": "cargo test --locked -p fsym-calculus --test least_squares_objective --test root_search_transport --test root_isolation_search -j1",
+      "exit_code": 0,
+      "passed": 23,
+      "failed": 0,
+      "targets": {
+        "least_squares_objective": 9,
+        "root_search_transport": 6,
+        "root_isolation_search": 8
+      },
+      "basis": "Repeated after integrating concurrent ecda068; source fingerprints below bind the exact native implementation.",
+      "coverage": [
+        "inconsistent data with a strict objective minimum but no residual root",
+        "full nonlinear and mixed Hessians and Hessian products",
+        "duplicate and constant row weights",
+        "source/row/axis mutation rejection",
+        "held zero poles and zeroth powers",
+        "aggregate source bounds and protected verifier budgets",
+        "cancellation before, during and at publication",
+        "partial and complete candidate transport",
+        "root-free independent receipts",
+        "forged exclusions and canonical payload refusal",
+        "source/domain/options/context binding",
+        "persistent intrinsic and caller counters",
+        "all lifecycle cancellation safe points and multiple batch schedules"
+      ]
+    },
+    "native_clippy": {
+      "command": "cargo clippy --locked -p fsym-core -p fsym-calculus --all-targets -j1 -- -D warnings",
+      "exit_code": 0
+    },
+    "workspace_formatting": {
+      "command": "cargo fmt --check",
+      "exit_code": 0
+    },
+    "python_source_parsing": {
+      "method": "ast.parse on all seven touched Python source/test modules",
+      "status": "passed"
+    },
+    "diff_check": {
+      "command": "git diff --check",
+      "exit_code": 0
+    },
+    "planning_integrity": {
+      "command": "python tools/validate_planning.py",
+      "exit_code": 0
+    },
+    "independent_source_review": "Native/PyO3 lifetime, Send/Sync and budget boundaries; Python API/result shapes, source assumptions and fixtures; README/CI claims reviewed independently. No blocking source issue found.",
+    "public_regressions_authored_not_executed": {
+      "test_root_isolation_search.py": {
+        "test_functions": 19,
+        "static_parameterized_cases": 36
+      },
+      "test_least_squares_objective.py": {
+        "test_functions": 14,
+        "static_parameterized_cases": 16
+      }
+    },
+    "blocked_commands": [
+      {
+        "command": "cargo build --locked -p fsym-python --lib --features extension-module -j1",
+        "environment": "one Cargo job; debug information and incremental disabled; virtual-memory cap 3500000 KiB",
+        "result": "exit 101: unchanged asupersync compilation failed a 2097152-byte allocation and aborted (SIGABRT); fsym-python compilation not reached"
+      },
+      {
+        "command": "cargo build --locked -p fsym-python --lib --features extension-module -j1",
+        "environment": "same complete sources/dependencies and pinned compiler; no imposed virtual-memory cap",
+        "result": "exit 101: unchanged asupersync rustc process killed by host (SIGKILL); fsym-python compilation not reached"
+      },
+      {
+        "command": "cargo check --locked --workspace --all-targets -j1",
+        "result": "exit 101: metadata-only unchanged asupersync rustc process killed by host (SIGKILL); public bridge compilation not reached"
+      }
+    ],
+    "runtime_followup": "The real extension, both new public test modules and root Session facade targets search_checkpoint/isolation_transport remain pending. Existing actual-extension CI runs these targets; no stub runtime, reduced dependency graph or upstream SymPy fallback was used.",
+    "hosted_ci": "Not claimed passing. Queued runs observed before the public integration; inspect the final main workflow for eventual results.",
+    "local_log_sha256": {
+      "resume-merged-native-tests.log": "a5dd9ba0be30606636ad541675fdd56b936118d241f1e3d9188b72371248d4b0",
+      "resume-final-native-clippy.log": "2623421cddb7ca8e014c84d65c858b56e8867241000c9c07a69abd86d9766a4a",
+      "resume-final-fmt-check.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "resume-final-planning-check.log": "ac8e02a350610c72bb1e656b887da1bc532967f1c651ed6db6a7c8cb2ebdddd6",
+      "resume-python-extension-build.log": "e5a2d2f630561a1bc3d462da0766e5104db8da1c8148153e2257accffa3132c4",
+      "resume-python-extension-build-unlimited.log": "21c73351826a2baf58fb725d111aa8e2140940a2b0f88321253896990e55bd3e",
+      "resume-workspace-check.log": "0c4bd193d23785bc85afec841f51e419195a5af93fd8ff4f8c9223575f4b170a"
+    }
+  },
+  "source_fingerprints": {
+    "crates/fsym-calculus/src/sparse_hessian.rs": {
+      "sha256": "0ac17f90a686784f517e9a1acf64666992118dd0570d21ac58e697971999ed62",
+      "git_blob": "becaafbc84654b4abf632811ea86a77854604178"
+    },
+    "crates/fsym-calculus/src/sparse_hessian/least_squares.rs": {
+      "sha256": "2af6be63329dc62415cca38a5bf3945ca3cfdf6e1f5667c55ecb731198f5daa6",
+      "git_blob": "ab1182bef08b313dc3774a8b67ef4f2c3287db0b"
+    },
+    "crates/fsym-calculus/tests/least_squares_objective.rs": {
+      "sha256": "0e765d36fe50f6422e405648ca02043baaa468cdf5ea76317a4a57e31faac70c",
+      "git_blob": "8c5e8534b4a43e502fae508411ae91c291981072"
+    },
+    "crates/fsym-core/src/root_certificate.rs": {
+      "sha256": "05b9e1a0f23dccccb5fb484ca5c4316728faa4b8b9ab02707570b40e3904bccf",
+      "git_blob": "93601f5a715f0f80a9d2cebf74a0137469689fba"
+    },
+    "crates/fsym-core/src/root_certificate/isolation_artifact.rs": {
+      "sha256": "c78555588f007db3f28840e5918f0548cf00d67a79041815a7b58862ea8e52ee",
+      "git_blob": "7168f8e36982de43f8c832b97cd1bd1a8d8fdc12"
+    },
+    "crates/fsym-calculus/src/root_isolation.rs": {
+      "sha256": "872b43281ef84470d46c6f54d99e9a62bb55f327befaf385a70b48c4873ccc32",
+      "git_blob": "86b4af0ce94ac5521b038fd361e3f799b43909da"
+    },
+    "crates/fsym-calculus/src/root_isolation/checkpoint.rs": {
+      "sha256": "f13f33b2c6f1f1c7d44a1f0a8204a00c397167939bfbc73b5000a3cc0e9d0480",
+      "git_blob": "5176b55dc688bf8bca8d840e69f2d26f5928fa0c"
+    },
+    "crates/fsym-calculus/tests/root_search_transport.rs": {
+      "sha256": "10b8706de06184b05002a3403343a742353bda86adf231aa0ecb7b2f2c8ccd38",
+      "git_blob": "642e8f3fe7dda0452a4528a6b9c404bd23864500"
+    },
+    "src/certification.rs": {
+      "sha256": "28c63cef36a543a8b447236c9f492d640b87d9571d9b25ac1436c07de871c974",
+      "git_blob": "974e97caede2e0806fb27120ff8c2451e3bf2f4f"
+    },
+    "src/isolation_transport.rs": {
+      "sha256": "63526439a991fe2278b097d074a1b21a201651589e861cd72e7dd3726cce74bd",
+      "git_blob": "e639eaf310daf8df4ab9da37d16ad0ac758b2307"
+    },
+    "src/search_checkpoint.rs": {
+      "sha256": "521e0e9df67dc4ea8eed27572bda8dab05d122c34bf20a490f0658ce92b330c8",
+      "git_blob": "0be84104f279a85c73234afa1ababfc13aea7995"
+    },
+    "crates/fsym-python/src/lib.rs": {
+      "sha256": "14c59f45f99472237990a64e34c2acc9a8b73712e7118197afb02dc3d23713f7",
+      "git_blob": "982d6a59474a87985f99da1c10c261a33c7109db"
+    },
+    "crates/fsym-python/src/numeric.rs": {
+      "sha256": "43dbf7846fa3c2d0a7cd34a54f5f45bbdd0fda3497df8f1b71f3941b7a4ea972",
+      "git_blob": "3d121058bc05379d63e0a27ad9b80e266fa76cfd"
+    },
+    "crates/fsym-python/src/numeric/search.rs": {
+      "sha256": "c786edb8c7e827c1e0e35f0fdcc1ac555efde67832b5c32478ee593f310bacf7",
+      "git_blob": "7ed79cba88e43cff2e17b7725425b898601d8e45"
+    },
+    "crates/fsym-python/src/numeric_budget.rs": {
+      "sha256": "81d795a8e042e83556aecdd6d4bd990a883303e13330920a00cf6b0eb4e8ca45",
+      "git_blob": "a2cf191aae54ef7b5acebc88d8552c97224b9e50"
+    },
+    "crates/fsym-python/src/objective.rs": {
+      "sha256": "f547355022911d6b07ecbb0f89863aeddb196de287593155f7658afe973ee2f4",
+      "git_blob": "8557c8b56d21df476baf107eb5d100abc84ac44c"
+    },
+    "python/sympy/__init__.py": {
+      "sha256": "6aeadecb19ab061bf1a396c6834c274248ddea8bead2989253c22666ab53634a",
+      "git_blob": "d772bda45d1f1a1f38283c39170378d1ee4ae108"
+    },
+    "python/sympy/utilities/__init__.py": {
+      "sha256": "ca2e2d2c24ec3c84d80c671f76024bcd967ba11a0bd53bbd3dd4b832b6b2fa43",
+      "git_blob": "339bfcb4493507cf45df70401462af3e5dd3e5b0"
+    },
+    "python/sympy/utilities/lambdify.py": {
+      "sha256": "e7bf33bd1598e3b54d2197a8b492c192e551685006bbb41d43d2d36eb021e269",
+      "git_blob": "5de7464aadc27fff331be7b6b27d66e90b6dbdb4"
+    },
+    "python/sympy/utilities/_least_squares_objective.py": {
+      "sha256": "68e53545a5c1e7bf02375ac5cc6758e654f1bafa2e34217d75c76b948d7e2bda",
+      "git_blob": "f8ef50e99ff4856643ffc3a1463395e55c3f50f0"
+    },
+    "python/sympy/utilities/_root_isolation_search.py": {
+      "sha256": "ce96d5578f5403e4abbaeb467af5158340979935d4568e41fe411400d80740e3",
+      "git_blob": "853f54ef5520d7f7e930c2c790b863216e2d8373"
+    },
+    "python/tests/test_least_squares_objective.py": {
+      "sha256": "af34e09c19751bfdb331c150a5026678ab5f7ad17b60b02df982708cfdd17cc9",
+      "git_blob": "6e45c2060913db1a10c4550b6e7bebe9df83e9e0"
+    },
+    "python/tests/test_root_isolation_search.py": {
+      "sha256": "360113635c593a501000fc279ad40592a0d3217324474cbc3f5e424453524af8",
+      "git_blob": "bfc2d41bcdf407e1f3bf9daa5e9faf7ef3dff24b"
+    }
+  },
+  "claim_effect": "Bounded feature implementation only. Candidate progress/checkpoints never grant acceptance; objective minima do not assert common residual roots. No profile, workstream or campaign closure, benchmark win, compatibility claim or claim-tier promotion."
+}

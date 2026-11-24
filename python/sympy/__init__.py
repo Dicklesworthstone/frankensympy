@@ -1624,6 +1624,7 @@ from .utilities.source_certification import (
 )
 from .utilities._certified_numeric import ResidualJacobianEnclosure, RootBoxReceipt
 from .utilities._root_isolation import RootIsolationReceipt
+from .utilities._root_isolation_search import RootIsolationProgress, RootIsolationSearch
 from .utilities._parametric_root import ParametricRootBoxReceipt
 from .utilities._parametric_cover import ParametricRootCoverReceipt
 from .utilities._parametric_sensitivity import ParametricSensitivityReceipt
@@ -2835,6 +2836,7 @@ __all__ = [
     "ResidualJacobianEnclosure",
     "RootBoxReceipt",
     "RootIsolationReceipt",
+    "RootIsolationProgress", "RootIsolationSearch",
     "ParametricRootBoxReceipt",
     "ParametricRootCoverReceipt",
     "ParametricSensitivityReceipt",
