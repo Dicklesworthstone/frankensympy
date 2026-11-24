@@ -15,12 +15,16 @@
 //! Continuous Abs compositions may instead supply independently evaluated
 //! Lipschitz slopes enclosing f' almost everywhere. Absolute continuity
 //! proves the same centered integral bound, including cells crossing a
-//! corner. These cells never supply a Hessian or a C1/C2 claim. Other source
-//! domain failures, unstable Piecewise guards and unsupported forms refuse.
+//! corner. These cells never supply a Hessian or a C1/C2 claim. Finite
+//! continuous endpoints with a singular derivative use only h*f([a,b]); no
+//! midpoint derivative or curvature bound is inferred. Genuine source domain
+//! failures, unstable Piecewise guards and unsupported forms still refuse.
+//! This remains a proper-integral checker, without an improper-limit claim.
 
 use super::{
     ABSOLUTE_VALUE_CORNER, Bounded, BoundedRational, RootBoxError, Work, check_ball,
     check_rational, checked,
+    continuous::{ContinuousEnclosure, evaluate_continuous, is_continuity_only_boundary},
     lipschitz::{LipschitzEnclosure, evaluate_lipschitz},
     objective, validate_inputs,
 };
@@ -179,6 +183,7 @@ pub struct IntegralEnclosureWorkspace<'a, M> {
 enum IntegralCellEnclosure {
     Smooth(objective::ObjectiveJet),
     Lipschitz(LipschitzEnclosure),
+    Continuous(ContinuousEnclosure),
 }
 
 impl IntegralCellEnclosure {
@@ -186,20 +191,22 @@ impl IntegralCellEnclosure {
         match self {
             Self::Smooth(jet) => &jet.value,
             Self::Lipschitz(enclosure) => &enclosure.value,
+            Self::Continuous(enclosure) => &enclosure.value,
         }
     }
 
-    fn slope(&self) -> &RealBall {
+    fn slope(&self) -> Option<&RealBall> {
         match self {
-            Self::Smooth(jet) => &jet.gradient[0],
-            Self::Lipschitz(enclosure) => &enclosure.slopes[0],
+            Self::Smooth(jet) => Some(&jet.gradient[0]),
+            Self::Lipschitz(enclosure) => Some(&enclosure.slopes[0]),
+            Self::Continuous(_) => None,
         }
     }
 
     fn curvature(&self) -> Option<&RealBall> {
         match self {
             Self::Smooth(jet) => Some(&jet.hessian[0][0]),
-            Self::Lipschitz(_) => None,
+            Self::Lipschitz(_) | Self::Continuous(_) => None,
         }
     }
 }
@@ -242,7 +249,7 @@ impl<'a, M: BudgetMeter> IntegralEnclosureWorkspace<'a, M> {
 
     fn evaluate(&mut self, domain: &RealBall) -> Result<IntegralCellEnclosure> {
         self.begin_evaluation()?;
-        match objective::evaluate_objective(
+        let enclosure = match objective::evaluate_objective(
             self.source,
             std::slice::from_ref(self.variable),
             std::slice::from_ref(domain),
@@ -250,12 +257,28 @@ impl<'a, M: BudgetMeter> IntegralEnclosureWorkspace<'a, M> {
         ) {
             Ok(jet) => Ok(IntegralCellEnclosure::Smooth(jet)),
             Err(RootBoxError::Domain(reason)) if reason == ABSOLUTE_VALUE_CORNER => {
-                // Retry only the identified regularity limitation. All
-                // original children and guards are rechecked, and the
-                // unsuccessful C2 evaluation remains charged. Cancellation,
-                // resources and every other error never trigger this lane.
+                // The failed C2 evaluation remains charged. Recheck every
+                // original child and guard before accepting Lipschitz slopes.
                 self.begin_evaluation()?;
-                Ok(IntegralCellEnclosure::Lipschitz(evaluate_lipschitz(
+                evaluate_lipschitz(
+                    self.source,
+                    std::slice::from_ref(self.variable),
+                    std::slice::from_ref(domain),
+                    &mut self.work,
+                )
+                .map(IntegralCellEnclosure::Lipschitz)
+            }
+            Err(error) => Err(error),
+        };
+        match enclosure {
+            Ok(enclosure) => Ok(enclosure),
+            Err(error) if is_continuity_only_boundary(&error) => {
+                // Retry only an identified regularity boundary, retaining
+                // all work/bytes and checking the original source again.
+                // Resource, cancellation and unsupported-form errors never
+                // trigger this lane. Its value cannot stand in for a jet.
+                self.begin_evaluation()?;
+                Ok(IntegralCellEnclosure::Continuous(evaluate_continuous(
                     self.source,
                     std::slice::from_ref(self.variable),
                     std::slice::from_ref(domain),
@@ -295,6 +318,7 @@ impl<'a, M: BudgetMeter> IntegralEnclosureWorkspace<'a, M> {
 
     /// Intersect whole-cell range and centered absolutely-continuous bounds.
     /// A C2 source evaluation additionally admits signed curvature tightening.
+    /// A continuous-only cell uses its whole range and makes no slope claim.
     /// A point cell still checks the original integrand before returning zero.
     pub fn enclose_cell(&mut self, lower: &BigRational, upper: &BigRational) -> Result<RealBall> {
         validate_number(lower)?;
@@ -314,10 +338,14 @@ impl<'a, M: BudgetMeter> IntegralEnclosureWorkspace<'a, M> {
         if width.is_zero() {
             return Ok(RealBall::from_i64(0));
         }
+        let Some(slope) = range.slope() else {
+            let rectangle = self.work.scale(range.value(), &width)?;
+            return self.round_outward(rectangle);
+        };
         let midpoint = self.evaluate(&RealBall::exact(domain.midpoint().clone()))?;
         let rectangle = self.work.scale(range.value(), &width)?;
         let center = self.work.scale(midpoint.value(), &width)?;
-        let derivative_radius = RealBall::exact(range.slope().radius().clone());
+        let derivative_radius = RealBall::exact(slope.radius().clone());
         let width_ball = RealBall::exact(width.clone());
         let square = self.work.mul(&width_ball, &width_ball)?;
         let remainder = self.work.mul(&derivative_radius, &square)?;

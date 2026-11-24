@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "recorded_date": "2026-11-24",
+  "source_baseline_commit": "913157a9d346aecb1c32e08e5a80c3ef3960d678",
+  "scope": "Continuous finite endpoint values in independently checked scalar root-existence brackets and proper real quadrature",
+  "implementation": {
+    "evaluator": "crates/fsym-core/src/root_certificate/continuous.rs",
+    "admitted_closed_domains": [
+      "sqrt and positive literal noninteger rational powers: nonnegative arguments",
+      "asin/acos: [-1,1]",
+      "acosh: [1,infinity)"
+    ],
+    "evidence_limits": "Scalar brackets assert at least one root only. Continuous quadrature cells use width-times-range bounds. No derivative, Lipschitz, uniqueness, multiplicity, completeness or improper-integral claim is added.",
+    "original_source_policy": "All visited original children, typed axes and stable Piecewise guards remain checked; no zero product or power erases a pole.",
+    "adaptive_refinement": "Real-domain interval overshoot remains a refinable domain refusal; precision, resource, cancellation and unsupported-expression errors retain their original refusal behavior."
+  },
+  "authored_tests": {
+    "private_core": {
+      "path": "crates/fsym-core/src/root_certificate/continuous.rs",
+      "count": 12
+    },
+    "public_core": {
+      "path": "crates/fsym-core/tests/continuous_value_certificates.rs",
+      "count": 9
+    },
+    "calculus_integration": {
+      "path": "crates/fsym-calculus/tests/continuous_endpoints.rs",
+      "count": 10
+    },
+    "total": 31,
+    "existing_fixture_correction": "crates/fsym-calculus/tests/certified_quadrature.rs changes only the obsolete sqrt(x) on [0,1] refusal case to the invalid original source sqrt(-x)."
+  },
+  "validation": {
+    "independent_source_review": "completed; includes endpoint domains, typed source preservation, derivative separation, adaptive domain refinement and cancellation/budget propagation",
+    "rustfmt": "not_run",
+    "project_compilation": "not_run",
+    "clippy": "not_run",
+    "native_test_execution": "not_run",
+    "execution_host": "unavailable",
+    "observed_failure": "The official pinned-toolchain installation process received SIGKILL before project compilation. The execution host subsequently became unavailable.",
+    "failure_cause": "not_established",
+    "intended_toolchain": "nightly-2026-08-20"
+  },
+  "integration": {
+    "ci": "Existing targeted core and calculus commands include the new integration targets; the full workspace test command already discovers the private core tests.",
+    "bead_notes": [
+      "fra-7kf",
+      "fra-a5x"
+    ],
+    "task_status_changes": false,
+    "capability_or_profile_promotions": false
+  }
+}

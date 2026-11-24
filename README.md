@@ -1050,6 +1050,16 @@ independently recomputed endpoint-value enclosures. Its claim is existence
 only: it does not establish uniqueness, multiplicity or complete enumeration.
 It cannot substitute for `RootBoxReceipt`.
 
+Native scalar root brackets and proper quadrature also admit finite closed-domain
+values of `sqrt`, positive literal rational powers, `asin`/`acos`, and `acosh`.
+For example, `sqrt(x)` on `[0, 1]` admits the exact endpoint root `0` and an
+integral enclosure containing `2/3`. On cells with unbounded derivatives,
+quadrature uses only a value-range bound; derivative and uniqueness claims
+retain their existing smoothness requirements. Original poles, negative
+square-root arguments and unstable Piecewise guards remain refusals. The
+[implementation and validation record](artifacts/audit/2026-11-24-continuous-value-certificates-progress.json)
+states the currently unexecuted native checks.
+
 Receipts can be saved and independently replayed against a receiver-owned
 statement without repeating the bracket search:
 

@@ -244,7 +244,10 @@ fn proper_domain_failures_and_unsupported_functions_are_never_returned_as_result
     for source in [
         power(sx.clone(), -1),
         Expr::Mul(vec![Expr::from_i64(0), power(sx.clone(), -1)]),
-        Expr::Function("sqrt".into(), vec![sx.clone()]),
+        Expr::Function(
+            "sqrt".into(),
+            vec![Expr::Mul(vec![Expr::from_i64(-1), sx.clone()])],
+        ),
         Expr::Function("gamma".into(), vec![sx.clone()]),
         Expr::Sym(Symbol::new("unbound")),
     ] {

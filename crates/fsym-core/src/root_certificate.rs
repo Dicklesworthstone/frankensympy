@@ -55,6 +55,7 @@ pub use parametric_cover::*;
 mod parametric_sensitivity;
 pub use parametric_sensitivity::*;
 
+mod continuous;
 mod lambert;
 mod lipschitz;
 mod piecewise;

@@ -1,11 +1,13 @@
 //! Independent existence checks for continuous scalar sign brackets.
 //!
 //! The original expression is admitted on the complete requested closed real
-//! interval through the independent Lipschitz evaluator. Certified opposite
+//! interval through an independent continuous-value evaluator. Certified opposite
 //! endpoint signs then imply a zero by the intermediate value theorem; an
 //! exactly zero endpoint is also sufficient. The witness supplies only exact
 //! endpoints and precision, never trusted values or derivatives. In particular,
 //! this claim requires neither a nonzero derivative nor a smooth Abs branch.
+//! Finite square-root, positive literal fractional-power and inverse-function
+//! endpoints are admitted without asserting C1 or C2 regularity.
 //!
 //! A receipt asserts at least one zero in its bounded subinterval. It does not
 //! assert uniqueness, multiplicity, complete root enumeration, or a residual
@@ -13,7 +15,7 @@
 //! root-box receipt. Unsupported continuity obligations remain refusals.
 
 use super::{
-    BoundedRational, RootBoxError, Work, check_rational, checked, lipschitz::evaluate_lipschitz,
+    BoundedRational, RootBoxError, Work, check_rational, checked, continuous::evaluate_continuous,
     validate_inputs,
 };
 use crate::{BigRational, Expr, RealBall, Symbol};
@@ -213,9 +215,9 @@ impl<'a, M: BudgetMeter> ScalarRootBracketWorkspace<'a, M> {
 
     /// Re-evaluate every visited original child and every selected Piecewise
     /// guard. Reciprocal/logarithmic holes remain visible behind multiplication
-    /// by zero and zeroth powers. Abs corners retain continuity, without a C1
-    /// or nonzero-derivative assertion. Other smooth primitives keep their
-    /// existing conservative original-domain restrictions.
+    /// by zero and zeroth powers. Abs corners and finite closed-domain endpoints
+    /// retain continuity without a C1 or nonzero-derivative assertion. Every
+    /// primitive still checks its complete original real domain.
     pub fn enclose(&mut self, lower: &BigRational, upper: &BigRational) -> Result<RealBall> {
         let domain = self.interval(lower, upper)?;
         if self.evaluations >= MAX_EVALUATIONS {
@@ -226,7 +228,7 @@ impl<'a, M: BudgetMeter> ScalarRootBracketWorkspace<'a, M> {
         self.evaluations += 1;
         // Reset only the per-traversal node count, never the work/byte ledger.
         self.work.nodes = 0;
-        let enclosure = evaluate_lipschitz(
+        let enclosure = evaluate_continuous(
             self.source,
             std::slice::from_ref(self.variable),
             std::slice::from_ref(&domain),
