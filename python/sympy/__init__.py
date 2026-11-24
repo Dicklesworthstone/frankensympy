@@ -786,6 +786,8 @@ def solveset(expression, variable=None, domain=None):
     bounds raise instead of returning a partial set of solutions.
     Finite native results also retain original equation poles: undecidable
     definedness stays conditional instead of becoming an unconditional root.
+    Bounded rational-affine/exponential forms use an independent real Lambert-W
+    checker, including both real branches and exact tangent or empty cases.
     """
     if domain is not None:
         if isinstance(domain, str):
@@ -804,6 +806,10 @@ def solveset(expression, variable=None, domain=None):
     piecewise = solve_piecewise_real(expression, variable, domain)
     if piecewise is not None:
         return piecewise
+    from .solvers._lambert_real import solve_lambert_real
+    lambert = solve_lambert_real(expression, variable, domain)
+    if lambert is not None:
+        return lambert
     from .solvers._elementary_real import solve_elementary_real
     elementary = solve_elementary_real(expression, variable, domain)
     if elementary is not None:

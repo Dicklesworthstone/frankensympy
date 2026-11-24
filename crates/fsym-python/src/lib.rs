@@ -2068,6 +2068,7 @@ mod forward_mellin;
 mod fourier;
 pub mod geometry;
 mod ideal_operations;
+mod lambert;
 pub mod logic;
 pub mod matrix;
 pub mod ntheory;
@@ -2118,6 +2119,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<binding::PySymbolBinding>()?;
     numeric_budget::register(m)?;
     scalar_bracket::register(m)?;
+    lambert::register(m)?;
     ode::register(m)?;
     finite_field_polynomial::register(m)?;
     finite_field_multivariate::register(m)?;

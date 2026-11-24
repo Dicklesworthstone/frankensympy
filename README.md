@@ -610,6 +610,53 @@ bytecode. Saved acceptance flags and Python callbacks carry no proof authority.
 
 ---
 
+## Complete real Lambert-W equations (development API)
+
+`solveset(..., domain=S.Reals)` now returns every real solution of bounded
+mixed affine/exponential equations, including both real Lambert-W branches:
+
+```python
+from sympy import Eq, FiniteSet, LambertW, Rational, S, Symbol, exp, solveset
+
+x = Symbol("x")
+q = -Rational(1, 4)
+assert solveset(Eq(x*exp(x), q), x, S.Reals) == FiniteSet(
+    LambertW(q), LambertW(q, -1)
+)
+assert solveset(exp(x)-3*x, x, S.Reals) == FiniteSet(
+    -LambertW(-Rational(1, 3)), -LambertW(-Rational(1, 3), -1)
+)
+assert solveset(exp(x)-x-1, x, S.Reals) == FiniteSet(0)
+assert solveset(x*exp(x)+1, x, S.Reals) == S.EmptySet
+```
+
+The supported normal form is
+`A*x + B + (C*x + D)*exp(E*x + F)`, with exact rational coefficients,
+nonzero `E`, and exactly one nonzero coefficient among `A` and `C`.
+The sparse candidate generator is separate from the independent core verifier.
+The verifier replays the complete original expression with a dense formal
+polynomial, checks every coefficient and exponential argument, and establishes
+the complete real branch count using exact comparisons or certified exponential
+bounds. Zero Lambert arguments have one finite root; the branch point has one
+distinct double root; arguments below the real minimum have no real roots.
+
+This first slice admits globally defined real sources with one typed coordinate,
+rational arithmetic, bounded integer powers, and the supported exponential.
+Original reciprocal domains and undefined held operands cannot be erased by
+cancellation. Each phase is bounded to 1024 source nodes, depth32, 4096-bit
+input coefficients, 4 million logical steps, and 64 MiB cumulative charged
+storage. Native callers may supply separate generator and verifier meters;
+public supervised requests share their cumulative callback allowance across
+both phases and publication. Admitted errors never return a partial root set.
+
+Restricted real domains use exact membership where available and retain an
+explicit intersection when ordering a Lambert value remains undecidable.
+`LambertW(z, -1)` retains its branch in differentiation; exact branch-point
+and zero values are also supported. This is a bounded development extension:
+the pinned upstream `solveset` often leaves these same equations conditional,
+and this addition does not establish a complex-domain completeness or drop-in
+compatibility claim.
+
 ## Bracketed scalar roots (development API)
 
 Scalar `nsolve` has a derivative-free bisection route for a known finite real

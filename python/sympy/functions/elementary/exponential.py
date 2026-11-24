@@ -35,7 +35,12 @@ ln = log
 
 
 class LambertW(_NativeFunction):
-    """Lambert W function (principal branch): W(0) = 0, W(E) = 1."""
+    """Lambert W with an optional integer branch index.
+
+    ``LambertW(z)`` is the principal branch. ``LambertW(z, -1)`` represents
+    the lower real branch on ``[-1/E, 0)``. Exact branch-point values and
+    derivatives retain the selected branch.
+    """
 
     __slots__ = ()
 
