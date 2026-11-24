@@ -14,8 +14,8 @@ pub(crate) use shared::{EvaluationMemo, SharedEvaluationPlan};
 use self::error_functions::evaluate_error_function;
 use self::lambert::{LambertOrder, evaluate_lambert};
 use self::sinc::{SincOrder, evaluate_sinc};
-use crate::numeric_diff;
-use fsym_budget::{BudgetMeter, Dimension, MeterError, Unbounded};
+use crate::numeric_diff_with_meter;
+use fsym_budget::{BudgetError, BudgetMeter, DIMENSION_COUNT, Dimension, MeterError, Unbounded};
 use fsym_core::{BigInt, Constant, Expr, Symbol};
 use serde::de::{Error as _, IgnoredAny, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -85,6 +85,79 @@ pub enum CompileError {
     SharedEvaluationLimit(&'static str),
     #[error("Shared numeric evaluation plan does not preserve the original bytecode")]
     InvalidSharedEvaluationPlan,
+    #[error("Numerical derivative normalization stopped: {0}")]
+    DerivativeNormalization(#[source] fsym_simplify::SimplifyError),
+}
+
+impl From<fsym_simplify::SimplifyError> for CompileError {
+    fn from(error: fsym_simplify::SimplifyError) -> Self {
+        use fsym_simplify::SimplifyError;
+        match error {
+            SimplifyError::BudgetExhausted(error) => Self::Meter(MeterError::Budget(error)),
+            SimplifyError::Cancelled => Self::Meter(MeterError::Cancelled),
+            SimplifyError::AllocationFailure => Self::AllocationFailure,
+            error => Self::DerivativeNormalization(error),
+        }
+    }
+}
+
+/// A whole derivative reconstruction has one finite private envelope, even
+/// when a convenience caller uses `Unbounded`. Recursive chain rules and all
+/// their exact normalizations spend from this same envelope and caller ledger.
+/// Generator and independent reference reconstructions create separate scopes.
+pub(crate) struct NumericalDerivativeMeter<'a, M: BudgetMeter + ?Sized> {
+    caller: &'a mut M,
+    remaining: [u64; DIMENSION_COUNT],
+}
+
+impl<'a, M: BudgetMeter + ?Sized> NumericalDerivativeMeter<'a, M> {
+    pub(crate) fn new(caller: &'a mut M) -> Self {
+        let mut remaining = [u64::MAX; DIMENSION_COUNT];
+        remaining[Dimension::ComputeSteps.index()] = 20_000_000;
+        remaining[Dimension::MemoryBytes.index()] = 64 * 1024 * 1024;
+        remaining[Dimension::AllocationCount.index()] = 1_000_000;
+        Self { caller, remaining }
+    }
+}
+
+impl<M: BudgetMeter + ?Sized> BudgetMeter for NumericalDerivativeMeter<'_, M> {
+    fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
+        self.charge_batch(&[(dimension, amount)])
+    }
+
+    fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+        self.caller.checkpoint()?;
+        let mut totals = [0_u64; DIMENSION_COUNT];
+        for &(dimension, amount) in charges {
+            if amount == 0 {
+                return Err(BudgetError::ZeroCharge.into());
+            }
+            let total = &mut totals[dimension.index()];
+            *total = total
+                .checked_add(amount)
+                .ok_or(BudgetError::ChargeOverflow { dimension })?;
+        }
+        for dimension in Dimension::ALL {
+            let index = dimension.index();
+            if totals[index] > self.remaining[index] {
+                return Err(BudgetError::Exhausted {
+                    dimension,
+                    requested: totals[index],
+                    remaining: self.remaining[index],
+                }
+                .into());
+            }
+        }
+        self.caller.charge_batch(charges)?;
+        for (remaining, total) in self.remaining.iter_mut().zip(totals) {
+            *remaining -= total;
+        }
+        Ok(())
+    }
+
+    fn checkpoint(&mut self) -> Result<(), MeterError> {
+        self.caller.checkpoint()
+    }
 }
 
 /// Charge an actual compiler/checker work unit before executing it. Buffer
@@ -1794,11 +1867,36 @@ impl CompiledResidualSystem {
     /// Jacobian.
     /// Fails closed if any expression contains unmapped symbols or unsupported functions.
     pub fn try_compile(exprs: &[Expr], vars: &[Symbol]) -> Result<Self, CompileError> {
+        Self::try_compile_with_meter(exprs, vars, &mut Unbounded)
+    }
+
+    /// Compile residuals and their dense Jacobian on one caller-owned ledger.
+    /// Exact derivative normalization has an intrinsic finite envelope even
+    /// for an unbounded caller; no failed or cancelled derivative is published.
+    pub fn try_compile_with_meter<M: BudgetMeter + ?Sized>(
+        exprs: &[Expr],
+        vars: &[Symbol],
+        meter: &mut M,
+    ) -> Result<Self, CompileError> {
+        fn buffer<T, M: BudgetMeter + ?Sized>(
+            count: usize,
+            meter: &mut M,
+        ) -> Result<(), CompileError> {
+            let bytes = count
+                .checked_mul(std::mem::size_of::<T>())
+                .ok_or(CompileError::DimensionOverflow)?;
+            charge_compilation_work(meter, count, bytes, usize::from(count != 0))
+        }
+
+        meter.checkpoint()?;
+        buffer::<(Symbol, usize), _>(vars.len(), meter)?;
         let mut var_map = HashMap::new();
         var_map
             .try_reserve(vars.len())
             .map_err(|_| CompileError::AllocationFailure)?;
         for (i, v) in vars.iter().enumerate() {
+            admit_compilation_name(&v.name, meter)?;
+            charge_compilation_work(meter, v.name.len() + 1, v.name.len(), 1)?;
             if var_map.insert(v.clone(), i).is_some() {
                 return Err(CompileError::DuplicateVariable(v.clone()));
             }
@@ -1810,32 +1908,46 @@ impl CompiledResidualSystem {
             .checked_mul(num_vars)
             .ok_or(CompileError::DimensionOverflow)?;
 
+        buffer::<CompiledExpr, _>(num_residuals, meter)?;
         let mut compiled_residuals = Vec::new();
         compiled_residuals
             .try_reserve_exact(num_residuals)
             .map_err(|_| CompileError::AllocationFailure)?;
         for e in exprs {
-            compiled_residuals.push(CompiledExpr::try_compile(e, &var_map)?);
+            compiled_residuals.push(CompiledExpr::try_compile_with_meter(e, &var_map, meter)?);
         }
 
+        buffer::<CompiledExpr, _>(jacobian_len, meter)?;
         let mut compiled_jacobian = Vec::new();
         compiled_jacobian
             .try_reserve_exact(jacobian_len)
             .map_err(|_| CompileError::AllocationFailure)?;
         for e in exprs {
             for v in vars {
-                let d = numeric_diff(e, v);
-                compiled_jacobian.push(CompiledExpr::try_compile(&d, &var_map)?);
+                let d = numeric_diff_with_meter(e, v, meter)?;
+                compiled_jacobian.push(CompiledExpr::try_compile_with_meter(&d, &var_map, meter)?);
             }
         }
 
-        Ok(Self {
-            vars: vars.to_vec(),
-            num_residuals,
-            num_vars,
-            compiled_residuals,
-            compiled_jacobian,
-        })
+        buffer::<Symbol, _>(vars.len(), meter)?;
+        let mut owned_vars = Vec::new();
+        owned_vars
+            .try_reserve_exact(vars.len())
+            .map_err(|_| CompileError::AllocationFailure)?;
+        for variable in vars {
+            charge_compilation_work(meter, variable.name.len() + 1, variable.name.len(), 1)?;
+            owned_vars.push(variable.clone());
+        }
+        compilation_finish(
+            Ok(Self {
+                vars: owned_vars,
+                num_residuals,
+                num_vars,
+                compiled_residuals,
+                compiled_jacobian,
+            }),
+            meter,
+        )
     }
 
     /// Convenience infallible compiler that panics on compile error.

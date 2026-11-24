@@ -224,6 +224,24 @@ pub(crate) fn evaluation_error<E: Error + 'static>(error: E) -> PyErr {
                 MeterError::Budget(_) => EvaluationBudgetExceeded::new_err(error.to_string()),
             };
         }
+        if let Some(normalization) = current.downcast_ref::<fsym_simplify::SimplifyError>() {
+            use fsym_simplify::SimplifyError;
+            // These failures concern constructing a numerical program. They
+            // cannot become mathematical-domain ValueErrors that a solver
+            // might hide by trying another point or resetting its work.
+            return match normalization {
+                SimplifyError::Cancelled => EvaluationCancelled::new_err(error.to_string()),
+                SimplifyError::BudgetExhausted(_)
+                | SimplifyError::DepthLimitExceeded(_)
+                | SimplifyError::NumericLimitExceeded { .. } => {
+                    EvaluationBudgetExceeded::new_err(error.to_string())
+                }
+                SimplifyError::AllocationFailure => PyMemoryError::new_err(error.to_string()),
+                SimplifyError::ArithmeticInvariant(_)
+                | SimplifyError::General(_)
+                | SimplifyError::ProofFailed(_) => PyRuntimeError::new_err(error.to_string()),
+            };
+        }
         if matches!(
             current.downcast_ref::<EvalError>(),
             Some(EvalError::AllocationFailure)

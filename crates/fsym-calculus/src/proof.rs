@@ -2,9 +2,14 @@
 
 #![forbid(unsafe_code)]
 
+use crate::compile::{CompileError, NumericalDerivativeMeter};
 use crate::diff_unsimplified;
+use fsym_budget::BudgetMeter;
+#[cfg(test)]
+use fsym_budget::Unbounded;
 use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
 use fsym_proof_kernel::{Claim, DerivationStep, DerivationTree, KernelError, ProofRule, StepId};
+use std::convert::Infallible;
 use std::sync::Arc;
 
 /// Standard differentiation derivation rule identifiers.
@@ -217,9 +222,20 @@ pub fn verified_diff(expr: &Expr, var: &Symbol) -> (Expr, DerivationTree) {
 /// changing public symbolic receipts. Inverse-function jets retain finite
 /// slopes and curvatures across the binary64 range. Fixed real Lambert-W jets
 /// retain the analytic principal zero and never erase the selected branch.
-pub(crate) fn verified_numeric_diff(expr: &Expr, var: &Symbol) -> (Expr, DerivationTree) {
-    let deriv = crate::numeric_diff_unsimplified(expr, var);
-    derivative_tree(expr, var, deriv, DerivativeForm::Numeric)
+pub(crate) fn verified_numeric_diff_with_meter<M: BudgetMeter + ?Sized>(
+    expr: &Expr,
+    var: &Symbol,
+    meter: &mut M,
+) -> Result<(Expr, DerivationTree), CompileError> {
+    let deriv = crate::numeric_diff_unsimplified_with_meter(expr, var, meter)?;
+    let value = derivative_tree(expr, var, deriv, DerivativeForm::Numeric);
+    crate::compile::compilation_finish(Ok(value), meter)
+}
+
+#[cfg(test)]
+fn verified_numeric_diff(expr: &Expr, var: &Symbol) -> (Expr, DerivationTree) {
+    verified_numeric_diff_with_meter(expr, var, &mut Unbounded)
+        .expect("bounded numerical differentiation fixture")
 }
 
 fn derivative_tree(
@@ -333,63 +349,179 @@ pub fn verify_diff_derivation(
     verify_diff_derivation_with_form(tree, expr, var, deriv, DerivativeForm::Symbolic)
 }
 
-pub(crate) fn verify_numeric_diff_derivation(
+#[cfg(test)]
+fn verify_numeric_diff_derivation(
     tree: &DerivationTree,
     expr: &Expr,
     var: &Symbol,
     deriv: &Expr,
 ) -> Result<(), KernelError> {
-    verify_diff_derivation_with_form(tree, expr, var, deriv, DerivativeForm::Numeric)
+    verify_numeric_diff_derivation_with_meter(tree, expr, var, deriv, &mut Unbounded)
+        .map_err(test_numeric_verification_error)
 }
 
 /// Replay the complete recipe immediately preceding the scaled binary-angle
 /// jets. The caller has already checked the proof envelope and charges this
 /// separate semantic pass. Stored derivatives and bytecode are never replaced.
-pub(crate) fn verify_pre_atan2_numeric_diff_reduction(
+#[cfg(test)]
+fn verify_pre_atan2_numeric_diff_reduction(
     expr: &Expr,
     var: &Symbol,
     deriv: &Expr,
 ) -> Result<(), KernelError> {
-    verify_rule_reduction_semantics(
-        expr,
-        var,
-        deriv,
-        classify_diff_rule_with_form(expr, var, DerivativeForm::PreAtan2JetsNumeric),
-        DerivativeForm::PreAtan2JetsNumeric,
-    )
+    verify_pre_atan2_numeric_diff_reduction_with_meter(expr, var, deriv, &mut Unbounded)
+        .map_err(test_numeric_verification_error)
 }
 
 /// Reconstruct the complete numerical recipe immediately preceding the
 /// inverse jets. The caller has checked the proof envelope and charges this
 /// independent semantic pass; no stored proof or bytecode is rewritten.
-pub(crate) fn verify_pre_inverse_numeric_diff_reduction(
+#[cfg(test)]
+fn verify_pre_inverse_numeric_diff_reduction(
     expr: &Expr,
     var: &Symbol,
     deriv: &Expr,
 ) -> Result<(), KernelError> {
-    verify_rule_reduction_semantics(
-        expr,
-        var,
-        deriv,
-        classify_diff_rule_with_form(expr, var, DerivativeForm::PreInverseJetsNumeric),
-        DerivativeForm::PreInverseJetsNumeric,
-    )
+    verify_pre_inverse_numeric_diff_reduction_with_meter(expr, var, deriv, &mut Unbounded)
+        .map_err(test_numeric_verification_error)
 }
 
 /// Replay the older numeric rule only after the common proof envelope has
 /// passed and the current rule returned InvalidDefinitionalReduction.
 /// The caller charges the second semantic pass without rescanning that envelope.
-pub(crate) fn verify_legacy_numeric_diff_reduction(
+#[cfg(test)]
+fn verify_legacy_numeric_diff_reduction(
     expr: &Expr,
     var: &Symbol,
     deriv: &Expr,
 ) -> Result<(), KernelError> {
-    verify_rule_reduction_semantics(
+    verify_legacy_numeric_diff_reduction_with_meter(expr, var, deriv, &mut Unbounded)
+        .map_err(test_numeric_verification_error)
+}
+
+/// Semantic disagreement may select a historical recipe. Operational failure
+/// must stop replay and retain its original typed resource/cancellation cause.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum NumericDiffVerificationError {
+    #[error(transparent)]
+    Operational(#[from] CompileError),
+    #[error(transparent)]
+    Proof(#[from] KernelError),
+}
+
+#[cfg(test)]
+fn test_numeric_verification_error(error: NumericDiffVerificationError) -> KernelError {
+    match error {
+        NumericDiffVerificationError::Proof(error) => error,
+        NumericDiffVerificationError::Operational(error) => KernelError::Budget(error.to_string()),
+    }
+}
+
+pub(crate) fn verify_numeric_diff_derivation_with_meter<M: BudgetMeter + ?Sized>(
+    tree: &DerivationTree,
+    expr: &Expr,
+    var: &Symbol,
+    deriv: &Expr,
+    meter: &mut M,
+) -> Result<(), NumericDiffVerificationError> {
+    let mut meter = NumericalDerivativeMeter::new(meter);
+    let result = (|| {
+        crate::sparse_jacobian::charge_derivative_kernel(expr, &mut meter)?;
+        fsym_simplify::admit_numeric_expression_with(deriv, &mut meter)
+            .map_err(CompileError::from)?;
+        let rule = verify_diff_envelope(tree, expr, var, deriv, DerivativeForm::Numeric)?;
+        verify_numeric_reduction_inner(expr, var, deriv, rule, DerivativeForm::Numeric, &mut meter)
+    })();
+    meter.checkpoint().map_err(CompileError::from)?;
+    result
+}
+
+pub(crate) fn verify_pre_atan2_numeric_diff_reduction_with_meter<M: BudgetMeter + ?Sized>(
+    expr: &Expr,
+    var: &Symbol,
+    deriv: &Expr,
+    meter: &mut M,
+) -> Result<(), NumericDiffVerificationError> {
+    verify_numeric_reduction_with_meter(
         expr,
         var,
         deriv,
-        classify_diff_rule_with_form(expr, var, DerivativeForm::LegacyNumeric),
-        DerivativeForm::LegacyNumeric,
+        DerivativeForm::PreAtan2JetsNumeric,
+        meter,
+    )
+}
+
+pub(crate) fn verify_pre_inverse_numeric_diff_reduction_with_meter<M: BudgetMeter + ?Sized>(
+    expr: &Expr,
+    var: &Symbol,
+    deriv: &Expr,
+    meter: &mut M,
+) -> Result<(), NumericDiffVerificationError> {
+    verify_numeric_reduction_with_meter(
+        expr,
+        var,
+        deriv,
+        DerivativeForm::PreInverseJetsNumeric,
+        meter,
+    )
+}
+
+pub(crate) fn verify_legacy_numeric_diff_reduction_with_meter<M: BudgetMeter + ?Sized>(
+    expr: &Expr,
+    var: &Symbol,
+    deriv: &Expr,
+    meter: &mut M,
+) -> Result<(), NumericDiffVerificationError> {
+    verify_numeric_reduction_with_meter(expr, var, deriv, DerivativeForm::LegacyNumeric, meter)
+}
+
+fn verify_numeric_reduction_with_meter<M: BudgetMeter + ?Sized>(
+    expr: &Expr,
+    var: &Symbol,
+    deriv: &Expr,
+    form: DerivativeForm,
+    meter: &mut M,
+) -> Result<(), NumericDiffVerificationError> {
+    let mut meter = NumericalDerivativeMeter::new(meter);
+    let result = (|| {
+        crate::sparse_jacobian::charge_derivative_kernel(expr, &mut meter)?;
+        fsym_simplify::admit_numeric_expression_with(deriv, &mut meter)
+            .map_err(CompileError::from)?;
+        verify_numeric_reduction_inner(
+            expr,
+            var,
+            deriv,
+            classify_diff_rule_with_form(expr, var, form),
+            form,
+            &mut meter,
+        )
+    })();
+    meter.checkpoint().map_err(CompileError::from)?;
+    result
+}
+
+fn verify_numeric_reduction_inner<M: BudgetMeter + ?Sized>(
+    expr: &Expr,
+    var: &Symbol,
+    deriv: &Expr,
+    rule_name: &str,
+    form: DerivativeForm,
+    meter: &mut M,
+) -> Result<(), NumericDiffVerificationError> {
+    verify_rule_reduction_semantics_with(
+        expr,
+        var,
+        deriv,
+        rule_name,
+        form,
+        &mut |source, variable, raw| {
+            let derivative = if raw {
+                reference_numeric_raw_inner(source, variable, form, meter)
+            } else {
+                reference_numeric_sub_inner(source, variable, form, meter)
+            };
+            derivative.map_err(NumericDiffVerificationError::Operational)
+        },
     )
 }
 
@@ -400,6 +532,17 @@ fn verify_diff_derivation_with_form(
     deriv: &Expr,
     form: DerivativeForm,
 ) -> Result<(), KernelError> {
+    let rule_name = verify_diff_envelope(tree, expr, var, deriv, form)?;
+    verify_rule_reduction_semantics(expr, var, deriv, rule_name, form)
+}
+
+fn verify_diff_envelope(
+    tree: &DerivationTree,
+    expr: &Expr,
+    var: &Symbol,
+    deriv: &Expr,
+    form: DerivativeForm,
+) -> Result<&'static str, KernelError> {
     if tree.steps.is_empty() {
         return Err(KernelError::UnknownStep(tree.root));
     }
@@ -443,9 +586,6 @@ fn verify_diff_derivation_with_form(
                     "RHS mismatch: expected `{deriv}`, got `{rhs}`"
                 )));
             }
-
-            // Independent structural verification of the reduction rule
-            verify_rule_reduction_semantics(expr, var, deriv, expected_rule_name, form)?;
         }
         other => {
             return Err(KernelError::RuleMismatch(format!(
@@ -454,7 +594,7 @@ fn verify_diff_derivation_with_form(
         }
     }
 
-    Ok(())
+    Ok(expected_rule_name)
 }
 
 /// Verifier-local zero-product elimination (independent of `crate::eliminate_zero_products`).
@@ -499,21 +639,92 @@ fn reference_eliminate_zero_products(expr: &Expr) -> Expr {
     }
 }
 
-/// Verifier-local reference sub-derivative (never invokes `crate::diff` or `crate::diff_unsimplified`).
-pub(crate) fn reference_numeric_sub_derivative(expr: &Expr, var: &Symbol) -> Expr {
-    reference_sub_derivative_with_form(expr, var, DerivativeForm::Numeric)
+/// Verifier-local reference sub-derivative; no generator rule or derivative
+/// value participates in reconstructing an omitted entry.
+pub(crate) fn reference_numeric_sub_derivative_with_meter<M: BudgetMeter + ?Sized>(
+    expr: &Expr,
+    var: &Symbol,
+    meter: &mut M,
+) -> Result<Expr, CompileError> {
+    reference_numeric_sub_with_form(expr, var, DerivativeForm::Numeric, meter)
 }
 
-pub(crate) fn reference_pre_atan2_numeric_sub_derivative(expr: &Expr, var: &Symbol) -> Expr {
-    reference_sub_derivative_with_form(expr, var, DerivativeForm::PreAtan2JetsNumeric)
+pub(crate) fn reference_pre_atan2_numeric_sub_derivative_with_meter<M: BudgetMeter + ?Sized>(
+    expr: &Expr,
+    var: &Symbol,
+    meter: &mut M,
+) -> Result<Expr, CompileError> {
+    reference_numeric_sub_with_form(expr, var, DerivativeForm::PreAtan2JetsNumeric, meter)
 }
 
-pub(crate) fn reference_pre_inverse_numeric_sub_derivative(expr: &Expr, var: &Symbol) -> Expr {
-    reference_sub_derivative_with_form(expr, var, DerivativeForm::PreInverseJetsNumeric)
+pub(crate) fn reference_pre_inverse_numeric_sub_derivative_with_meter<M: BudgetMeter + ?Sized>(
+    expr: &Expr,
+    var: &Symbol,
+    meter: &mut M,
+) -> Result<Expr, CompileError> {
+    reference_numeric_sub_with_form(expr, var, DerivativeForm::PreInverseJetsNumeric, meter)
 }
 
-pub(crate) fn reference_legacy_numeric_sub_derivative(expr: &Expr, var: &Symbol) -> Expr {
-    reference_sub_derivative_with_form(expr, var, DerivativeForm::LegacyNumeric)
+pub(crate) fn reference_legacy_numeric_sub_derivative_with_meter<M: BudgetMeter + ?Sized>(
+    expr: &Expr,
+    var: &Symbol,
+    meter: &mut M,
+) -> Result<Expr, CompileError> {
+    reference_numeric_sub_with_form(expr, var, DerivativeForm::LegacyNumeric, meter)
+}
+
+fn reference_numeric_sub_with_form<M: BudgetMeter + ?Sized>(
+    expr: &Expr,
+    var: &Symbol,
+    form: DerivativeForm,
+    meter: &mut M,
+) -> Result<Expr, CompileError> {
+    let mut meter = NumericalDerivativeMeter::new(meter);
+    let result = crate::sparse_jacobian::charge_derivative_kernel(expr, &mut meter)
+        .and_then(|()| reference_numeric_sub_inner(expr, var, form, &mut meter));
+    crate::compile::compilation_finish(result, &mut meter)
+}
+
+fn reference_numeric_sub_inner<M: BudgetMeter + ?Sized>(
+    expr: &Expr,
+    var: &Symbol,
+    form: DerivativeForm,
+    meter: &mut M,
+) -> Result<Expr, CompileError> {
+    crate::numeric_derivative::evaluate(
+        expr,
+        var,
+        true,
+        meter,
+        |source, recurse| {
+            reference_unsimplified_diff_with(source, var, form, &mut |child, variable| {
+                recurse(child, variable)
+            })
+        },
+        |source| !source.free_symbols().contains(var),
+        reference_eliminate_zero_products,
+    )
+}
+
+fn reference_numeric_raw_inner<M: BudgetMeter + ?Sized>(
+    expr: &Expr,
+    var: &Symbol,
+    form: DerivativeForm,
+    meter: &mut M,
+) -> Result<Expr, CompileError> {
+    crate::numeric_derivative::evaluate(
+        expr,
+        var,
+        false,
+        meter,
+        |source, recurse| {
+            reference_unsimplified_diff_with(source, var, form, &mut |child, variable| {
+                recurse(child, variable)
+            })
+        },
+        |source| !source.free_symbols().contains(var),
+        reference_eliminate_zero_products,
+    )
 }
 
 fn reference_sub_derivative_with_form(expr: &Expr, var: &Symbol, form: DerivativeForm) -> Expr {
@@ -570,9 +781,26 @@ fn reference_angle_numerator_is_zero(y: &Expr, x: &Expr, dy: &Expr, dx: &Expr) -
 }
 
 fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: DerivativeForm) -> Expr {
-    let reference_sub_derivative =
-        |child: &Expr, variable: &Symbol| reference_sub_derivative_with_form(child, variable, form);
-    match expr {
+    match reference_unsimplified_diff_with(
+        expr,
+        var,
+        form,
+        &mut |child: &Expr, variable: &Symbol| {
+            Ok::<_, Infallible>(reference_sub_derivative_with_form(child, variable, form))
+        },
+    ) {
+        Ok(value) => value,
+        Err(never) => match never {},
+    }
+}
+
+fn reference_unsimplified_diff_with<E>(
+    expr: &Expr,
+    var: &Symbol,
+    form: DerivativeForm,
+    reference_sub_derivative: &mut impl FnMut(&Expr, &Symbol) -> Result<Expr, E>,
+) -> Result<Expr, E> {
+    Ok(match expr {
         Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => Expr::from_i64(0),
         Expr::Sym(s) if s == var => Expr::from_i64(1),
         Expr::Sym(_) => Expr::from_i64(0),
@@ -580,7 +808,7 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
             terms
                 .iter()
                 .map(|t| reference_sub_derivative(t, var))
-                .collect(),
+                .collect::<Result<Vec<_>, _>>()?,
         ),
         Expr::Mul(factors) => {
             let mut add_terms = Vec::with_capacity(factors.len());
@@ -588,7 +816,7 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
                 let mut prod_factors = Vec::with_capacity(factors.len());
                 for (j, factor) in factors.iter().enumerate() {
                     if i == j {
-                        prod_factors.push(reference_sub_derivative(factor, var));
+                        prod_factors.push(reference_sub_derivative(factor, var)?);
                     } else {
                         prod_factors.push(factor.clone());
                     }
@@ -602,8 +830,8 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
             // literals, independently of the optimizing differentiator.
             if form != DerivativeForm::Symbolic {
                 match exp.as_ref() {
-                    Expr::Integer(n) if n.is_zero() => return Expr::from_i64(0),
-                    Expr::Rational(r) if r.numer().is_zero() => return Expr::from_i64(0),
+                    Expr::Integer(n) if n.is_zero() => return Ok(Expr::from_i64(0)),
+                    Expr::Rational(r) if r.numer().is_zero() => return Ok(Expr::from_i64(0)),
                     Expr::Integer(n) if n.is_one() => {
                         return reference_sub_derivative(base, var);
                     }
@@ -615,7 +843,7 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
             }
             if let Expr::Integer(n) = exp.as_ref() {
                 let n_minus_1 = n - BigInt::from(1);
-                let du = reference_sub_derivative(base, var);
+                let du = reference_sub_derivative(base, var)?;
                 if du.is_zero() {
                     Expr::from_i64(0)
                 } else {
@@ -626,7 +854,7 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
                     ])
                 }
             } else if let Expr::Rational(rational) = exp.as_ref() {
-                let du = reference_sub_derivative(base, var);
+                let du = reference_sub_derivative(base, var)?;
                 if du.is_zero() {
                     Expr::from_i64(0)
                 } else {
@@ -649,8 +877,8 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
             } else {
                 // Reconstruct both chain factors with the verifier's own
                 // recurrence; never invoke the optimizing differentiator.
-                let du = reference_sub_derivative(base, var);
-                let dv = reference_sub_derivative(exp, var);
+                let du = reference_sub_derivative(base, var)?;
+                let dv = reference_sub_derivative(exp, var)?;
                 if du.is_zero() && dv.is_zero() {
                     Expr::from_i64(0)
                 } else if dv.is_zero() {
@@ -692,7 +920,7 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
                 && matches!(args.as_slice(), [_] | [_, Expr::Integer(_)]) =>
         {
             let argument = &args[0];
-            let inner = reference_sub_derivative(argument, var);
+            let inner = reference_sub_derivative(argument, var)?;
             if inner.is_zero() {
                 Expr::from_i64(0)
             } else {
@@ -714,9 +942,9 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
         }
         Expr::Function(name, args) if form.has_lambert_jets() && name == "LambertW" => {
             let Some(jet) = reference_lambert_first_jet(args) else {
-                return make_diff_term(expr, var);
+                return Ok(make_diff_term(expr, var));
             };
-            let inner = reference_sub_derivative(&args[0], var);
+            let inner = reference_sub_derivative(&args[0], var)?;
             if inner.is_zero() {
                 Expr::from_i64(0)
             } else {
@@ -729,8 +957,8 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
         Expr::Function(name, args) if name == "atan2" && args.len() == 2 => {
             let y = &args[0];
             let x = &args[1];
-            let dy = reference_sub_derivative(y, var);
-            let dx = reference_sub_derivative(x, var);
+            let dy = reference_sub_derivative(y, var)?;
+            let dx = reference_sub_derivative(x, var)?;
             if dy.is_zero() && dx.is_zero() {
                 Expr::from_i64(0)
             } else if form == DerivativeForm::Numeric {
@@ -738,7 +966,7 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
                 // separating the partials. Source domain guards remain binding
                 // when a constant radial chain omits its derivative entry.
                 if reference_angle_numerator_is_zero(y, x, &dy, &dx) {
-                    return Expr::from_i64(0);
+                    return Ok(Expr::from_i64(0));
                 }
                 // For h(y, x), h_y=x/(x^2+y^2) and
                 // h_x=-y/(x^2+y^2). Keep ordered source arguments
@@ -775,10 +1003,10 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
                 && matches!(name.as_str(), "_fsym_atan2_dy" | "_fsym_atan2_dx")
                 && args.len() == 2 =>
         {
-            let dy = reference_sub_derivative(&args[0], var);
-            let dx = reference_sub_derivative(&args[1], var);
+            let dy = reference_sub_derivative(&args[0], var)?;
+            let dx = reference_sub_derivative(&args[1], var)?;
             if dy.is_zero() && dx.is_zero() {
-                return Expr::from_i64(0);
+                return Ok(Expr::from_i64(0));
             }
             // Differentiate both ordered inputs independently. In
             // particular h_yx=h_xy=(y^2-x^2)/(x^2+y^2)^2:
@@ -795,9 +1023,9 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
         }
         Expr::Function(name, args) if args.len() == 1 => {
             let u = &args[0];
-            let du = reference_sub_derivative(u, var);
+            let du = reference_sub_derivative(u, var)?;
             if name != "Derivative" && name != "diff" && du.is_zero() {
-                return Expr::from_i64(0);
+                return Ok(Expr::from_i64(0));
             }
             match name.as_str() {
                 "sin" => Expr::Mul(vec![Expr::Function("cos".to_string(), vec![u.clone()]), du]),
@@ -846,13 +1074,13 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
                 ]),
                 "tanh" => {
                     if form.has_stable_elementary_rules() {
-                        return Expr::Mul(vec![
+                        return Ok(Expr::Mul(vec![
                             Expr::pow(
                                 Expr::Function("sech".to_string(), vec![u.clone()]),
                                 Expr::from_i64(2),
                             ),
                             du,
-                        ]);
+                        ]));
                     }
                     let tanh_u_sq = Expr::pow(
                         Expr::Function("tanh".to_string(), vec![u.clone()]),
@@ -868,14 +1096,14 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
                 }
                 "coth" => {
                     if form != DerivativeForm::Symbolic {
-                        return Expr::Mul(vec![
+                        return Ok(Expr::Mul(vec![
                             Expr::from_i64(-1),
                             Expr::pow(
                                 Expr::Function("csch".to_string(), vec![u.clone()]),
                                 Expr::from_i64(2),
                             ),
                             du,
-                        ]);
+                        ]));
                     }
                     let square = Expr::pow(
                         Expr::Function("coth".to_string(), vec![u.clone()]),
@@ -943,10 +1171,10 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
                 }
                 "atan" => {
                     if form.has_inverse_jets() {
-                        return Expr::Mul(vec![
+                        return Ok(Expr::Mul(vec![
                             Expr::Function("_fsym_atan_d1".to_string(), vec![u.clone()]),
                             du,
-                        ]);
+                        ]));
                     }
                     let denom = Expr::Add(vec![
                         Expr::from_i64(1),
@@ -956,10 +1184,10 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
                 }
                 "asinh" => {
                     if form.has_inverse_jets() {
-                        return Expr::Mul(vec![
+                        return Ok(Expr::Mul(vec![
                             Expr::Function("_fsym_asinh_d1".to_string(), vec![u.clone()]),
                             du,
-                        ]);
+                        ]));
                     }
                     let denominator = Expr::Add(vec![
                         Expr::from_i64(1),
@@ -1031,10 +1259,10 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
                 }
                 "sinc" => {
                     if form.has_stable_elementary_rules() {
-                        return Expr::Mul(vec![
+                        return Ok(Expr::Mul(vec![
                             Expr::Function("_fsym_sinc_d1".to_string(), vec![u.clone()]),
                             du,
-                        ]);
+                        ]));
                     }
                     let cos_u = Expr::Function("cos".to_string(), vec![u.clone()]);
                     let sin_u = Expr::Function("sin".to_string(), vec![u.clone()]);
@@ -1060,7 +1288,7 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
             }
         }
         _ => make_diff_term(expr, var),
-    }
+    })
 }
 
 /// Validates that the RHS formula corresponds to the mathematical differentiation rule.
@@ -1071,56 +1299,80 @@ fn verify_rule_reduction_semantics(
     rule_name: &str,
     form: DerivativeForm,
 ) -> Result<(), KernelError> {
-    let reference_sub_derivative =
-        |child: &Expr, variable: &Symbol| reference_sub_derivative_with_form(child, variable, form);
-    let reference_unsimplified_diff = |source: &Expr, variable: &Symbol| {
-        reference_unsimplified_diff_with_form(source, variable, form)
-    };
+    verify_rule_reduction_semantics_with(
+        expr,
+        var,
+        deriv,
+        rule_name,
+        form,
+        &mut |source, variable, raw| {
+            Ok(if raw {
+                reference_unsimplified_diff_with_form(source, variable, form)
+            } else {
+                reference_sub_derivative_with_form(source, variable, form)
+            })
+        },
+    )
+}
+
+fn verify_rule_reduction_semantics_with<E: From<KernelError>>(
+    expr: &Expr,
+    var: &Symbol,
+    deriv: &Expr,
+    rule_name: &str,
+    form: DerivativeForm,
+    differentiate: &mut impl FnMut(&Expr, &Symbol, bool) -> Result<Expr, E>,
+) -> Result<(), E> {
     match rule_name {
         RULE_DIFF_CONST => {
             if !deriv.is_zero() {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: format!("Constant derivative must be 0, got {deriv}"),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_VAR_SELF => {
             if !deriv.is_one() {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: format!("Self variable derivative must be 1, got {deriv}"),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_VAR_OTHER => {
             if !deriv.is_zero() {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: format!("Other variable derivative must be 0, got {deriv}"),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_SUM => {
             if let Expr::Add(terms) = expr {
                 let expected_terms: Vec<Expr> = terms
                     .iter()
-                    .map(|t| reference_sub_derivative(t, var))
-                    .collect();
+                    .map(|t| differentiate(t, var, false))
+                    .collect::<Result<Vec<_>, _>>()?;
                 let expected_rhs = Expr::Add(expected_terms);
                 if deriv != &expected_rhs {
-                    return Err(KernelError::InvalidDefinitionalReduction {
+                    return Err((KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: format!(
                             "Sum derivative mismatch: expected {expected_rhs}, got {deriv}"
                         ),
-                    });
+                    })
+                    .into());
                 }
             } else {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected Add expression for diff_sum".to_string(),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_PROD => {
@@ -1130,7 +1382,7 @@ fn verify_rule_reduction_semantics(
                     let mut prod_factors = Vec::new();
                     for (j, factor) in factors.iter().enumerate() {
                         if i == j {
-                            prod_factors.push(reference_sub_derivative(factor, var));
+                            prod_factors.push(differentiate(factor, var, false)?);
                         } else {
                             prod_factors.push(factor.clone());
                         }
@@ -1139,18 +1391,20 @@ fn verify_rule_reduction_semantics(
                 }
                 let expected_rhs = Expr::Add(add_terms);
                 if deriv != &expected_rhs {
-                    return Err(KernelError::InvalidDefinitionalReduction {
+                    return Err((KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: format!(
                             "Product derivative mismatch: expected {expected_rhs}, got {deriv}"
                         ),
-                    });
+                    })
+                    .into());
                 }
             } else {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected Mul expression for diff_product".to_string(),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_POW_INT => {
@@ -1158,7 +1412,7 @@ fn verify_rule_reduction_semantics(
                 && let Expr::Integer(n) = exp.as_ref()
             {
                 let n_minus_1 = n - BigInt::from(1);
-                let du = reference_sub_derivative(base, var);
+                let du = differentiate(base, var, false)?;
                 let expected_rhs = Expr::Mul(vec![
                     Expr::Integer(n.clone()),
                     Expr::Pow(base.clone(), Arc::new(Expr::Integer(n_minus_1))),
@@ -1174,26 +1428,28 @@ fn verify_rule_reduction_semantics(
                     None
                 };
                 if deriv != &expected_rhs && identity.as_ref() != Some(deriv) {
-                    return Err(KernelError::InvalidDefinitionalReduction {
+                    return Err((KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: format!(
                             "Power derivative mismatch: expected {expected_rhs}, got {deriv}"
                         ),
-                    });
+                    })
+                    .into());
                 }
             } else {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected Pow expression with integer exponent for diff_power_integer"
                         .to_string(),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_POW_RATIONAL => {
             if let Expr::Pow(base, exponent) = expr
                 && let Expr::Rational(rational) = exponent.as_ref()
             {
-                let expected_rhs = reference_unsimplified_diff(expr, var);
+                let expected_rhs = differentiate(expr, var, true)?;
                 // Older numeric artifacts retain the literal 0*u^-1*u' or
                 // 1*u^0*u' form. Accept exactly that independently rebuilt
                 // form as well; arbitrary equivalent expressions still fail.
@@ -1210,44 +1466,47 @@ fn verify_rule_reduction_semantics(
                             base.clone(),
                             Arc::new(fsym_core::elementary::rational_expr(shifted)),
                         ),
-                        reference_sub_derivative(base, var),
+                        differentiate(base, var, false)?,
                     ]))
                 } else {
                     None
                 };
                 if deriv != &expected_rhs && legacy_identity.as_ref() != Some(deriv) {
-                    return Err(KernelError::InvalidDefinitionalReduction {
+                    return Err((KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: format!(
                             "Rational power derivative mismatch: expected {expected_rhs}, got {deriv}"
                         ),
-                    });
+                    }).into());
                 }
             } else {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected Pow expression with exact rational exponent".to_string(),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_POW_GENERAL => {
             if let Expr::Pow(_, exponent) = expr
                 && !matches!(exponent.as_ref(), Expr::Integer(_) | Expr::Rational(_))
             {
-                let expected_rhs = reference_unsimplified_diff(expr, var);
+                let expected_rhs = differentiate(expr, var, true)?;
                 if deriv != &expected_rhs {
-                    return Err(KernelError::InvalidDefinitionalReduction {
+                    return Err((KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason:
                             "Variable power derivative disagrees with the independent chain rule"
                                 .to_string(),
-                    });
+                    })
+                    .into());
                 }
             } else {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected Pow expression with nonliteral exponent".to_string(),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_SIN => {
@@ -1256,16 +1515,17 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = reference_sub_derivative(u, var);
+                let du = differentiate(u, var, false)?;
                 let expected_rhs =
                     Expr::Mul(vec![Expr::Function("cos".to_string(), vec![u.clone()]), du]);
                 if deriv != &expected_rhs {
-                    return Err(KernelError::InvalidDefinitionalReduction {
+                    return Err((KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: format!(
                             "Sin derivative mismatch: expected {expected_rhs}, got {deriv}"
                         ),
-                    });
+                    })
+                    .into());
                 }
             }
         }
@@ -1275,19 +1535,20 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = reference_sub_derivative(u, var);
+                let du = differentiate(u, var, false)?;
                 let expected_rhs = Expr::Mul(vec![
                     Expr::from_i64(-1),
                     Expr::Function("sin".to_string(), vec![u.clone()]),
                     du,
                 ]);
                 if deriv != &expected_rhs {
-                    return Err(KernelError::InvalidDefinitionalReduction {
+                    return Err((KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: format!(
                             "Cos derivative mismatch: expected {expected_rhs}, got {deriv}"
                         ),
-                    });
+                    })
+                    .into());
                 }
             }
         }
@@ -1297,16 +1558,17 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = reference_sub_derivative(u, var);
+                let du = differentiate(u, var, false)?;
                 let expected_rhs =
                     Expr::Mul(vec![Expr::Function("exp".to_string(), vec![u.clone()]), du]);
                 if deriv != &expected_rhs {
-                    return Err(KernelError::InvalidDefinitionalReduction {
+                    return Err((KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: format!(
                             "Exp derivative mismatch: expected {expected_rhs}, got {deriv}"
                         ),
-                    });
+                    })
+                    .into());
                 }
             }
         }
@@ -1316,18 +1578,19 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = reference_sub_derivative(u, var);
+                let du = differentiate(u, var, false)?;
                 let expected_rhs = Expr::Mul(vec![
                     Expr::Function("cosh".to_string(), vec![u.clone()]),
                     du,
                 ]);
                 if deriv != &expected_rhs {
-                    return Err(KernelError::InvalidDefinitionalReduction {
+                    return Err((KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: format!(
                             "Sinh derivative mismatch: expected {expected_rhs}, got {deriv}"
                         ),
-                    });
+                    })
+                    .into());
                 }
             }
         }
@@ -1337,18 +1600,19 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = reference_sub_derivative(u, var);
+                let du = differentiate(u, var, false)?;
                 let expected_rhs = Expr::Mul(vec![
                     Expr::Function("sinh".to_string(), vec![u.clone()]),
                     du,
                 ]);
                 if deriv != &expected_rhs {
-                    return Err(KernelError::InvalidDefinitionalReduction {
+                    return Err((KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: format!(
                             "Cosh derivative mismatch: expected {expected_rhs}, got {deriv}"
                         ),
-                    });
+                    })
+                    .into());
                 }
             }
         }
@@ -1358,18 +1622,19 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = reference_sub_derivative(u, var);
+                let du = differentiate(u, var, false)?;
                 let expected_rhs = Expr::Mul(vec![
                     Expr::Pow(Arc::new(u.clone()), Arc::new(Expr::from_i64(-1))),
                     du,
                 ]);
                 if deriv != &expected_rhs {
-                    return Err(KernelError::InvalidDefinitionalReduction {
+                    return Err((KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: format!(
                             "Log derivative mismatch: expected {expected_rhs}, got {deriv}"
                         ),
-                    });
+                    })
+                    .into());
                 }
             }
         }
@@ -1379,7 +1644,7 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = reference_sub_derivative(u, var);
+                let du = differentiate(u, var, false)?;
                 let tan_u_sq = Expr::pow(
                     Expr::Function("tan".to_string(), vec![u.clone()]),
                     Expr::from_i64(2),
@@ -1387,18 +1652,20 @@ fn verify_rule_reduction_semantics(
                 let expected_rhs =
                     Expr::Mul(vec![Expr::Add(vec![Expr::from_i64(1), tan_u_sq]), du]);
                 if deriv != &expected_rhs {
-                    return Err(KernelError::InvalidDefinitionalReduction {
+                    return Err((KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: format!(
                             "Tan derivative mismatch: expected {expected_rhs}, got {deriv}"
                         ),
-                    });
+                    })
+                    .into());
                 }
             } else {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected tan(u) for diff_tan".to_string(),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_TANH => {
@@ -1406,20 +1673,22 @@ fn verify_rule_reduction_semantics(
                 && name == "tanh"
                 && args.len() == 1
             {
-                let expected_rhs = reference_unsimplified_diff(expr, var);
+                let expected_rhs = differentiate(expr, var, true)?;
                 if deriv != &expected_rhs {
-                    return Err(KernelError::InvalidDefinitionalReduction {
+                    return Err((KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: format!(
                             "Tanh derivative mismatch: expected {expected_rhs}, got {deriv}"
                         ),
-                    });
+                    })
+                    .into());
                 }
             } else {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected tanh(u) for diff_tanh".to_string(),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_ASIN => {
@@ -1428,7 +1697,7 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = reference_sub_derivative(u, var);
+                let du = differentiate(u, var, false)?;
                 let one_minus_u_sq = Expr::Add(vec![
                     Expr::from_i64(1),
                     Expr::Mul(vec![
@@ -1439,18 +1708,20 @@ fn verify_rule_reduction_semantics(
                 let neg_half = Expr::Rational(BigRational::new(BigInt::from(-1), BigInt::from(2)));
                 let expected_rhs = Expr::Mul(vec![Expr::pow(one_minus_u_sq, neg_half), du]);
                 if deriv != &expected_rhs {
-                    return Err(KernelError::InvalidDefinitionalReduction {
+                    return Err((KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: format!(
                             "Asin derivative mismatch: expected {expected_rhs}, got {deriv}"
                         ),
-                    });
+                    })
+                    .into());
                 }
             } else {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected asin(u) for diff_asin".to_string(),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_ACOS => {
@@ -1459,7 +1730,7 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = reference_sub_derivative(u, var);
+                let du = differentiate(u, var, false)?;
                 let one_minus_u_sq = Expr::Add(vec![
                     Expr::from_i64(1),
                     Expr::Mul(vec![
@@ -1474,18 +1745,20 @@ fn verify_rule_reduction_semantics(
                     du,
                 ]);
                 if deriv != &expected_rhs {
-                    return Err(KernelError::InvalidDefinitionalReduction {
+                    return Err((KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: format!(
                             "Acos derivative mismatch: expected {expected_rhs}, got {deriv}"
                         ),
-                    });
+                    })
+                    .into());
                 }
             } else {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected acos(u) for diff_acos".to_string(),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_ATAN => {
@@ -1496,20 +1769,22 @@ fn verify_rule_reduction_semantics(
                 // atan'(u)=1/(1+u^2) on the real line. The numeric node
                 // denotes this exact function, with its scaled binary64
                 // implementation checked separately by source/opcode replay.
-                let expected_rhs = reference_unsimplified_diff(expr, var);
+                let expected_rhs = differentiate(expr, var, true)?;
                 if deriv != &expected_rhs {
-                    return Err(KernelError::InvalidDefinitionalReduction {
+                    return Err((KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: format!(
                             "Atan derivative mismatch: expected {expected_rhs}, got {deriv}"
                         ),
-                    });
+                    })
+                    .into());
                 }
             } else {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected atan(u) for diff_atan".to_string(),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_COT | RULE_DIFF_SEC | RULE_DIFF_CSC | RULE_DIFF_COTH | RULE_DIFF_SECH
@@ -1524,36 +1799,40 @@ fn verify_rule_reduction_semantics(
             };
             if !matches!(expr, Expr::Function(name, args) if name == expected_name && args.len() == 1)
             {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: format!("Expected unary {expected_name} for {rule_name}"),
-                });
+                })
+                .into());
             }
-            let expected_rhs = reference_unsimplified_diff(expr, var);
+            let expected_rhs = differentiate(expr, var, true)?;
             if deriv != &expected_rhs {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: format!(
                         "{expected_name} derivative mismatch: expected {expected_rhs}, got {deriv}"
                     ),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_ATAN2 => {
             if !matches!(expr, Expr::Function(name, args) if name == "atan2" && args.len() == 2) {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected binary atan2(y, x) for diff_atan2".to_string(),
-                });
+                })
+                .into());
             }
-            let expected_rhs = reference_unsimplified_diff(expr, var);
+            let expected_rhs = differentiate(expr, var, true)?;
             if deriv != &expected_rhs {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: format!(
                         "Atan2 derivative mismatch: expected {expected_rhs}, got {deriv}"
                     ),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_ATAN2_DY | RULE_DIFF_ATAN2_DX => {
@@ -1568,20 +1847,22 @@ fn verify_rule_reduction_semantics(
                     Expr::Function(name, args) if name == expected_name && args.len() == 2
                 )
             {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Atan2 jet rules require their exact ordered binary numeric source"
                         .to_string(),
-                });
+                })
+                .into());
             }
-            let expected_rhs = reference_unsimplified_diff(expr, var);
+            let expected_rhs = differentiate(expr, var, true)?;
             if deriv != &expected_rhs {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: format!(
                         "Atan2 partial derivative mismatch: expected {expected_rhs}, got {deriv}"
                     ),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_ASINH | RULE_DIFF_ACOSH | RULE_DIFF_ATANH => {
@@ -1592,21 +1873,23 @@ fn verify_rule_reduction_semantics(
             };
             if !matches!(expr, Expr::Function(name, args) if name == expected_name && args.len() == 1)
             {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: format!("Expected unary {expected_name} for {rule_name}"),
-                });
+                })
+                .into());
             }
             // The reference recurrence is independent of diff_unsimplified;
             // it rechecks the whole chain rule, including the inner source.
-            let expected_rhs = reference_unsimplified_diff(expr, var);
+            let expected_rhs = differentiate(expr, var, true)?;
             if deriv != &expected_rhs {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: format!(
                         "{expected_name} derivative mismatch: expected {expected_rhs}, got {deriv}"
                     ),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_ATAN_D1 | RULE_DIFF_ASINH_D1 => {
@@ -1616,22 +1899,24 @@ fn verify_rule_reduction_semantics(
                 ("_fsym_asinh_d1", "_fsym_asinh_d2")
             };
             let Expr::Function(name, arguments) = expr else {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected a private inverse-function first derivative".to_string(),
-                });
+                })
+                .into());
             };
             if !form.has_inverse_jets() || name != first || arguments.len() != 1 {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Inverse jet rules require their exact unary numeric source"
                         .to_string(),
-                });
+                })
+                .into());
             }
             // Differentiating (1+u^2)^-1 gives -2u/(1+u^2)^2;
             // differentiating (1+u^2)^-1/2 gives -u/(1+u^2)^3/2.
             // Both denominators are positive for every finite real u.
-            let inner = reference_sub_derivative(&arguments[0], var);
+            let inner = differentiate(&arguments[0], var, false)?;
             let expected = if inner.is_zero() {
                 Expr::from_i64(0)
             } else {
@@ -1641,11 +1926,12 @@ fn verify_rule_reduction_semantics(
                 ])
             };
             if deriv != &expected {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Inverse curvature disagrees with the independent real chain rule"
                         .to_string(),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_LAMBERT_W => {
@@ -1654,26 +1940,28 @@ fn verify_rule_reduction_semantics(
                     if name == "LambertW"
                         && matches!(arguments.as_slice(), [_] | [_, Expr::Integer(_)]))
             {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected a symbolic fixed-integer-branch Lambert-W source".to_string(),
-                });
+                })
+                .into());
             }
-            let expected = reference_unsimplified_diff(expr, var);
+            let expected = differentiate(expr, var, true)?;
             if deriv != &expected {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Lambert-W symbolic derivative disagrees with the independent branch-preserving chain rule"
                         .to_string(),
-                });
+                }).into());
             }
         }
         RULE_DIFF_LAMBERT_W_REAL | RULE_DIFF_LAMBERT_W_REAL_D1 => {
             let Expr::Function(name, arguments) = expr else {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected a fixed real Lambert-W source or first jet".to_string(),
-                });
+                })
+                .into());
             };
             let jet = if !form.has_lambert_jets() {
                 None
@@ -1689,11 +1977,12 @@ fn verify_rule_reduction_semantics(
                 None
             };
             let Some(jet) = jet else {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Lambert-W jet rules require a literal real branch and numeric form"
                         .to_string(),
-                });
+                })
+                .into());
             };
             // Implicit differentiation of w*exp(w)=u gives
             // w'=exp(-w)/(1+w) and w''=-(w+2)*exp(-2w)/(1+w)^3.
@@ -1702,7 +1991,7 @@ fn verify_rule_reduction_semantics(
             // w=-1 from their smooth domain. These private jets denote those
             // exact functions. Neither this structural identity nor a stored
             // receipt discharges the original source's point/box domain.
-            let inner = reference_sub_derivative(&arguments[0], var);
+            let inner = differentiate(&arguments[0], var, false)?;
             let expected = if inner.is_zero() {
                 Expr::from_i64(0)
             } else {
@@ -1712,11 +2001,12 @@ fn verify_rule_reduction_semantics(
                 ])
             };
             if deriv != &expected {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Lambert-W derivative disagrees with the independent branch chain rule"
                         .to_string(),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_ERF => {
@@ -1725,7 +2015,7 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = reference_sub_derivative(u, var);
+                let du = differentiate(u, var, false)?;
                 let pi = Expr::Const(Constant::Pi);
                 let half = Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)));
                 let sqrt_pi = Expr::pow(pi, half);
@@ -1738,18 +2028,20 @@ fn verify_rule_reduction_semantics(
                 let expected_rhs =
                     Expr::Mul(vec![Expr::from_i64(2), inv_sqrt_pi, exp_neg_u_sq, du]);
                 if deriv != &expected_rhs {
-                    return Err(KernelError::InvalidDefinitionalReduction {
+                    return Err((KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: format!(
                             "Erf derivative mismatch: expected {expected_rhs}, got {deriv}"
                         ),
-                    });
+                    })
+                    .into());
                 }
             } else {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected erf(u) for diff_erf".to_string(),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_ERFC => {
@@ -1758,7 +2050,7 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = reference_sub_derivative(u, var);
+                let du = differentiate(u, var, false)?;
                 let pi = Expr::Const(Constant::Pi);
                 let half = Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)));
                 let sqrt_pi = Expr::pow(pi, half);
@@ -1771,18 +2063,20 @@ fn verify_rule_reduction_semantics(
                 let expected_rhs =
                     Expr::Mul(vec![Expr::from_i64(-2), inv_sqrt_pi, exp_neg_u_sq, du]);
                 if deriv != &expected_rhs {
-                    return Err(KernelError::InvalidDefinitionalReduction {
+                    return Err((KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: format!(
                             "Erfc derivative mismatch: expected {expected_rhs}, got {deriv}"
                         ),
-                    });
+                    })
+                    .into());
                 }
             } else {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected erfc(u) for diff_erfc".to_string(),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_SINC => {
@@ -1791,7 +2085,7 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = reference_sub_derivative(u, var);
+                let du = differentiate(u, var, false)?;
                 let expected_rhs = if du.is_zero() {
                     Expr::from_i64(0)
                 } else if form.has_stable_elementary_rules() {
@@ -1813,36 +2107,40 @@ fn verify_rule_reduction_semantics(
                     Expr::Mul(vec![Expr::Add(vec![term1, term2]), du])
                 };
                 if deriv != &expected_rhs {
-                    return Err(KernelError::InvalidDefinitionalReduction {
+                    return Err((KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: format!(
                             "Sinc derivative mismatch: expected {expected_rhs}, got {deriv}"
                         ),
-                    });
+                    })
+                    .into());
                 }
             } else {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected sinc(u) for diff_sinc".to_string(),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_SINC_D1 => {
             let Expr::Function(name, arguments) = expr else {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected the entire sinc first derivative".to_string(),
-                });
+                })
+                .into());
             };
             if name != "_fsym_sinc_d1" || arguments.len() != 1 {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected unary _fsym_sinc_d1".to_string(),
-                });
+                })
+                .into());
             }
             // Differentiating the entire first-derivative series term by
             // term gives the second jet, with its exact value -1/3 at zero.
-            let inner = reference_sub_derivative(&arguments[0], var);
+            let inner = differentiate(&arguments[0], var, false)?;
             let expected = if inner.is_zero() {
                 Expr::from_i64(0)
             } else {
@@ -1852,20 +2150,22 @@ fn verify_rule_reduction_semantics(
                 ])
             };
             if deriv != &expected {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason:
                         "Entire sinc second derivative disagrees with the independent chain rule"
                             .to_string(),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_ABS | RULE_DIFF_ABS_D1 => {
             let Expr::Function(name, arguments) = expr else {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected a guarded real absolute-value derivative".to_string(),
-                });
+                })
+                .into());
             };
             let valid_source = if rule_name == RULE_DIFF_ABS {
                 matches!(name.as_str(), "abs" | "Abs")
@@ -1873,18 +2173,19 @@ fn verify_rule_reduction_semantics(
                 name == "_fsym_abs_d1"
             };
             if !form.has_stable_elementary_rules() || arguments.len() != 1 || !valid_source {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Absolute-value jet rules require their exact unary numeric source"
                         .to_string(),
-                });
+                })
+                .into());
             }
             // For real u > 0, |u| = u; for u < 0, |u| = -u. Hence the
             // first derivative is +/-1, and its derivative is zero on each
             // open branch. Retain the private second jet instead of erasing
             // its nonzero-domain obligation. Constancy is checked separately,
             // matching the generator's early-zero rule without invoking it.
-            let inner = reference_sub_derivative(&arguments[0], var);
+            let inner = differentiate(&arguments[0], var, false)?;
             let expected = if inner.is_zero() {
                 Expr::from_i64(0)
             } else {
@@ -1899,12 +2200,13 @@ fn verify_rule_reduction_semantics(
                 ])
             };
             if deriv != &expected {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason:
                         "Absolute-value derivative disagrees with the independent real chain rule"
                             .to_string(),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_SQRT => {
@@ -1915,19 +2217,21 @@ fn verify_rule_reduction_semantics(
                 // This is the principal-root formal derivative, not a claim
                 // that its real value is defined at zero or across a branch
                 // boundary. Numeric admission checks those original domains.
-                let expected_rhs = reference_unsimplified_diff(expr, var);
+                let expected_rhs = differentiate(expr, var, true)?;
                 if deriv != &expected_rhs {
-                    return Err(KernelError::InvalidDefinitionalReduction {
+                    return Err((KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: "Square-root derivative disagrees with the independent chain rule"
                             .to_string(),
-                    });
+                    })
+                    .into());
                 }
             } else {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected unary sqrt expression for diff_sqrt".to_string(),
-                });
+                })
+                .into());
             }
         }
         RULE_DIFF_GENERAL => {
@@ -1936,19 +2240,21 @@ fn verify_rule_reduction_semantics(
             // must never certify an arbitrary caller-supplied right-hand side.
             let expected_rhs = make_diff_term(expr, var);
             if deriv != &expected_rhs {
-                return Err(KernelError::InvalidDefinitionalReduction {
+                return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: format!(
                         "General derivative must remain unevaluated as {expected_rhs}, got {deriv}"
                     ),
-                });
+                })
+                .into());
             }
         }
         unknown => {
-            return Err(KernelError::InvalidDefinitionalReduction {
+            return Err((KernelError::InvalidDefinitionalReduction {
                 rule_name: unknown.to_string(),
                 reason: "Unknown differentiation reduction rule".to_string(),
-            });
+            })
+            .into());
         }
     }
     Ok(())

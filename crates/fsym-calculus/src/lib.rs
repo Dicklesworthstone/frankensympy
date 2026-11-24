@@ -13,6 +13,7 @@ pub mod geometric_sum;
 pub mod gruntz;
 pub mod hermite;
 pub mod integrate;
+mod numeric_derivative;
 pub mod parametric_cover;
 pub mod program_artifact;
 pub mod proof;
@@ -40,6 +41,7 @@ pub use sparse_jacobian::*;
 pub use transforms::*;
 pub use verified::*;
 
+use fsym_budget::BudgetMeter;
 use fsym_core::{BigInt, BigRational, Constant, CoreError, Expr, RealBall, Symbol};
 use fsym_simplify::simplify;
 use num_traits::{One, Zero};
@@ -93,11 +95,83 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
 /// preserves the two fixed real Lambert-W branches through analytic jets,
 /// and avoids artificial poles in literal zero/one powers.
 /// Public symbolic derivatives retain their existing forms.
-pub(crate) fn numeric_diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
-    diff_unsimplified_with_coth(expr, var, true)
+pub(crate) fn numeric_diff_unsimplified_with_meter<M: BudgetMeter + ?Sized>(
+    expr: &Expr,
+    var: &Symbol,
+    meter: &mut M,
+) -> Result<Expr, CompileError> {
+    let mut meter = compile::NumericalDerivativeMeter::new(meter);
+    sparse_jacobian::charge_derivative_kernel(expr, &mut meter)?;
+    numeric_derivative::evaluate(
+        expr,
+        var,
+        false,
+        &mut meter,
+        |source, recurse| {
+            diff_unsimplified_using(source, var, true, &mut |child, variable| {
+                recurse(child, variable)
+            })
+        },
+        |_| false,
+        eliminate_zero_products,
+    )
 }
 
 fn angle_chain_numerator_is_zero(y: &Expr, x: &Expr, dy: &Expr, dx: &Expr) -> bool {
+    // Cancellation needs exact identity, not numeric ordering. Rational::Ord
+    // performs continued-fraction division; its cost is unrelated to this
+    // source-shape prepayment. Canonical numerator/denominator order uses only
+    // bounded limb comparisons and is Equal exactly for the same rational.
+    fn identity_order(left: &Expr, right: &Expr) -> std::cmp::Ordering {
+        fn rank(expression: &Expr) -> u8 {
+            match expression {
+                Expr::Sym(_) => 0,
+                Expr::Integer(_) => 1,
+                Expr::Rational(_) => 2,
+                Expr::Const(_) => 3,
+                Expr::Add(_) => 4,
+                Expr::Mul(_) => 5,
+                Expr::Pow(_, _) => 6,
+                Expr::Function(_, _) => 7,
+            }
+        }
+        fn lists(left: &[Expr], right: &[Expr]) -> std::cmp::Ordering {
+            for (left, right) in left.iter().zip(right) {
+                let ordering = identity_order(left, right);
+                if ordering != std::cmp::Ordering::Equal {
+                    return ordering;
+                }
+            }
+            left.len().cmp(&right.len())
+        }
+        let ordering = rank(left).cmp(&rank(right));
+        if ordering != std::cmp::Ordering::Equal {
+            return ordering;
+        }
+        match (left, right) {
+            (Expr::Sym(left), Expr::Sym(right)) => left.cmp(right),
+            (Expr::Integer(left), Expr::Integer(right)) => left.cmp(right),
+            (Expr::Rational(left), Expr::Rational(right)) => left
+                .numer()
+                .cmp(right.numer())
+                .then_with(|| left.denom().cmp(right.denom())),
+            (Expr::Const(left), Expr::Const(right)) => left.cmp(right),
+            (Expr::Add(left), Expr::Add(right)) | (Expr::Mul(left), Expr::Mul(right)) => {
+                lists(left, right)
+            }
+            (Expr::Pow(left_base, left_exponent), Expr::Pow(right_base, right_exponent)) => {
+                identity_order(left_base, right_base)
+                    .then_with(|| identity_order(left_exponent, right_exponent))
+            }
+            (Expr::Function(left_name, left_args), Expr::Function(right_name, right_args)) => {
+                left_name
+                    .cmp(right_name)
+                    .then_with(|| lists(left_args, right_args))
+            }
+            _ => unreachable!("equal expression ranks retain the same variant"),
+        }
+    }
+
     fn product(roots: [&Expr; 2]) -> Option<Vec<&Expr>> {
         let mut pending = Vec::from(roots);
         let mut factors = Vec::new();
@@ -114,7 +188,7 @@ fn angle_chain_numerator_is_zero(y: &Expr, x: &Expr, dy: &Expr, dx: &Expr) -> bo
                 factors.push(factor);
             }
         }
-        factors.sort_unstable();
+        factors.sort_unstable_by(|left, right| identity_order(left, right));
         Some(factors)
     }
 
@@ -126,10 +200,26 @@ fn angle_chain_numerator_is_zero(y: &Expr, x: &Expr, dy: &Expr, dx: &Expr) -> bo
 }
 
 fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> Expr {
-    // Every recursive chain/product derivative uses the same representation;
-    // this also covers coth inside an outer function or a mixed derivative.
-    let diff = |child: &Expr, variable: &Symbol| diff_with_coth(child, variable, stable_coth);
-    match expr {
+    let result: Result<Expr, std::convert::Infallible> =
+        diff_unsimplified_using(expr, var, stable_coth, &mut |child, variable| {
+            Ok(diff_with_coth(child, variable, stable_coth))
+        });
+    match result {
+        Ok(derivative) => derivative,
+        Err(never) => match never {},
+    }
+}
+
+// Both lanes use the same generator rules, but the numerical callback can
+// stop immediately on cancellation or exact-normalization resource refusal.
+// The public symbolic callback is infallible and retains its existing forms.
+fn diff_unsimplified_using<E>(
+    expr: &Expr,
+    var: &Symbol,
+    stable_coth: bool,
+    diff: &mut impl FnMut(&Expr, &Symbol) -> Result<Expr, E>,
+) -> Result<Expr, E> {
+    Ok(match expr {
         Expr::Sym(s) => {
             if s == var {
                 Expr::from_i64(1)
@@ -139,7 +229,10 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
         }
         Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => Expr::from_i64(0),
         Expr::Add(terms) => {
-            let diff_terms: Vec<Expr> = terms.iter().map(|t| diff(t, var)).collect();
+            let diff_terms: Vec<Expr> = terms
+                .iter()
+                .map(|t| diff(t, var))
+                .collect::<Result<_, E>>()?;
             Expr::Add(diff_terms)
         }
         Expr::Mul(factors) => {
@@ -149,7 +242,7 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 let mut prod_factors = Vec::new();
                 for (j, factor) in factors.iter().enumerate() {
                     if i == j {
-                        prod_factors.push(diff(factor, var));
+                        prod_factors.push(diff(factor, var)?);
                     } else {
                         prod_factors.push(factor.clone());
                     }
@@ -165,15 +258,15 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
             // obligations still execute before any derivative is published.
             if stable_coth {
                 match exp.as_ref() {
-                    Expr::Integer(n) if n.is_zero() => return Expr::from_i64(0),
-                    Expr::Rational(r) if r.numer().is_zero() => return Expr::from_i64(0),
+                    Expr::Integer(n) if n.is_zero() => return Ok(Expr::from_i64(0)),
+                    Expr::Rational(r) if r.numer().is_zero() => return Ok(Expr::from_i64(0)),
                     Expr::Integer(n) if n.is_one() => return diff(base, var),
                     Expr::Rational(r) if r.numer() == r.denom() => return diff(base, var),
                     _ => {}
                 }
             }
-            let du = diff(base, var);
-            let dv = diff(exp, var);
+            let du = diff(base, var)?;
+            let dv = diff(exp, var)?;
             if du.is_zero() && dv.is_zero() {
                 Expr::from_i64(0)
             } else if dv.is_zero() {
@@ -211,26 +304,36 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 Expr::Mul(vec![expr.clone(), Expr::Add(vec![term1, term2])])
             }
         }
-        Expr::Function(name, args) if matches!(name.as_str(), "Integral" | "Sum") => {
+        Expr::Function(name, args)
+            if !stable_coth && matches!(name.as_str(), "Integral" | "Sum") =>
+        {
             diff_binder(expr, name, args, var)
         }
-        Expr::Function(name, args) if name == "Subs" && args.len() == 3 => {
+        Expr::Function(name, args) if !stable_coth && name == "Subs" && args.len() == 3 => {
             diff_subs(expr, args, var)
         }
         Expr::Function(name, args) => {
             // If all arguments are independent of var, then by the chain rule d(f(args))/d(var) = 0.
-            if name != "Derivative" && name != "diff" && args.iter().all(|a| diff(a, var).is_zero())
-            {
-                return Expr::from_i64(0);
+            if name != "Derivative" && name != "diff" {
+                let mut constant = true;
+                for argument in args {
+                    if !diff(argument, var)?.is_zero() {
+                        constant = false;
+                        break;
+                    }
+                }
+                if constant {
+                    return Ok(Expr::from_i64(0));
+                }
             }
             // Elementary derivatives
             if name == "sin" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 Expr::Mul(vec![Expr::Function("cos".to_string(), vec![u.clone()]), du])
             } else if name == "cos" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 Expr::Mul(vec![
                     Expr::from_i64(-1),
                     Expr::Function("sin".to_string(), vec![u.clone()]),
@@ -238,7 +341,7 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 ])
             } else if name == "tan" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 let tan_u_sq = Expr::pow(
                     Expr::Function("tan".to_string(), vec![u.clone()]),
                     Expr::from_i64(2),
@@ -246,36 +349,36 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 Expr::Mul(vec![Expr::Add(vec![Expr::from_i64(1), tan_u_sq]), du])
             } else if name == "exp" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 Expr::Mul(vec![Expr::Function("exp".to_string(), vec![u.clone()]), du])
             } else if name == "sinh" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 Expr::Mul(vec![
                     Expr::Function("cosh".to_string(), vec![u.clone()]),
                     du,
                 ])
             } else if name == "cosh" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 Expr::Mul(vec![
                     Expr::Function("sinh".to_string(), vec![u.clone()]),
                     du,
                 ])
             } else if name == "tanh" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 if stable_coth {
                     // 1 - tanh(u)^2 rounds to zero already near |u| = 20.
                     // The stable sech opcode retains representable tails and
                     // its derivative also preserves second-order curvature.
-                    return Expr::Mul(vec![
+                    return Ok(Expr::Mul(vec![
                         Expr::pow(
                             Expr::Function("sech".to_string(), vec![u.clone()]),
                             Expr::from_i64(2),
                         ),
                         du,
-                    ]);
+                    ]));
                 }
                 let tanh_u_sq = Expr::pow(
                     Expr::Function("tanh".to_string(), vec![u.clone()]),
@@ -290,7 +393,7 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 ])
             } else if name == "sqrt" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 // The explicit principal-square-root node follows the same
                 // formal rule as u^(1/2). Its inverse half power retains the
                 // singularity at zero; real evaluators must still admit the
@@ -305,16 +408,16 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 ])
             } else if (name == "log" || name == "ln") && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 Expr::Mul(vec![Expr::pow(u.clone(), Expr::from_i64(-1)), du])
             } else if name == "atan" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 if stable_coth {
-                    return Expr::Mul(vec![
+                    return Ok(Expr::Mul(vec![
                         Expr::Function("_fsym_atan_d1".to_string(), vec![u.clone()]),
                         du,
-                    ]);
+                    ]));
                 }
                 let denom = Expr::Add(vec![
                     Expr::from_i64(1),
@@ -323,7 +426,7 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 Expr::Mul(vec![Expr::pow(denom, Expr::from_i64(-1)), du])
             } else if name == "asin" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 let one_minus_u_sq = Expr::Add(vec![
                     Expr::from_i64(1),
                     Expr::Mul(vec![
@@ -335,7 +438,7 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 Expr::Mul(vec![Expr::pow(one_minus_u_sq, neg_half), du])
             } else if name == "acos" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 let one_minus_u_sq = Expr::Add(vec![
                     Expr::from_i64(1),
                     Expr::Mul(vec![
@@ -351,12 +454,12 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 ])
             } else if name == "asinh" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 if stable_coth {
-                    return Expr::Mul(vec![
+                    return Ok(Expr::Mul(vec![
                         Expr::Function("_fsym_asinh_d1".to_string(), vec![u.clone()]),
                         du,
-                    ]);
+                    ]));
                 }
                 let one_plus_u_sq = Expr::Add(vec![
                     Expr::from_i64(1),
@@ -375,11 +478,11 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 };
                 Expr::Mul(vec![
                     Expr::Function(second.to_string(), vec![args[0].clone()]),
-                    diff(&args[0], var),
+                    diff(&args[0], var)?,
                 ])
             } else if name == "acosh" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 let neg_half = Expr::Rational(BigRational::new(BigInt::from(-1), BigInt::from(2)));
                 // Separate principal square roots retain the acosh branch.
                 // Replacing their product by sqrt(u^2-1) reverses the sign
@@ -394,7 +497,7 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 ])
             } else if name == "atanh" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 let one_minus_u_sq = Expr::Add(vec![
                     Expr::from_i64(1),
                     Expr::Mul(vec![
@@ -405,7 +508,7 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 Expr::Mul(vec![Expr::pow(one_minus_u_sq, Expr::from_i64(-1)), du])
             } else if name == "cot" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 let cot_u_sq = Expr::pow(
                     Expr::Function("cot".to_string(), vec![u.clone()]),
                     Expr::from_i64(2),
@@ -417,7 +520,7 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 ])
             } else if name == "sec" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 Expr::Mul(vec![
                     Expr::Function("sec".to_string(), vec![u.clone()]),
                     Expr::Function("tan".to_string(), vec![u.clone()]),
@@ -425,7 +528,7 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 ])
             } else if name == "csc" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 Expr::Mul(vec![
                     Expr::from_i64(-1),
                     Expr::Function("csc".to_string(), vec![u.clone()]),
@@ -434,16 +537,16 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 ])
             } else if name == "coth" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 if stable_coth {
-                    return Expr::Mul(vec![
+                    return Ok(Expr::Mul(vec![
                         Expr::from_i64(-1),
                         Expr::pow(
                             Expr::Function("csch".to_string(), vec![u.clone()]),
                             Expr::from_i64(2),
                         ),
                         du,
-                    ]);
+                    ]));
                 }
                 let coth_u_sq = Expr::pow(
                     Expr::Function("coth".to_string(), vec![u.clone()]),
@@ -458,7 +561,7 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 ])
             } else if name == "sech" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 Expr::Mul(vec![
                     Expr::from_i64(-1),
                     Expr::Function("sech".to_string(), vec![u.clone()]),
@@ -467,7 +570,7 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 ])
             } else if name == "csch" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 Expr::Mul(vec![
                     Expr::from_i64(-1),
                     Expr::Function("csch".to_string(), vec![u.clone()]),
@@ -476,7 +579,7 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 ])
             } else if name == "acot" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 let denom = Expr::Add(vec![
                     Expr::from_i64(1),
                     Expr::pow(u.clone(), Expr::from_i64(2)),
@@ -488,7 +591,7 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 ])
             } else if name == "acoth" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 let one_minus_u_sq = Expr::Add(vec![
                     Expr::from_i64(1),
                     Expr::Mul(vec![
@@ -499,7 +602,7 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 Expr::Mul(vec![Expr::pow(one_minus_u_sq, Expr::from_i64(-1)), du])
             } else if name == "asec" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 let u_sq = Expr::pow(u.clone(), Expr::from_i64(2));
                 let inv_u_sq = Expr::pow(u.clone(), Expr::from_i64(-2));
                 let one_minus_inv_u_sq = Expr::Add(vec![
@@ -512,7 +615,7 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 Expr::Mul(vec![Expr::pow(denom, Expr::from_i64(-1)), du])
             } else if name == "acsc" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 let u_sq = Expr::pow(u.clone(), Expr::from_i64(2));
                 let inv_u_sq = Expr::pow(u.clone(), Expr::from_i64(-2));
                 let one_minus_inv_u_sq = Expr::Add(vec![
@@ -529,7 +632,7 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 ])
             } else if name == "asech" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 let one_minus_u_sq = Expr::Add(vec![
                     Expr::from_i64(1),
                     Expr::Mul(vec![
@@ -547,7 +650,7 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 ])
             } else if name == "acsch" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 let u_sq = Expr::pow(u.clone(), Expr::from_i64(2));
                 let inv_u_sq = Expr::pow(u.clone(), Expr::from_i64(-2));
                 let one_plus_inv_u_sq = Expr::Add(vec![Expr::from_i64(1), inv_u_sq]);
@@ -575,16 +678,16 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 let u = &args[0];
                 Expr::Mul(vec![
                     Expr::Function(next.to_string(), vec![u.clone()]),
-                    diff(u, var),
+                    diff(u, var)?,
                 ])
             } else if name == "sinc" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 if stable_coth {
-                    return Expr::Mul(vec![
+                    return Ok(Expr::Mul(vec![
                         Expr::Function("_fsym_sinc_d1".to_string(), vec![u.clone()]),
                         du,
-                    ]);
+                    ]));
                 }
                 let cos_u = Expr::Function("cos".to_string(), vec![u.clone()]);
                 let sin_u = Expr::Function("sin".to_string(), vec![u.clone()]);
@@ -600,13 +703,13 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 let u = &args[0];
                 Expr::Mul(vec![
                     Expr::Function("_fsym_sinc_d2".to_string(), vec![u.clone()]),
-                    diff(u, var),
+                    diff(u, var)?,
                 ])
             } else if matches!(name.as_str(), "Si" | "Ci" | "Ei" | "Shi" | "Chi") && args.len() == 1
             {
                 // d/du Si(u) = sin(u)/u, Ci -> cos, Ei -> exp, Shi -> sinh, Chi -> cosh.
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 let kernel = match name.as_str() {
                     "Si" => "sin",
                     "Ci" => "cos",
@@ -630,24 +733,26 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 let branches = args
                     .iter()
                     .map(|a| match a {
-                        Expr::Function(_, pair) => Expr::Function(
+                        Expr::Function(_, pair) => Ok(Expr::Function(
                             "Tuple".to_string(),
-                            vec![diff(&pair[0], var), pair[1].clone()],
-                        ),
-                        other => other.clone(),
+                            vec![diff(&pair[0], var)?, pair[1].clone()],
+                        )),
+                        other => Ok(other.clone()),
                     })
-                    .collect();
+                    .collect::<Result<_, E>>()?;
                 Expr::Function("Piecewise".to_string(), branches)
-            } else if matches!(
-                name.as_str(),
-                "legendre" | "chebyshevt" | "chebyshevu" | "hermite" | "laguerre"
-            ) && args.len() == 2
+            } else if !stable_coth
+                && matches!(
+                    name.as_str(),
+                    "legendre" | "chebyshevt" | "chebyshevu" | "hermite" | "laguerre"
+                )
+                && args.len() == 2
                 && is_free_of(&args[0], var)
             {
                 // Upstream fdiff rules of the classical orthogonal families.
                 let n = args[0].clone();
                 let u = args[1].clone();
-                let du = diff(&u, var);
+                let du = diff(&u, var)?;
                 let one = Expr::from_i64(1);
                 let f = |nm: &str, k: Expr| Expr::Function(nm.to_string(), vec![k, u.clone()]);
                 let inner = match name.as_str() {
@@ -674,14 +779,14 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 inner * du
             } else if name == "Heaviside" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 Expr::Mul(vec![
                     Expr::Function("DiracDelta".to_string(), vec![u.clone()]),
                     du,
                 ])
             } else if name == "erf" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 let pi = Expr::Const(Constant::Pi);
                 let half = Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)));
                 let sqrt_pi = Expr::pow(pi, half);
@@ -694,7 +799,7 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 Expr::Mul(vec![Expr::from_i64(2), inv_sqrt_pi, exp_neg_u_sq, du])
             } else if name == "erfc" && args.len() == 1 {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 let pi = Expr::Const(Constant::Pi);
                 let half = Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)));
                 let sqrt_pi = Expr::pow(pi, half);
@@ -722,14 +827,14 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 };
                 Expr::Mul(vec![
                     Expr::Function(next.to_string(), vec![args[0].clone()]),
-                    diff(&args[0], var),
+                    diff(&args[0], var)?,
                 ])
             } else if name == "LambertW" && matches!(args.as_slice(), [_] | [_, Expr::Integer(_)]) {
                 // Each fixed integer branch satisfies W*exp(W)=u on its
                 // smooth domain. Keep the original branch in the derivative.
                 // A varying symbolic branch is outside this rule.
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = diff(u, var)?;
                 if stable_coth {
                     let jet = match args.as_slice() {
                         [_] => Some("_fsym_lambert_w0_d1"),
@@ -742,10 +847,10 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                         _ => None,
                     };
                     if let Some(jet) = jet {
-                        return Expr::Mul(vec![
+                        return Ok(Expr::Mul(vec![
                             Expr::Function(jet.to_string(), vec![u.clone()]),
                             du,
-                        ]);
+                        ]));
                     }
                 }
                 let w = expr.clone();
@@ -769,28 +874,28 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 Expr::Add(vec![
                     Expr::Mul(vec![
                         Expr::Function(partial_y.to_string(), args.clone()),
-                        diff(&args[0], var),
+                        diff(&args[0], var)?,
                     ]),
                     Expr::Mul(vec![
                         Expr::Function(partial_x.to_string(), args.clone()),
-                        diff(&args[1], var),
+                        diff(&args[1], var)?,
                     ]),
                 ])
             } else if name == "atan2" && args.len() == 2 {
                 let (y, xx) = (&args[0], &args[1]);
-                let dy = diff(y, var);
-                let dx = diff(xx, var);
+                let dy = diff(y, var)?;
+                let dx = diff(xx, var)?;
                 if stable_coth {
                     // Preserve exact cancellations before lowering the two
                     // partials separately: a radial chain can be constant even
                     // when each partial overflows at a subnormal coordinate.
                     if angle_chain_numerator_is_zero(y, xx, &dy, &dx) {
-                        return Expr::from_i64(0);
+                        return Ok(Expr::from_i64(0));
                     }
                     // Separate ordered partials permit scaled evaluation without
                     // squaring a huge/tiny coordinate. Original source guards
                     // still run when simplification removes a zero chain term.
-                    return Expr::Add(vec![
+                    return Ok(Expr::Add(vec![
                         Expr::Mul(vec![
                             Expr::Function("_fsym_atan2_dy".to_string(), args.clone()),
                             dy,
@@ -799,7 +904,7 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                             Expr::Function("_fsym_atan2_dx".to_string(), args.clone()),
                             dx,
                         ]),
-                    ]);
+                    ]));
                 }
                 // Preserve the public symbolic derivative's existing form.
                 // d atan2(y, x) = (x*y' - y*x') / (x^2 + y^2)
@@ -817,7 +922,7 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                     ),
                 ])
             } else if (name == "Derivative" || name == "diff") && !args.is_empty() {
-                if diff(&args[0], var).is_zero() {
+                if diff(&args[0], var)?.is_zero() {
                     Expr::from_i64(0)
                 } else {
                     let mut new_args = args.clone();
@@ -831,7 +936,7 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 )
             }
         }
-    }
+    })
 }
 
 /// The empty, one-point and two-endpoint integral limits have different
@@ -1125,8 +1230,26 @@ pub fn diff(expr: &Expr, var: &Symbol) -> Expr {
     diff_with_coth(expr, var, false)
 }
 
-pub(crate) fn numeric_diff(expr: &Expr, var: &Symbol) -> Expr {
-    diff_with_coth(expr, var, true)
+pub(crate) fn numeric_diff_with_meter<M: BudgetMeter + ?Sized>(
+    expr: &Expr,
+    var: &Symbol,
+    meter: &mut M,
+) -> Result<Expr, CompileError> {
+    let mut meter = compile::NumericalDerivativeMeter::new(meter);
+    sparse_jacobian::charge_derivative_kernel(expr, &mut meter)?;
+    numeric_derivative::evaluate(
+        expr,
+        var,
+        true,
+        &mut meter,
+        |source, recurse| {
+            diff_unsimplified_using(source, var, true, &mut |child, variable| {
+                recurse(child, variable)
+            })
+        },
+        |_| false,
+        eliminate_zero_products,
+    )
 }
 
 fn diff_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> Expr {

@@ -692,3 +692,21 @@ fn integral_transport_wrappers_preserve_operational_error_classes() {
         }
     });
 }
+
+#[test]
+fn derivative_normalization_refusal_stays_operational_through_objective_wrapping() {
+    use fsym_calculus::{CompiledResidualSystem, ObjectiveCompilationError};
+    Python::initialize();
+    Python::attach(|py| {
+        let x = Symbol::new("bounded_derivative_x");
+        let mut held = Expr::from_i64(2);
+        for _ in 0..3 {
+            held = Expr::pow(held, Expr::from_i64(1000));
+        }
+        let source = Expr::Function("atan2".into(), vec![Expr::Sym(x.clone()), held]);
+        let error = CompiledResidualSystem::try_compile(&[source], &[x]).unwrap_err();
+        let mapped = evaluation_error(ObjectiveCompilationError::Compilation(error));
+        assert!(mapped.is_instance_of::<EvaluationBudgetExceeded>(py));
+        assert!(!mapped.is_instance_of::<PyValueError>(py));
+    });
+}

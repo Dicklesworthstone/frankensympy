@@ -19,9 +19,8 @@ use crate::compile::{
     charge_evaluation_steps,
 };
 use crate::sparse_jacobian::{
-    JacobianVerificationError, SparseJacobian, SparseJacobianEntry, charge_derivative_kernel,
-    charge_expression_copy, compiled_expression_matches_with_meter,
-    verify_sparse_jacobian_certificate_with_meter,
+    JacobianVerificationError, SparseJacobian, SparseJacobianEntry, charge_expression_copy,
+    compiled_expression_matches_with_meter, verify_sparse_jacobian_certificate_with_meter,
 };
 use fsym_budget::{BudgetMeter, Unbounded};
 use fsym_core::{Expr, Symbol};
@@ -489,8 +488,11 @@ fn propose_zero_omissions<M: BudgetMeter + ?Sized>(
         .try_reserve_exact(system.entries.len())
         .map_err(|_| CompileError::AllocationFailure)?;
     for entry in std::mem::take(&mut system.entries) {
-        charge_derivative_kernel(&system.residuals[entry.row], meter)?;
-        let derivative = crate::numeric_diff(&system.residuals[entry.row], &system.vars[entry.col]);
+        let derivative = crate::numeric_diff_with_meter(
+            &system.residuals[entry.row],
+            &system.vars[entry.col],
+            meter,
+        )?;
         charge_compilation_work(meter, 1, 0, 0)?;
         if !derivative.is_zero() {
             nonzeros.push((entry.row, entry.col));

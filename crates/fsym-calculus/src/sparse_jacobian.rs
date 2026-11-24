@@ -8,10 +8,13 @@ use crate::compile::{
     charge_evaluation_steps, compilation_diagnostic, compilation_finish,
 };
 use crate::proof::{
-    reference_legacy_numeric_sub_derivative, reference_numeric_sub_derivative,
-    reference_pre_atan2_numeric_sub_derivative, reference_pre_inverse_numeric_sub_derivative,
-    verified_numeric_diff, verify_legacy_numeric_diff_reduction, verify_numeric_diff_derivation,
-    verify_pre_atan2_numeric_diff_reduction, verify_pre_inverse_numeric_diff_reduction,
+    NumericDiffVerificationError, reference_legacy_numeric_sub_derivative_with_meter,
+    reference_numeric_sub_derivative_with_meter,
+    reference_pre_atan2_numeric_sub_derivative_with_meter,
+    reference_pre_inverse_numeric_sub_derivative_with_meter, verified_numeric_diff_with_meter,
+    verify_legacy_numeric_diff_reduction_with_meter, verify_numeric_diff_derivation_with_meter,
+    verify_pre_atan2_numeric_diff_reduction_with_meter,
+    verify_pre_inverse_numeric_diff_reduction_with_meter,
 };
 use fsym_budget::{BudgetMeter, Dimension, Unbounded};
 use fsym_core::{BigInt, Constant, Expr, Symbol};
@@ -262,6 +265,9 @@ pub(crate) fn charge_derivative_kernel<M: BudgetMeter + ?Sized>(
     source: &Expr,
     meter: &mut M,
 ) -> Result<(), CompileError> {
+    // Raw exponent shifts and coefficient copies happen before normalization.
+    // Admit their literal sizes and source shape before those operations begin.
+    fsym_simplify::admit_numeric_expression_with(source, meter)?;
     let (source_nodes, source_bytes) = charge_expression_copy(source, meter)?;
     charge_compilation_work(meter, source_nodes, 0, 0)?;
     let (_, predicted) = derivative_growth(source);
@@ -632,9 +638,8 @@ impl SparseJacobian {
         let mut nonzeros = Vec::new();
         for (row, columns) in plan.row_dependencies.iter().enumerate() {
             for &col in columns {
-                charge_derivative_kernel(&residuals[row], meter)?;
                 let (symbolic_deriv, derivation) =
-                    verified_numeric_diff(&residuals[row], &vars[col]);
+                    verified_numeric_diff_with_meter(&residuals[row], &vars[col], meter)?;
                 charge_compilation_work(meter, 1, 0, 0)?;
                 if !symbolic_deriv.is_zero() {
                     let compiled_deriv =
@@ -1166,14 +1171,18 @@ pub fn verify_sparse_jacobian_certificate_with_meter<M: BudgetMeter + ?Sized>(
     }
 
     for entry in &system.entries {
-        charge_derivative_kernel(&system.residuals[entry.row], meter)?;
         charge_expression_copy(&entry.symbolic_deriv, meter)?;
-        if let Err(error) = verify_numeric_diff_derivation(
+        if let Err(error) = verify_numeric_diff_derivation_with_meter(
             &entry.derivation,
             &system.residuals[entry.row],
             &system.vars[entry.col],
             &entry.symbolic_deriv,
+            meter,
         ) {
+            let error = match error {
+                NumericDiffVerificationError::Operational(error) => return Err(error.into()),
+                NumericDiffVerificationError::Proof(error) => error,
+            };
             if !matches!(error, KernelError::InvalidDefinitionalReduction { .. }) {
                 return Err(JacobianVerificationError::ProofFailed {
                     row: entry.row,
@@ -1186,25 +1195,39 @@ pub fn verify_sparse_jacobian_certificate_with_meter<M: BudgetMeter + ?Sized>(
             // recipe, newest first, without mixing rule generations or
             // replacing a stored program. The common proof envelope already
             // passed; every independent semantic retry spends from this ledger.
-            type HistoricalDiffCheck = fn(&Expr, &Symbol, &Expr) -> Result<(), KernelError>;
-            let historical_checks: [HistoricalDiffCheck; 3] = [
-                verify_pre_atan2_numeric_diff_reduction,
-                verify_pre_inverse_numeric_diff_reduction,
-                verify_legacy_numeric_diff_reduction,
+            type HistoricalDiffCheck<M> =
+                fn(&Expr, &Symbol, &Expr, &mut M) -> Result<(), NumericDiffVerificationError>;
+            let historical_checks: [HistoricalDiffCheck<M>; 3] = [
+                verify_pre_atan2_numeric_diff_reduction_with_meter,
+                verify_pre_inverse_numeric_diff_reduction_with_meter,
+                verify_legacy_numeric_diff_reduction_with_meter,
             ];
             let mut admitted = false;
             for check in historical_checks {
-                charge_derivative_kernel(&system.residuals[entry.row], meter)?;
                 charge_expression_copy(&entry.symbolic_deriv, meter)?;
-                if check(
+                match check(
                     &system.residuals[entry.row],
                     &system.vars[entry.col],
                     &entry.symbolic_deriv,
-                )
-                .is_ok()
-                {
-                    admitted = true;
-                    break;
+                    meter,
+                ) {
+                    Ok(()) => {
+                        admitted = true;
+                        break;
+                    }
+                    Err(NumericDiffVerificationError::Operational(error)) => {
+                        return Err(error.into());
+                    }
+                    Err(NumericDiffVerificationError::Proof(
+                        KernelError::InvalidDefinitionalReduction { .. },
+                    )) => {}
+                    Err(NumericDiffVerificationError::Proof(error)) => {
+                        return Err(JacobianVerificationError::ProofFailed {
+                            row: entry.row,
+                            col: entry.col,
+                            reason: error.to_string(),
+                        });
+                    }
                 }
             }
             if !admitted {
@@ -1248,9 +1271,11 @@ pub fn verify_sparse_jacobian_certificate_with_meter<M: BudgetMeter + ?Sized>(
             if present.peek() == Some(&&(row, col)) {
                 present.next();
             } else {
-                charge_derivative_kernel(&system.residuals[row], meter)?;
-                let derivative =
-                    reference_numeric_sub_derivative(&system.residuals[row], &system.vars[col]);
+                let derivative = reference_numeric_sub_derivative_with_meter(
+                    &system.residuals[row],
+                    &system.vars[col],
+                    meter,
+                )?;
                 charge_compilation_work(meter, 1, 0, 0)?;
                 if !derivative.is_zero() {
                     // Historical algebraic recipes can cancel exact factors
@@ -1258,15 +1283,16 @@ pub fn verify_sparse_jacobian_certificate_with_meter<M: BudgetMeter + ?Sized>(
                     // the same independently reconstructed historical recipes
                     // as stored entries, with fresh cumulative charges. Only
                     // a proved literal zero may be omitted.
-                    let historical_derivatives: [fn(&Expr, &Symbol) -> Expr; 3] = [
-                        reference_pre_atan2_numeric_sub_derivative,
-                        reference_pre_inverse_numeric_sub_derivative,
-                        reference_legacy_numeric_sub_derivative,
+                    type HistoricalDerivative<M> =
+                        fn(&Expr, &Symbol, &mut M) -> Result<Expr, CompileError>;
+                    let historical_derivatives: [HistoricalDerivative<M>; 3] = [
+                        reference_pre_atan2_numeric_sub_derivative_with_meter,
+                        reference_pre_inverse_numeric_sub_derivative_with_meter,
+                        reference_legacy_numeric_sub_derivative_with_meter,
                     ];
                     let mut proved_zero = false;
                     for reference in historical_derivatives {
-                        charge_derivative_kernel(&system.residuals[row], meter)?;
-                        let previous = reference(&system.residuals[row], &system.vars[col]);
+                        let previous = reference(&system.residuals[row], &system.vars[col], meter)?;
                         charge_compilation_work(meter, 1, 0, 0)?;
                         if previous.is_zero() {
                             proved_zero = true;

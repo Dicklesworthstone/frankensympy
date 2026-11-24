@@ -535,6 +535,16 @@ pub(super) fn compile_error_code(error: &CompileError) -> &'static str {
     match error {
         CompileError::Meter(MeterError::Cancelled) => "cancelled",
         CompileError::Meter(MeterError::Budget(_)) => "budget_exhausted",
+        CompileError::DerivativeNormalization(error) => match error {
+            fsym_simplify::SimplifyError::Cancelled => "cancelled",
+            fsym_simplify::SimplifyError::BudgetExhausted(_) => "budget_exhausted",
+            fsym_simplify::SimplifyError::DepthLimitExceeded(_)
+            | fsym_simplify::SimplifyError::NumericLimitExceeded { .. }
+            | fsym_simplify::SimplifyError::AllocationFailure => "resource_limit_exceeded",
+            fsym_simplify::SimplifyError::ArithmeticInvariant(_)
+            | fsym_simplify::SimplifyError::General(_)
+            | fsym_simplify::SimplifyError::ProofFailed(_) => "internal_error",
+        },
         CompileError::DepthLimitExceeded { .. }
         | CompileError::OpLimitExceeded { .. }
         | CompileError::NameLimitExceeded { .. }

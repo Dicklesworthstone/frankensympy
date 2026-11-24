@@ -23,6 +23,9 @@ mod legacy_jets;
 #[path = "atan2_compilation/zero_cancellation.rs"]
 mod zero_cancellation;
 
+#[path = "atan2_compilation/bounded_derivatives.rs"]
+mod bounded_derivatives;
+
 fn angle(y: Expr, x: Expr) -> Expr {
     Expr::Function("atan2".into(), vec![y, x])
 }

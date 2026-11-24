@@ -647,6 +647,34 @@ entry point using one cumulative meter for both phases. Charges represent
 logical work and storage; bounded synchronous derivative and proof kernels
 retain their declared cancellation boundaries.
 
+### Bounded numerical differentiation
+
+Numerical derivative generation and independent replay use a bounded exact
+normalization lane. Each reconstruction has a private allowance of 20 million
+logical compute steps, 64 MiB of cumulative requested storage and one million
+allocations, including work spent on intermediate derivatives. These allowances
+also apply when the caller has no explicit budget. A supplied meter is charged
+throughout; child derivatives, historical recipe attempts and failed
+normalizations never replace or refund that caller ledger.
+
+The lane admits at most 8,192 expression nodes, depth 128, 4,096 bytes per
+identifier and 4,096 bits per exact scalar component. A compact held power can
+therefore be refused before it materializes an enormous integer. Raw numerical
+rules run through an explicit work list with cached child derivatives, so a
+chain of supported functions does not recursively stack the large rule tables.
+The generator and independent replay retain their separate mathematical rules.
+Ordinary public symbolic differentiation and simplification keep their existing
+entry points and forms.
+
+Native dense callers can use
+`CompiledResidualSystem::try_compile_with_meter` to include original residual
+compilation, derivative construction and output admission in one caller budget.
+Session responses distinguish operational exhaustion and cancellation from a
+mathematical rejection. Python exposes normalization resource refusals as
+`EvaluationBudgetExceeded`, cancellation as `EvaluationCancelled`, and
+allocation failure as `MemoryError`; a numerical search must not treat these as
+a domain failure and try another point.
+
 ## Derive a least-squares objective from residuals
 
 `CompileLeastSquaresObjective` creates the exact held objective
