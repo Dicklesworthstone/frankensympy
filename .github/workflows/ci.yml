@@ -161,7 +161,7 @@ jobs:
           cargo test --locked -p fsym-core --test lambert_certification -j1
           cargo test --locked -p fsym-core --lib root_certificate::lambert::tests -j1
           cargo test --locked -p fsym-solvers --test real_lambert -j1
-          cargo test --locked -p fsym-calculus --test lambert_derivative -j1
+          cargo test --locked -p fsym-calculus --test lambert_derivative --test lambert_programs -j1
       - name: Principal-angle interval and original-source certificates
         run: cargo test --locked -p fsym-core --test atan2_enclosures --test atan2_certification -j1
       - name: Compiled principal-angle programs and derivative admission

@@ -1708,6 +1708,35 @@ pub fn compiled_expression_matches_with_meter<M: BudgetMeter + ?Sized>(
                     if name == "Piecewise" {
                         return self.piecewise(arguments, depth);
                     }
+                    if name == "LambertW" {
+                        charge_compilation_work(self.meter, name.len() + 1, 0, 0)?;
+                        // Decode the fixed branch independently of compiler
+                        // dispatch. An expression that merely evaluates to an
+                        // integer is not an admissible branch selector.
+                        let operation = match arguments.as_slice() {
+                            [_] => CompiledOp::LambertW,
+                            [_, Expr::Integer(branch)] if branch.bits() == 0 => {
+                                CompiledOp::LambertW
+                            }
+                            [_, Expr::Integer(branch)]
+                                if branch.bits() == 1 && branch == &BigInt::from(-1) =>
+                            {
+                                CompiledOp::LambertWMinusOne
+                            }
+                            _ => {
+                                return Err(CompileError::UnsupportedFunction(
+                                    compilation_diagnostic(
+                                        "LambertW literal real branch",
+                                        self.meter,
+                                    )?,
+                                ));
+                            }
+                        };
+                        if !self.visit(&arguments[0], depth + 1)? {
+                            return Ok(false);
+                        }
+                        return self.take(operation);
+                    }
                     let binary = match name.as_str() {
                         "atan2" => Some(CompiledOp::Atan2),
                         "_fsym_atan2_dy" => Some(CompiledOp::Atan2DerivativeY),
@@ -1765,6 +1794,10 @@ pub fn compiled_expression_matches_with_meter<M: BudgetMeter + ?Sized>(
                         "sinc" => CompiledOp::Sinc,
                         "_fsym_sinc_d1" => CompiledOp::SincDerivative,
                         "_fsym_sinc_d2" => CompiledOp::SincSecondDerivative,
+                        "_fsym_lambert_w0_d1" => CompiledOp::LambertWDerivative,
+                        "_fsym_lambert_w0_d2" => CompiledOp::LambertWSecondDerivative,
+                        "_fsym_lambert_wm1_d1" => CompiledOp::LambertWMinusOneDerivative,
+                        "_fsym_lambert_wm1_d2" => CompiledOp::LambertWMinusOneSecondDerivative,
                         "exp" => CompiledOp::Exp,
                         "log" | "ln" => CompiledOp::Ln,
                         "sqrt" => CompiledOp::Sqrt,

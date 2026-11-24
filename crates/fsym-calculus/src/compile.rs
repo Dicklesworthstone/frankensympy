@@ -4,6 +4,7 @@
 #![forbid(unsafe_code)]
 
 mod error_functions;
+mod lambert;
 mod shared;
 mod sinc;
 
@@ -11,6 +12,7 @@ pub use shared::CompiledBatch;
 pub(crate) use shared::{EvaluationMemo, SharedEvaluationPlan};
 
 use self::error_functions::evaluate_error_function;
+use self::lambert::{LambertOrder, evaluate_lambert};
 use self::sinc::{SincOrder, evaluate_sinc};
 use crate::numeric_diff;
 use fsym_budget::{BudgetMeter, Dimension, MeterError, Unbounded};
@@ -255,6 +257,8 @@ pub enum EvalError {
     NonFiniteValue,
     #[error("Gaussian error-function evaluation exceeded its bounded iteration limit")]
     ErrorFunctionConvergenceLimit,
+    #[error("Real Lambert-W evaluation refused: {0}")]
+    LambertW(#[source] fsym_core::LambertWError),
     #[error(
         "Bytecode jump from instruction {instruction} to {target} is not a bounded forward jump"
     )]
@@ -400,6 +404,15 @@ pub enum CompiledOp {
     Atan2SecondDerivativeYY,
     Atan2SecondDerivativeYX,
     Atan2SecondDerivativeXX,
+    /// Fixed finite real Lambert-W branches. Branch identity is bytecode,
+    /// never a rounded or dynamically evaluated numerical argument.
+    LambertW,
+    LambertWMinusOne,
+    /// Analytic real jets, including W0'(0)=1 and W0''(0)=-2.
+    LambertWDerivative,
+    LambertWSecondDerivative,
+    LambertWMinusOneDerivative,
+    LambertWMinusOneSecondDerivative,
 }
 
 /// Bounded forward-only stack program evaluating an expression to an f64 value.
@@ -664,6 +677,12 @@ impl CompiledExpr {
             | CompiledOp::Sinc
             | CompiledOp::SincDerivative
             | CompiledOp::SincSecondDerivative
+            | CompiledOp::LambertW
+            | CompiledOp::LambertWMinusOne
+            | CompiledOp::LambertWDerivative
+            | CompiledOp::LambertWSecondDerivative
+            | CompiledOp::LambertWMinusOneDerivative
+            | CompiledOp::LambertWMinusOneSecondDerivative
             | CompiledOp::Exp
             | CompiledOp::Ln
             | CompiledOp::Sqrt
@@ -961,6 +980,27 @@ impl CompiledExpr {
                 if name == "Piecewise" {
                     return Self::compile_piecewise(args, var_map, ops, depth, meter);
                 }
+                if name == "LambertW" {
+                    charge_compilation_work(meter, name.len() + 1, 0, 0)?;
+                    let operation = match args.as_slice() {
+                        [_] => CompiledOp::LambertW,
+                        [_, Expr::Integer(branch)] if branch.bits() == 0 => {
+                            CompiledOp::LambertW
+                        }
+                        [_, Expr::Integer(branch)]
+                            if branch.bits() == 1 && branch == &BigInt::from(-1) =>
+                        {
+                            CompiledOp::LambertWMinusOne
+                        }
+                        _ => {
+                            return Err(CompileError::UnsupportedFunction(
+                                compilation_diagnostic("LambertW real branch 0 or -1", meter)?,
+                            ));
+                        }
+                    };
+                    Self::compile_recursive(&args[0], var_map, ops, depth + 1, meter)?;
+                    return Self::push_op(ops, operation, meter);
+                }
                 if args.len() == 2 {
                     let operation = match name.as_str() {
                         "atan2" => Some(CompiledOp::Atan2),
@@ -1017,6 +1057,10 @@ impl CompiledExpr {
                     "sinc" => CompiledOp::Sinc,
                     "_fsym_sinc_d1" => CompiledOp::SincDerivative,
                     "_fsym_sinc_d2" => CompiledOp::SincSecondDerivative,
+                    "_fsym_lambert_w0_d1" => CompiledOp::LambertWDerivative,
+                    "_fsym_lambert_w0_d2" => CompiledOp::LambertWSecondDerivative,
+                    "_fsym_lambert_wm1_d1" => CompiledOp::LambertWMinusOneDerivative,
+                    "_fsym_lambert_wm1_d2" => CompiledOp::LambertWMinusOneSecondDerivative,
                     "exp" => CompiledOp::Exp,
                     "ln" | "log" => CompiledOp::Ln,
                     "sqrt" => CompiledOp::Sqrt,
@@ -1594,6 +1638,33 @@ impl CompiledExpr {
                         _ => SincOrder::Second,
                     };
                     stack.push(evaluate_sinc(value, order, meter)?);
+                }
+                CompiledOp::LambertW
+                | CompiledOp::LambertWMinusOne
+                | CompiledOp::LambertWDerivative
+                | CompiledOp::LambertWSecondDerivative
+                | CompiledOp::LambertWMinusOneDerivative
+                | CompiledOp::LambertWMinusOneSecondDerivative => {
+                    let value = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    let branch = if matches!(
+                        op,
+                        CompiledOp::LambertWMinusOne
+                            | CompiledOp::LambertWMinusOneDerivative
+                            | CompiledOp::LambertWMinusOneSecondDerivative
+                    ) {
+                        -1
+                    } else {
+                        0
+                    };
+                    let order = match op {
+                        CompiledOp::LambertW | CompiledOp::LambertWMinusOne => {
+                            LambertOrder::Value
+                        }
+                        CompiledOp::LambertWDerivative
+                        | CompiledOp::LambertWMinusOneDerivative => LambertOrder::First,
+                        _ => LambertOrder::Second,
+                    };
+                    stack.push(evaluate_lambert(value, branch, order, meter)?);
                 }
                 CompiledOp::Exp => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;

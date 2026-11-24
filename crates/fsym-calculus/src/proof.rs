@@ -52,6 +52,11 @@ pub const RULE_DIFF_ATAN2: &str = "diff_atan2";
 pub const RULE_DIFF_ASINH: &str = "diff_asinh";
 /// Exact real chain rule for the private asinh first-derivative node.
 pub const RULE_DIFF_ASINH_D1: &str = "diff_asinh_d1";
+/// Numeric-only analytic chain rule for literal real Lambert-W branches.
+/// Original-source evaluation must still establish the smooth branch domain.
+pub const RULE_DIFF_LAMBERT_W_REAL: &str = "diff_lambert_w_real";
+/// Numeric-only chain rule for either fixed real Lambert-W first jet.
+pub const RULE_DIFF_LAMBERT_W_REAL_D1: &str = "diff_lambert_w_real_d1";
 pub const RULE_DIFF_ACOSH: &str = "diff_acosh";
 pub const RULE_DIFF_ATANH: &str = "diff_atanh";
 pub const RULE_DIFF_ERF: &str = "diff_erf";
@@ -124,7 +129,31 @@ pub fn classify_diff_rule(expr: &Expr, var: &Symbol) -> &'static str {
     }
 }
 
+// This verifier-local branch admission is independent of the optimizing
+// differentiator. A branch expression is never simplified or rounded into a
+// literal branch; malformed, nonliteral and nonreal branch indices refuse.
+fn reference_lambert_first_jet(arguments: &[Expr]) -> Option<&'static str> {
+    match arguments {
+        [_] => Some("_fsym_lambert_w0_d1"),
+        [_, Expr::Integer(branch)] if branch.is_zero() => Some("_fsym_lambert_w0_d1"),
+        [_, Expr::Integer(branch)] if branch == &BigInt::from(-1) => Some("_fsym_lambert_wm1_d1"),
+        _ => None,
+    }
+}
+
 fn classify_diff_rule_with_form(expr: &Expr, var: &Symbol, form: DerivativeForm) -> &'static str {
+    if form == DerivativeForm::Numeric
+        && let Expr::Function(name, arguments) = expr
+    {
+        if name == "LambertW" && reference_lambert_first_jet(arguments).is_some() {
+            return RULE_DIFF_LAMBERT_W_REAL;
+        }
+        if arguments.len() == 1
+            && matches!(name.as_str(), "_fsym_lambert_w0_d1" | "_fsym_lambert_wm1_d1")
+        {
+            return RULE_DIFF_LAMBERT_W_REAL_D1;
+        }
+    }
     // Preserve public symbolic and persisted legacy rule names. The new real
     // absolute-value interpretation belongs only to the current numeric lane.
     if form.has_stable_elementary_rules()
@@ -157,7 +186,8 @@ pub fn verified_diff(expr: &Expr, var: &Symbol) -> (Expr, DerivationTree) {
 /// Internal numeric programs use stable tanh/coth, entire sinc jets and literal
 /// identity-power derivatives, plus guarded real absolute-value jets, without
 /// changing public symbolic receipts. Inverse-function jets retain finite
-/// slopes and curvatures across the binary64 range.
+/// slopes and curvatures across the binary64 range. Fixed real Lambert-W jets
+/// retain the analytic principal zero and never erase the selected branch.
 pub(crate) fn verified_numeric_diff(expr: &Expr, var: &Symbol) -> (Expr, DerivationTree) {
     let deriv = crate::numeric_diff_unsimplified(expr, var);
     derivative_tree(expr, var, deriv, DerivativeForm::Numeric)
@@ -555,6 +585,20 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
                 }
             }
         }
+        Expr::Function(name, args) if form == DerivativeForm::Numeric && name == "LambertW" => {
+            let Some(jet) = reference_lambert_first_jet(args) else {
+                return make_diff_term(expr, var);
+            };
+            let inner = reference_sub_derivative(&args[0], var);
+            if inner.is_zero() {
+                Expr::from_i64(0)
+            } else {
+                Expr::Mul(vec![
+                    Expr::Function(jet.to_string(), vec![args[0].clone()]),
+                    inner,
+                ])
+            }
+        }
         Expr::Function(name, args) if name == "atan2" && args.len() == 2 => {
             let y = &args[0];
             let x = &args[1];
@@ -759,6 +803,14 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
                 ]),
                 "_fsym_asinh_d1" if form == DerivativeForm::Numeric => Expr::Mul(vec![
                     Expr::Function("_fsym_asinh_d2".to_string(), vec![u.clone()]),
+                    du,
+                ]),
+                "_fsym_lambert_w0_d1" if form == DerivativeForm::Numeric => Expr::Mul(vec![
+                    Expr::Function("_fsym_lambert_w0_d2".to_string(), vec![u.clone()]),
+                    du,
+                ]),
+                "_fsym_lambert_wm1_d1" if form == DerivativeForm::Numeric => Expr::Mul(vec![
+                    Expr::Function("_fsym_lambert_wm1_d2".to_string(), vec![u.clone()]),
                     du,
                 ]),
                 "acosh" => {
@@ -1397,6 +1449,57 @@ fn verify_rule_reduction_semantics(
                 });
             }
         }
+        RULE_DIFF_LAMBERT_W_REAL | RULE_DIFF_LAMBERT_W_REAL_D1 => {
+            let Expr::Function(name, arguments) = expr else {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Expected a fixed real Lambert-W source or first jet".to_string(),
+                });
+            };
+            let jet = if form != DerivativeForm::Numeric {
+                None
+            } else if rule_name == RULE_DIFF_LAMBERT_W_REAL && name == "LambertW" {
+                reference_lambert_first_jet(arguments)
+            } else if rule_name == RULE_DIFF_LAMBERT_W_REAL_D1 && arguments.len() == 1 {
+                match name.as_str() {
+                    "_fsym_lambert_w0_d1" => Some("_fsym_lambert_w0_d2"),
+                    "_fsym_lambert_wm1_d1" => Some("_fsym_lambert_wm1_d2"),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            let Some(jet) = jet else {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Lambert-W jet rules require a literal real branch and numeric form"
+                        .to_string(),
+                });
+            };
+            // Implicit differentiation of w*exp(w)=u gives
+            // w'=exp(-w)/(1+w) and w''=-(w+2)*exp(-2w)/(1+w)^3.
+            // The principal branch extends analytically through u=0 with
+            // w'=1 and w''=-2. The lower branch excludes zero; both exclude
+            // w=-1 from their smooth domain. These private jets denote those
+            // exact functions. Neither this structural identity nor a stored
+            // receipt discharges the original source's point/box domain.
+            let inner = reference_sub_derivative(&arguments[0], var);
+            let expected = if inner.is_zero() {
+                Expr::from_i64(0)
+            } else {
+                Expr::Mul(vec![
+                    Expr::Function(jet.to_string(), vec![arguments[0].clone()]),
+                    inner,
+                ])
+            };
+            if deriv != &expected {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Lambert-W derivative disagrees with the independent branch chain rule"
+                        .to_string(),
+                });
+            }
+        }
         RULE_DIFF_ERF => {
             if let Expr::Function(name, args) = expr
                 && name == "erf"
@@ -1744,6 +1847,150 @@ mod tests {
         let (deriv_y, tree_y) = verified_diff(&expr, &y);
         assert_eq!(deriv_y, Expr::from_i64(1));
         assert!(verify_diff_derivation(&tree_y, &expr, &y, &deriv_y).is_ok());
+    }
+
+    #[test]
+    fn numeric_lambert_proofs_keep_real_branch_and_complete_inner_chain() {
+        let x = Symbol::new("lambert_proof_x");
+        let argument = Expr::Add(vec![
+            Expr::Mul(vec![Expr::from_i64(3), Expr::Sym(x.clone())]),
+            Expr::from_i64(2),
+        ]);
+        for (branch, first, second) in [
+            (None, "_fsym_lambert_w0_d1", "_fsym_lambert_w0_d2"),
+            (Some(0), "_fsym_lambert_w0_d1", "_fsym_lambert_w0_d2"),
+            (Some(-1), "_fsym_lambert_wm1_d1", "_fsym_lambert_wm1_d2"),
+        ] {
+            let mut arguments = vec![argument.clone()];
+            if let Some(branch) = branch {
+                arguments.push(Expr::from_i64(branch));
+            }
+            let source = Expr::Function("LambertW".to_string(), arguments);
+            let (derivative, proof) = verified_numeric_diff(&source, &x);
+            assert_eq!(
+                derivative,
+                Expr::Mul(vec![
+                    Expr::Function(first.to_string(), vec![argument.clone()]),
+                    Expr::from_i64(3),
+                ])
+            );
+            verify_numeric_diff_derivation(&proof, &source, &x, &derivative).unwrap();
+
+            let first_jet = Expr::Function(first.to_string(), vec![argument.clone()]);
+            let (curvature, proof) = verified_numeric_diff(&first_jet, &x);
+            assert_eq!(
+                curvature,
+                Expr::Mul(vec![
+                    Expr::Function(second.to_string(), vec![argument.clone()]),
+                    Expr::from_i64(3),
+                ])
+            );
+            verify_numeric_diff_derivation(&proof, &first_jet, &x, &curvature).unwrap();
+
+            // Public symbolic differentiation keeps its original quotient,
+            // including the requested explicit branch spelling.
+            let symbolic = diff_unsimplified(&source, &x);
+            assert_eq!(
+                symbolic,
+                Expr::Mul(vec![
+                    source.clone(),
+                    Expr::pow(
+                        Expr::Mul(vec![
+                            argument.clone(),
+                            Expr::Add(vec![source, Expr::from_i64(1)]),
+                        ]),
+                        Expr::from_i64(-1),
+                    ),
+                    Expr::from_i64(3),
+                ])
+            );
+        }
+    }
+
+    #[test]
+    fn numeric_lambert_proofs_reject_branch_chain_order_and_rule_mutations() {
+        let x = Symbol::new("lambert_mutation_x");
+        let argument = Expr::Mul(vec![Expr::from_i64(3), Expr::Sym(x.clone())]);
+        let source = Expr::Function("LambertW".to_string(), vec![argument.clone()]);
+        for forged in [
+            Expr::Mul(vec![
+                Expr::Function("_fsym_lambert_wm1_d1".to_string(), vec![argument.clone()]),
+                Expr::from_i64(3),
+            ]),
+            Expr::Function("_fsym_lambert_w0_d1".to_string(), vec![argument.clone()]),
+            Expr::Mul(vec![
+                Expr::Function("_fsym_lambert_w0_d2".to_string(), vec![argument]),
+                Expr::from_i64(3),
+            ]),
+            Expr::from_i64(0),
+        ] {
+            // Forge a self-consistent envelope so rejection must come from
+            // independent rule semantics, not merely a mismatched claim.
+            let (_, proof) = derivative_tree(&source, &x, forged.clone(), DerivativeForm::Numeric);
+            assert!(matches!(
+                verify_numeric_diff_derivation(&proof, &source, &x, &forged),
+                Err(KernelError::InvalidDefinitionalReduction { .. })
+            ));
+        }
+        let (derivative, mut proof) = verified_numeric_diff(&source, &x);
+        proof.steps[0].rule = ProofRule::DefinitionalReduction {
+            lhs: make_diff_term(&source, &x),
+            rhs: derivative.clone(),
+            rule_name: RULE_DIFF_LAMBERT_W_REAL_D1.to_string(),
+        };
+        assert!(matches!(
+            verify_numeric_diff_derivation(&proof, &source, &x, &derivative),
+            Err(KernelError::RuleMismatch(_))
+        ));
+    }
+
+    #[test]
+    fn numeric_lambert_proofs_refuse_nonliteral_and_nonreal_branch_admission() {
+        let x = Symbol::new("lambert_invalid_branch_x");
+        let sx = Expr::Sym(x.clone());
+        let claimed = Expr::Function("_fsym_lambert_w0_d1".to_string(), vec![sx.clone()]);
+        for arguments in [
+            vec![],
+            vec![sx.clone(), Expr::from_i64(1)],
+            vec![sx.clone(), Expr::Rational(BigRational::from_integer((-1).into()))],
+            vec![sx.clone(), Expr::Sym(Symbol::new("branch"))],
+            vec![sx.clone(), Expr::from_i64(-1), Expr::from_i64(0)],
+        ] {
+            let source = Expr::Function("LambertW".to_string(), arguments);
+            let (_, proof) = derivative_tree(&source, &x, claimed.clone(), DerivativeForm::Numeric);
+            assert!(verify_numeric_diff_derivation(&proof, &source, &x, &claimed).is_err());
+        }
+        let source = Expr::Function("LambertW".to_string(), vec![sx]);
+        let (derivative, proof) = verified_numeric_diff(&source, &x);
+        // A newly introduced numerical rule cannot retroactively change
+        // public symbolic receipts or either historical numeric recipe.
+        assert!(verify_diff_derivation(&proof, &source, &x, &derivative).is_err());
+        assert!(verify_pre_inverse_numeric_diff_reduction(&source, &x, &derivative).is_err());
+        assert!(verify_legacy_numeric_diff_reduction(&source, &x, &derivative).is_err());
+    }
+
+    #[test]
+    fn numeric_lambert_proofs_replay_nonlinear_mixed_chains_and_exact_zero_axes() {
+        let x = Symbol::new("lambert_mixed_x");
+        let y = Symbol::new("lambert_mixed_y");
+        let z = Symbol::new("lambert_mixed_z");
+        let argument = Expr::Mul(vec![Expr::Sym(x.clone()), Expr::Sym(y.clone())]);
+        for branch in [0, -1] {
+            let source = Expr::Function(
+                "LambertW".to_string(),
+                vec![argument.clone(), Expr::from_i64(branch)],
+            );
+            let (raw_gradient, proof) = verified_numeric_diff(&source, &x);
+            verify_numeric_diff_derivation(&proof, &source, &x, &raw_gradient).unwrap();
+            let gradient = reference_eliminate_zero_products(&raw_gradient);
+            for axis in [&x, &y] {
+                let (curvature, proof) = verified_numeric_diff(&gradient, axis);
+                verify_numeric_diff_derivation(&proof, &gradient, axis, &curvature).unwrap();
+            }
+            let (zero, proof) = verified_numeric_diff(&source, &z);
+            assert_eq!(zero, Expr::from_i64(0));
+            verify_numeric_diff_derivation(&proof, &source, &z, &zero).unwrap();
+        }
     }
 
     #[test]

@@ -90,6 +90,7 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
 /// of two rounded ones, keeps the entire sinc jets finite at their removable
 /// singularity, retains guarded absolute-value derivatives on nonzero real
 /// branches, uses scaled inverse-function jets across the finite real range,
+/// preserves the two fixed real Lambert-W branches through analytic jets,
 /// and avoids artificial poles in literal zero/one powers.
 /// Public symbolic derivatives retain their existing forms.
 pub(crate) fn numeric_diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
@@ -676,12 +677,46 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 ]);
                 let exp_neg_u_sq = Expr::Function("exp".to_string(), vec![neg_u_sq]);
                 Expr::Mul(vec![Expr::from_i64(-2), inv_sqrt_pi, exp_neg_u_sq, du])
+            } else if stable_coth
+                && matches!(name.as_str(), "_fsym_lambert_w0_d1" | "_fsym_lambert_wm1_d1")
+                && args.len() == 1
+            {
+                // A private first jet denotes the analytic derivative on
+                // its fixed real branch. Keep that branch in the second jet;
+                // a quotient in u would invent a pole at W_0(0).
+                let next = if name == "_fsym_lambert_w0_d1" {
+                    "_fsym_lambert_w0_d2"
+                } else {
+                    "_fsym_lambert_wm1_d2"
+                };
+                Expr::Mul(vec![
+                    Expr::Function(next.to_string(), vec![args[0].clone()]),
+                    diff(&args[0], var),
+                ])
             } else if name == "LambertW" && matches!(args.as_slice(), [_] | [_, Expr::Integer(_)]) {
                 // Each fixed integer branch satisfies W*exp(W)=u on its
                 // smooth domain. Keep the original branch in the derivative.
                 // A varying symbolic branch is outside this rule.
                 let u = &args[0];
                 let du = diff(u, var);
+                if stable_coth {
+                    let jet = match args.as_slice() {
+                        [_] => Some("_fsym_lambert_w0_d1"),
+                        [_, Expr::Integer(branch)] if branch.is_zero() => {
+                            Some("_fsym_lambert_w0_d1")
+                        }
+                        [_, Expr::Integer(branch)] if branch == &BigInt::from(-1) => {
+                            Some("_fsym_lambert_wm1_d1")
+                        }
+                        _ => None,
+                    };
+                    if let Some(jet) = jet {
+                        return Expr::Mul(vec![
+                            Expr::Function(jet.to_string(), vec![u.clone()]),
+                            du,
+                        ]);
+                    }
+                }
                 let w = expr.clone();
                 Expr::Mul(vec![
                     w.clone(),

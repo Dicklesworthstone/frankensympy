@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-24",
+  "base_commit": "44fb3c85c17f4ca82a534c0db2b0c1183c20e98c",
+  "scope": "Connect both fixed real Lambert-W branches to compiled residuals, sparse Jacobians and Hessians, and independently replay their derivative proofs.",
+  "beads": [
+    "fra-campaign-jacobian-bundle-ukp",
+    "fra-7kf"
+  ],
+  "implementation": [
+    "Dedicated compiled operations preserve the literal real branches 0 and -1 and their first two derivative orders.",
+    "Exact binary64 input conversion feeds the existing bounded metered rational-ball inverse; midpoint rounding produces an ordinary approximate numeric value.",
+    "Analytic principal-branch jets preserve W0(0)=0, W0'(0)=1, W0''(0)=-2.",
+    "Independent differentiation rules and bytecode-source replay reject changed branches, missing chain factors and changed derivative orders.",
+    "Original source domain checks, cumulative caller accounting and terminal cancellation remain in the existing publication path."
+  ],
+  "authored_native_test_functions": 17,
+  "test_targets": [
+    "fsym_calculus::compile::lambert::tests",
+    "fsym_calculus::proof::tests::numeric_lambert_proofs_*",
+    "crates/fsym-calculus/tests/lambert_programs.rs"
+  ],
+  "validation": {
+    "independent_source_review": "prioritize agent reviewed inverse formulas, dyadic conversion, branch separation and budget propagation",
+    "reviewed_source_reconstruction": "Derivative generator and verifier content matched the independent author's complete prepared source.",
+    "whitespace": "No trailing whitespace in prepared source.",
+    "rustfmt": "not_run: execution environment unavailable",
+    "compilation": "not_run: execution environment unavailable",
+    "native_tests": "not_run: execution environment unavailable",
+    "workspace_clippy": "not_run: execution environment unavailable",
+    "workspace_tests": "not_run: execution environment unavailable",
+    "actual_python_extension": "not_run: execution environment unavailable",
+    "ci_target": "Added lambert_programs to the existing real Lambert-W step; execution pending.",
+    "python_error_mapping": "Inspected Rust Python bridge and consumers; typed nested errors are compatible with generic source-chain mapping.",
+    "concurrent_changes": "Preserved scaled atan2 opcodes, independent binary source checking, shared-plan arity and concurrent CI additions."
+  },
+  "limitations": [
+    "Binary64 results are approximations, not standalone certificates.",
+    "Only literal real branches 0 and -1 are admitted.",
+    "The exact inverse retains its finite work envelope and may refuse difficult valid inputs.",
+    "No performance improvement, full numeric range coverage, profile or campaign closure is claimed.",
+    "Optimizing consumers conservatively terminate on nested Lambert domain/envelope refusals; those refusal kinds are not independently typed and are not reclassified by message text."
+  ],
+  "remaining": [
+    "Public exact-class Lambert-W numeric admission and its actual-extension regression execution.",
+    "Pinned formatting, compilation, lint and native/runtime regression gates.",
+    "Existing complete campaign and compatibility profile acceptance gates."
+  ],
+  "claim_effects": "No validated/certified profile, portable-proof, performance or campaign promotion; current broad Beads remain open or in progress.",
+  "integration_parent": "88284a49b76cef003162af9b64f7f35c79862359"
+}
