@@ -1457,9 +1457,59 @@ fn eval_extremum(name: &str, args: &[Expr]) -> Option<Expr> {
     Some(rational_expr(pick))
 }
 
+fn lambert_branch_point(arg: &Expr) -> bool {
+    let Expr::Mul(factors) = arg else {
+        return false;
+    };
+    if factors.len() != 2 {
+        return false;
+    }
+    let inverse_e = |value: &Expr| match value {
+        Expr::Function(name, args) if name == "exp" => {
+            matches!(args.as_slice(), [Expr::Integer(k)] if *k == BigInt::from(-1))
+        }
+        Expr::Pow(base, exponent) => {
+            matches!(base.as_ref(), Expr::Const(Constant::E))
+                && matches!(exponent.as_ref(), Expr::Integer(k) if *k == BigInt::from(-1))
+        }
+        _ => false,
+    };
+    factors.iter().enumerate().any(|(index, factor)| {
+        matches!(factor, Expr::Integer(k) if *k == BigInt::from(-1))
+            && inverse_e(&factors[1 - index])
+    })
+}
+
+fn eval_lambert(arg: &Expr, branch: i64) -> Option<Expr> {
+    if arg.is_zero() {
+        return Some(if branch == 0 {
+            Expr::from_i64(0)
+        } else {
+            Expr::Const(Constant::NegativeInfinity)
+        });
+    }
+    if lambert_branch_point(arg) {
+        return Some(Expr::from_i64(-1));
+    }
+    if branch == 0 && matches!(arg, Expr::Const(Constant::E)) {
+        return Some(Expr::from_i64(1));
+    }
+    None
+}
+
 /// Automatic evaluation of `name(args)`; `None` keeps the application.
 pub fn eval_function(name: &str, args: &[Expr]) -> Option<Expr> {
     match (name, args) {
+        ("LambertW", [arg]) => return eval_lambert(arg, 0),
+        ("LambertW", [arg, Expr::Integer(branch)]) if branch.is_zero() => {
+            return Some(
+                eval_lambert(arg, 0)
+                    .unwrap_or_else(|| Expr::Function("LambertW".into(), vec![arg.clone()])),
+            );
+        }
+        ("LambertW", [arg, Expr::Integer(branch)]) if *branch == BigInt::from(-1) => {
+            return eval_lambert(arg, -1);
+        }
         ("atan2", [y, x]) => return eval_atan2(y, x),
         ("Mod", [p, qq]) => return eval_mod(p, qq),
         ("Max" | "Min", _) if !args.is_empty() => return eval_extremum(name, args),
@@ -1489,15 +1539,6 @@ pub fn eval_function(name: &str, args: &[Expr]) -> Option<Expr> {
         "log" | "ln" => eval_log(arg),
         "Abs" => eval_abs(arg),
         "zeta" => eval_zeta(arg),
-        "LambertW" => {
-            if arg.is_zero() {
-                Some(Expr::from_i64(0))
-            } else if matches!(arg, Expr::Const(Constant::E)) {
-                Some(Expr::from_i64(1))
-            } else {
-                None
-            }
-        }
         "factorial" => match arg {
             Expr::Integer(n) if !n.is_negative() && *n <= BigInt::from(1000) => {
                 let mut acc = BigInt::from(1);

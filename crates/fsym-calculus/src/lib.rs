@@ -676,8 +676,10 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 ]);
                 let exp_neg_u_sq = Expr::Function("exp".to_string(), vec![neg_u_sq]);
                 Expr::Mul(vec![Expr::from_i64(-2), inv_sqrt_pi, exp_neg_u_sq, du])
-            } else if name == "LambertW" && args.len() == 1 {
-                // W'(u) = W(u) / (u * (1 + W(u))) * u'
+            } else if name == "LambertW" && matches!(args.as_slice(), [_] | [_, Expr::Integer(_)]) {
+                // Each fixed integer branch satisfies W*exp(W)=u on its
+                // smooth domain. Keep the original branch in the derivative.
+                // A varying symbolic branch is outside this rule.
                 let u = &args[0];
                 let du = diff(u, var);
                 let w = expr.clone();
