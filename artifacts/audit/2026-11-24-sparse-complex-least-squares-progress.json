@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-24",
+  "base_commit": "b1200d35b27fb7b9f98944dd3124dbc2012249b5",
+  "bead": "fra-kfo",
+  "status": "implemented_execution_pending",
+  "scope": [
+    "Sparse built-in Gaussian-rational pseudoinverses with all four independently checked Hermitian Penrose identities",
+    "Sparse complex unique least squares and complete minimum-norm-plus-kernel families",
+    "Original-source admission, matrix class promotion, retained parameter identity, cumulative request budgets and cancellation"
+  ],
+  "bounds": "Complex sources are admitted within 32 rows and columns before conversion to the existing dense Gaussian checker. The literal-rational sparse algorithms retain their prior bounds.",
+  "validation": {
+    "python_bytecode": "Passed for all three changed source files and the new regression module",
+    "whitespace": "git diff --check passed on the source changes",
+    "independent_source_review": "Completed by critical_gap_review and root; no blocking issue found",
+    "isolated_sympy_1_14_0": {
+      "passed": 56,
+      "skipped_native_contracts": 49,
+      "scope": "Ordinary PINV identities, complete families, classes and shapes; not execution of the candidate extension"
+    },
+    "actual_extension": "Pending the full pinned extension build at this commit"
+  },
+  "compatibility_distinctions": [
+    "Hermitian CH/LDL corrects the pinned upstream sparse transpose-only result for complex sources; no parity claim for that correction",
+    "Sparse method=PINV is a local extension for complete least-squares families"
+  ],
+  "claims": "No workstream, profile, performance, campaign or certification gate is closed or promoted. No sparse scaling claim applies to the bounded complex lane."
+}

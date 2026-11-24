@@ -1941,8 +1941,8 @@ assert X == Matrix([[Rational(4, 3)], [Rational(7, 3)]])
 
 The public default is `method="LDL"`; `"CH"` uses the same checked exact
 rational lane. Full column rank is required even for an empty right-hand side.
-Underdetermined or rank-deficient systems, unsupported methods and nonrational
-entries refuse explicitly. Mutable sparse coefficients preserve the RHS matrix
+Underdetermined or rank-deficient systems and unsupported methods refuse
+explicitly in this unique-solution lane. Mutable sparse coefficients preserve the RHS matrix
 class; immutable sparse coefficients return an immutable sparse result.
 Sparse fill, coefficient growth, cumulative work and allocation limits remain
 enforced through generation and verification.
@@ -1953,6 +1953,45 @@ RHS and source-bound rank evidence, or use separate
 `verify_sparse_least_squares_candidate` calls with separate meters. The combined
 least-squares result is immutable in-process evidence; its rank witness uses
 the existing portable RREF checker.
+
+### Sparse complex pseudoinverses and least-squares families
+
+Sparse matrices with exact Gaussian-rational entries also support `pinv()`,
+`pinv_solve()` and `solve_least_squares()`. These operations admit the complete
+original sources before using the existing bounded complex matrix checker.
+That lane supports at most 32 rows and columns and converts admitted sparse
+inputs to a dense native view; it makes no large-sparse scaling claim. Literal
+rational sources retain the separate sparse algorithms described above.
+
+```python
+from sympy import I, Matrix, Rational, SparseMatrix, zeros
+
+A = SparseMatrix([[1], [2*I]])
+X = A.solve_least_squares(Matrix([1, 0]))
+assert X == Matrix([[Rational(1, 5)]])
+assert A.H * (A * X - Matrix([1, 0])) == zeros(1, 1)
+
+B = SparseMatrix([[1, I]])
+assert B.pinv() == SparseMatrix([[Rational(1, 2)], [-I/2]])
+minimum = B.pinv_solve(Matrix([1]), zeros(2, 1))
+assert minimum == Matrix([[Rational(1, 2)], [-I/2]])
+family = B.pinv_solve(Matrix([1]))  # minimum + checked kernel projector * W
+```
+
+The native checker verifies all four Hermitian Penrose identities for a
+pseudoinverse. Complete least-squares families retain the independently checked
+minimum-norm particular and full kernel projector, including deficient-rank
+systems. Omitting the parameter matrix creates fresh typed parameters; an exact
+zero parameter matrix selects the minimum-norm result. Complex `pinv()` retains
+the original sparse class, and family results follow the existing matrix-class
+promotion rules.
+
+For complex coefficients, `CH` and `LDL` use Hermitian normal equations. This
+corrects the pinned upstream sparse transpose-only result on cases such as the
+first example; that deliberate mathematical correction is not an upstream
+compatibility claim. `method="PINV"` exposes the complete family as a local
+extension. Original hidden poles, changed sources, unsupported scalar hooks,
+budget exhaustion and cancellation refuse without publishing a result.
 
 ### Exact complex row reduction and affine systems
 

@@ -180,6 +180,13 @@ def pinv_solve(matrix, rhs, arbitrary_matrix=None):
     accepted = (_s.Matrix, _s.ImmutableDenseMatrix, _s.SparseMatrix, _s.ImmutableSparseMatrix)
     if not any(type(rhs) is cls for cls in accepted):
         raise TypeError("pinv_solve requires a built-in Matrix right-hand side")
+    from . import _pseudoinverse as _exact
+
+    if _exact._needs_gaussian(matrix) or _exact._needs_gaussian(rhs):
+        # This syntax decision precedes either algorithm. The complex lane
+        # admits each original source within 32 axes before its dense copy;
+        # admitted failures never fall back or restart the caller's budget.
+        return _exact.pinv_solve(matrix, rhs, arbitrary_matrix)
     dense_rhs = type(rhs) is _s.Matrix or type(rhs) is _s.ImmutableDenseMatrix
     left = _s._rational_source_snapshot(matrix, context="sparse least-squares family")
     right = _s._rational_source_snapshot(rhs, dense=dense_rhs, context="sparse least-squares family")
@@ -218,7 +225,7 @@ def pinv_solve(matrix, rhs, arbitrary_matrix=None):
 def _render_family(minimum, projector, shape, result_type, supplied, unchanged):
     """Render an accepted family while retaining every original parameter owner.
 
-    Dense Q(i) and sparse QQ generators share this bounded publication path.
+    Bounded Q(i) and sparse QQ generators share this publication path.
     The matrices supplied here are already checked; this layer preserves the
     public parameter forest and rechecks sources before returning the result.
     """

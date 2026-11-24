@@ -1,10 +1,11 @@
-"""Source-bound exact dense linear systems and pseudoinverses over Q(i).
+"""Source-bound exact linear systems and pseudoinverses over Q(i).
 
 The complex lanes share the original Gaussian scalar admission used by matrix
 definiteness. Native results are checked against the original complex sources,
 using Hermitian identities rather than a transpose-only normal equation.
 The bounded complex lanes and active callback requests support at most 32 rows
-and columns. Ordinary literal-rational calls retain their existing bounds.
+and columns. Sparse complex sources enter a bounded dense native view only
+after admission. Ordinary literal-rational calls retain their existing bounds.
 """
 
 from ..core import _active_callback_session, _charge_nested_if_active
@@ -29,7 +30,7 @@ _SPARSE_METHODS = tuple(_source._DICT.__get__(_SPARSE_NATIVE)[name] for name in 
 def _interfaces(operation, context, base):
     _source._interfaces()
     namespace = _source._DICT.__get__(_NATIVE)
-    required = ((0, 1, 2, operation, 6) if operation in (5, 7, 11, 12, 13, 14, 15, 17, 18, 19)
+    required = ((0, 1, 2, operation, 6) if operation in (3, 4, 5, 7, 11, 12, 13, 14, 15, 17, 18, 19)
                 else (0, 1, 2, operation))
     if operation in (8, 11, 12, 13, 16, 17, 18):
         required += (9,)
@@ -264,13 +265,38 @@ def pseudoinverse(matrix):
     return _publish(inverse, (columns, rows), type(matrix), unchanged, "pseudoinverse")
 
 
+def sparse_pseudoinverse(matrix, method):
+    """Publish a checked Q(i) inverse while preserving the sparse class.
+
+    Literal rational inputs keep the separate sparse rank-decomposition lane.
+    This extension preflights all original complex cells before conversion;
+    the native checker establishes all four Hermitian Penrose identities.
+    """
+    from ._row_reduction import _publish as publish_matrix
+
+    if type(method) is not str:
+        raise ValueError("invalid pinv method")
+    if method == "ED":
+        raise NotImplementedError("sparse pseudoinverse currently supports the RD method")
+    if method != "RD":
+        raise ValueError(f"invalid pinv method {method!r}")
+    session = _active_callback_session()
+    context = "sparse complex pseudoinverse"
+    native, (rows, columns), unchanged = _capture(
+        matrix, session, 3, context, allow_sparse=True, force_gaussian=True)
+    unchanged()
+    inverse = _METHODS[3](native, session=session)
+    unchanged()
+    return publish_matrix(inverse, (columns, rows), type(matrix), unchanged, context)
+
+
 def solve_least_squares(matrix, rhs):
     """Return the unique Hermitian least-squares solution for original A/B."""
     _charge_nested_if_active()
     session = _active_callback_session()
     gaussian = session is not None or _needs_gaussian(matrix) or _needs_gaussian(rhs)
     left, (_, columns), left_unchanged = _capture(
-        matrix, session, 4, "least squares", force_gaussian=gaussian)
+        matrix, session, 4, "least squares", allow_sparse=True, force_gaussian=gaussian)
     right, (_, rhs_columns), right_unchanged = _capture(
         rhs, session, 4, "least squares", allow_sparse=True, force_gaussian=gaussian)
 
@@ -281,6 +307,13 @@ def solve_least_squares(matrix, rhs):
     unchanged()
     solution = _METHODS[4](left, right, session=session)
     unchanged()
+    if any(type(matrix) is cls for cls in _SPARSE_CLASSES):
+        from ._row_reduction import _publish as publish_matrix
+
+        result_class = (_source.ImmutableSparseMatrix
+                        if type(matrix) is _source.ImmutableSparseMatrix else type(rhs))
+        return publish_matrix(solution, (columns, rhs_columns), result_class,
+                              unchanged, "least squares")
     return _publish(solution, (columns, rhs_columns), type(matrix), unchanged, "least squares")
 
 
@@ -410,7 +443,7 @@ def pinv_solve(matrix, rhs, arbitrary_matrix=None):
     """
     from ._sparse_family import _ParameterMatrix, _render_family
 
-    if not any(type(matrix) is cls for cls in _CLASSES):
+    if not any(type(matrix) is cls for cls in _CLASSES + _SPARSE_CLASSES):
         raise NotImplementedError("custom matrix subclasses require a supervised override lane")
     if not any(type(rhs) is cls for cls in _CLASSES + _SPARSE_CLASSES):
         raise TypeError("pinv_solve requires a built-in Matrix right-hand side")
@@ -418,9 +451,10 @@ def pinv_solve(matrix, rhs, arbitrary_matrix=None):
     session = _active_callback_session()
     context = "least-squares family"
     # The entire family lane, including literal rational sources, has the same
-    # 32-axis bound. Admit both originals before sparse conversion or solving.
+    # 32-axis bound. Admit each original before its sparse conversion, then
+    # retain both snapshots through solving and publication.
     left, (rows, columns), left_unchanged = _capture(
-        matrix, session, 5, context, force_gaussian=True)
+        matrix, session, 5, context, allow_sparse=True, force_gaussian=True)
     right, (rhs_rows, rhs_columns), right_unchanged = _capture(
         rhs, session, 5, context, allow_sparse=True, force_gaussian=True)
     if rows != rhs_rows:

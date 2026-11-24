@@ -1224,13 +1224,15 @@ class SparseMatrix(MatrixBase):
         return result
 
     def solve_least_squares(self, rhs, method="LDL"):
-        """Minimize exact rational residuals without dense coefficient storage.
+        """Minimize exact residuals, using Hermitian products for complex data.
 
         LDL and CH use the checked rational normal-equation lane and require
         full column rank. They preserve the RHS class for mutable coefficients
         and return immutable sparse results for immutable coefficients. PINV
         returns the complete checked family, including deficient rank, using
-        pinv_solve's fresh parameters and pinned class promotion.
+        pinv_solve's fresh parameters and pinned class promotion. Rational
+        coefficient storage stays sparse. Exact Q(i) inputs use the bounded
+        32-axis dense checker after original-source admission.
         """
         if type(method) is not str:
             raise TypeError("least-squares method must be a string")
@@ -1243,6 +1245,10 @@ class SparseMatrix(MatrixBase):
         rhs_sparse = any(type(rhs) is cls for cls in (SparseMatrix, ImmutableSparseMatrix))
         if not rhs_sparse and not any(type(rhs) is cls for cls in (Matrix, ImmutableDenseMatrix)):
             raise TypeError("solve_least_squares requires a built-in Matrix right-hand side")
+        from . import _pseudoinverse as _exact
+
+        if _exact._needs_gaussian(self) or _exact._needs_gaussian(rhs):
+            return _exact.solve_least_squares(self, rhs)
         left = _rational_source_snapshot(self, context="sparse least squares")
         right = _rational_source_snapshot(rhs, dense=not rhs_sparse, context="sparse least squares")
         if left is None or right is None:
@@ -1279,16 +1285,22 @@ class SparseMatrix(MatrixBase):
         return _checked_gauss_jordan_solve(self, B, freevar)
 
     def pinv(self, method="RD"):
-        """Return the checked exact-rational Moore-Penrose pseudoinverse.
+        """Return a checked exact Moore-Penrose pseudoinverse.
 
-        Sparse rank decomposition and all four independent Penrose checks
-        support singular and rectangular matrices without dense coefficient
-        storage. As in the pinned profile, RD returns a mutable dense result
-        for a nonzero mutable sparse matrix, and an immutable sparse result
-        for immutable input. A zero matrix retains its sparse class.
+        Rational sparse rank decomposition and four independent Penrose
+        checks support singular and rectangular matrices without dense
+        coefficient storage. RD returns a mutable dense result for a nonzero
+        mutable rational matrix and an immutable sparse result for immutable
+        input. A zero matrix retains its sparse class. Exact
+        Q(i) inputs use a bounded 32-axis dense checker and retain their
+        original sparse class; no sparse scaling claim applies to that lane.
         """
         if not any(type(self) is cls for cls in (SparseMatrix, ImmutableSparseMatrix)):
             raise NotImplementedError("custom matrix subclasses require a supervised override lane")
+        from . import _pseudoinverse as _exact
+
+        if _exact._needs_gaussian(self):
+            return _exact.sparse_pseudoinverse(self, method)
         captured = _rational_source_snapshot(self, context="sparse pseudoinverse")
         if captured is None:
             raise ValueError("sparse pseudoinverse supports exact rational entries only")
@@ -1317,7 +1329,7 @@ class SparseMatrix(MatrixBase):
         return result
 
     def pinv_solve(self, B, arbitrary_matrix=None):
-        """Return every exact-rational least-squares minimizer as X0 + N*W.
+        """Return every exact least-squares minimizer as X0 + N*W.
 
         The minimum-norm particular and full kernel projector are checked
         independently against the original sparse A and B. A zero supplied W
@@ -1325,7 +1337,9 @@ class SparseMatrix(MatrixBase):
         follow the pinned transposed-grid ordering. All four built-in dense
         and sparse RHS/parameter classes are supported with pinned promotion.
 
-        Coefficients and proof products stay sparse within the native bounds.
+        Rational coefficients and proof products stay sparse within the native
+        bounds. Exact Q(i) inputs enter a bounded dense checker through 32 axes
+        after each original source has been admitted.
         Parameter forests admit at most 4096 nodes and depth 64, and projection
         admits at most one million stored scalar products. Undefined original
         parameters are rejected even when the projector would erase them.
