@@ -52,6 +52,7 @@ pub use parametric_cover::*;
 mod parametric_sensitivity;
 pub use parametric_sensitivity::*;
 
+mod lambert;
 mod lipschitz;
 mod piecewise;
 
@@ -1418,6 +1419,12 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
                         gradient.push(self.add(&y_term, &x_term)?);
                     }
                     return Jet { value, gradient }.checked();
+                }
+                if name == "LambertW" {
+                    let (argument, branch) = lambert::argument(args)?;
+                    let a = self.eval(argument, variables, domain, depth + 1)?;
+                    let (value, slope) = self.lambert_w(&a.value, branch)?;
+                    return self.chain(a, value, slope);
                 }
                 let [arg] = args.as_slice() else {
                     return Err(RootBoxError::Unsupported("non-unary function"));

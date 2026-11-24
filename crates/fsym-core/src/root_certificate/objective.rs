@@ -411,6 +411,13 @@ fn evaluate_inner(
                 let x = evaluate_inner(x, variables, domain, depth + 1, work)?;
                 return atan2_jet(y, x, work);
             }
+            if name == "LambertW" {
+                let (argument, branch) = lambert::argument(arguments)?;
+                let argument = evaluate_inner(argument, variables, domain, depth + 1, work)?;
+                let (value, slope) = work.lambert_w(&argument.value, branch)?;
+                let curvature = work.lambert_w_curvature(&value, &slope)?;
+                return chain_jet(argument, value, slope, curvature, work);
+            }
             let [argument] = arguments.as_slice() else {
                 return Err(RootBoxError::Unsupported("non-unary objective function"));
             };

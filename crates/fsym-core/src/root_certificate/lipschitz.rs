@@ -234,6 +234,12 @@ fn evaluate_inner(
                 }
                 return LipschitzEnclosure { value, slopes }.checked();
             }
+            if name == "LambertW" {
+                let (argument, branch) = super::lambert::argument(arguments)?;
+                let argument = evaluate_inner(argument, variables, domain, depth + 1, work)?;
+                let (value, slope) = work.lambert_w(&argument.value, branch)?;
+                return chain(argument, value, slope, work);
+            }
             let [argument] = arguments.as_slice() else {
                 return Err(RootBoxError::Unsupported("non-unary function"));
             };

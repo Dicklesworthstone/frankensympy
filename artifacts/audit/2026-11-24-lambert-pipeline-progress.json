@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-24",
+  "base_commit": "7f4abb632cf8fe53ec6f06bd28e1d22644c4f64a",
+  "scope": "Connect the existing real Lambert-W kernel to the compiled and independently certified Jacobian/objective pipeline.",
+  "beads": [
+    "fra-campaign-jacobian-bundle-ukp",
+    "fra-7kf"
+  ],
+  "implemented": [
+    "Original-source C1 residual/Jacobian enclosures for the fixed real branches 0 and -1",
+    "Original-source C2 objective/gradient/Hessian enclosures, with exact analytic W0 zero jets",
+    "The same smooth primitive in the independent Lipschitz evaluator used by integral and scalar bracket checks",
+    "Atomic nested charging preserves both caller budgets and the source checker's intrinsic cumulative work/allocation limits"
+  ],
+  "validation": {
+    "pinned_toolchain": "nightly-2026-08-20",
+    "core_test_binary_compilation": "passed",
+    "changed_core_rustfmt_check": "passed",
+    "diff_whitespace_check": "passed",
+    "executed_core_tests": {
+      "passed": 3,
+      "names": [
+        "principal_zero_has_exact_analytic_value_gradient_and_curvature",
+        "multivariate_composition_retains_inner_hessian_and_mixed_terms",
+        "branches_are_fixed_literal_real_indices_and_malformed_calls_fail_closed"
+      ]
+    },
+    "full_new_core_suite": "running at this checkpoint; no completed suite result claimed",
+    "core_meter_unit_tests": "pending",
+    "independent_source_review": "completed by architecture_triage; no blocking mathematical or atomic-accounting defect found",
+    "workspace_check": "pending",
+    "workspace_clippy": "pending",
+    "workspace_tests": "pending",
+    "actual_python_extension": "pending",
+    "environment": "Execution repeatedly disconnected and the shared workspace exhausted its disk. Source was preserved as GitHub blobs; local execution recovered long enough for the recorded compilation and tests."
+  },
+  "todo": [
+    {
+      "item": "Read comprehensive plan, constitution, architecture registries and authoritative Beads",
+      "status": "done"
+    },
+    {
+      "item": "Identify a feature integration that advances the existing Jacobian campaign",
+      "status": "done"
+    },
+    {
+      "item": "Preserve literal real branch identities and original child-domain checks",
+      "status": "done"
+    },
+    {
+      "item": "Implement independent first- and second-order interval rules",
+      "status": "done"
+    },
+    {
+      "item": "Preserve intrinsic and caller budget accounting through inverse evaluation",
+      "status": "done"
+    },
+    {
+      "item": "Add native branch, chain, domain, witness and cancellation regressions",
+      "status": "done"
+    },
+    {
+      "item": "Execute all new core integration and adapter tests",
+      "status": "in_progress"
+    },
+    {
+      "item": "Add compiled real branch operations, stable numeric derivatives and independent source replay",
+      "status": "in_progress"
+    },
+    {
+      "item": "Connect exact public Python constructors and native-only numeric admission",
+      "status": "in_progress"
+    },
+    {
+      "item": "Execute compiled and public API regressions, including transport mutations",
+      "status": "pending"
+    },
+    {
+      "item": "Run applicable workspace checks and report concrete environment limits",
+      "status": "pending"
+    },
+    {
+      "item": "Keep broad campaign/profile Beads open until their full named gates pass",
+      "status": "ongoing"
+    }
+  ],
+  "claim_effects": "No validated/certified profile, performance, portable-proof or complete-campaign promotion. C1/C2 bounds concern only the admitted whole real argument interval; finite or smooth-inconclusive inputs may refuse."
+}
