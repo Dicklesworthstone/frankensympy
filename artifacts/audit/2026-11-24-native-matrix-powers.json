@@ -1,0 +1,45 @@
+{
+  "date": "2026-11-24",
+  "base_commit": "7f8a8648236cf1cc2fc732056509ad98b5b2c70a",
+  "workstream": "WS10 exact dense/sparse linear algebra",
+  "feature": "Independently checked native integer matrix powers over Q(i)",
+  "implementation": [
+    "One Gaussian Work ledger covers original-source admission, checked inversion for negative exponents, generation, independent replay and final publication.",
+    "Right-to-left binary exponentiation with outer-product multiplication proposes the result; left-to-right exponentiation with the existing dot-product multiplication independently checks it.",
+    "Negative powers additionally recheck both inverse identities against freshly read original expressions.",
+    "Original expressions are admitted even at exponent zero; undefined held children cannot disappear behind the identity result.",
+    "The native API and supervised PyO3 bridge support the full signed i64 range subject to the existing Gaussian resource envelope."
+  ],
+  "limits": {
+    "maximum_axis": 32,
+    "input_output_component_bits": 4096,
+    "intermediate_component_bits": 8192,
+    "cumulative_steps": 20000000,
+    "cumulative_logical_bytes": 268435456
+  },
+  "validation": {
+    "command": "cargo test --locked --offline -p fsym-matrices --lib pseudoinverse::gaussian::power::tests -- --nocapture",
+    "native_tests_passed": 10,
+    "toolchain": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19), Cargo 1.100.0-nightly (514c56dd7)",
+    "dependency_changes": false,
+    "log": "artifacts/audit/2026-11-24-matrix-power-native.log",
+    "log_sha256": "87b5b301781b8c4393b7849a380fdde7d7a0f8cccb3aaff46708d6b06cffebf5",
+    "cases": [
+      "signed i64 extrema",
+      "Gaussian Jordan and distinct-eigenvalue triangular closed forms",
+      "period-four rational rotations",
+      "empty, rectangular and singular sources",
+      "held poles and unsupported original children at exponent zero",
+      "source, output and intermediate growth limits",
+      "corrupted power and inverse candidates",
+      "fresh original-source and candidate interpretation",
+      "cumulative compute, memory and allocation limits",
+      "generation, checker and final-publication cancellation"
+    ]
+  },
+  "scope": [
+    "This commit adds the native implementation and PyO3 bridge. Public dense/sparse Python routing and compatibility tests are a following increment.",
+    "No portable matrix-power certificate or scalable sparse-power algorithm is claimed.",
+    "The public extension runtime and Python feature tests have not yet run for this change; no bead or compatibility status is promoted."
+  ]
+}

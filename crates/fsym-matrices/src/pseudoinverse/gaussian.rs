@@ -27,6 +27,7 @@ mod ldl;
 pub use ldl::{GaussianCholeskyCandidate, GaussianLdlCandidate};
 mod rref;
 pub use rref::{GaussianAffineCandidate, GaussianRrefCandidate, VerifiedGaussianAffineSolution};
+mod power;
 
 use crate::{Matrix, MatrixError, SparseMatrix, generate_sparse_pseudoinverse_candidate};
 use fsym_budget::{BudgetError, BudgetMeter, Dimension, MeterError};

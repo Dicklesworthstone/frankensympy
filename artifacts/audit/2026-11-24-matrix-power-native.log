@@ -1,0 +1,84 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling syn v3.0.3
+   Compiling serde_core v1.0.229
+   Compiling autocfg v1.5.1
+   Compiling num-traits v0.2.19
+   Compiling cfg-if v1.0.4
+   Compiling serde v1.0.229
+   Compiling serde_derive v1.0.229
+   Compiling num-integer v0.1.47
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.11
+   Compiling cc v1.4.4
+   Compiling num-bigint v0.4.8
+   Compiling fsym-budget v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-budget)
+   Compiling zmij v1.0.23
+   Compiling libc v0.2.189
+   Compiling fsym-bigint v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-bigint)
+   Compiling blake3 v1.8.7
+   Compiling serde_json v1.0.151
+   Compiling thiserror v2.0.20
+   Compiling fsym-modular v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-modular)
+   Compiling num-rational v0.4.2
+   Compiling thiserror-impl v2.0.20
+   Compiling memchr v2.8.3
+   Compiling cpufeatures v0.3.0
+   Compiling constant_time_eq v0.4.2
+   Compiling itoa v1.0.18
+   Compiling arrayvec v0.7.8
+   Compiling fsym-rational v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-rational)
+   Compiling fsym-id v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-id)
+   Compiling num-complex v0.4.6
+   Compiling fsym-outcome v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-outcome)
+   Compiling fsym-core v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-core)
+   Compiling getrandom v0.3.4
+   Compiling fsym-assumptions v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-assumptions)
+   Compiling fsym-proof-kernel v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-proof-kernel)
+   Compiling getrandom v0.4.3
+   Compiling rustix v1.1.4
+   Compiling zerocopy v0.8.56
+   Compiling rand_core v0.9.5
+   Compiling fsym-evidence v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-evidence)
+   Compiling bitflags v2.13.1
+   Compiling linux-raw-sys v0.12.1
+   Compiling fsym-polys v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-polys)
+   Compiling fastrand v2.5.0
+   Compiling once_cell v1.21.4
+   Compiling tempfile v3.27.0
+   Compiling ppv-lite86 v0.2.21
+   Compiling fsym-simplify v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-simplify)
+   Compiling wait-timeout v0.2.1
+   Compiling quick-error v1.2.3
+   Compiling fnv v1.0.7
+   Compiling bit-vec v0.8.0
+   Compiling bit-set v0.8.0
+   Compiling rusty-fork v0.3.1
+   Compiling fsym-calculus v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-calculus)
+   Compiling rand_chacha v0.9.0
+   Compiling rand_xorshift v0.4.0
+   Compiling rand v0.9.5
+   Compiling fsym-sets v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-sets)
+   Compiling regex-syntax v0.8.11
+   Compiling unarray v0.1.4
+   Compiling proptest v1.11.0
+   Compiling fsym-solvers v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-solvers)
+   Compiling fsym-matrices v0.1.0 (/tmp/frankensympy-continue5-71f712/crates/fsym-matrices)
+    Finished `test` profile [unoptimized] target(s) in 1m 58s
+     Running unittests src/lib.rs (/tmp/frankensympy-native-71f712/target/debug/build/fsym-matrices/c41ae830772b2e61/out/fsym_matrices-c41ae830772b2e61)
+
+running 10 tests
+test pseudoinverse::gaussian::power::tests::checker_reinterprets_source_and_every_candidate_expression ... ok
+test pseudoinverse::gaussian::power::tests::original_poles_and_unsupported_children_survive_zero_exponent ... ok
+test pseudoinverse::gaussian::power::tests::empty_singular_and_rectangular_shapes_have_exact_semantics ... ok
+test pseudoinverse::gaussian::power::tests::independent_checker_rejects_wrong_power_shape_and_inverse ... ok
+test pseudoinverse::gaussian::power::tests::source_output_and_intermediate_growth_are_bounded ... ok
+test pseudoinverse::gaussian::power::tests::cancellation_stops_generation_checking_and_final_publication ... ok
+test pseudoinverse::gaussian::power::tests::distinct_eigenvalue_triangular_powers_match_closed_form ... ok
+test pseudoinverse::gaussian::power::tests::both_passes_inverse_and_publication_share_cumulative_limits ... ok
+test pseudoinverse::gaussian::power::tests::rational_rotation_has_period_four_for_signed_powers ... ok
+test pseudoinverse::gaussian::power::tests::gaussian_jordan_block_obeys_binomial_identity_for_full_exponent_range ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 64 filtered out; finished in 0.66s
+

@@ -1196,6 +1196,35 @@ impl PyMatrix {
         })
     }
 
+    /// Independently checked integer power over bounded exact Q(i).
+    /// Source admission, negative-power inversion, both power passes and
+    /// publication retain the same active request and its terminal state.
+    #[pyo3(signature = (exponent, *, session=None))]
+    pub fn gaussian_power(
+        &self,
+        py: Python<'_>,
+        exponent: i64,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<Self> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = (|| {
+            meter.checkpoint().map_err(to_value_error)?;
+            let power = self
+                .inner
+                .metered_gaussian_power(exponent, &mut meter)
+                .map_err(matrix_err)?;
+            meter
+                .charge(Dimension::ComputeSteps, 1)
+                .map_err(to_value_error)?;
+            meter.checkpoint().map_err(to_value_error)?;
+            Ok(Self { inner: power })
+        })();
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
+    }
+
     /// Bound the closed Q(i) syntax before choosing an inverse lane.
     /// False selects the existing symbolic path before any exact algorithm;
     /// admission, budget and cancellation errors are never converted to false.
