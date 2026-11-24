@@ -462,3 +462,165 @@ fn optimization_checkpoint_transport_keeps_operational_leaf_errors() {
         }
     });
 }
+
+#[test]
+fn integral_proposal_cannot_refresh_the_ledger_for_independent_acceptance() {
+    use fsym_calculus::quadrature::{QuadratureOptions, propose_integral_enclosure};
+    use fsym_core::verify_integral_enclosure;
+
+    Python::initialize();
+    Python::attach(|py| {
+        let variable = Symbol::new("integral_budget_phases_x");
+        let source = Expr::Sym(variable.clone());
+        let (lower, upper, tolerance) = (rational(0, 1), rational(1, 1), rational(1, 1000));
+        let measured = python_budget(py, AMPLE);
+        let measured_budget = measured.extract::<PyRef<'_, PyEvaluationBudget>>().unwrap();
+        let witness = with_certification_meter(py, Some(&measured_budget), |meter| {
+            propose_integral_enclosure(
+                &source,
+                &variable,
+                &lower,
+                &upper,
+                &tolerance,
+                QuadratureOptions::default(),
+                meter,
+            )
+        })
+        .unwrap();
+        let after_proposal = remaining(&measured);
+        let proposal_steps = AMPLE[0] - after_proposal[0];
+        let receipt = with_certification_meter(py, Some(&measured_budget), |meter| {
+            verify_integral_enclosure(
+                &source, &variable, &lower, &upper, &tolerance, &witness, meter,
+            )
+        })
+        .unwrap();
+        assert_eq!(receipt.enclosure(), &RealBall::exact(rational(1, 2)));
+        assert!(
+            remaining(&measured)
+                .iter()
+                .zip(after_proposal)
+                .all(|(left, before)| *left < before)
+        );
+
+        // Enough fuel to finish the real generator, but none for verification.
+        // A fresh per-phase fallback would incorrectly publish an acceptance.
+        let shared = python_budget(py, [proposal_steps, AMPLE[1], AMPLE[2]]);
+        let budget = shared.extract::<PyRef<'_, PyEvaluationBudget>>().unwrap();
+        let candidate = with_certification_meter(py, Some(&budget), |meter| {
+            propose_integral_enclosure(
+                &source,
+                &variable,
+                &lower,
+                &upper,
+                &tolerance,
+                QuadratureOptions::default(),
+                meter,
+            )
+        })
+        .unwrap();
+        assert_eq!(candidate, witness);
+        let before_verifier = remaining(&shared);
+        assert_eq!(before_verifier[0], 0);
+        let exhausted = with_certification_meter(py, Some(&budget), |meter| {
+            verify_integral_enclosure(
+                &source, &variable, &lower, &upper, &tolerance, &candidate, meter,
+            )
+        })
+        .unwrap_err();
+        assert!(exhausted.is_instance_of::<EvaluationBudgetExceeded>(py));
+        assert!(!exhausted.is_instance_of::<PyValueError>(py));
+        assert_eq!(remaining(&shared), before_verifier);
+    });
+}
+
+#[test]
+fn cancellation_after_integral_verification_prevents_publication() {
+    use fsym_calculus::quadrature::{QuadratureOptions, propose_integral_enclosure};
+    use fsym_core::verify_integral_enclosure;
+
+    Python::initialize();
+    Python::attach(|py| {
+        let variable = Symbol::new("integral_budget_publication_x");
+        let source = Expr::Sym(variable.clone());
+        let (lower, upper, tolerance) = (rational(0, 1), rational(1, 1), rational(1, 1000));
+        let instance = python_budget(py, AMPLE);
+        let budget = instance.extract::<PyRef<'_, PyEvaluationBudget>>().unwrap();
+        let ledger: &PyEvaluationBudget = &budget;
+        let witness = with_certification_meter(py, Some(ledger), |meter| {
+            propose_integral_enclosure(
+                &source,
+                &variable,
+                &lower,
+                &upper,
+                &tolerance,
+                QuadratureOptions::default(),
+                meter,
+            )
+        })
+        .unwrap();
+        let before_verification = remaining(&instance);
+        let completed = AtomicBool::new(false);
+        let cancelled = with_certification_meter(py, Some(ledger), |meter| {
+            let receipt = verify_integral_enclosure(
+                &source, &variable, &lower, &upper, &tolerance, &witness, meter,
+            )?;
+            assert_eq!(receipt.enclosure(), &RealBall::exact(rational(1, 2)));
+            completed.store(true, Ordering::Release);
+            ledger.cancel();
+            Ok::<_, QuadratureError>(receipt)
+        })
+        .unwrap_err();
+        assert!(completed.load(Ordering::Acquire));
+        assert!(cancelled.is_instance_of::<EvaluationCancelled>(py));
+        assert!(!cancelled.is_instance_of::<PyValueError>(py));
+        assert!(
+            remaining(&instance)
+                .iter()
+                .zip(before_verification)
+                .all(|(left, before)| *left < before)
+        );
+    });
+}
+
+#[test]
+fn quadrature_operational_errors_survive_transparent_enclosure_wrappers() {
+    Python::initialize();
+    Python::attach(|py| {
+        let mut empty = Budget::new(BudgetLimits::uniform(0, 0));
+        let exhausted = empty.charge(Dimension::ComputeSteps, 1).unwrap_err();
+        for refusal in [
+            QuadratureError::ResourceLimit("interval evaluation count"),
+            QuadratureError::Enclosure(RootBoxError::ResourceLimit("cumulative arithmetic work")),
+            QuadratureError::Enclosure(RootBoxError::ResourceLimit("preflight allocation")),
+            QuadratureError::Enclosure(RootBoxError::Meter(exhausted)),
+            QuadratureError::Enclosure(RootBoxError::Ball(BallError::ResourceLimitExceeded {
+                operation: "quadrature test input height",
+                required_bits: 4097,
+                limit_bits: 4096,
+            })),
+        ] {
+            let error = evaluation_error(refusal);
+            assert!(error.is_instance_of::<EvaluationBudgetExceeded>(py));
+            assert!(!error.is_instance_of::<PyValueError>(py));
+            assert!(!error.is_instance_of::<EvaluationCancelled>(py));
+        }
+        let cancelled = evaluation_error(QuadratureError::Enclosure(RootBoxError::Meter(
+            MeterError::Cancelled,
+        )));
+        assert!(cancelled.is_instance_of::<EvaluationCancelled>(py));
+        assert!(!cancelled.is_instance_of::<PyValueError>(py));
+        let inconsistent = evaluation_error(QuadratureError::InconsistentEnclosure);
+        assert!(inconsistent.is_instance_of::<PyRuntimeError>(py));
+        assert!(!inconsistent.is_instance_of::<PyValueError>(py));
+        for refusal in [
+            QuadratureError::AccuracyNotReached,
+            QuadratureError::InvalidTolerance,
+            QuadratureError::Enclosure(RootBoxError::Domain("original endpoint pole")),
+        ] {
+            let error = evaluation_error(refusal);
+            assert!(error.is_instance_of::<PyValueError>(py));
+            assert!(!error.is_instance_of::<PyRuntimeError>(py));
+        }
+    });
+}

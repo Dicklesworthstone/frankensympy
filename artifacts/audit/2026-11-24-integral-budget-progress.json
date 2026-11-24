@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-24",
+  "base_commit": "bcf2635cecd801b03088a7410303791ea3c755f7",
+  "bead": "fra-a5x",
+  "status": "implemented_execution_pending",
+  "scope": [
+    "One cumulative Python EvaluationBudget for exact preparation, adaptive integral proposal, independent verification and publication",
+    "Detached native arithmetic permits cooperative cancellation from another Python thread",
+    "Typed budget, cancellation and inconsistent-enclosure errors preserve operational meaning"
+  ],
+  "limits": "Existing proper-real source grammar, exact-rational input bounds, 8..128 decimal digits and at most 1024 intervals remain in force. The shared Python ledger has no separately reserved verifier pool. Source capture and Python allocation overhead remain outside native-buffer accounting.",
+  "validation": {
+    "authored_python_cases": 16,
+    "authored_rust_tests": 3,
+    "rustfmt": "Passed on all three changed Rust files with pinned rustfmt 1.10.0-nightly (f7d782a3be 2026-08-19), matching nightly-2026-08-20.",
+    "python_ast": "Passed on the implementation and focused budget test module.",
+    "whitespace": "Owned-file git diff --check passed.",
+    "independent_review": "Reviewed real proposal/verifier sharing, error-source traversal, exact input admission and native Send captures across GIL release. No fresh per-phase allowance or Python reference capture found.",
+    "candidate_execution": "Not executed. Earlier pinned Cargo builds repeatedly lost the host or were SIGKILLed before the bridge compiled; this slice used static checks without repeating that destructive resource pressure.",
+    "ci": "Focused Python cases are selected by the existing actual-extension CI suite; existing Rust numeric-budget unit-test discovery includes the new cases. No remote pass is claimed."
+  },
+  "claims": "No workstream, campaign, compatibility, performance or certification gate is closed or promoted."
+}

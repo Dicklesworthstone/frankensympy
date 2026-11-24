@@ -11,9 +11,11 @@ from fractions import Fraction
 
 from ..core import Dummy, Symbol, _native, _wrap
 from ..utilities._certified_numeric import (
-    _check_assumptions, _native_number, _rational, _sequence, bound_assumptions,
+    _charge_exact_work, _check_assumptions, _native_number, _rational, _sequence,
+    bound_assumptions,
 )
-from ..utilities.lambdify import _functions, _numeric_source
+from ..utilities.lambdify import _check_evaluation_budget, _functions, _numeric_source
+from ..utilities.source_certification import _source_budget
 
 __all__ = ["certified_integral", "IntegralEnclosureReceipt"]
 
@@ -108,7 +110,7 @@ class IntegralEnclosureReceipt:
 
 
 def certified_integral(integrand, limits, *, tolerance=Fraction(1, 10000),
-                       precision=32, max_intervals=512):
+                       precision=32, max_intervals=512, budget=None):
     """Enclose a proper real integral without finding an antiderivative.
 
     ``limits`` is an exact list/tuple ``(x, a, b)`` with a Symbol or Dummy
@@ -133,17 +135,32 @@ def certified_integral(integrand, limits, *, tolerance=Fraction(1, 10000),
     Abs corner, an absolutely-continuous bound replaces curvature tightening.
 
     Refinement is deterministic and bounded at 1..1024 intervals, with
-    precision 8..128 decimal digits. Exhaustion raises ValueError and
-    publishes no partial receipt. This API is separate from symbolic
-    ``integrate`` and does not assert an improper integral or principal value.
+    precision 8..128 decimal digits. Failure to establish the requested
+    width or source domain raises ValueError and publishes no partial receipt.
+    This API is separate from symbolic ``integrate`` and does not assert an
+    improper integral or principal value.
+
+    ``budget`` accepts an EvaluationBudget shared with other numerical work.
+    Exact input preparation, native proposal and independent verification
+    consume one cumulative ledger, including failed attempts. Omitting it
+    captures one private bounded ledger for this call. Source capture and
+    Python allocation overhead are outside native-buffer accounting. Native
+    arithmetic releases the GIL, so another thread can call ``budget.cancel()``.
+    Budget exhaustion raises EvaluationBudgetExceeded; cancellation raises
+    EvaluationCancelled. Neither is a mathematical domain refusal, and both
+    prevent publication of an accepted receipt.
     """
+    budget = _source_budget(budget)
     variable, lower, upper = _sequence(limits, 3, "integration limits")
     binding = _integral_binding(variable)
     if type(precision) is not int or not 8 <= precision <= 128:
         raise ValueError("certified precision must be an integer from 8 through 128")
     if type(max_intervals) is not int or not 1 <= max_intervals <= 1024:
         raise ValueError("max_intervals must be an integer from 1 through 1024")
-    lower, upper, tolerance = _rational(lower), _rational(upper), _rational(tolerance)
+    lower, upper, tolerance = (
+        _rational(value, budget) for value in (lower, upper, tolerance)
+    )
+    _charge_exact_work(budget, lower, upper, tolerance, operations=5)
     if tolerance <= 0:
         raise ValueError("certified integral tolerance must be positive")
     assumptions = bound_assumptions([variable], [binding])
@@ -155,7 +172,9 @@ def certified_integral(integrand, limits, *, tolerance=Fraction(1, 10000),
     if inexact[0]:
         raise ValueError("certified integral source requires exact literals; replace Float with explicit Rational")
     native = _native.certified_integral_native(
-        source, binding, _native_number(lower), _native_number(upper),
-        _native_number(tolerance), precision, max_intervals,
+        source, binding, _native_number(lower, budget), _native_number(upper, budget),
+        _native_number(tolerance, budget), precision, max_intervals, budget=budget,
     )
-    return IntegralEnclosureReceipt(native)
+    result = IntegralEnclosureReceipt(native)
+    _check_evaluation_budget(budget)
+    return result

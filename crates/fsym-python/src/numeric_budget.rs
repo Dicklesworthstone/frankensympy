@@ -9,7 +9,7 @@
 use fsym_budget::{Budget, BudgetLimits, BudgetMeter, Dimension, MeterError};
 use fsym_calculus::compile::{CompileError, EvalError};
 use fsym_calculus::program_artifact::ProgramArtifactError;
-use fsym_core::{BallError, LambertWError, RootBoxError, ScalarRootBracketError};
+use fsym_core::{BallError, LambertWError, QuadratureError, RootBoxError, ScalarRootBracketError};
 use pyo3::exceptions::{PyMemoryError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyInt;
@@ -248,6 +248,9 @@ pub(crate) fn evaluation_error<E: Error + 'static>(error: E) -> PyErr {
         ) || matches!(
             current.downcast_ref::<EvalError>(),
             Some(EvalError::DimensionOverflow)
+        ) || matches!(
+            current.downcast_ref::<QuadratureError>(),
+            Some(QuadratureError::InconsistentEnclosure)
         ) {
             return PyRuntimeError::new_err(error.to_string());
         }
@@ -259,6 +262,12 @@ pub(crate) fn evaluation_error<E: Error + 'static>(error: E) -> PyErr {
             Some(
                 ScalarRootBracketError::ResourceLimit(_)
                     | ScalarRootBracketError::Enclosure(RootBoxError::ResourceLimit(_))
+            )
+        ) || matches!(
+            current.downcast_ref::<QuadratureError>(),
+            Some(
+                QuadratureError::ResourceLimit(_)
+                    | QuadratureError::Enclosure(RootBoxError::ResourceLimit(_))
             )
         ) || matches!(
             current.downcast_ref::<BallError>(),

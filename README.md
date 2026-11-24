@@ -254,6 +254,31 @@ This is a bounded development interface; complete campaign and profile gates
 remain open. The opt-in local file store does not yet provide a whole-session
 snapshot, background repair service, or asynchronous cancellation endpoint.
 
+### Certified integration from Python
+
+`certified_integral` returns an immutable enclosure for a proper finite real
+integral, with exact rational bounds and an independently checked error bound:
+
+```python
+from sympy import EvaluationBudget, Rational, Symbol, certified_integral
+
+x = Symbol("x", real=True)
+budget = EvaluationBudget(max_steps=100_000_000,
+                          max_memory_bytes=512*1024*1024, max_allocations=1_000_000)
+receipt = certified_integral(x**2, (x, 0, 1), budget=budget)
+assert receipt.bounds == (Rational(1, 3), Rational(1, 3))
+```
+
+Exact input preparation, adaptive partitioning, independent verification and
+publication share the supplied cumulative `EvaluationBudget`. Failed calls
+retain spent work; omitting `budget` captures one private bounded ledger for
+the whole call. Native arithmetic releases the GIL, allowing another Python
+thread to call `budget.cancel()`. Exhaustion raises `EvaluationBudgetExceeded`
+and cancellation raises `EvaluationCancelled`; neither publishes a partial
+receipt. The Python ledger does not expose the native Session's protected
+verifier reservation. Source capture and Python allocation overhead are outside
+native-buffer accounting.
+
 ### Reusable compiled derivative programs
 
 Native sessions can retain independently checked residual or objective programs
