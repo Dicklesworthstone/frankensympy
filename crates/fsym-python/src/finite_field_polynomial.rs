@@ -306,19 +306,46 @@ pub fn prime_field_polynomial_factor_native(
     }
     let (mut generator, mut verifier) = (budget(), budget());
     let variable = symbol(variable, &mut generator)?;
-    let source = checked_prime_field_element_source(
-        &source.inner,
+    factor_with_budgets(
+        source,
         &variable,
         prime,
+        symmetric,
+        mode,
         &mut generator,
         &mut verifier,
     )
+}
+
+/// Reuse the univariate kernel without resetting either source-to-publication
+/// ledger when a multivariate entry point contains just one declared variable.
+pub(crate) fn factor_with_budgets(
+    source: &PyExpr,
+    variable: &Symbol,
+    prime: u64,
+    symmetric: bool,
+    mode: &str,
+    generator: &mut Budget,
+    verifier: &mut Budget,
+) -> PyResult<FactorParts> {
+    if !matches!(mode, "factor" | "sqf" | "sqf_part") {
+        return Err(PyValueError::new_err(
+            "unknown prime-field factorization mode",
+        ));
+    }
+    let source = checked_prime_field_element_source(
+        &source.inner,
+        variable,
+        prime,
+        generator,
+        verifier,
+    )
     .map_err(source_error)?;
     let accepted =
-        checked_prime_field_factorization(source.polynomial(), &mut generator, &mut verifier)
+        checked_prime_field_factorization(source.polynomial(), generator, verifier)
             .map_err(polynomial_error)?;
     charge(
-        &mut generator,
+        generator,
         accepted.factors().len() + 1,
         accepted.factors().len() * 512 + 256,
     )?;
@@ -328,7 +355,7 @@ pub fn prime_field_polynomial_factor_native(
         // applying the signed/unsigned display policy. In particular the
         // multiplicity precedes the coefficient tuple in this ordering.
         let count = accepted.factors().len();
-        charge(&mut generator, count * count * 65 + 1, count * 8 + 64)?;
+        charge(generator, count * count * 65 + 1, count * 8 + 64)?;
         let mut ordered: Vec<_> = accepted.factors().iter().collect();
         ordered.sort_unstable_by(|left, right| {
             left.coefficients
@@ -346,10 +373,10 @@ pub fn prime_field_polynomial_factor_native(
             factors.push((
                 lift(
                     &factor.coefficients,
-                    &variable,
+                    variable,
                     prime,
                     symmetric,
-                    &mut generator,
+                    generator,
                 )?,
                 factor.multiplicity,
             ));
@@ -363,14 +390,14 @@ pub fn prime_field_polynomial_factor_native(
                 factor.multiplicity
             };
             let polynomial = PrimeFieldPolynomial::metered_new(
-                &variable,
+                variable,
                 prime,
                 &factor.coefficients,
-                &mut generator,
+                generator,
             )
             .map_err(polynomial_error)?;
             let polynomial = if let Some(previous) = groups.get(&multiplicity) {
-                checked_product(previous, &polynomial, &mut generator, &mut verifier)?
+                checked_product(previous, &polynomial, generator, verifier)?
             } else {
                 polynomial
             };
@@ -380,10 +407,10 @@ pub fn prime_field_polynomial_factor_native(
             factors.push((
                 lift(
                     polynomial.coefficients(),
-                    &variable,
+                    variable,
                     prime,
                     symmetric,
-                    &mut generator,
+                    generator,
                 )?,
                 multiplicity,
             ));
@@ -394,7 +421,7 @@ pub fn prime_field_polynomial_factor_native(
     } else {
         accepted.unit()
     };
-    let unit = lift(&[unit], &variable, prime, symmetric, &mut generator)?;
+    let unit = lift(&[unit], variable, prime, symmetric, generator)?;
     generator.checkpoint().map_err(to_value_error)?;
     verifier.checkpoint().map_err(to_value_error)?;
     Ok((unit, factors))

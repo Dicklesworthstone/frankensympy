@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from ..core import (
     Basic, Dummy, Integer, NegativeOne, One, Symbol, Zero,
-    _lift_native_result, _native, _native_expr, _surface_binding_key,
+    _active_callback_session, _lift_native_result, _native, _native_expr, _surface_binding_key,
     _symbol_binding,
 )
 from .polyerrors import (
@@ -19,6 +19,7 @@ from .polyerrors import (
 
 
 _ABSENT = object()
+_SQUARE_FREE_NATIVE = _native.prime_field_multivariate_square_free_native
 _INTEGER_TYPES = (int, Integer, Zero, One, NegativeOne)
 
 
@@ -695,15 +696,70 @@ def shift(polynomial, value):
     return result
 
 
+def _square_free_call(request, prime, symmetric, mode):
+    """Use one checked request for every multiplicity and Frobenius layer."""
+    if _active_callback_session() is not None:
+        raise NotImplementedError(
+            "prime-field square-free decomposition requires a supervised callback lane")
+    if _native.prime_field_multivariate_square_free_native is not _SQUARE_FREE_NATIVE:
+        raise NotImplementedError("square-free decomposition requires the original native interface")
+    request.unchanged()
+    try:
+        result = _SQUARE_FREE_NATIVE(
+            request.raw[0], request.bindings, prime, symmetric, mode)
+    except _native.PrimeFieldCoefficientError as error:
+        raise CoercionFailed("prime-field Poly coefficients must be integers") from error
+    request.unchanged()
+    if _native.prime_field_multivariate_square_free_native is not _SQUARE_FREE_NATIVE:
+        raise RuntimeError("square-free native interface changed during evaluation")
+    return result
+
+
+def _square_free_result(request, prime, symmetric, name, want_polys, cls):
+    mode = "sqf_part" if name == "sqf_part" else "sqf"
+    unit, factors, normalized = _square_free_call(request, prime, symmetric, mode)
+    scale = _lift_native_result(unit, *request.context)
+
+    def publish(raw):
+        return (_publish(cls, raw, request, prime, symmetric) if want_polys
+                else _lift_native_result(raw, *request.context))
+
+    if name == "sqf_part":
+        if len(factors) != 1 or factors[0][1] != 1:
+            raise RuntimeError("checked square-free part omitted its accepted polynomial")
+        result = publish(factors[0][0])
+    elif name == "sqf_list":
+        result = scale, [(publish(raw), multiplicity) for raw, multiplicity in factors]
+    elif want_polys:
+        # The verifier has reconstructed this exact normalized source from
+        # the accepted groups. Do not start fresh arithmetic budgets just
+        # to multiply the factors back into a public Poly.
+        result = publish(normalized)
+    else:
+        from ..core import Mul, Pow, _keep_coeff
+        terms = []
+        for raw, multiplicity in factors:
+            factor = publish(raw)
+            terms.append(factor if multiplicity == 1 else
+                         Pow(factor, Integer(multiplicity), evaluate=False))
+        result = _keep_coeff(scale, Mul(*terms))
+    request.unchanged()
+    return result
+
+
 def factors(polynomial, mode="factor", expression=False):
     state, request = _operands(polynomial)
     if len(state.gens) != 1:
-        return unsupported(polynomial, "factorization outside a univariate ring")
-    try:
-        unit, factors = _native.prime_field_polynomial_factor_native(
-            request.raw[0], request.bindings[0], state.prime, state.symmetric, mode)
-    except _native.PrimeFieldCoefficientError as error:
-        raise CoercionFailed("prime-field Poly coefficients must be integers") from error
+        if mode not in ("sqf", "sqf_part"):
+            return unsupported(polynomial, "irreducible factorization outside a univariate ring")
+        unit, factors, _normalized = _square_free_call(
+            request, state.prime, state.symmetric, mode)
+    else:
+        try:
+            unit, factors = _native.prime_field_polynomial_factor_native(
+                request.raw[0], request.bindings[0], state.prime, state.symmetric, mode)
+        except _native.PrimeFieldCoefficientError as error:
+            raise CoercionFailed("prime-field Poly coefficients must be integers") from error
     request.unchanged()
     scale = _lift_native_result(unit, *request.context)
     if expression:
@@ -769,7 +825,14 @@ def _entry(values, generators, options, name, containers=()):
     allowed = {"modulus", "domain", "symmetric", "gens", "polys"}
     if name == "reduced":
         allowed.add("order")
+    if name == "sqf_list":
+        allowed.add("all")
     _options(options, allowed)
+    if name == "sqf_list" and "all" in options:
+        if type(options["all"]) is not bool:
+            raise TypeError("all must be a bool")
+        if options["all"]:
+            raise NotImplementedError("prime-field square-free unit multiplicity groups are not implemented")
     order = _monomial_order(options.get("order"))
     states = tuple(_PolyState(value, require_field=False)
                    for value in values if _exact(value, _poly_types()))
@@ -813,9 +876,21 @@ def _entry(values, generators, options, name, containers=()):
         generators = _infer_generators(initial)
         if not generators:
             raise GeneratorsNeeded("constant prime-field operations require an explicit generator")
-    if not explicit and any(state.gens != generators for state in states):
+    if (not explicit or name in ("sqf_list", "sqf_part", "sqf")) and any(
+            state.gens != generators for state in states):
+        # Square-free receipts keep the complete original ordered Poly ring,
+        # including unused coordinates. A new modulus cannot erase an axis
+        # whose declaration or retained native identity still needs admission.
         raise UnificationFailed("prime-field operands must use the same typed generator")
     request = _Request(sources, generators, states)
+    if name in ("sqf_list", "sqf_part", "sqf"):
+        cls = type(states[0].polynomial) if states else _poly_types()[0]
+        result = _square_free_result(
+            request, prime, symmetric, name, options.get("polys", bool(states)), cls)
+        if initial is not None:
+            initial.unchanged()
+        retained.unchanged()
+        return result
     raw = _call(request, prime, symmetric, name, order=order)
     if raw is None:
         raise NotInvertible("zero divisor")

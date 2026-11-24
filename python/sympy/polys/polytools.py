@@ -2164,26 +2164,20 @@ def discriminant(p: Any, x: Any = None, *gens: Any, **kwargs: Any) -> Any:
 
 
 def sqf_list(p: Any, x: Any = None, *gens: Any, **kwargs: Any) -> Tuple[Any, List[Tuple[Any, int]]]:
-    """Compute complete square-free multiplicity groups over ZZ or QQ."""
+    """Compute complete square-free multiplicity groups over ZZ, QQ or GF(p)."""
     generators = (x, *gens) if x is not None else gens
-    if _finitefield.is_finite(p):
-        if kwargs or len(generators) > 1:
-            raise NotImplementedError("explicit square-free options currently require ZZ or QQ")
-        if generators:
-            _finitefield.degree(p, generators[0])
-        return p.sqf_list()
+    finite = _finitefield.unary_entry(p, generators, kwargs, "sqf_list")
+    if finite is not None:
+        return finite
     return _multivariate_square_free(p, "list", gens=generators, _include_all=False, **kwargs)
 
 
 def sqf_part(p: Any, x: Any = None, *gens: Any, **kwargs: Any) -> Any:
-    """Compute the primitive ZZ or monic QQ square-free part."""
+    """Compute the primitive ZZ or monic QQ/GF(p) square-free part."""
     generators = (x, *gens) if x is not None else gens
-    if _finitefield.is_finite(p):
-        if kwargs or len(generators) > 1:
-            raise NotImplementedError("explicit square-free options currently require ZZ or QQ")
-        if generators:
-            _finitefield.degree(p, generators[0])
-        return p.sqf_part()
+    finite = _finitefield.unary_entry(p, generators, kwargs, "sqf_part")
+    if finite is not None:
+        return finite
     return _multivariate_square_free(p, "part", gens=generators, _include_all=False, **kwargs)
 
 
@@ -2192,20 +2186,9 @@ def sqf(p: Any, x: Any = None, *gens: Any, **kwargs: Any) -> Any:
     if "polys" in kwargs:
         raise TypeError("sqf does not accept the polys option")
     generators = (x, *gens) if x is not None else gens
-    if _finitefield.is_finite(p):
-        if kwargs or len(generators) > 1:
-            raise NotImplementedError("explicit square-free options currently require ZZ or QQ")
-        if generators:
-            _finitefield.degree(p, generators[0])
-        scale, factors = p.sqf_list()
-        if not factors:
-            return scale
-        terms = [factor if multiplicity == 1 else factor**multiplicity
-                 for factor, multiplicity in factors]
-        result = terms[0]
-        for term in terms[1:]:
-            result *= term
-        return result*scale if scale != 1 else result
+    finite = _finitefield.unary_entry(p, generators, kwargs, "sqf")
+    if finite is not None:
+        return finite
     return _multivariate_square_free(p, "expr", gens=generators, _include_all=False, **kwargs)
 
 

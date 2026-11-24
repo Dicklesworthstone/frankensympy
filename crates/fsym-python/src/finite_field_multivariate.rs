@@ -16,7 +16,8 @@ use fsym_polys::{
     PrimeFieldMultivariateOperation as Op, PrimeFieldMultivariatePolynomial as Polynomial,
     TermOrder, checked_prime_field_evaluation, checked_prime_field_multivariate_arithmetic,
     checked_prime_field_multivariate_division, checked_prime_field_multivariate_gcd,
-    checked_prime_field_multivariate_source, checked_prime_field_recursive_division,
+    checked_prime_field_multivariate_source, checked_prime_field_multivariate_square_free,
+    checked_prime_field_recursive_division,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -26,6 +27,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 type TermParts = Vec<(Vec<u32>, PyExpr)>;
+type SquareFreeParts = (PyExpr, Vec<(PyExpr, u32)>, PyExpr);
 
 pub(crate) fn order(value: &str) -> PyResult<TermOrder> {
     match value {
@@ -362,6 +364,113 @@ pub fn prime_field_multivariate_native(
     Ok(output)
 }
 
+/// Complete multiplicity groups in F_p[x_1, ..., x_n], including inseparable
+/// powers. The normalized original source is returned alongside the checked
+/// factors so a public Poly result needs no second arithmetic request.
+#[pyfunction]
+#[pyo3(signature = (source, variables, prime, symmetric=true, mode="sqf"))]
+pub fn prime_field_multivariate_square_free_native(
+    source: &PyExpr,
+    variables: &Bound<'_, PyList>,
+    prime: u64,
+    symmetric: bool,
+    mode: &str,
+) -> PyResult<SquareFreeParts> {
+    if !matches!(mode, "sqf" | "sqf_part") {
+        return Err(PyValueError::new_err(
+            "multivariate prime-field square-free mode must be sqf or sqf_part",
+        ));
+    }
+    let (mut generator, mut verifier) = (budget(), budget());
+    let variables = symbols(variables, &mut generator)?;
+    if variables.len() == 1 {
+        // Preserve the established degree64 univariate lane. General
+        // multivariate GCDs require an auxiliary axis/degree and must not
+        // narrow a module-level call that previously used this kernel.
+        let (unit, mut factors) = crate::finite_field_polynomial::factor_with_budgets(
+            source,
+            &variables[0],
+            prime,
+            symmetric,
+            mode,
+            &mut generator,
+            &mut verifier,
+        )?;
+        if mode == "sqf_part" && factors.is_empty() {
+            charge(&mut generator, 1, 128)?;
+            factors.push((PyExpr::from_expr(Expr::from_i64(1)), 1));
+        }
+        let normalized = checked_prime_field_multivariate_source(
+            &source.inner,
+            &variables,
+            prime,
+            &mut generator,
+            &mut verifier,
+        )
+        .map_err(source_error)?
+        .into_polynomial();
+        let normalized = lift(&normalized, symmetric, &mut generator)?;
+        generator.checkpoint().map_err(to_value_error)?;
+        verifier.checkpoint().map_err(to_value_error)?;
+        return Ok((unit, factors, normalized));
+    }
+    let source = checked_prime_field_multivariate_source(
+        &source.inner,
+        &variables,
+        prime,
+        &mut generator,
+        &mut verifier,
+    )
+    .map_err(source_error)?
+    .into_polynomial();
+    let accepted = checked_prime_field_multivariate_square_free(
+        &source,
+        &mut generator,
+        &mut verifier,
+    )
+    .map_err(polynomial_error)?;
+    let count = if mode == "sqf_part" {
+        1
+    } else {
+        accepted.factors().len()
+    };
+    charge(&mut generator, count + 1, (count + 1) * 128)?;
+    let mut factors = Vec::with_capacity(count);
+    if mode == "sqf_part" {
+        // Match the pinned public GF(p) convention sqf_part(0) == 1.
+        // The zero source still passed the complete native decomposition
+        // checker, whose algebraic radical convention is zero.
+        let part = if accepted.input().terms().is_empty() {
+            charge(&mut generator, 1, 128)?;
+            PyExpr::from_expr(Expr::from_i64(1))
+        } else {
+            lift(accepted.square_free_part(), symmetric, &mut generator)?
+        };
+        factors.push((part, 1));
+    } else {
+        for factor in accepted.factors() {
+            let multiplicity = u32::try_from(factor.multiplicity).map_err(|_| {
+                PyValueError::new_err("square-free multiplicity exceeds its native bound")
+            })?;
+            factors.push((
+                lift(&factor.polynomial, symmetric, &mut generator)?,
+                multiplicity,
+            ));
+        }
+    }
+    let unit = if mode == "sqf_part" {
+        1
+    } else {
+        accepted.unit()
+    };
+    charge(&mut generator, 1, 128)?;
+    let unit = PyExpr::from_expr(Expr::from_i64(coefficient(unit, prime, symmetric)));
+    let normalized = lift(accepted.input(), symmetric, &mut generator)?;
+    generator.checkpoint().map_err(to_value_error)?;
+    verifier.checkpoint().map_err(to_value_error)?;
+    Ok((unit, factors, normalized))
+}
+
 pub(crate) fn monomial_cmp(left: &[u32], right: &[u32], order: TermOrder) -> Ordering {
     let degree = || left.iter().sum::<u32>().cmp(&right.iter().sum::<u32>());
     match order {
@@ -508,6 +617,10 @@ pub fn prime_field_polynomial_generators_native(
 pub fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(prime_field_evaluate_native, module)?)?;
     module.add_function(wrap_pyfunction!(prime_field_multivariate_native, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        prime_field_multivariate_square_free_native,
+        module
+    )?)?;
     module.add_function(wrap_pyfunction!(
         prime_field_multivariate_terms_native,
         module
