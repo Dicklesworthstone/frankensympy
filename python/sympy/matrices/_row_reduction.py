@@ -145,3 +145,71 @@ def affine_if_needed(matrix, rhs, freevar):
     _sparse._check_affine_parameters(bindings)
     _charge_nested_if_active()
     return ((solution, parameters, list(free_columns)) if freevar else (solution, parameters))
+
+
+def rank_decomposition(matrix, *, iszerofunc, simplify):
+    """Extract a full-rank factorization from one accepted RREF."""
+    if iszerofunc is not None or type(simplify) is not bool:
+        raise NotImplementedError("rank decomposition requires built-in exact zero tests")
+    cls = type(matrix)
+    dense = any(cls is item for item in _exact._CLASSES)
+    if not dense and not any(cls is item for item in _exact._SPARSE_CLASSES):
+        raise NotImplementedError("rank decomposition requires a built-in matrix")
+    base = _sparse.Matrix if dense else _sparse.SparseMatrix
+    slots = _exact._source._SLOTS[base]
+    session = _active_callback_session()
+    literal = not _exact._needs_gaussian(matrix)
+    context = "exact rank decomposition"
+    if literal and session is None:
+        # The rational proof kernel replays row operations on the entire
+        # original system. Avoid producing a dense rows-by-columns RREF
+        # just to discard its trailing zero rows.
+        source, snapshot = _sparse._rational_source_snapshot(matrix, dense=dense, context=context)
+
+        def unchanged():
+            _sparse._check_rational_source(snapshot)
+
+        rows, cols = snapshot[4]
+        if dense:
+            source = _sparse._SOLVE_DENSE_MEMBERS["to_sparse"](source)
+        reduced, pivots = _sparse._REDUCTION_NATIVE_MEMBERS["rref"](source)
+    else:
+        # Preserve cumulative request charging, and verify the complex row
+        # transform against both sides of the original matrix.
+        source, (rows, cols), unchanged = _exact._capture(
+            matrix, session, 11, context, allow_sparse=True, force_gaussian=True)
+        reduced, pivots = _exact._METHODS[11](source, session=session)
+        _charge_nested_if_active(2*rows*cols + 1)
+        source = _exact._METHODS[6](source)
+        reduced = _exact._METHODS[6](reduced)
+    unchanged()
+
+    rank = len(pivots)
+    right_class = _sparse.Matrix if literal else cls
+    if right_class is _sparse.Matrix or dense:
+        _sparse._matrix_dimensions(rank, cols)
+    pivot_column = {column: index for index, column in enumerate(pivots)}
+    # R[:, pivots] is [I; 0] and R is row-equivalent to A. Therefore
+    # A[:, pivots] * R[:rank, :] equals A, even when rank is zero.
+    stored = _sparse._REDUCTION_NATIVE_MEMBERS["todok"]
+    _charge_nested_if_active(rows*rank + rank*cols + 1)  # active inputs are bounded dense views
+    basis = {(r, pivot_column[c]): value for (r, c), value in stored(source).items()
+             if c in pivot_column}
+    left = _sparse._checked_sparse_lift(
+        _sparse._NativeSparseMatrix(rows, rank, basis), cls)
+    right = _sparse._checked_sparse_lift(
+        _sparse._NativeSparseMatrix(rank, cols, stored(reduced)), right_class)
+
+    # Pivot columns are a selection of original public objects. Keep their
+    # owners (including held Gaussian expressions) alongside the native view.
+    surface = slots[2].__get__(matrix, base)
+    if surface is not None:
+        if dense:
+            selected = tuple(surface[row*cols + col] for row in range(rows) for col in pivots)
+        else:
+            selected = {(r, pivot_column[c]): value for (r, c), value in surface.items()
+                        if c in pivot_column}
+        slots[2].__set__(left, selected)
+    unchanged()
+    _charge_nested_if_active()
+    return left, right

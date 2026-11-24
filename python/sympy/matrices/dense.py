@@ -89,6 +89,18 @@ class _AlgebraicEigenspaceUnsupported(NotImplementedError):
 class MatrixBase:
     """Base class for all matrix objects."""
 
+    def rank_decomposition(self, iszerofunc=None, simplify=False):
+        """Factor an exact rational or Gaussian-rational matrix as C*F.
+
+        C consists of the original pivot columns, in order. F contains the
+        nonzero rows of the checked reduced row echelon form. Both factors
+        have full rank, including the zero-rank case. Rational sparse inputs
+        keep sparse working storage until the compact right factor is formed.
+        """
+        from ._row_reduction import rank_decomposition
+
+        return rank_decomposition(self, iszerofunc=iszerofunc, simplify=simplify)
+
     def inv_mod(self, m):
         """Return the checked inverse modulo an integer m >= 2.
 
