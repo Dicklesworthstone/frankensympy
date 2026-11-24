@@ -112,7 +112,9 @@ fn replace_field(bytes: &[u8], field: &str, replacement: &str) -> Vec<u8> {
 fn portable_nonconvex_prefixes_finish_with_the_same_independently_checked_witness() {
     let statement = Statement::double_well();
     let mut baseline = statement.begin();
-    baseline.advance(MAX_BOX_OPTIMIZATION_ADVANCE_SPLITS, &mut Unbounded).unwrap();
+    baseline
+        .advance(MAX_BOX_OPTIMIZATION_ADVANCE_SPLITS, &mut Unbounded)
+        .unwrap();
     let expected = baseline.completed_witness().unwrap();
     let mut saw_unfinished = false;
     for prefix in [0, 3, MAX_BOX_OPTIMIZATION_ADVANCE_SPLITS] {
@@ -122,18 +124,27 @@ fn portable_nonconvex_prefixes_finish_with_the_same_independently_checked_witnes
         }
         let progress = search.progress();
         saw_unfinished |= progress.status == BoxOptimizationSearchStatus::Searching;
-        let bytes = export_box_optimization_checkpoint(
-            &mut search, statement.context, &mut Unbounded,
-        ).unwrap();
+        let bytes =
+            export_box_optimization_checkpoint(&mut search, statement.context, &mut Unbounded)
+                .unwrap();
         let wire: Value = serde_json::from_slice(&bytes).unwrap();
-        for absent in ["accepted", "verified", "value", "gap", "bounds", "priority_queue"] {
+        for absent in [
+            "accepted",
+            "verified",
+            "value",
+            "gap",
+            "bounds",
+            "priority_queue",
+        ] {
             assert!(wire.get(absent).is_none(), "{absent}");
         }
         let mut restored = statement.restore(&bytes, &mut Unbounded).unwrap();
         assert_eq!(restored.progress().leaf_count, progress.leaf_count);
         assert_eq!(restored.progress().status, progress.status);
         assert!(restored.counters().steps > search.counters().steps);
-        restored.advance(MAX_BOX_OPTIMIZATION_ADVANCE_SPLITS, &mut Unbounded).unwrap();
+        restored
+            .advance(MAX_BOX_OPTIMIZATION_ADVANCE_SPLITS, &mut Unbounded)
+            .unwrap();
         assert_eq!(restored.completed_witness(), Some(expected));
         let receipt = verify_box_optimization(
             &statement.objective,
@@ -143,7 +154,8 @@ fn portable_nonconvex_prefixes_finish_with_the_same_independently_checked_witnes
             &statement.tolerance,
             restored.completed_witness().unwrap(),
             &mut Unbounded,
-        ).unwrap();
+        )
+        .unwrap();
         assert!(receipt.value().contains(&q(0, 1)));
         assert!(receipt.gap() <= &statement.tolerance);
     }
@@ -167,10 +179,15 @@ fn maximum_checkpoints_preserve_same_name_typed_axes_and_fixed_coordinates() {
     assert_eq!(restored.domain(), statement.domain);
     assert_eq!(restored.kind(), BoxExtremumKind::Maximum);
     let receipt = verify_box_optimization(
-        &statement.objective, &statement.variables, &statement.domain,
-        statement.kind, &statement.tolerance,
-        restored.completed_witness().unwrap(), &mut Unbounded,
-    ).unwrap();
+        &statement.objective,
+        &statement.variables,
+        &statement.domain,
+        statement.kind,
+        &statement.tolerance,
+        restored.completed_witness().unwrap(),
+        &mut Unbounded,
+    )
+    .unwrap();
     assert_eq!(receipt.point(), &[q(2, 1), q(1, 1)]);
     assert!(receipt.value().contains(&q(3, 1)));
     assert_eq!(receipt.gap(), &q(0, 1));
@@ -184,16 +201,29 @@ fn every_expected_statement_component_is_bound_before_foreign_payload_decoding()
     let bytes = replace_field(&saved(&statement), "counters", "null");
     let mut changed = statement.clone();
     changed.objective = Expr::Add(vec![changed.objective, Expr::from_i64(0)]);
-    assert!(matches!(changed.restore(&bytes, &mut Unbounded),
-        Err(OptimizationCheckpointError::Certification(CertificationError::SourceMismatch))));
+    assert!(matches!(
+        changed.restore(&bytes, &mut Unbounded),
+        Err(OptimizationCheckpointError::Certification(
+            CertificationError::SourceMismatch
+        ))
+    ));
     let mut changed = statement.clone();
-    changed.variables[0] = Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([9; 32]));
-    assert!(matches!(changed.restore(&bytes, &mut Unbounded),
-        Err(OptimizationCheckpointError::Certification(CertificationError::SourceMismatch))));
+    changed.variables[0] =
+        Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([9; 32]));
+    assert!(matches!(
+        changed.restore(&bytes, &mut Unbounded),
+        Err(OptimizationCheckpointError::Certification(
+            CertificationError::SourceMismatch
+        ))
+    ));
     let mut changed = statement.clone();
     changed.domain = vec![interval(-3, 3)];
-    assert!(matches!(changed.restore(&bytes, &mut Unbounded),
-        Err(OptimizationCheckpointError::Certification(CertificationError::DomainMismatch))));
+    assert!(matches!(
+        changed.restore(&bytes, &mut Unbounded),
+        Err(OptimizationCheckpointError::Certification(
+            CertificationError::DomainMismatch
+        ))
+    ));
     for change in 0..4 {
         let mut changed = statement.clone();
         match change {
@@ -203,13 +233,19 @@ fn every_expected_statement_component_is_bound_before_foreign_payload_decoding()
             3 => changed.options.max_leaves = 512,
             _ => unreachable!(),
         }
-        assert!(matches!(changed.restore(&bytes, &mut Unbounded),
-            Err(OptimizationCheckpointError::StatementMismatch)));
+        assert!(matches!(
+            changed.restore(&bytes, &mut Unbounded),
+            Err(OptimizationCheckpointError::StatementMismatch)
+        ));
     }
     let mut changed = statement.clone();
     changed.context = [4; 32];
-    assert!(matches!(changed.restore(&bytes, &mut Unbounded),
-        Err(OptimizationCheckpointError::Certification(CertificationError::UniverseMismatch { .. }))));
+    assert!(matches!(
+        changed.restore(&bytes, &mut Unbounded),
+        Err(OptimizationCheckpointError::Certification(
+            CertificationError::UniverseMismatch { .. }
+        ))
+    ));
 }
 
 #[test]
@@ -221,9 +257,17 @@ fn structural_corruption_understated_work_and_noncanonical_bytes_cannot_restore(
         ("partition", "[]"),
         ("split_order", "[]"),
         ("incumbent_point", "[\"malformed scalar\"]"),
-        ("counters", "{\"steps\":0,\"allocation_bytes\":0,\"source_bytes\":0,\"evaluations\":0}"),
+        (
+            "counters",
+            "{\"steps\":0,\"allocation_bytes\":0,\"source_bytes\":0,\"evaluations\":0}",
+        ),
     ] {
-        assert!(statement.restore(&replace_field(&bytes, field, replacement), &mut Unbounded).is_err(), "{field}");
+        assert!(
+            statement
+                .restore(&replace_field(&bytes, field, replacement), &mut Unbounded)
+                .is_err(),
+            "{field}"
+        );
     }
     let mut unknown = bytes.clone();
     unknown.pop();
@@ -231,12 +275,20 @@ fn structural_corruption_understated_work_and_noncanonical_bytes_cannot_restore(
     assert!(statement.restore(&unknown, &mut Unbounded).is_err());
     let mut noncanonical = bytes.clone();
     noncanonical.push(b' ');
-    assert!(matches!(statement.restore(&noncanonical, &mut Unbounded),
-        Err(OptimizationCheckpointError::Certification(CertificationError::NonCanonical))));
+    assert!(matches!(
+        statement.restore(&noncanonical, &mut Unbounded),
+        Err(OptimizationCheckpointError::Certification(
+            CertificationError::NonCanonical
+        ))
+    ));
     assert!(statement.restore(b"{}", &mut Unbounded).is_err());
     let oversized = vec![b' '; MAX_BOX_OPTIMIZATION_CHECKPOINT_BYTES + 1];
-    assert!(matches!(statement.restore(&oversized, &mut Unbounded),
-        Err(OptimizationCheckpointError::Certification(CertificationError::ByteLimit { .. }))));
+    assert!(matches!(
+        statement.restore(&oversized, &mut Unbounded),
+        Err(OptimizationCheckpointError::Certification(
+            CertificationError::ByteLimit { .. }
+        ))
+    ));
 }
 
 #[test]
@@ -245,10 +297,12 @@ fn checkpoint_copy_and_reconstruction_charge_one_cumulative_ledger() {
     let mut search = statement.begin();
     let allowance = 1 << 35;
     let mut budget = Budget::new(BudgetLimits::uniform(allowance, 1_000_000));
-    let first = export_box_optimization_checkpoint(&mut search, statement.context, &mut budget).unwrap();
+    let first =
+        export_box_optimization_checkpoint(&mut search, statement.context, &mut budget).unwrap();
     let steps = search.counters().steps;
     let remaining = budget.remaining(Dimension::ComputeSteps);
-    let second = export_box_optimization_checkpoint(&mut search, statement.context, &mut budget).unwrap();
+    let second =
+        export_box_optimization_checkpoint(&mut search, statement.context, &mut budget).unwrap();
     assert!(search.counters().steps > steps);
     assert!(budget.remaining(Dimension::ComputeSteps) < remaining);
     assert_ne!(first, second);
@@ -258,10 +312,18 @@ fn checkpoint_copy_and_reconstruction_charge_one_cumulative_ledger() {
     assert!(budget.remaining(Dimension::ComputeSteps) < before_restore);
     assert_eq!(budget.verifier_remaining(), 1_000_000);
     let mut exhausted = Budget::new(BudgetLimits::uniform(0, 0));
-    assert!(matches!(statement.restore(&second, &mut exhausted),
-        Err(OptimizationCheckpointError::Certification(CertificationError::Meter(MeterError::Budget(_))))));
-    assert!(matches!(export_box_optimization_checkpoint(&mut search, statement.context, &mut exhausted),
-        Err(OptimizationCheckpointError::Certification(CertificationError::Meter(MeterError::Budget(_))))));
+    assert!(matches!(
+        statement.restore(&second, &mut exhausted),
+        Err(OptimizationCheckpointError::Certification(
+            CertificationError::Meter(MeterError::Budget(_))
+        ))
+    ));
+    assert!(matches!(
+        export_box_optimization_checkpoint(&mut search, statement.context, &mut exhausted),
+        Err(OptimizationCheckpointError::Certification(
+            CertificationError::Meter(MeterError::Budget(_))
+        ))
+    ));
 }
 
 struct Cancelled;
@@ -282,11 +344,19 @@ impl BudgetMeter for Cancelled {
 fn cancelled_transport_never_returns_candidate_state_or_partial_bytes() {
     let statement = Statement::double_well();
     let bytes = saved(&statement);
-    assert!(matches!(statement.restore(&bytes, &mut Cancelled),
-        Err(OptimizationCheckpointError::Certification(CertificationError::Meter(MeterError::Cancelled)))));
+    assert!(matches!(
+        statement.restore(&bytes, &mut Cancelled),
+        Err(OptimizationCheckpointError::Certification(
+            CertificationError::Meter(MeterError::Cancelled)
+        ))
+    ));
     let mut search = statement.begin();
     let before = search.progress();
-    assert!(matches!(export_box_optimization_checkpoint(&mut search, statement.context, &mut Cancelled),
-        Err(OptimizationCheckpointError::Certification(CertificationError::Meter(MeterError::Cancelled)))));
+    assert!(matches!(
+        export_box_optimization_checkpoint(&mut search, statement.context, &mut Cancelled),
+        Err(OptimizationCheckpointError::Certification(
+            CertificationError::Meter(MeterError::Cancelled)
+        ))
+    ));
     assert_eq!(search.progress(), before);
 }

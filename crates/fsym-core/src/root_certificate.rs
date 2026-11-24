@@ -21,6 +21,7 @@ use std::{fmt, marker::PhantomData};
 use thiserror::Error;
 
 pub mod artifact;
+pub mod integral_artifact;
 pub mod isolation_artifact;
 
 mod quadrature;

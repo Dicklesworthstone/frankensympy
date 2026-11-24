@@ -15,7 +15,7 @@ from ..utilities._certified_numeric import (
     bound_assumptions,
 )
 from ..utilities.lambdify import _check_evaluation_budget, _functions, _numeric_source
-from ..utilities.source_certification import _source_budget
+from ..utilities.source_certification import _preserve_source_function_tags, _source_budget
 
 __all__ = ["certified_integral", "IntegralEnclosureReceipt"]
 
@@ -38,6 +38,33 @@ def _integral_binding(variable):
     return binding
 
 
+def _integral_statement(integrand, variable, binding, lower, upper, tolerance, budget):
+    """Capture the same exact statement for generation and independent replay."""
+    lower, upper, tolerance = (
+        _rational(value, budget) for value in (lower, upper, tolerance)
+    )
+    _charge_exact_work(budget, lower, upper, tolerance, operations=5)
+    if tolerance <= 0:
+        raise ValueError("certified integral tolerance must be positive")
+    assumptions = bound_assumptions([variable], [binding])
+    _check_assumptions([(min(lower, upper), max(lower, upper))], assumptions)
+    if type(integrand) is bool:
+        raise TypeError("certified integral source requires an exact mathematical expression")
+    inexact = [False]
+    source = _numeric_source(integrand, _functions(), [0], inexact=inexact)
+    _check_evaluation_budget(budget)
+    if inexact[0]:
+        raise ValueError("certified integral source requires exact literals; replace Float with explicit Rational")
+    # Restore the closed Abs class tag so lifting a receipt cannot resolve a
+    # same-named opaque user function. Held arithmetic stays in original order.
+    source = _preserve_source_function_tags([source])[0]
+    _check_evaluation_budget(budget)
+    return (
+        source, binding, _native_number(lower, budget), _native_number(upper, budget),
+        _native_number(tolerance, budget),
+    )
+
+
 class IntegralEnclosureReceipt:
     """Immutable source-bound integral enclosure with an exact error bound.
 
@@ -58,6 +85,37 @@ class IntegralEnclosureReceipt:
 
     def __setattr__(self, name, value):
         raise AttributeError("accepted integral receipts are immutable")
+
+    def __delattr__(self, name):
+        raise AttributeError("accepted integral receipts are immutable")
+
+    def to_bytes(self, *, budget=None):
+        """Export a bounded canonical partition for independent verification.
+
+        The bytes bind the original exact source, typed variable, ordered
+        endpoints and tolerance. They contain no trusted enclosure or accepted
+        flag. Export consumes the supplied cumulative EvaluationBudget.
+        """
+        from ._certificate import export_receipt
+
+        return export_receipt(self, budget=budget)
+
+    @staticmethod
+    def from_bytes(data, *, integrand, limits, tolerance=Fraction(1, 10000), budget=None):
+        """Verify a saved partition against the receiver's expected integral.
+
+        Exact built-in bytes, at most 1 MiB, are admitted before expected-source
+        preparation. The receiver supplies its own exact integrand, typed axis,
+        ordered endpoints and tolerance. Replay checks the complete original
+        domain and enclosure width without invoking adaptive generation. A
+        shared EvaluationBudget funds preparation, verification and publication;
+        cancellation or exhaustion never returns a partial receipt.
+        """
+        from ._certificate import replay_sources
+
+        return replay_sources(
+            data, integrand=integrand, limits=limits, tolerance=tolerance, budget=budget,
+        )
 
     @property
     def integrand(self):
@@ -157,23 +215,11 @@ def certified_integral(integrand, limits, *, tolerance=Fraction(1, 10000),
         raise ValueError("certified precision must be an integer from 8 through 128")
     if type(max_intervals) is not int or not 1 <= max_intervals <= 1024:
         raise ValueError("max_intervals must be an integer from 1 through 1024")
-    lower, upper, tolerance = (
-        _rational(value, budget) for value in (lower, upper, tolerance)
+    statement = _integral_statement(
+        integrand, variable, binding, lower, upper, tolerance, budget,
     )
-    _charge_exact_work(budget, lower, upper, tolerance, operations=5)
-    if tolerance <= 0:
-        raise ValueError("certified integral tolerance must be positive")
-    assumptions = bound_assumptions([variable], [binding])
-    _check_assumptions([(min(lower, upper), max(lower, upper))], assumptions)
-    if type(integrand) is bool:
-        raise TypeError("certified integral source requires an exact mathematical expression")
-    inexact = [False]
-    source = _numeric_source(integrand, _functions(), [0], inexact=inexact)
-    if inexact[0]:
-        raise ValueError("certified integral source requires exact literals; replace Float with explicit Rational")
     native = _native.certified_integral_native(
-        source, binding, _native_number(lower, budget), _native_number(upper, budget),
-        _native_number(tolerance, budget), precision, max_intervals, budget=budget,
+        *statement, precision, max_intervals, budget=budget,
     )
     result = IntegralEnclosureReceipt(native)
     _check_evaluation_budget(budget)

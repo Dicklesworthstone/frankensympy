@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-24",
+  "base_commit": "bcf2635cecd801b03088a7410303791ea3c755f7",
+  "bead": "fra-a5x",
+  "status": "implemented_execution_pending",
+  "scope": [
+    "Move the existing native Session integral codec into fsym-core while preserving its public facade and version1 wire format",
+    "Expose native and Python integral receipt export and receiver-bound independent replay",
+    "Share original-source, typed-axis, exact-rational and declared-assumption admission between public generation and replay",
+    "Retain canonical Abs class identity, immutable receipt ownership, cumulative budgets and final cancellation checks"
+  ],
+  "trust_boundary": "Exact built-in bytes at most1MiB are admitted before expected-source conversion. The receiver's original source, typed variable, ordered bounds, tolerance and context must match before bounded witness decoding. Only independent core quadrature grants a receipt; stored acceptance flags, cached enclosures and adaptive regeneration are not used.",
+  "compatibility": "The moved Session codec retains its schema version, field order, byte encoding, arithmetic charges and public root facade. Immediate IntegrationError causes remain visible to typed host error mapping. Cross-interface exchange requires the same exact source representation and context; Python source-only Abs tags retain the closed built-in class.",
+  "limits": "Proper finite real integration only; existing quadrature grammar, input-height, partition and precision caps remain. The public API has one cumulative caller ledger without a separately reserved verifier pool. No pickle or arbitrary Python object is decoded.",
+  "validation": {
+    "authored_core_tests": 10,
+    "authored_facade_interoperability_tests": 1,
+    "authored_python_bridge_mapper_tests": 1,
+    "authored_public_cases": 30,
+    "independent_math_oracle": "Isolated SymPy1.14.0 verified all7 exact polynomial/absolute-value fixtures used by core acceptance tests, including reversed and equal endpoints. This is fixture evidence only.",
+    "independent_review": "Core codec compared with the prior Session implementation; field order, charge amounts/order, source binding before witness decoding and the final checker boundary are preserved. Two agents reviewed native GIL-detach ownership, cumulative fallback capture, public exact-input admission, typed errors and all30 public cases; no concrete defect found.",
+    "python_ast": "Passed for the changed public shell modules and both new public integral test modules.",
+    "rustfmt": "Passed formatting and --check on all 13 changed/new Rust paths, including the final bridge, mapper, core codec, facade/tests and three prior optimizer files. Used rustfmt 1.10.0-nightly (f7d782a3be 2026-08-19), recovered from checksum-verified official nightly-2026-08-20 archives after the host reset. The final pass changed no bytes.",
+    "whitespace": "git diff --check passed on the complete implementation, tests and documentation changes.",
+    "candidate_execution": "Rust and actual-extension tests remain unexecuted. Earlier compiler attempts repeatedly lost the host or were SIGKILLed; no Cargo build was repeated in this continuation.",
+    "ci": "New core transport tests, mapper tests and public transport cases are selected by the existing native and actual-extension CI suites. No remote pass is claimed."
+  },
+  "adjacent_numeric_validation": "Pinned formatting repaired three existing optimizer transport/search files from the preceding commit. Earlier11 changed Python files passed AST parsing. These are syntax/format evidence only and do not convert pending optimizer runtime validation into a pass.",
+  "claims": "No workstream, campaign, compatibility, performance or certification gate is closed or promoted."
+}

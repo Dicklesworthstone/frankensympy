@@ -624,3 +624,71 @@ fn quadrature_operational_errors_survive_transparent_enclosure_wrappers() {
         }
     });
 }
+
+#[test]
+fn integral_transport_wrappers_preserve_operational_error_classes() {
+    use fsym_core::root_certificate::artifact::CertificationError;
+    use fsym_core::root_certificate::integral_artifact::IntegrationError;
+
+    Python::initialize();
+    Python::attach(|py| {
+        let allocation = evaluation_error(IntegrationError::from(
+            CertificationError::AllocationFailure,
+        ));
+        assert!(allocation.is_instance_of::<PyMemoryError>(py));
+        assert!(!allocation.is_instance_of::<PyValueError>(py));
+
+        let mut empty = Budget::new(BudgetLimits::uniform(0, 0));
+        for refusal in [
+            IntegrationError::from(CertificationError::Meter(
+                empty.charge(Dimension::ComputeSteps, 1).unwrap_err(),
+            )),
+            IntegrationError::from(QuadratureError::Enclosure(RootBoxError::Meter(
+                empty.charge(Dimension::ComputeSteps, 1).unwrap_err(),
+            ))),
+            IntegrationError::from(QuadratureError::ResourceLimit("partition work")),
+            IntegrationError::from(QuadratureError::Enclosure(RootBoxError::ResourceLimit(
+                "cumulative arithmetic work",
+            ))),
+            IntegrationError::from(QuadratureError::Enclosure(RootBoxError::Ball(
+                BallError::ResourceLimitExceeded {
+                    operation: "integral transport input height",
+                    required_bits: 4097,
+                    limit_bits: 4096,
+                },
+            ))),
+        ] {
+            let error = evaluation_error(refusal);
+            assert!(error.is_instance_of::<EvaluationBudgetExceeded>(py));
+            assert!(!error.is_instance_of::<PyValueError>(py));
+            assert!(!error.is_instance_of::<EvaluationCancelled>(py));
+        }
+        for refusal in [
+            IntegrationError::from(CertificationError::Meter(MeterError::Cancelled)),
+            IntegrationError::from(QuadratureError::Enclosure(RootBoxError::Meter(
+                MeterError::Cancelled,
+            ))),
+        ] {
+            let error = evaluation_error(refusal);
+            assert!(error.is_instance_of::<EvaluationCancelled>(py));
+            assert!(!error.is_instance_of::<PyValueError>(py));
+            assert!(!error.is_instance_of::<EvaluationBudgetExceeded>(py));
+        }
+        let inconsistent = evaluation_error(IntegrationError::from(
+            QuadratureError::InconsistentEnclosure,
+        ));
+        assert!(inconsistent.is_instance_of::<PyRuntimeError>(py));
+        assert!(!inconsistent.is_instance_of::<PyValueError>(py));
+        for refusal in [
+            IntegrationError::StatementMismatch,
+            IntegrationError::from(QuadratureError::AccuracyNotReached),
+            IntegrationError::from(QuadratureError::Enclosure(RootBoxError::Domain(
+                "original endpoint pole",
+            ))),
+        ] {
+            let error = evaluation_error(refusal);
+            assert!(error.is_instance_of::<PyValueError>(py));
+            assert!(!error.is_instance_of::<PyRuntimeError>(py));
+        }
+    });
+}

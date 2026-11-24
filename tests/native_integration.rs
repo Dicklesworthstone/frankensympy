@@ -294,6 +294,63 @@ fn canonical_roundtrip_recomputes_and_exports_no_cached_integral() {
 }
 
 #[test]
+fn shared_core_and_session_transport_preserve_wire_bytes_and_meter_charges() {
+    use fsym_core::root_certificate::integral_artifact as shared;
+
+    let problem = problem("abs(x-1/3)");
+    let (lower, upper, tolerance) = (q(0, 1), q(1, 1), q(1, 1000));
+    let accepted = checked(&problem, &lower, &upper, &tolerance);
+    let mut session_export_meter = Counted::default();
+    let session_bytes =
+        export_integral_certificate(&problem, &accepted, [7; 32], &mut session_export_meter)
+            .unwrap();
+    let mut core_export_meter = Counted::default();
+    let core_bytes = shared::export_integral_certificate(
+        problem.residuals(),
+        problem.variables(),
+        &accepted,
+        [7; 32],
+        &mut core_export_meter,
+    )
+    .unwrap();
+    assert_eq!(session_bytes, core_bytes);
+    // This independently declared envelope retains the pre-extraction field order.
+    assert_eq!(
+        core_bytes,
+        proposed_bytes(&problem, &lower, &upper, &tolerance, accepted.witness())
+    );
+    assert_eq!(session_export_meter.charges, core_export_meter.charges);
+
+    let mut session_replay_meter = Counted::default();
+    let from_core = replay_integral_certificate(
+        &core_bytes,
+        &problem,
+        &lower,
+        &upper,
+        &tolerance,
+        [7; 32],
+        &mut session_replay_meter,
+    )
+    .unwrap();
+    let mut core_replay_meter = Counted::default();
+    let from_session = shared::replay_integral_certificate(
+        &session_bytes,
+        problem.residuals(),
+        problem.variables(),
+        &lower,
+        &upper,
+        &tolerance,
+        [7; 32],
+        &mut core_replay_meter,
+    )
+    .unwrap();
+    assert_eq!(from_core, accepted);
+    assert_eq!(from_session, accepted);
+    assert!(from_session.enclosure().contains(&q(5, 18)));
+    assert_eq!(session_replay_meter.charges, core_replay_meter.charges);
+}
+
+#[test]
 fn transport_binds_raw_source_and_symbol_identity_without_using_printed_names() {
     let symbol = Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([3; 32]));
     let problem = ResidualProblem::new(

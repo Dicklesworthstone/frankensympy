@@ -16,6 +16,8 @@ use fsym_core::{
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 
+pub(crate) mod artifact;
+
 fn number(value: &BigRational) -> PyExpr {
     PyExpr::from_expr(crate::rational_to_expr(value.clone()))
 }
@@ -84,6 +86,16 @@ impl PyIntegralEnclosureReceipt {
     #[getter]
     fn interval_count(&self) -> usize {
         self.receipt.interval_count()
+    }
+
+    /// Export a canonical source-bound partition for independent replay.
+    #[pyo3(signature = (*, budget=None))]
+    fn to_bytes<'py>(
+        &self,
+        py: Python<'py>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        artifact::export(py, &self.receipt, budget.as_deref())
     }
 }
 

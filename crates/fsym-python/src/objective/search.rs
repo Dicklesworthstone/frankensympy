@@ -10,8 +10,7 @@ use crate::binding::PySymbolBinding;
 use crate::expr::PyExpr;
 use crate::numeric::{ball_bounds, exact_box, exact_rational, rational_expr};
 use crate::numeric_budget::{
-    PyEvaluationBudget, evaluation_error, with_certification_meter,
-    with_evaluation_meter_attached,
+    PyEvaluationBudget, evaluation_error, with_certification_meter, with_evaluation_meter_attached,
 };
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_budget::BudgetMeter;
@@ -180,9 +179,8 @@ impl PyBoxOptimizationSearch {
         }
         let budget = self.budget.borrow(py);
         let search = &mut self.search;
-        let progress = with_certification_meter(py, Some(&budget), |meter| {
-            search.advance(max_splits, meter)
-        })?;
+        let progress =
+            with_certification_meter(py, Some(&budget), |meter| search.advance(max_splits, meter))?;
         with_evaluation_meter_attached(Some(&budget), |meter| meter.checkpoint())?;
         Ok(PyBoxOptimizationProgress { progress })
     }
@@ -285,7 +283,9 @@ pub(super) fn begin(
     let domain = exact_box(domain, variables.len(), Some(&bound_budget))?;
     let tolerance = exact_rational(tolerance, Some(&bound_budget))?;
     let search = with_certification_meter(py, Some(&bound_budget), |meter| {
-        BoxOptimizationSearch::new(objective, variables, &domain, kind, &tolerance, options, meter)
+        BoxOptimizationSearch::new(
+            objective, variables, &domain, kind, &tolerance, options, meter,
+        )
     })?;
     with_evaluation_meter_attached(Some(&bound_budget), |meter| meter.checkpoint())?;
     drop(bound_budget);

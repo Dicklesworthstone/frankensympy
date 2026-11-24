@@ -2441,6 +2441,10 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(quadrature::certified_integral_native, m)?)?;
     m.add_function(wrap_pyfunction!(
+        quadrature::artifact::replay_integral_certificate_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
         exact_integral::exact_rational_integral_native,
         m
     )?)?;

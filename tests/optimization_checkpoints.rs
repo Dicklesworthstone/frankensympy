@@ -255,7 +255,10 @@ fn product_and_shared_codecs_exchange_identical_canonical_candidate_bytes() {
     .unwrap();
     assert_eq!(from_shared.progress(), from_product.progress());
     assert_eq!(from_shared.counters(), from_product.counters());
-    assert_eq!(from_shared.incumbent_point(), from_product.incumbent_point());
+    assert_eq!(
+        from_shared.incumbent_point(),
+        from_product.incumbent_point()
+    );
 }
 
 #[test]

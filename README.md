@@ -279,6 +279,27 @@ receipt. The Python ledger does not expose the native Session's protected
 verifier reservation. Source capture and Python allocation overhead are outside
 native-buffer accounting.
 
+Integral receipts can be saved and independently verified in another process:
+
+```python
+from sympy import IntegralEnclosureReceipt
+
+data = receipt.to_bytes(budget=budget)
+restored = IntegralEnclosureReceipt.from_bytes(
+    data, integrand=x**2, limits=(x, 0, 1), budget=budget,
+)
+assert restored.bounds == receipt.bounds
+```
+
+The receiver supplies its own exact source, typed variable, ordered endpoints
+and tolerance. The shared native Session format is canonical and bounded at
+1 MiB; exchange requires identical typed source and context. It stores a
+partition witness, with no accepted flag or cached enclosure. Replay checks
+every original source-domain obligation and recomputes the enclosure without
+running the adaptive generator. Altered sources, unsupported assumptions,
+incomplete partitions and an unproved requested width refuse. Native replay
+releases the GIL and shares the same cumulative budget through publication.
+
 ### Reusable compiled derivative programs
 
 Native sessions can retain independently checked residual or objective programs

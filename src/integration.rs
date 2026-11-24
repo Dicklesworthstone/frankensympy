@@ -7,37 +7,20 @@
 
 #![forbid(unsafe_code)]
 
-use crate::certification::{
-    CertificationError, JsonNesting, MAX_ROOT_CERTIFICATE_BYTES, ResidualProblem, charge,
-    check_problem_sources, encode, encoding_error,
-};
+use crate::certification::{CertificationError, ResidualProblem};
 use fsym_budget::BudgetMeter;
 use fsym_calculus::quadrature::{QuadratureOptions, propose_integral_enclosure};
+use fsym_core::root_certificate::integral_artifact;
 use fsym_core::{
-    BigRational, Expr, IntegralEnclosureReceipt, MAX_QUADRATURE_INTERVALS, QuadratureError,
-    QuadratureWitness, Symbol, validate_integral_request, verify_integral_enclosure,
+    BigRational, Expr, IntegralEnclosureReceipt, QuadratureWitness, Symbol,
+    verify_integral_enclosure,
 };
-use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
-use thiserror::Error;
 
-/// Version of the exact source, interval and tolerance-bound partition format.
-pub const INTEGRAL_CERTIFICATE_SCHEMA_VERSION: u32 = 1;
-/// Maximum encoded certificate, sharing the bounded session artifact envelope.
-pub const MAX_INTEGRAL_CERTIFICATE_BYTES: usize = MAX_ROOT_CERTIFICATE_BYTES;
-
-/// A refusal never supplies a partial integral or grants mathematical evidence.
-#[derive(Debug, Error)]
-pub enum IntegrationError {
-    #[error(transparent)]
-    Certification(#[from] CertificationError),
-    #[error(transparent)]
-    Quadrature(#[from] QuadratureError),
-    #[error("definite integration requires exactly one original residual and one variable")]
-    ProblemDimension,
-    #[error("integral certificate bounds or absolute tolerance differ from the expected statement")]
-    StatementMismatch,
-}
+// One bounded canonical codec serves native Sessions and host bridges. The
+// public native API, schema, source binding and mathematical replay are retained.
+pub use integral_artifact::{
+    INTEGRAL_CERTIFICATE_SCHEMA_VERSION, IntegrationError, MAX_INTEGRAL_CERTIFICATE_BYTES,
+};
 
 fn integral_source(problem: &ResidualProblem) -> Result<(&Expr, &Symbol), IntegrationError> {
     if problem.residuals().len() != 1 || problem.variables().len() != 1 {
@@ -102,79 +85,6 @@ impl ResidualProblem {
     }
 }
 
-#[derive(Serialize)]
-struct IntegralArtifact<'a> {
-    schema_version: u32,
-    context_digest: [u8; 32],
-    residuals: &'a [Expr],
-    variables: &'a [Symbol],
-    lower: &'a BigRational,
-    upper: &'a BigRational,
-    absolute_tolerance: &'a BigRational,
-    witness: &'a QuadratureWitness,
-}
-
-// Keep every large or arithmetic-bearing payload borrowed until it matches
-// the receiver's bounded typed statement. In particular, do not construct an
-// attacker's expression or normalize its bounds merely to compare them.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct UntrustedArtifact<'a> {
-    schema_version: u32,
-    context_digest: [u8; 32],
-    #[serde(borrow)]
-    residuals: &'a RawValue,
-    #[serde(borrow)]
-    variables: &'a RawValue,
-    #[serde(borrow)]
-    lower: &'a RawValue,
-    #[serde(borrow)]
-    upper: &'a RawValue,
-    #[serde(borrow)]
-    absolute_tolerance: &'a RawValue,
-    #[serde(borrow)]
-    witness: &'a RawValue,
-}
-
-fn charge_number(
-    value: &BigRational,
-    meter: &mut impl BudgetMeter,
-) -> Result<(), CertificationError> {
-    let limbs = value.numer().limb_count() + value.denom().limb_count();
-    charge(meter, limbs + 1, 128 + 16 * limbs, 2)
-}
-
-fn charge_statement(
-    lower: &BigRational,
-    upper: &BigRational,
-    absolute_tolerance: &BigRational,
-    meter: &mut impl BudgetMeter,
-) -> Result<(), IntegrationError> {
-    validate_integral_request(lower, upper, absolute_tolerance)?;
-    for value in [lower, upper, absolute_tolerance] {
-        charge_number(value, meter)?;
-    }
-    Ok(())
-}
-
-fn charge_partition(
-    witness: &QuadratureWitness,
-    tolerance: &BigRational,
-    meter: &mut impl BudgetMeter,
-) -> Result<(), IntegrationError> {
-    if witness.partition.is_empty() || witness.partition.len() > MAX_QUADRATURE_INTERVALS + 1 {
-        return Err(QuadratureError::InvalidPartition("point count").into());
-    }
-    if !(8..=128).contains(&witness.precision_digits) {
-        return Err(QuadratureError::ResourceLimit("quadrature precision").into());
-    }
-    for point in &witness.partition {
-        validate_integral_request(point, point, tolerance)?;
-        charge_number(point, meter)?;
-    }
-    Ok(())
-}
-
 /// Export an accepted integral's exact statement and untrusted partition.
 ///
 /// The format contains no enclosure, cached value or accepted flag. The source
@@ -187,42 +97,16 @@ pub fn export_integral_certificate(
     context_digest: [u8; 32],
     meter: &mut impl BudgetMeter,
 ) -> Result<Vec<u8>, IntegrationError> {
-    meter.checkpoint().map_err(CertificationError::from)?;
-    let (source, variable) = integral_source(problem)?;
-    check_problem_sources(problem.residuals(), problem.variables(), meter)?;
-    if source != receipt.integrand() || variable != receipt.variable() {
-        return Err(CertificationError::SourceMismatch.into());
-    }
-    charge_statement(
-        receipt.lower(),
-        receipt.upper(),
-        receipt.absolute_tolerance(),
+    integral_artifact::export_integral_certificate(
+        problem.residuals(),
+        problem.variables(),
+        receipt,
+        context_digest,
         meter,
-    )?;
-    charge_partition(receipt.witness(), receipt.absolute_tolerance(), meter)?;
-    Ok(encode(
-        &IntegralArtifact {
-            schema_version: INTEGRAL_CERTIFICATE_SCHEMA_VERSION,
-            context_digest,
-            residuals: problem.residuals(),
-            variables: problem.variables(),
-            lower: receipt.lower(),
-            upper: receipt.upper(),
-            absolute_tolerance: receipt.absolute_tolerance(),
-            witness: receipt.witness(),
-        },
-        meter,
-    )?)
+    )
 }
 
-/// Replay a portable partition against the receiver's exact integral statement.
-///
-/// Byte length, JSON nesting and cumulative decoder costs are admitted before
-/// the bounded core witness decoder constructs any partition rational. Source,
-/// axis, endpoint direction, tolerance and context substitutions refuse before
-/// witness decoding. Canonical re-encoding rejects alternate numeric encodings
-/// and ignored data. Only the independent original-source checker grants a
-/// receipt; this function never invokes the adaptive generator.
+/// Replay the shared canonical partition using independent source verification.
 #[allow(clippy::too_many_arguments)]
 pub fn replay_integral_certificate(
     bytes: &[u8],
@@ -233,104 +117,14 @@ pub fn replay_integral_certificate(
     expected_context: [u8; 32],
     meter: &mut impl BudgetMeter,
 ) -> Result<IntegralEnclosureReceipt, IntegrationError> {
-    meter.checkpoint().map_err(CertificationError::from)?;
-    integral_source(expected_problem)?;
-    if bytes.len() > MAX_INTEGRAL_CERTIFICATE_BYTES {
-        return Err(CertificationError::ByteLimit {
-            actual: bytes.len(),
-            max: MAX_INTEGRAL_CERTIFICATE_BYTES,
-        }
-        .into());
-    }
-    charge_statement(expected_lower, expected_upper, expected_tolerance, meter)?;
-    let mut nesting = JsonNesting::default();
-    for chunk in bytes.chunks(512) {
-        charge(meter, chunk.len() as u64, 0, 0)?;
-        nesting.scan(chunk)?;
-    }
-    // Bound decoder scratch growth and diagnostics before borrowed parsing.
-    charge(
-        meter,
-        bytes.len() as u64 + 1,
-        bytes.len() as u64 * 4 + 1024,
-        64,
-    )?;
-    let wire: UntrustedArtifact<'_> =
-        serde_json::from_slice(bytes).map_err(|error| encoding_error(&error))?;
-    if wire.schema_version != INTEGRAL_CERTIFICATE_SCHEMA_VERSION {
-        return Err(CertificationError::UnsupportedVersion {
-            found: wire.schema_version,
-            supported: INTEGRAL_CERTIFICATE_SCHEMA_VERSION,
-        }
-        .into());
-    }
-    if wire.context_digest != expected_context {
-        return Err(CertificationError::UniverseMismatch {
-            found: wire.context_digest,
-            expected: expected_context,
-        }
-        .into());
-    }
-    check_problem_sources(
+    integral_artifact::replay_integral_certificate(
+        bytes,
         expected_problem.residuals(),
         expected_problem.variables(),
-        meter,
-    )?;
-    let sources = encode(expected_problem.residuals(), meter)?;
-    let variables = encode(expected_problem.variables(), meter)?;
-    charge(meter, (sources.len() + variables.len()) as u64 + 1, 0, 0)?;
-    if sources.as_slice() != wire.residuals.get().as_bytes()
-        || variables.as_slice() != wire.variables.get().as_bytes()
-    {
-        return Err(CertificationError::SourceMismatch.into());
-    }
-    for (expected, received) in [
-        (expected_lower, wire.lower),
-        (expected_upper, wire.upper),
-        (expected_tolerance, wire.absolute_tolerance),
-    ] {
-        let canonical = encode(expected, meter)?;
-        charge(meter, canonical.len() as u64 + 1, 0, 0)?;
-        if canonical.as_slice() != received.get().as_bytes() {
-            return Err(IntegrationError::StatementMismatch);
-        }
-    }
-    // The core decoder caps partition length, scalar limbs and precision
-    // before constructing/normalizing its rationals. Precharge that bounded
-    // synchronous unit; original-source checking below has finer safe points.
-    let witness_bytes = wire.witness.get().len() as u64;
-    charge(
-        meter,
-        witness_bytes.saturating_mul(witness_bytes + 1),
-        witness_bytes * 32 + 1024,
-        witness_bytes + 1,
-    )?;
-    let witness: QuadratureWitness =
-        serde_json::from_str(wire.witness.get()).map_err(|error| encoding_error(&error))?;
-    meter.checkpoint().map_err(CertificationError::from)?;
-    charge_partition(&witness, expected_tolerance, meter)?;
-    let canonical = encode(
-        &IntegralArtifact {
-            schema_version: INTEGRAL_CERTIFICATE_SCHEMA_VERSION,
-            context_digest: expected_context,
-            residuals: expected_problem.residuals(),
-            variables: expected_problem.variables(),
-            lower: expected_lower,
-            upper: expected_upper,
-            absolute_tolerance: expected_tolerance,
-            witness: &witness,
-        },
-        meter,
-    )?;
-    charge(meter, bytes.len() as u64 + 1, 0, 0)?;
-    if canonical.as_slice() != bytes {
-        return Err(CertificationError::NonCanonical.into());
-    }
-    expected_problem.verify_integral(
         expected_lower,
         expected_upper,
         expected_tolerance,
-        &witness,
+        expected_context,
         meter,
     )
 }
