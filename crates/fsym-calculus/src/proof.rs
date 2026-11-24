@@ -47,6 +47,10 @@ pub const RULE_DIFF_ATAN_D1: &str = "diff_atan_d1";
 /// Formal binary chain rule on the common smooth domain. Original-source
 /// consumers separately reject the origin and principal negative-axis cut.
 pub const RULE_DIFF_ATAN2: &str = "diff_atan2";
+/// Exact partial-derivative chain rules for the ordered private atan2 jets.
+/// They retain the original source domain and do not certify branch continuity.
+pub const RULE_DIFF_ATAN2_DY: &str = "diff_atan2_dy";
+pub const RULE_DIFF_ATAN2_DX: &str = "diff_atan2_dx";
 /// Principal-branch rules on their common smooth domains. These derivations
 /// do not discharge whole-box domain or differentiability obligations.
 pub const RULE_DIFF_ASINH: &str = "diff_asinh";
@@ -144,12 +148,25 @@ fn reference_lambert_first_jet(arguments: &[Expr]) -> Option<&'static str> {
 fn classify_diff_rule_with_form(expr: &Expr, var: &Symbol, form: DerivativeForm) -> &'static str {
     if form == DerivativeForm::Numeric
         && let Expr::Function(name, arguments) = expr
+        && arguments.len() == 2
+    {
+        match name.as_str() {
+            "_fsym_atan2_dy" => return RULE_DIFF_ATAN2_DY,
+            "_fsym_atan2_dx" => return RULE_DIFF_ATAN2_DX,
+            _ => {}
+        }
+    }
+    if form.has_lambert_jets()
+        && let Expr::Function(name, arguments) = expr
     {
         if name == "LambertW" && reference_lambert_first_jet(arguments).is_some() {
             return RULE_DIFF_LAMBERT_W_REAL;
         }
         if arguments.len() == 1
-            && matches!(name.as_str(), "_fsym_lambert_w0_d1" | "_fsym_lambert_wm1_d1")
+            && matches!(
+                name.as_str(),
+                "_fsym_lambert_w0_d1" | "_fsym_lambert_wm1_d1"
+            )
         {
             return RULE_DIFF_LAMBERT_W_REAL_D1;
         }
@@ -165,7 +182,7 @@ fn classify_diff_rule_with_form(expr: &Expr, var: &Symbol, form: DerivativeForm)
             "_fsym_abs_d1" => return RULE_DIFF_ABS_D1,
             _ => {}
         }
-        if form == DerivativeForm::Numeric {
+        if form.has_inverse_jets() {
             match name.as_str() {
                 "_fsym_atan_d1" => return RULE_DIFF_ATAN_D1,
                 "_fsym_asinh_d1" => return RULE_DIFF_ASINH_D1,
@@ -263,6 +280,10 @@ pub fn verify_diff_receipt(
 enum DerivativeForm {
     Symbolic,
     Numeric,
+    // Programs emitted before scaled atan2 partial jets retain the entire
+    // preceding recipe, including scaled unary atan/asinh derivatives and
+    // the fixed real Lambert-W jets already admitted by that generation.
+    PreAtan2JetsNumeric,
     // Programs emitted before scaled atan/asinh jets retain the prior
     // stable tanh, entire sinc and guarded absolute-value rules. Replay
     // checks this complete recipe separately from the older tanh recipe.
@@ -274,7 +295,18 @@ enum DerivativeForm {
 
 impl DerivativeForm {
     fn has_stable_elementary_rules(self) -> bool {
-        matches!(self, Self::Numeric | Self::PreInverseJetsNumeric)
+        matches!(
+            self,
+            Self::Numeric | Self::PreAtan2JetsNumeric | Self::PreInverseJetsNumeric
+        )
+    }
+
+    fn has_inverse_jets(self) -> bool {
+        matches!(self, Self::Numeric | Self::PreAtan2JetsNumeric)
+    }
+
+    fn has_lambert_jets(self) -> bool {
+        matches!(self, Self::Numeric | Self::PreAtan2JetsNumeric)
     }
 }
 
@@ -296,6 +328,23 @@ pub(crate) fn verify_numeric_diff_derivation(
     deriv: &Expr,
 ) -> Result<(), KernelError> {
     verify_diff_derivation_with_form(tree, expr, var, deriv, DerivativeForm::Numeric)
+}
+
+/// Replay the complete recipe immediately preceding the scaled binary-angle
+/// jets. The caller has already checked the proof envelope and charges this
+/// separate semantic pass. Stored derivatives and bytecode are never replaced.
+pub(crate) fn verify_pre_atan2_numeric_diff_reduction(
+    expr: &Expr,
+    var: &Symbol,
+    deriv: &Expr,
+) -> Result<(), KernelError> {
+    verify_rule_reduction_semantics(
+        expr,
+        var,
+        deriv,
+        classify_diff_rule_with_form(expr, var, DerivativeForm::PreAtan2JetsNumeric),
+        DerivativeForm::PreAtan2JetsNumeric,
+    )
 }
 
 /// Reconstruct the complete numerical recipe immediately preceding the
@@ -443,6 +492,10 @@ pub(crate) fn reference_numeric_sub_derivative(expr: &Expr, var: &Symbol) -> Exp
     reference_sub_derivative_with_form(expr, var, DerivativeForm::Numeric)
 }
 
+pub(crate) fn reference_pre_atan2_numeric_sub_derivative(expr: &Expr, var: &Symbol) -> Expr {
+    reference_sub_derivative_with_form(expr, var, DerivativeForm::PreAtan2JetsNumeric)
+}
+
 pub(crate) fn reference_pre_inverse_numeric_sub_derivative(expr: &Expr, var: &Symbol) -> Expr {
     reference_sub_derivative_with_form(expr, var, DerivativeForm::PreInverseJetsNumeric)
 }
@@ -466,6 +519,42 @@ fn reference_sub_derivative_with_form(expr: &Expr, var: &Symbol, form: Derivativ
 /// Verifier-local formal differentiation rule table (independent of `crate::diff_unsimplified`).
 fn reference_unsimplified_diff(expr: &Expr, var: &Symbol) -> Expr {
     reference_unsimplified_diff_with_form(expr, var, DerivativeForm::Symbolic)
+}
+
+fn reference_angle_numerator_is_zero(y: &Expr, x: &Expr, dy: &Expr, dx: &Expr) -> bool {
+    fn append<'a>(expression: &'a Expr, factors: &mut Vec<&'a Expr>) -> bool {
+        if expression.is_zero() {
+            return false;
+        }
+        if let Expr::Mul(children) = expression {
+            return children.iter().all(|child| append(child, factors));
+        }
+        if !expression.is_one() {
+            factors.push(expression);
+        }
+        true
+    }
+
+    // Reconstruct both products independently, without evaluating an opaque
+    // coordinate or performing coefficient arithmetic. Removing one matching
+    // factor at a time checks multiplicities as well as exact source identity.
+    let mut left = Vec::new();
+    let mut right = Vec::new();
+    let left_nonzero = append(x, &mut left) && append(dy, &mut left);
+    let right_nonzero = append(y, &mut right) && append(dx, &mut right);
+    if !left_nonzero || !right_nonzero {
+        return left_nonzero == right_nonzero;
+    }
+    if left.len() != right.len() {
+        return false;
+    }
+    for factor in right {
+        let Some(index) = left.iter().position(|candidate| *candidate == factor) else {
+            return false;
+        };
+        left.swap_remove(index);
+    }
+    true
 }
 
 fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: DerivativeForm) -> Expr {
@@ -585,7 +674,7 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
                 }
             }
         }
-        Expr::Function(name, args) if form == DerivativeForm::Numeric && name == "LambertW" => {
+        Expr::Function(name, args) if form.has_lambert_jets() && name == "LambertW" => {
             let Some(jet) = reference_lambert_first_jet(args) else {
                 return make_diff_term(expr, var);
             };
@@ -606,6 +695,27 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
             let dx = reference_sub_derivative(x, var);
             if dy.is_zero() && dx.is_zero() {
                 Expr::from_i64(0)
+            } else if form == DerivativeForm::Numeric {
+                // Independently establish only an exact zero numerator before
+                // separating the partials. Source domain guards remain binding
+                // when a constant radial chain omits its derivative entry.
+                if reference_angle_numerator_is_zero(y, x, &dy, &dx) {
+                    return Expr::from_i64(0);
+                }
+                // For h(y, x), h_y=x/(x^2+y^2) and
+                // h_x=-y/(x^2+y^2). Keep ordered source arguments
+                // in each exact private function; the numerical backend
+                // separately scales their evaluation.
+                Expr::Add(vec![
+                    Expr::Mul(vec![
+                        Expr::Function("_fsym_atan2_dy".to_string(), args.clone()),
+                        dy,
+                    ]),
+                    Expr::Mul(vec![
+                        Expr::Function("_fsym_atan2_dx".to_string(), args.clone()),
+                        dx,
+                    ]),
+                ])
             } else {
                 Expr::Mul(vec![
                     Expr::Add(vec![
@@ -621,6 +731,29 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
                     ),
                 ])
             }
+        }
+        Expr::Function(name, args)
+            if form == DerivativeForm::Numeric
+                && matches!(name.as_str(), "_fsym_atan2_dy" | "_fsym_atan2_dx")
+                && args.len() == 2 =>
+        {
+            let dy = reference_sub_derivative(&args[0], var);
+            let dx = reference_sub_derivative(&args[1], var);
+            if dy.is_zero() && dx.is_zero() {
+                return Expr::from_i64(0);
+            }
+            // Differentiate both ordered inputs independently. In
+            // particular h_yx=h_xy=(y^2-x^2)/(x^2+y^2)^2:
+            // neither the mixed sign nor either chain term is optional.
+            let (with_y, with_x) = if name == "_fsym_atan2_dy" {
+                ("_fsym_atan2_dyy", "_fsym_atan2_dyx")
+            } else {
+                ("_fsym_atan2_dyx", "_fsym_atan2_dxx")
+            };
+            Expr::Add(vec![
+                Expr::Mul(vec![Expr::Function(with_y.to_string(), args.clone()), dy]),
+                Expr::Mul(vec![Expr::Function(with_x.to_string(), args.clone()), dx]),
+            ])
         }
         Expr::Function(name, args) if args.len() == 1 => {
             let u = &args[0];
@@ -771,7 +904,7 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
                     ])
                 }
                 "atan" => {
-                    if form == DerivativeForm::Numeric {
+                    if form.has_inverse_jets() {
                         return Expr::Mul(vec![
                             Expr::Function("_fsym_atan_d1".to_string(), vec![u.clone()]),
                             du,
@@ -784,7 +917,7 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
                     Expr::Mul(vec![Expr::pow(denom, Expr::from_i64(-1)), du])
                 }
                 "asinh" => {
-                    if form == DerivativeForm::Numeric {
+                    if form.has_inverse_jets() {
                         return Expr::Mul(vec![
                             Expr::Function("_fsym_asinh_d1".to_string(), vec![u.clone()]),
                             du,
@@ -797,19 +930,19 @@ fn reference_unsimplified_diff_with_form(expr: &Expr, var: &Symbol, form: Deriva
                     let exponent = Expr::Rational(BigRational::new((-1).into(), 2.into()));
                     Expr::Mul(vec![Expr::pow(denominator, exponent), du])
                 }
-                "_fsym_atan_d1" if form == DerivativeForm::Numeric => Expr::Mul(vec![
+                "_fsym_atan_d1" if form.has_inverse_jets() => Expr::Mul(vec![
                     Expr::Function("_fsym_atan_d2".to_string(), vec![u.clone()]),
                     du,
                 ]),
-                "_fsym_asinh_d1" if form == DerivativeForm::Numeric => Expr::Mul(vec![
+                "_fsym_asinh_d1" if form.has_inverse_jets() => Expr::Mul(vec![
                     Expr::Function("_fsym_asinh_d2".to_string(), vec![u.clone()]),
                     du,
                 ]),
-                "_fsym_lambert_w0_d1" if form == DerivativeForm::Numeric => Expr::Mul(vec![
+                "_fsym_lambert_w0_d1" if form.has_lambert_jets() => Expr::Mul(vec![
                     Expr::Function("_fsym_lambert_w0_d2".to_string(), vec![u.clone()]),
                     du,
                 ]),
-                "_fsym_lambert_wm1_d1" if form == DerivativeForm::Numeric => Expr::Mul(vec![
+                "_fsym_lambert_wm1_d1" if form.has_lambert_jets() => Expr::Mul(vec![
                     Expr::Function("_fsym_lambert_wm1_d2".to_string(), vec![u.clone()]),
                     du,
                 ]),
@@ -1385,6 +1518,34 @@ fn verify_rule_reduction_semantics(
                 });
             }
         }
+        RULE_DIFF_ATAN2_DY | RULE_DIFF_ATAN2_DX => {
+            let expected_name = if rule_name == RULE_DIFF_ATAN2_DY {
+                "_fsym_atan2_dy"
+            } else {
+                "_fsym_atan2_dx"
+            };
+            if form != DerivativeForm::Numeric
+                || !matches!(
+                    expr,
+                    Expr::Function(name, args) if name == expected_name && args.len() == 2
+                )
+            {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Atan2 jet rules require their exact ordered binary numeric source"
+                        .to_string(),
+                });
+            }
+            let expected_rhs = reference_unsimplified_diff(expr, var);
+            if deriv != &expected_rhs {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: format!(
+                        "Atan2 partial derivative mismatch: expected {expected_rhs}, got {deriv}"
+                    ),
+                });
+            }
+        }
         RULE_DIFF_ASINH | RULE_DIFF_ACOSH | RULE_DIFF_ATANH => {
             let expected_name = match rule_name {
                 RULE_DIFF_ASINH => "asinh",
@@ -1422,7 +1583,7 @@ fn verify_rule_reduction_semantics(
                     reason: "Expected a private inverse-function first derivative".to_string(),
                 });
             };
-            if form != DerivativeForm::Numeric || name != first || arguments.len() != 1 {
+            if !form.has_inverse_jets() || name != first || arguments.len() != 1 {
                 return Err(KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Inverse jet rules require their exact unary numeric source"
@@ -1456,7 +1617,7 @@ fn verify_rule_reduction_semantics(
                     reason: "Expected a fixed real Lambert-W source or first jet".to_string(),
                 });
             };
-            let jet = if form != DerivativeForm::Numeric {
+            let jet = if !form.has_lambert_jets() {
                 None
             } else if rule_name == RULE_DIFF_LAMBERT_W_REAL && name == "LambertW" {
                 reference_lambert_first_jet(arguments)
@@ -1952,7 +2113,10 @@ mod tests {
         for arguments in [
             vec![],
             vec![sx.clone(), Expr::from_i64(1)],
-            vec![sx.clone(), Expr::Rational(BigRational::from_integer((-1).into()))],
+            vec![
+                sx.clone(),
+                Expr::Rational(BigRational::from_integer((-1).into())),
+            ],
             vec![sx.clone(), Expr::Sym(Symbol::new("branch"))],
             vec![sx.clone(), Expr::from_i64(-1), Expr::from_i64(0)],
         ] {
@@ -1962,8 +2126,9 @@ mod tests {
         }
         let source = Expr::Function("LambertW".to_string(), vec![sx]);
         let (derivative, proof) = verified_numeric_diff(&source, &x);
-        // A newly introduced numerical rule cannot retroactively change
-        // public symbolic receipts or either historical numeric recipe.
+        // The immediately preceding atan2 recipe already had Lambert-W jets;
+        // public symbolic and older numerical recipes keep their own rules.
+        verify_pre_atan2_numeric_diff_reduction(&source, &x, &derivative).unwrap();
         assert!(verify_diff_derivation(&proof, &source, &x, &derivative).is_err());
         assert!(verify_pre_inverse_numeric_diff_reduction(&source, &x, &derivative).is_err());
         assert!(verify_legacy_numeric_diff_reduction(&source, &x, &derivative).is_err());

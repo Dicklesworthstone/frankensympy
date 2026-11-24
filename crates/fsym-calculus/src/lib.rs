@@ -97,6 +97,34 @@ pub(crate) fn numeric_diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
     diff_unsimplified_with_coth(expr, var, true)
 }
 
+fn angle_chain_numerator_is_zero(y: &Expr, x: &Expr, dy: &Expr, dx: &Expr) -> bool {
+    fn product(roots: [&Expr; 2]) -> Option<Vec<&Expr>> {
+        let mut pending = Vec::from(roots);
+        let mut factors = Vec::new();
+        while let Some(factor) = pending.pop() {
+            if factor.is_zero() {
+                return None;
+            }
+            if factor.is_one() {
+                continue;
+            }
+            if let Expr::Mul(children) = factor {
+                pending.extend(children);
+            } else {
+                factors.push(factor);
+            }
+        }
+        factors.sort_unstable();
+        Some(factors)
+    }
+
+    // Only commutativity, associativity and literal zero/one are used. In
+    // particular, held powers and function arguments remain opaque: asking
+    // the general simplifier about a constant coordinate can expand huge
+    // integers before the numerical compiler has seen the original source.
+    product([x, dy]) == product([y, dx])
+}
+
 fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> Expr {
     // Every recursive chain/product derivative uses the same representation;
     // this also covers coth inside an outer function or a mixed derivative.
@@ -678,7 +706,10 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                 let exp_neg_u_sq = Expr::Function("exp".to_string(), vec![neg_u_sq]);
                 Expr::Mul(vec![Expr::from_i64(-2), inv_sqrt_pi, exp_neg_u_sq, du])
             } else if stable_coth
-                && matches!(name.as_str(), "_fsym_lambert_w0_d1" | "_fsym_lambert_wm1_d1")
+                && matches!(
+                    name.as_str(),
+                    "_fsym_lambert_w0_d1" | "_fsym_lambert_wm1_d1"
+                )
                 && args.len() == 1
             {
                 // A private first jet denotes the analytic derivative on
@@ -726,11 +757,52 @@ fn diff_unsimplified_with_coth(expr: &Expr, var: &Symbol, stable_coth: bool) -> 
                     ),
                     du,
                 ])
+            } else if stable_coth
+                && matches!(name.as_str(), "_fsym_atan2_dy" | "_fsym_atan2_dx")
+                && args.len() == 2
+            {
+                let (partial_y, partial_x) = if name == "_fsym_atan2_dy" {
+                    ("_fsym_atan2_dyy", "_fsym_atan2_dyx")
+                } else {
+                    ("_fsym_atan2_dyx", "_fsym_atan2_dxx")
+                };
+                Expr::Add(vec![
+                    Expr::Mul(vec![
+                        Expr::Function(partial_y.to_string(), args.clone()),
+                        diff(&args[0], var),
+                    ]),
+                    Expr::Mul(vec![
+                        Expr::Function(partial_x.to_string(), args.clone()),
+                        diff(&args[1], var),
+                    ]),
+                ])
             } else if name == "atan2" && args.len() == 2 {
-                // d atan2(y, x) = (x*y' - y*x') / (x^2 + y^2)
                 let (y, xx) = (&args[0], &args[1]);
                 let dy = diff(y, var);
                 let dx = diff(xx, var);
+                if stable_coth {
+                    // Preserve exact cancellations before lowering the two
+                    // partials separately: a radial chain can be constant even
+                    // when each partial overflows at a subnormal coordinate.
+                    if angle_chain_numerator_is_zero(y, xx, &dy, &dx) {
+                        return Expr::from_i64(0);
+                    }
+                    // Separate ordered partials permit scaled evaluation without
+                    // squaring a huge/tiny coordinate. Original source guards
+                    // still run when simplification removes a zero chain term.
+                    return Expr::Add(vec![
+                        Expr::Mul(vec![
+                            Expr::Function("_fsym_atan2_dy".to_string(), args.clone()),
+                            dy,
+                        ]),
+                        Expr::Mul(vec![
+                            Expr::Function("_fsym_atan2_dx".to_string(), args.clone()),
+                            dx,
+                        ]),
+                    ]);
+                }
+                // Preserve the public symbolic derivative's existing form.
+                // d atan2(y, x) = (x*y' - y*x') / (x^2 + y^2)
                 Expr::Mul(vec![
                     Expr::Add(vec![
                         Expr::Mul(vec![xx.clone(), dy]),

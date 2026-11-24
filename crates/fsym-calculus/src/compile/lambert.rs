@@ -68,9 +68,15 @@ fn exact_binary64<M: BudgetMeter + ?Sized>(
         (fraction | (1u64 << 52), exponent_bits - 1075)
     };
     let (numerator, denominator) = if exponent >= 0 {
-        (BigInt::from(significand) << exponent as usize, BigInt::from(1))
+        (
+            BigInt::from(significand) << exponent as u32,
+            BigInt::from(1),
+        )
     } else {
-        (BigInt::from(significand), BigInt::from(1) << (-exponent) as usize)
+        (
+            BigInt::from(significand),
+            BigInt::from(1) << (-exponent) as u32,
+        )
     };
     let numerator = if value.is_sign_negative() {
         -numerator

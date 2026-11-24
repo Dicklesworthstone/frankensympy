@@ -14,6 +14,15 @@ use std::collections::HashMap;
 #[path = "atan2_compilation/numeric_jets.rs"]
 mod numeric_jets;
 
+#[path = "atan2_compilation/stable_programs.rs"]
+mod stable_programs;
+
+#[path = "atan2_compilation/legacy_jets.rs"]
+mod legacy_jets;
+
+#[path = "atan2_compilation/zero_cancellation.rs"]
+mod zero_cancellation;
+
 fn angle(y: Expr, x: Expr) -> Expr {
     Expr::Function("atan2".into(), vec![y, x])
 }
