@@ -56,6 +56,7 @@ use thiserror::Error;
 mod compiled;
 mod compiled_objective;
 mod compiled_solvers;
+mod least_squares_objective;
 mod parametric;
 mod polynomial_solver;
 mod real_solver;
@@ -418,6 +419,13 @@ pub enum ArtifactSource {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", deny_unknown_fields)]
 pub enum CertificationRequest {
+    /// Derive the exact held squared-error source and its checked full Hessian.
+    CompileLeastSquaresObjective {
+        schema_version: u32,
+        residual_program: CompiledResidualSystemId,
+        objective: ObjectiveId,
+        program: CompiledObjectiveId,
+    },
     /// Independently admit a frozen objective, its gradient and sparse Hessian.
     /// The receipt does not establish interval accuracy or optimality.
     CompileObjective {
@@ -1025,7 +1033,8 @@ pub enum CertificationRequest {
 impl CertificationRequest {
     fn schema_version(&self) -> u32 {
         match self {
-            Self::CompileObjective { schema_version, .. }
+            Self::CompileLeastSquaresObjective { schema_version, .. }
+            | Self::CompileObjective { schema_version, .. }
             | Self::ExportCompiledObjective { schema_version, .. }
             | Self::ReplayCompiledObjective { schema_version, .. }
             | Self::ReplayCompiledObjectiveFromArtifact { schema_version, .. }
@@ -3170,6 +3179,19 @@ impl CertificationState {
                     lease,
                 )
             }
+            CertificationRequest::CompileLeastSquaresObjective {
+                residual_program,
+                objective,
+                program,
+                ..
+            } => self.compile_least_squares_objective(
+                residual_program,
+                objective,
+                program,
+                context_digest,
+                budget,
+                lease,
+            ),
             CertificationRequest::CompileObjective {
                 objective, program, ..
             } => {

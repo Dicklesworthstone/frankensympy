@@ -187,6 +187,17 @@ and original poles cannot be hidden by narrowing a witness. See the
 [scalar root session guide](docs/NATIVE_CERTIFICATION_SESSION.md#certify-a-flat-or-nonsmooth-scalar-root)
 for requests, bounds and replay behavior.
 
+`CompileLeastSquaresObjective` derives the exact loss `F = 1/2 * sum(r_i^2)`
+from an admitted residual program, making existing objective evaluation,
+Hessian-vector products, numerical minimization and stationary point
+certification available for fitting. Original sources, coordinate order and
+domain obligations are retained, along with the full residual curvature in the
+Hessian. Inconsistent residuals such as `x-1` and `x-3` can have a fit at `x=2`
+with objective value `1` and nonzero residuals. Compilation alone grants no
+root, stationary point or minimum claim. See the
+[least-squares Session guide](docs/NATIVE_CERTIFICATION_SESSION.md#derive-a-least-squares-objective-from-residuals)
+for the request and independent verification boundaries.
+
 Native hosts can pass their owning request's cancellation check to
 `Session::certification_request_with_checkpoint`. Generation, protected
 verification, and final publication admission observe the same check. Cancelled

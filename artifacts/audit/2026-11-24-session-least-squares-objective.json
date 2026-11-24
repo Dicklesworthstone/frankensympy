@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-24",
+  "base_commit": "7e93a422bff73a5f7c7b40ef69c27f155da0508b",
+  "bead": "fra-7kf",
+  "status": "implemented_runtime_validation_pending",
+  "request": "CompileLeastSquaresObjective",
+  "source_contract": "Derive the held exact loss (1/2) sum(r_i^2) from every original residual and the frozen ordered typed axes of an admitted residual program. Preserve original source-domain obligations and require the current assumption context to match.",
+  "admission": "Generate the objective candidate on ordinary resources; independently verify the held loss and full gradient/Hessian lowering on the protected verifier pool. Preflight both IDs and caps, prepare the owned source, and admit the complete response before publishing either new handle.",
+  "behavior": "Existing objective evaluation, Hessian-vector products, optimization, stationary certification and portable program replay can use the resulting source/program pair. Releasing the residual program does not invalidate it.",
+  "claim_boundary": "Compilation establishes formal symbolic gradient/Hessian and binary64 lowering, not an equation root or an optimum. Numerical stationary certification independently determines the local classification.",
+  "validation": {
+    "authored_session_ndjson_tests": 9,
+    "authored_internal_authority_context_tests": 2,
+    "formatting": "Pinned nightly-2026-08-20 formatting completed for the final implementation and tests before executor loss. The recovered new files reproduce their recorded SHA-256 identities, and both parent files reproduce the exact formatted wiring patch.",
+    "independent_review": "Source, mathematical examples, derivative curvature, ownership, protected authority, output admission and failure behavior reviewed independently. No concrete blocker found.",
+    "runtime": "Unexecuted. The original-production check exited 101 when dependency syn 3.0.3 received SIGKILL before project checking. A serialized retry started but its terminal outcome was unavailable after executor loss.",
+    "historical_evidence": "artifacts/audit/2026-11-24-scalar-brackets-arithmetic/validation-status.json",
+    "selection": "CI selects tests/session_least_squares_objective.rs and certification_session::least_squares_objective::tests."
+  },
+  "source_blobs": [
+    {
+      "path": "src/certification_session/least_squares_objective.rs",
+      "git_blob": "5c70abb17d8d36d2f597061330490f014cefc99e"
+    },
+    {
+      "path": "tests/session_least_squares_objective.rs",
+      "git_blob": "1ecc04d4c904dd66bb586ffe7ceed99e3d26f8d3"
+    },
+    {
+      "path": "src/certification_session.rs",
+      "git_blob": "a32a8541230f7a44ccbd8ef46a0922d246dd4990"
+    },
+    {
+      "path": "src/session.rs",
+      "git_blob": "964e4950db231013557c8abc1ea54e0a4336fa98"
+    },
+    {
+      "path": "src/certification_session/compiled_objective.rs",
+      "git_blob": "4d2c8409a057793ec9acf9d5cfc6e6b61abde8b3"
+    }
+  ],
+  "source_sha256": {
+    "src/certification_session/least_squares_objective.rs": "ea463d62672c6cc2eb6807956c0d9163cf23c61fd1514cd20e34e87e8eed1e4e",
+    "tests/session_least_squares_objective.rs": "0fc4af06ea2b1cdf6e493e6b49ce4ee994bbcd7d990ad7d6d7fba63904c01eb6"
+  },
+  "claims": "No full-runtime, profile, campaign, global-optimality or performance gate is closed or promoted."
+}

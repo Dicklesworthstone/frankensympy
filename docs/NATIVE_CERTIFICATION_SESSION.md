@@ -647,6 +647,41 @@ entry point using one cumulative meter for both phases. Charges represent
 logical work and storage; bounded synchronous derivative and proof kernels
 retain their declared cancellation boundaries.
 
+## Derive a least-squares objective from residuals
+
+`CompileLeastSquaresObjective` creates the exact held objective
+`(1/2) * sum(residual_i^2)` from a resident compiled residual system. It returns
+the existing `objective_compiled` response and publishes both a new objective
+source and its checked gradient/Hessian program. The full Hessian includes
+both the Jacobian-product and residual-curvature terms.
+
+```json
+{"id":"data","type":"RegisterResidualSystem","payload":{"schema_version":1,"system":"system:fit","residuals":["x-1","x-3"],"variables":["x"]}}
+{"id":"compile-data","type":"CompileResidualSystem","payload":{"schema_version":1,"system":"system:fit","program":"program:fit"}}
+{"id":"loss","type":"CompileLeastSquaresObjective","payload":{"schema_version":1,"residual_program":"program:fit","objective":"objective:fit","program":"objective_program:fit"}}
+{"id":"check-fit","type":"MinimizeAndCertifyCompiledObjective","payload":{"schema_version":1,"program":"objective_program:fit","certificate":"stationary:fit","initial":["0"],"radii":["1/100"],"precision_digits":24}}
+```
+
+These inconsistent residuals have a strict minimum of the squared error at
+`x=2`, with objective value `1` and residuals `[1,-1]`. The last operation
+independently certifies the stationary point and its local classification.
+Compilation itself establishes the formal derivative/lowering claim only.
+A least-squares stationary point can also be a maximum or saddle; the existing
+checker retains the actual classification.
+
+The operation keeps every original row, including duplicates, zeros and
+domain obligations hidden behind algebraic cancellation, and preserves the ordered
+typed coordinates. It refuses a different current assumption universe.
+Generation spends ordinary resources; independent derivative admission spends
+protected verifier resources. Duplicate IDs, either resident cap, budget
+exhaustion or cancellation leave both target handles unpublished.
+
+Both target IDs must be new, and the existing separate source/program caps
+apply. The derived objects own their source, so releasing the residual program
+does not invalidate them. Existing objective evaluation, Hessian-vector
+products, certification, global box optimization and compiled-program
+export/replay operations work with the resulting handles.
+
 ## Export and independently replay compiled derivative programs
 
 A residual/Jacobian or objective/gradient/Hessian program can be transferred to

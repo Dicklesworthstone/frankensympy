@@ -141,7 +141,7 @@ impl CompiledObjectiveState {
         )
     }
 
-    fn admit_id(
+    pub(super) fn admit_id(
         &self,
         id: &CompiledObjectiveId,
         budget: &mut RequestBudget<'_>,
@@ -156,7 +156,7 @@ impl CompiledObjectiveState {
         Ok(())
     }
 
-    fn publish(
+    pub(super) fn publish(
         &mut self,
         source: ObjectiveId,
         id: CompiledObjectiveId,

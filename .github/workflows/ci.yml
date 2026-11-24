@@ -207,6 +207,8 @@ jobs:
           cargo test --locked -p frankensympy --test real_solver_session --test real_constraints_session --test real_polynomial_session -j1
           cargo test --locked -p frankensympy --lib certification_session::real_solver::tests -j1
           cargo test --locked -p frankensympy --lib certification_session::polynomial_solver::tests -j1
+          cargo test --locked -p frankensympy --test session_least_squares_objective -j1
+          cargo test --locked -p frankensympy --lib certification_session::least_squares_objective::tests -j1
           cargo test --locked -p fsym-solvers --test real_equation --test real_inequality --test real_constraints -j1
           cargo test --locked -p fsym-rational --lib decimal_from_str -j1
           cargo test --locked -p fsym-core --lib real_evalf_ -j1
