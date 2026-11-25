@@ -511,6 +511,21 @@ fn principal_power_retains_whole_base_and_exponent_intervals() {
         assert!(result.contains(&q(value, 1), &q(0, 1)));
     }
     assert!(result.real().width() >= q(7, 1));
+
+    // Both coordinates of the exponent vary. The real edge gives 1, I,
+    // and -1; the imaginary edge exp(-pi*t), 0<=t<=1, contains 1/2.
+    let complex_exponents = rectangle(0, 1, 0, 1);
+    let result = ComplexBall::from_i64(-1)
+        .pow_principal(&complex_exponents, 30)
+        .unwrap();
+    for (real, imag) in [
+        (q(1, 1), q(0, 1)),
+        (q(-1, 1), q(0, 1)),
+        (q(0, 1), q(1, 1)),
+        (q(1, 2), q(0, 1)),
+    ] {
+        assert!(result.contains(&real, &imag));
+    }
 }
 
 #[test]

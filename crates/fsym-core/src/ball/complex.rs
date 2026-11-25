@@ -10,7 +10,7 @@ use super::{
     BallError, BigInt, BigRational, ComplexBall, RealBall, checked_work_bits,
     ensure_endpoint_construction_fits,
 };
-use num_traits::{One, Signed, ToPrimitive, Zero};
+use num_traits::{Signed, ToPrimitive, Zero};
 
 impl ComplexBall {
     /// The component transcendental kernels and branch calculations share
@@ -72,7 +72,21 @@ impl ComplexBall {
             precision_digits,
             "ComplexBall principal-power exponential input",
         )?;
-        let result = scaled.exp(precision_digits)?;
+        // The real exponential primitive enforces a point-accuracy radius.
+        // Genuine input variation cannot satisfy that contract. Monotonicity
+        // instead encloses exp over the complete real interval by evaluating
+        // its exact endpoints; no input width is discarded or treated as
+        // roundoff. The trigonometric primitives already retain wide inputs.
+        let working = precision_digits + 4;
+        let lower = RealBall::exact(scaled.real().lower()).exp(working)?;
+        let magnitude = if scaled.real().radius().is_zero() {
+            lower
+        } else {
+            let upper = RealBall::exact(scaled.real().upper()).exp(working)?;
+            hull(lower.lower(), upper.upper())?
+        };
+        let phase = Self::new(scaled.imag().cos(working)?, scaled.imag().sin(working)?);
+        let result = Self::from_real(magnitude).checked_power_product(&phase)?;
         finish(result.real, result.imag)
     }
 
