@@ -1302,6 +1302,17 @@ impl Expr {
                         None => refuse("integer power exponent out of range"),
                     },
                     None => {
+                        // A literal positive rational power is continuous at
+                        // zero. The original base was evaluated above, so a
+                        // held zero factor cannot hide an undefined child.
+                        if let Expr::Rational(power) = exponent.as_ref()
+                            && !power.numer().is_negative()
+                            && !power.numer().is_zero()
+                            && base_ball.midpoint().is_zero()
+                            && base_ball.radius().is_zero()
+                        {
+                            return Ok(RealBall::from_i64(0));
+                        }
                         // b**e = exp(e*ln(b)) over a positive base ball;
                         // half-integer exponents go through the exact sqrt.
                         if let Expr::Rational(r) = exponent.as_ref()
@@ -1387,19 +1398,10 @@ impl Expr {
                             _ => map(ep.sub(&em).div(&ep.add(&em))),
                         }
                     }
-                    "asin" | "acos" => {
-                        let one = RealBall::from_i64(1);
-                        let bits = precision_digits.saturating_mul(4).saturating_add(64);
-                        let root = map(one.sub(&arg.mul(&arg)).sqrt(bits))?;
-                        let asin = map(map(arg.div(&root))?.atan(precision_digits + 4))?;
-                        if name == "asin" {
-                            Ok(asin)
-                        } else {
-                            let half_pi = map(map(RealBall::pi(precision_digits + 4))?
-                                .div(&RealBall::from_i64(2)))?;
-                            Ok(half_pi.sub(&asin))
-                        }
-                    }
+                    // Value evaluation includes the finite endpoints; the
+                    // C1/C2 checkers retain their separate strict domains.
+                    "asin" => map(arg.asin(precision_digits)),
+                    "acos" => map(arg.acos(precision_digits)),
                     "Abs" => Ok(arg.abs()),
                     "sqrt" => {
                         let bits = precision_digits.saturating_mul(4).saturating_add(64);

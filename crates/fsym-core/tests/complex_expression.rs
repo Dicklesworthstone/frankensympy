@@ -27,6 +27,13 @@ fn half_power(base: Expr, numerator: i64) -> Expr {
     Expr::Pow(Arc::new(base), Arc::new(Expr::Rational(q(numerator, 2))))
 }
 
+fn rational_power(base: Expr, numerator: i64, denominator: i64) -> Expr {
+    Expr::Pow(
+        Arc::new(base),
+        Arc::new(Expr::Rational(q(numerator, denominator))),
+    )
+}
+
 fn assert_point(result: &ComplexBall, real: BigRational, imag: BigRational) {
     assert!(
         result.contains(&real, &imag),
@@ -172,4 +179,73 @@ fn adding_complex_branches_does_not_weaken_real_domain_checks() {
         assert!(source.eval_real_ball(24).is_err());
         assert!(source.eval_complex_ball(24).is_ok());
     }
+}
+
+#[test]
+fn exact_zero_bases_admit_positive_literal_rational_powers() {
+    for (numerator, denominator) in [(1, 3), (2, 3), (4, 5), (7, 3), (1, 2), (3, 2), (2, 1)] {
+        for base in [
+            Expr::from_i64(0),
+            Expr::Add(vec![Expr::from_i64(1), Expr::from_i64(-1)]),
+            rational_power(Expr::from_i64(0), 1, 3),
+        ] {
+            let source = rational_power(base, numerator, denominator);
+            assert_eq!(source.evalf_ball(24).unwrap(), RealBall::from_i64(0));
+            assert_eq!(source.eval_real_ball(24).unwrap(), RealBall::from_i64(0));
+            assert_eq!(source.eval_complex_ball(24).unwrap(), ComplexBall::from_i64(0));
+        }
+    }
+}
+
+#[test]
+fn positive_zero_powers_compose_with_inverse_circular_endpoint_values() {
+    for source in [
+        function("asin", rational_power(Expr::from_i64(0), 1, 3)),
+        rational_power(function("acos", Expr::from_i64(1)), 2, 3),
+    ] {
+        assert_eq!(source.evalf_ball(24).unwrap(), RealBall::from_i64(0));
+        assert_point(&source.eval_complex_ball(24).unwrap(), q(0, 1), q(0, 1));
+    }
+    let pi = RealBall::pi(60).unwrap();
+    let source = function("acos", rational_power(Expr::from_i64(0), 4, 5));
+    let expected = pi.div(&RealBall::from_i64(2)).unwrap();
+    assert!(source.evalf_ball(24).unwrap().contains_ball(&expected));
+}
+
+#[test]
+fn rational_zero_endpoint_does_not_hide_poles_or_change_the_real_power_domain() {
+    let pole = Expr::Pow(Arc::new(Expr::from_i64(0)), Arc::new(Expr::from_i64(-1)));
+    for (numerator, denominator) in [(1, 3), (2, 3), (3, 2)] {
+        for base in [
+            Expr::Mul(vec![Expr::from_i64(0), pole.clone()]),
+            Expr::Mul(vec![Expr::from_i64(0), function("log", Expr::from_i64(0))]),
+        ] {
+            let source = rational_power(base, numerator, denominator);
+            assert!(source.evalf_ball(24).is_err());
+            assert!(source.eval_complex_ball(24).is_err());
+        }
+        for base in [
+            Expr::from_i64(-1),
+            Expr::Const(Constant::I),
+            Expr::Sym(Symbol::new("zero_power_unbound")),
+        ] {
+            assert!(
+                rational_power(base, numerator, denominator)
+                    .evalf_ball(24)
+                    .is_err()
+            );
+        }
+        let reciprocal = rational_power(Expr::from_i64(0), -numerator, denominator);
+        assert!(reciprocal.evalf_ball(24).is_err());
+        assert!(reciprocal.eval_complex_ball(24).is_err());
+    }
+    // The endpoint rule requires a literal positive rational exponent. An
+    // unsupported exponent tree cannot disappear merely because its base is zero.
+    let invalid_exponent = Expr::Add(vec![
+        Expr::Rational(q(1, 3)),
+        Expr::Mul(vec![Expr::from_i64(0), pole]),
+    ]);
+    let source = Expr::Pow(Arc::new(Expr::from_i64(0)), Arc::new(invalid_exponent));
+    assert!(source.evalf_ball(24).is_err());
+    assert!(source.eval_complex_ball(24).is_err());
 }

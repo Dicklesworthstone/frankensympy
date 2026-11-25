@@ -202,6 +202,154 @@ fn exact_tiny_outside_points_and_precision_overflow_are_never_clipped() {
 }
 
 #[test]
+fn held_inverse_circular_endpoints_reach_every_ground_ball_entry_point() {
+    let pi = RealBall::pi(60).unwrap();
+    let tolerance = BigRational::new(BigInt::from(1), BigInt::from(10).pow(24));
+    for (name, point, multiple) in [
+        ("asin", -1, q(-1, 2)),
+        ("asin", 0, q(0, 1)),
+        ("asin", 1, q(1, 2)),
+        ("acos", -1, q(1, 1)),
+        ("acos", 0, q(1, 2)),
+        ("acos", 1, q(0, 1)),
+    ] {
+        // Raw Function nodes deliberately bypass symbolic special-value folding.
+        let source = function(name, Expr::from_i64(point));
+        let expected = pi.mul(&RealBall::exact(multiple));
+        let complex = source.eval_complex_ball(24).unwrap();
+        assert_eq!(complex.imag(), &RealBall::from_i64(0));
+        for actual in [
+            source.evalf_ball(24).unwrap(),
+            source.eval_real_ball(24).unwrap(),
+            complex.real().clone(),
+        ] {
+            assert!(actual.contains_ball(&expected), "{name}({point}): {actual}");
+            assert!(actual.radius() <= &tolerance);
+        }
+    }
+    assert_eq!(
+        function("asin", Expr::from_i64(0)).evalf_decimal(18).unwrap(),
+        "0"
+    );
+    assert_eq!(
+        function("acos", Expr::from_i64(1)).evalf_decimal(18).unwrap(),
+        "0"
+    );
+    assert_eq!(
+        function("asin", Expr::from_i64(1)).evalf_decimal(18).unwrap(),
+        "1.57079632679489662e0"
+    );
+    assert_eq!(
+        function("acos", Expr::from_i64(-1)).evalf_decimal(18).unwrap(),
+        "3.14159265358979324e0"
+    );
+}
+
+#[test]
+fn scalar_inverse_circular_dispatch_matches_independent_interior_series() {
+    let half = RealBall::pi(60)
+        .unwrap()
+        .div(&RealBall::from_i64(2))
+        .unwrap();
+    for point in [q(-4, 5), q(-1, 5), q(1, 5), q(4, 5)] {
+        let (lower, upper) = asin_series(&point);
+        let argument = Expr::Rational(point);
+        let sine = function("asin", argument.clone()).evalf_ball(24).unwrap();
+        encloses(&sine, &lower, &upper);
+        let cosine = function("acos", argument).evalf_ball(24).unwrap();
+        encloses(&cosine, &(half.lower() - &upper), &(half.upper() - &lower));
+    }
+}
+
+#[test]
+fn exact_points_near_both_endpoints_remain_distinct_from_the_endpoint() {
+    // t = 2^-40, x = 1 - 2*t^2. Binary64 rounds x to 1, while
+    // acos(x) = 2*asin(t) is positive. The positive arcsine series gives
+    // t <= asin(t) <= t/(1-t^2), independently of the atan implementation.
+    let t = BigRational::new(BigInt::from(1), BigInt::from(1) << 40u32);
+    let square = &t * &t;
+    let point = q(1, 1) - q(2, 1) * &square;
+    let angle_lower = q(2, 1) * &t;
+    let angle_upper = &angle_lower / (q(1, 1) - square);
+    let pi = RealBall::pi(60).unwrap();
+    let half = pi.div(&RealBall::from_i64(2)).unwrap();
+    for (point, sine_lower, sine_upper, cosine_lower, cosine_upper) in [
+        (
+            point.clone(),
+            half.lower() - &angle_upper,
+            half.upper() - &angle_lower,
+            angle_lower.clone(),
+            angle_upper.clone(),
+        ),
+        (
+            -point,
+            -half.upper() + &angle_lower,
+            -half.lower() + &angle_upper,
+            pi.lower() - &angle_upper,
+            pi.upper() - &angle_lower,
+        ),
+    ] {
+        let argument = Expr::Rational(point);
+        let sine = function("asin", argument.clone()).evalf_ball(24).unwrap();
+        let cosine = function("acos", argument).evalf_ball(24).unwrap();
+        encloses(&sine, &sine_lower, &sine_upper);
+        encloses(&cosine, &cosine_lower, &cosine_upper);
+        assert!(sine.lower() > -half.lower());
+        assert!(sine.upper() < half.lower());
+        assert!(cosine.lower() > q(0, 1));
+        assert!(cosine.upper() < pi.lower());
+    }
+}
+
+#[test]
+fn held_endpoint_evaluation_composes_without_changing_principal_values() {
+    for (source, expected) in [
+        (function("sin", function("asin", Expr::from_i64(-1))), q(-1, 1)),
+        (function("sin", function("asin", Expr::from_i64(1))), q(1, 1)),
+        (function("cos", function("acos", Expr::from_i64(-1))), q(-1, 1)),
+        (function("asin", function("acos", Expr::from_i64(1))), q(0, 1)),
+    ] {
+        assert!(source.evalf_ball(24).unwrap().contains(&expected), "{source}");
+        let complex = source.eval_complex_ball(24).unwrap();
+        assert!(complex.contains(&expected, &q(0, 1)), "{source}");
+    }
+}
+
+#[test]
+fn scalar_inverse_circular_endpoints_keep_original_domain_and_arity_refusals() {
+    let epsilon = BigRational::new(BigInt::from(1), BigInt::from(1) << 120u32);
+    let held_pole = Expr::Mul(vec![Expr::from_i64(0), power(Expr::from_i64(0), -1)]);
+    for name in ["asin", "acos"] {
+        for argument in [
+            Expr::Rational(q(1, 1) + &epsilon),
+            Expr::Rational(q(-1, 1) - &epsilon),
+            Expr::from_i64(2),
+            Expr::from_i64(-2),
+            Expr::Const(Constant::I),
+            Expr::Const(Constant::Infinity),
+            Expr::Sym(Symbol::new("inverse_circular_unbound")),
+            Expr::Add(vec![Expr::from_i64(1), held_pole.clone()]),
+        ] {
+            let source = function(name, argument);
+            assert!(source.evalf_ball(24).is_err(), "{source}");
+            assert!(source.eval_complex_ball(24).is_err(), "{source}");
+        }
+        for arguments in [vec![], vec![Expr::from_i64(0), Expr::from_i64(1)]] {
+            let source = Expr::Function(name.into(), arguments);
+            assert!(source.evalf_ball(24).is_err());
+            assert!(source.eval_complex_ball(24).is_err());
+        }
+        for precision in [
+            0,
+            RealBall::MAX_INVERSE_CIRCULAR_PRECISION_DIGITS + 1,
+            u32::MAX,
+        ] {
+            assert!(function(name, Expr::from_i64(1)).evalf_ball(precision).is_err());
+        }
+    }
+}
+
+#[test]
 fn c1_and_c2_enclosures_keep_exact_derivative_signs_at_rational_anchors() {
     let variables = [Symbol::new("x")];
     for point_sign in [-1, 1] {
