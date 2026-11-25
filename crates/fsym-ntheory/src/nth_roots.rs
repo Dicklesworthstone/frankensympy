@@ -18,8 +18,8 @@
 //! proof-kernel receipt or asynchronous cancellation guarantee is introduced.
 
 use crate::{
-    MAX_FACTORIZATION_WORK, MAX_MODULAR_ROOTS, NTheoryError, factorint,
-    modular_square_roots, verify_prime_factorization,
+    MAX_FACTORIZATION_WORK, MAX_MODULAR_ROOTS, NTheoryError, factorint, modular_square_roots,
+    verify_prime_factorization,
 };
 use fsym_budget::{BudgetMeter, Dimension, Unbounded};
 use std::collections::BTreeMap;
@@ -136,9 +136,8 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
             let quotient = old_r / r;
             (old_r, r) = (r, old_r % r);
             let product = self.multiply(quotient, t, modulus)?;
-            let next =
-                ((u128::from(old_t) + u128::from(modulus) - u128::from(product))
-                    % u128::from(modulus)) as u64;
+            let next = ((u128::from(old_t) + u128::from(modulus) - u128::from(product))
+                % u128::from(modulus)) as u64;
             (old_t, t) = (t, next);
         }
         if old_r != 1 {
@@ -409,7 +408,9 @@ fn discrete_logarithm(
         }
         giant = work.multiply(giant, inverse, modulus)?;
     }
-    Err(invalid("unit-group logarithm search did not cover an admitted unit"))
+    Err(invalid(
+        "unit-group logarithm search did not cover an admitted unit",
+    ))
 }
 
 fn two_adic_logarithm(
@@ -450,7 +451,9 @@ fn cyclic_roots(
 ) -> Result<Vec<u64>> {
     let common = work.gcd(degree, order)?;
     if !logarithm.is_multiple_of(common) {
-        return Err(invalid("admitted power residue has an incompatible logarithm"));
+        return Err(invalid(
+            "admitted power residue has an incompatible logarithm",
+        ));
     }
     let reduced_order = order / common;
     let inverse = work.inverse(degree / common, reduced_order)?;
@@ -466,7 +469,9 @@ fn cyclic_roots(
         value = work.multiply(value, step, modulus)?;
     }
     if work.power(roots[0], degree, modulus)? != unit {
-        return Err(invalid("unit root failed generation's congruence invariant"));
+        return Err(invalid(
+            "unit root failed generation's congruence invariant",
+        ));
     }
     Ok(roots)
 }
@@ -566,8 +571,8 @@ fn local_roots(
     for root in roots {
         for index in 0..lifts {
             work.tick(1)?;
-            let value = (u128::from(root) + u128::from(index) * u128::from(stride))
-                * u128::from(scale);
+            let value =
+                (u128::from(root) + u128::from(index) * u128::from(stride)) * u128::from(scale);
             if value >= u128::from(modulus) {
                 return Err(invalid("lifted root escaped its prime-power component"));
             }
@@ -640,8 +645,7 @@ pub fn metered_modular_nth_roots(
                     let difference = (u128::from(right) + u128::from(component)
                         - u128::from(left % component))
                         % u128::from(component);
-                    let correction =
-                        generation.multiply(difference as u64, inverse, component)?;
+                    let correction = generation.multiply(difference as u64, inverse, component)?;
                     let value = u128::from(left) + u128::from(prefix) * u128::from(correction);
                     next.push(u64::try_from(value).map_err(|_| invalid("CRT root overflow"))?);
                 }
@@ -665,14 +669,44 @@ pub fn metered_modular_nth_roots(
 /// Nonzero requests share the all-roots materialization bound. Zero and linear
 /// sources have an immediate proved least root and require no enumeration.
 pub fn modular_nth_root(a: u64, degree: u64, modulus: u64) -> Result<Option<u64>> {
+    metered_modular_nth_root(a, degree, modulus, &mut Unbounded, &mut Unbounded)
+}
+
+/// Metered least-root operation, including checked zero/linear fast paths.
+///
+/// The nontrivial route retains the complete all-roots admission envelope.
+/// Trivial roots still observe both caller meters and final safe points.
+pub fn metered_modular_nth_root(
+    a: u64,
+    degree: u64,
+    modulus: u64,
+    generator: &mut impl BudgetMeter,
+    verifier: &mut impl BudgetMeter,
+) -> Result<Option<u64>> {
     if modulus == 0 {
         return Err(NTheoryError::InvalidModulus);
     }
     if degree == 0 {
         return Err(NTheoryError::InvalidRootDegree);
     }
-    if a % modulus == 0 || degree == 1 {
-        return Ok(Some(a % modulus));
+    if a.is_multiple_of(modulus) || degree == 1 {
+        let mut generation = Work::new(generator);
+        let mut verification = Work::new(verifier);
+        generation.tick(1)?;
+        verification.checkpoint()?;
+        let root = a % modulus;
+        if reference_power(root, degree, modulus, &mut verification)? != a % modulus {
+            return Err(invalid("trivial least-root congruence failed"));
+        }
+        // Zero is the first residue; a degree-one congruence has exactly
+        // the canonical source residue. Neither conclusion needs factoring.
+        generation.checkpoint()?;
+        verification.checkpoint()?;
+        return Ok(Some(root));
     }
-    Ok(modular_nth_roots(a, degree, modulus)?.first().copied())
+    Ok(
+        metered_modular_nth_roots(a, degree, modulus, generator, verifier)?
+            .first()
+            .copied(),
+    )
 }

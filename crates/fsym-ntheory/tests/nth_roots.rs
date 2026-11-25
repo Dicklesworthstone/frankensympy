@@ -2,8 +2,8 @@
 
 use fsym_budget::{BudgetError, BudgetMeter, Dimension, MeterError, Unbounded};
 use fsym_ntheory::{
-    MAX_MODULAR_ROOTS, NTheoryError, factorint, metered_modular_nth_roots,
-    modular_nth_root, modular_nth_roots, verify_modular_nth_roots,
+    MAX_MODULAR_ROOTS, NTheoryError, factorint, metered_modular_nth_root,
+    metered_modular_nth_roots, modular_nth_root, modular_nth_roots, verify_modular_nth_roots,
     verify_modular_nth_roots_with_meter,
 };
 use std::collections::BTreeMap;
@@ -27,7 +27,10 @@ fn all_small_residues_and_degrees_match_complete_finite_enumeration() {
             for a in 0..modulus {
                 let expected = brute_roots(a, degree, modulus);
                 let actual = modular_nth_roots(a, degree, modulus).unwrap();
-                assert_eq!(actual, expected, "a={a}, degree={degree}, modulus={modulus}");
+                assert_eq!(
+                    actual, expected,
+                    "a={a}, degree={degree}, modulus={modulus}"
+                );
                 assert_eq!(
                     modular_nth_root(a, degree, modulus).unwrap(),
                     expected.first().copied(),
@@ -155,9 +158,18 @@ fn verifier_rejects_valid_but_incomplete_roots_and_false_nonexistence() {
 #[test]
 fn malformed_degree_and_modulus_and_the_trivial_ring_are_explicit() {
     for a in [0, 1, u64::MAX] {
-        assert_eq!(modular_nth_roots(a, 0, 7), Err(NTheoryError::InvalidRootDegree));
-        assert_eq!(modular_nth_root(a, 0, 7), Err(NTheoryError::InvalidRootDegree));
-        assert_eq!(modular_nth_roots(a, 3, 0), Err(NTheoryError::InvalidModulus));
+        assert_eq!(
+            modular_nth_roots(a, 0, 7),
+            Err(NTheoryError::InvalidRootDegree)
+        );
+        assert_eq!(
+            modular_nth_root(a, 0, 7),
+            Err(NTheoryError::InvalidRootDegree)
+        );
+        assert_eq!(
+            modular_nth_roots(a, 3, 0),
+            Err(NTheoryError::InvalidModulus)
+        );
         assert_eq!(modular_nth_root(a, 3, 0), Err(NTheoryError::InvalidModulus));
         for degree in [1, 2, 3, u64::MAX] {
             assert_eq!(modular_nth_roots(a, degree, 1).unwrap(), vec![0]);
@@ -179,7 +191,10 @@ struct Meter {
 
 impl BudgetMeter for Meter {
     fn checkpoint(&mut self) -> Result<(), MeterError> {
-        if self.cancel_at.is_some_and(|limit| self.checkpoints >= limit) {
+        if self
+            .cancel_at
+            .is_some_and(|limit| self.checkpoints >= limit)
+        {
             return Err(MeterError::Cancelled);
         }
         self.checkpoints += 1;
@@ -217,12 +232,21 @@ fn cancellation_at_entry_generation_verification_and_publication_is_terminal() {
     let mut baseline_generation = Meter::default();
     let mut baseline_verification = Meter::default();
     assert_eq!(
-        metered_modular_nth_roots(68, 3, 109, &mut baseline_generation, &mut baseline_verification)
-            .unwrap(),
+        metered_modular_nth_roots(
+            68,
+            3,
+            109,
+            &mut baseline_generation,
+            &mut baseline_verification
+        )
+        .unwrap(),
         vec![23, 32, 54],
     );
     for at in [0, 1, 2, 5, 20, baseline_generation.checkpoints - 1] {
-        let mut stopped = Meter { cancel_at: Some(at), ..Meter::default() };
+        let mut stopped = Meter {
+            cancel_at: Some(at),
+            ..Meter::default()
+        };
         assert_eq!(
             metered_modular_nth_roots(68, 3, 109, &mut stopped, &mut Unbounded),
             Err(NTheoryError::Meter(MeterError::Cancelled)),
@@ -230,7 +254,10 @@ fn cancellation_at_entry_generation_verification_and_publication_is_terminal() {
         );
     }
     for at in [0, 1, 2, 5, 20, baseline_verification.checkpoints - 1] {
-        let mut stopped = Meter { cancel_at: Some(at), ..Meter::default() };
+        let mut stopped = Meter {
+            cancel_at: Some(at),
+            ..Meter::default()
+        };
         assert_eq!(
             metered_modular_nth_roots(68, 3, 109, &mut Unbounded, &mut stopped),
             Err(NTheoryError::Meter(MeterError::Cancelled)),
@@ -241,7 +268,10 @@ fn cancellation_at_entry_generation_verification_and_publication_is_terminal() {
 
 #[test]
 fn budgets_are_separate_cumulative_and_checked_before_synchronous_helpers() {
-    let mut generator = Meter { steps_left: Some(0), ..Meter::default() };
+    let mut generator = Meter {
+        steps_left: Some(0),
+        ..Meter::default()
+    };
     let mut verifier = Meter::default();
     assert!(matches!(
         metered_modular_nth_roots(68, 3, 109, &mut generator, &mut verifier),
@@ -250,17 +280,28 @@ fn budgets_are_separate_cumulative_and_checked_before_synchronous_helpers() {
     assert_eq!(generator.charged, 0);
     assert_eq!(verifier.charged, 0);
     let mut generator = Meter::default();
-    let mut verifier = Meter { steps_left: Some(0), ..Meter::default() };
+    let mut verifier = Meter {
+        steps_left: Some(0),
+        ..Meter::default()
+    };
     assert!(matches!(
         metered_modular_nth_roots(68, 3, 109, &mut generator, &mut verifier),
         Err(NTheoryError::Meter(MeterError::Budget(_))),
     ));
     assert!(generator.charged > 0);
     assert_eq!(verifier.charged, 0);
-    let mut verifier = Meter { cancel_at: Some(0), ..Meter::default() };
+    let mut verifier = Meter {
+        cancel_at: Some(0),
+        ..Meter::default()
+    };
     assert_eq!(
         verify_modular_nth_roots_with_meter(
-            8, 3, 27, &BTreeMap::from([(3, 3)]), &[2, 11, 20], &mut verifier,
+            8,
+            3,
+            27,
+            &BTreeMap::from([(3, 3)]),
+            &[2, 11, 20],
+            &mut verifier,
         ),
         Err(NTheoryError::Meter(MeterError::Cancelled)),
     );
@@ -276,4 +317,39 @@ fn empty_results_use_valid_nonzero_charges_with_accounting_meters() {
             .is_empty(),
     );
     assert!(generator.charged > 0 && verifier.charged > 0);
+}
+
+#[test]
+fn scalar_zero_and_linear_paths_preserve_both_meters_without_factorization() {
+    for (a, degree, modulus, expected) in [(0, 3, u64::MAX, 0), (123, 1, 109, 14)] {
+        let mut generation = Meter::default();
+        let mut verification = Meter::default();
+        assert_eq!(
+            metered_modular_nth_root(a, degree, modulus, &mut generation, &mut verification)
+                .unwrap(),
+            Some(expected),
+        );
+        assert!(generation.charged > 0 && generation.charged < 100);
+        assert!(verification.charged > 0);
+        for at in [0, generation.checkpoints - 1] {
+            let mut stopped = Meter {
+                cancel_at: Some(at),
+                ..Meter::default()
+            };
+            assert_eq!(
+                metered_modular_nth_root(a, degree, modulus, &mut stopped, &mut Unbounded),
+                Err(NTheoryError::Meter(MeterError::Cancelled)),
+            );
+        }
+        for at in [0, verification.checkpoints - 1] {
+            let mut stopped = Meter {
+                cancel_at: Some(at),
+                ..Meter::default()
+            };
+            assert_eq!(
+                metered_modular_nth_root(a, degree, modulus, &mut Unbounded, &mut stopped),
+                Err(NTheoryError::Meter(MeterError::Cancelled)),
+            );
+        }
+    }
 }

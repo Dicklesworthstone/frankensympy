@@ -1,0 +1,295 @@
+{
+  "schema_version": 1,
+  "kind": "targeted_implementation_progress",
+  "date": "2026-11-25",
+  "repository": "Dicklesworthstone/frankensympy",
+  "branch": "main",
+  "status": "implemented_with_validation_limits",
+  "scope": "Principal complex powers, original-source definedness in infinite solution sets, and complete bounded modular nth roots. This report does not close broad workstreams or certify a compatibility profile.",
+  "basis": [
+    "COMPREHENSIVE_PLAN_FOR_FRANKENSYMPY.md",
+    ".beads/issues.jsonl",
+    "AGENTS.md",
+    "registries/claims.toml",
+    "registries/dependencies.toml"
+  ],
+  "landed_units": [
+    {
+      "commit": "e271c68e96b6e2bdb391f7755cd110b654edde87",
+      "change": "General principal complex ball powers and expression evaluation",
+      "regression_functions_added": 10
+    },
+    {
+      "commit": "1f07b90a713151a3479ee857d44845fb6e153fe2",
+      "change": "Original source-domain restrictions for periodic and complex-exponential solveset families",
+      "regression_functions_added": 16
+    },
+    {
+      "commit": "0777b3213e7d610a5748eeef5b8991a5e606c1c3",
+      "change": "Complete modular nth-root generator and independent acceptance checker"
+    },
+    {
+      "commit": "04576c5f24c67e223f9ecb2dcd5ae4716cabdebf",
+      "change": "Retain complete interval variation through monotone endpoint exponentials, with final complex product preflight",
+      "validation": "21 complex_elementary tests and 21 complex_expression tests passed on pinned nightly-2026-08-20."
+    },
+    {
+      "commit": "containing commit",
+      "change": "Public nthroot_mod API, caller-owned metering and terminal publication admission, final scalar meter API, focused CI selection and evidence"
+    }
+  ],
+  "behavior": [
+    {
+      "feature": "principal_complex_powers",
+      "details": [
+        "Encloses exp(w * Log(z)) over complete input rectangles.",
+        "Exact signed integer powers retain their algebraic domain.",
+        "Zero bases require a positive, exactly-real exponent enclosure; other noninteger powers exclude zero and retain the principal logarithm cut.",
+        "Original base and exponent subexpressions remain evaluated before trivial outer cases.",
+        "The real evaluator and Python complex evalf surface are unchanged."
+      ]
+    },
+    {
+      "feature": "infinite_solution_source_domains",
+      "details": [
+        "Preserves the original Eq owner and typed coordinate identity.",
+        "Intersects the generated family with the requested domain before imposing original-source definedness.",
+        "Unknown definedness remains a ConditionSet over the complete family; an invalid or cancelled source cannot be silently discarded.",
+        "This is deliberately conservative for some meromorphic sources."
+      ]
+    },
+    {
+      "feature": "complete_modular_nth_roots",
+      "details": [
+        "Prime-power valuations, odd-unit group equations, noncyclic two-adic units and CRT generate complete sets, including nonunits.",
+        "An independent count theorem, factor-map validation, reference modular exponentiation and canonical sorted-distinct checks reject incomplete or forged sets.",
+        "The native APIs take u64 moduli and positive u64 degrees.",
+        "Public degree two preserves existing sqrt_mod selection; 79 modulo 105 selects 38, with complete roots [17,32,38,52,53,67,73,88].",
+        "The public API observes one captured active request across both native phases and result publication; first Python refusals remain terminal.",
+        "This is an independent same-crate in-process checker, not a portable proof-kernel certificate."
+      ]
+    }
+  ],
+  "authored_regressions": {
+    "complex_native": {
+      "functions_added": 10,
+      "files": [
+        "crates/fsym-core/tests/complex_elementary.rs",
+        "crates/fsym-core/tests/complex_expression.rs"
+      ],
+      "focus": [
+        "exact Gaussian powers",
+        "independent Machin/Taylor references",
+        "whole-box enclosures",
+        "zero and logarithm-cut domains",
+        "original undefined children",
+        "intrinsic arithmetic bounds"
+      ]
+    },
+    "source_domains_python": {
+      "functions_added": 16,
+      "file": "python/tests/test_solveset_source_domains.py",
+      "focus": [
+        "cancelled poles",
+        "held expressions",
+        "zeroth-power holes",
+        "original Eq owners",
+        "parameter assumptions and typed names",
+        "requested interval intersections",
+        "terminal request budgets"
+      ]
+    },
+    "nth_roots_native": {
+      "functions": 12,
+      "exhaustive_input_tuples": 29160,
+      "file": "crates/fsym-ntheory/tests/nth_roots.rs",
+      "focus": [
+        "prime powers and composite moduli",
+        "nonunits",
+        "independent completeness rejection",
+        "large u64 and two-adic boundaries",
+        "generator and verifier exhaustion",
+        "entry and final cancellation"
+      ]
+    },
+    "nth_roots_python": {
+      "functions": 18,
+      "pytest_cases": 47,
+      "exhaustive_input_tuples": 3150,
+      "file": "python/tests/test_modular_nth_roots.py",
+      "focus": [
+        "all public import paths",
+        "scalar and complete results",
+        "pinned square-root selection",
+        "strict integer admission",
+        "explicit resource refusal",
+        "shared request ledger",
+        "publication cost",
+        "sticky cancellation including flag conversion"
+      ]
+    }
+  },
+  "executed_evidence": [
+    {
+      "kind": "unchanged_baseline",
+      "command": "cargo test -p fsym-core --lib --locked",
+      "toolchain": "nightly-2026-08-20",
+      "result": "144 passed, 0 failed",
+      "qualification": "Completed before the new principal-power implementation; not a pass for changed code."
+    },
+    {
+      "kind": "scoped_formatting",
+      "result": "Pinned rustfmt passed for changed core sources/tests and final native nth-root sources/tests; rustfmt --check passed for the final Python Rust bridge."
+    },
+    {
+      "kind": "python_syntax",
+      "result": "AST parsing and in-memory compilation passed for the final public wrapper, aliases, root exports, tests and changed solver sources."
+    },
+    {
+      "kind": "independent_mathematical_model",
+      "model": "Root-count theorem versus exhaustive multiplication histograms",
+      "input_tuples": 2101248,
+      "range": "All residues for moduli 1..512 and degrees 1..16",
+      "result": "all matched",
+      "qualification": "JavaScript BigInt mathematical model, not execution of Rust or the Python extension."
+    },
+    {
+      "kind": "independent_mathematical_model",
+      "model": "Generator translated to JavaScript BigInt versus exhaustive residue enumeration",
+      "input_tuples": 60600,
+      "range": "All residues for moduli 1..100 and degrees 1..12",
+      "additional_cases": "Three 2^63 boundary cases, including degree u64::MAX",
+      "result": "all matched",
+      "qualification": "Design/model evidence, not execution of Rust or the Python extension."
+    },
+    {
+      "kind": "independent_source_review",
+      "result": "Complex domains, source-domain preservation, native completeness mathematics, final scalar metering, Python adapter and all final public regression cases reviewed without unresolved blockers."
+    },
+    {
+      "kind": "pinned_upstream_fixture_check",
+      "oracle": "SymPy 1.14.0 in an isolated validation environment",
+      "result": "Eleven small public root fixtures matched both independent exact Python enumeration and the pinned upstream result; degree-two scalar selection 38 was confirmed.",
+      "qualification": "Fixture evidence only; no upstream production fallback. A later optional large-fixture oracle probe was killed with exit 137 and contributes no pass."
+    },
+    {
+      "kind": "integration_structure",
+      "result": "Final evidence JSON, both edited TOML registries and all 124 bead records parsed; git diff --check passed. Only two bead notes/timestamps changed, and only evidence paths were added to the claims registry."
+    }
+  ],
+  "runtime_validation": {
+    "focused_native": {
+      "modular_nth_roots": {
+        "command": "cargo test -p fsym-ntheory --test nth_roots --locked",
+        "result": "passed",
+        "passed": 12,
+        "failed": 0,
+        "exit_code": 0,
+        "seconds": 0.85,
+        "final_rerun": "All 12 tests reran successfully after replacing the equivalent remainder-zero expression with is_multiple_of to satisfy the focused lint gate."
+      },
+      "complex_powers": {
+        "command": "cargo test -p fsym-core --test complex_elementary --test complex_expression --locked",
+        "result": "passed",
+        "passed": 42,
+        "failed": 0,
+        "exit_code": 0,
+        "binaries": [
+          {
+            "name": "complex_elementary",
+            "passed": 21,
+            "seconds": 32.88
+          },
+          {
+            "name": "complex_expression",
+            "passed": 21,
+            "seconds": 0.93
+          }
+        ],
+        "regression_discovered_and_fixed": "The first real run found two failures because RealBall::exp enforces a point-output radius. Principal powers now evaluate exact real endpoints and use the monotone exponential hull. Both original failure cases and the added complex-exponent rectangle passed; the point primitive is unchanged."
+      },
+      "total_passed": 54,
+      "total_failed": 0
+    },
+    "python_extension": {
+      "command": "PYO3_PYTHON=<validation-python> cargo build -p fsym-python --lib --locked",
+      "result": "blocked",
+      "exit_code": 101,
+      "reason": "rustc compiling the genuine pinned asupersync donor library was killed by SIGKILL before the Python extension was produced.",
+      "pytest_executed": false,
+      "pytest_suites_not_executed": [
+        "python/tests/test_modular_nth_roots.py",
+        "python/tests/test_solveset_source_domains.py"
+      ]
+    },
+    "whole_workspace_check": {
+      "command": "cargo check --workspace --all-targets --locked",
+      "result": "blocked",
+      "exit_code": 101,
+      "reason": "rustc for the genuine pinned asupersync donor was killed by SIGKILL during metadata-only compilation; no source diagnostic preceded the kill."
+    },
+    "whole_workspace_clippy": {
+      "command": "cargo clippy --workspace --all-targets --locked -- -D warnings",
+      "result": "failed",
+      "exit_code": 101,
+      "reason": "Pre-existing clippy::needless_range_loop in unchanged crates/fsym-matrices/src/normal_forms/modular_system.rs:227.",
+      "changed_core_library": "checked before the unrelated failure"
+    },
+    "full_test_suite": {
+      "command": "cargo test --workspace --locked",
+      "result": "blocked_before_test_execution",
+      "exit_code": 101,
+      "reason": "rustc compiling the genuine pinned asupersync donor was killed by SIGKILL. This is not a workspace test pass."
+    },
+    "ci": "No hosted CI pass is claimed. The containing commit retains existing gates and adds the focused native and Python nth-root suites.",
+    "whole_workspace_format": {
+      "command": "cargo fmt --check",
+      "result": "failed",
+      "exit_code": 1,
+      "reason": "Formatting differences in pre-existing inverse_circular_certificates.rs; scoped changed-source formatting passed.",
+      "log_lines": 81
+    },
+    "focused_clippy": {
+      "command": "cargo clippy -p fsym-core -p fsym-ntheory --lib --test nth_roots --locked -- -D warnings",
+      "result": "passed",
+      "exit_code": 0
+    }
+  },
+  "environment": {
+    "pinned_toolchain": "nightly-2026-08-20",
+    "genuine_donors": {
+      "asupersync": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+      "franken_numpy": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+      "frankenscipy": "213a417c739025ed865a3875c89a7d86726ecb5a"
+    },
+    "impediments": [
+      "Repeated execution-host loss erased build artifacts.",
+      "A new-core compilation attempt stopped with ENOSPC while building fsym-bigint, before compiling the new implementation.",
+      "The execution host subsequently recovered; the final scoped runs are recorded separately above.",
+      "Temporary GitHub API rate limiting delayed final publication.",
+      "The genuine Python extension build reached pinned asupersync, whose rustc process was killed by SIGKILL; no Python extension regression pass is claimed."
+    ],
+    "substitutions": "No fabricated donor crates, no stub dependencies, no upstream production fallback, no weakened gates."
+  },
+  "bounds_and_limitations": [
+    "At most 65,536 materialized roots; nontrivial native scalar queries currently share that bound.",
+    "At most 65,536 entries in odd-group logarithm tables. For example, cubic roots of 8 modulo 4294967311 explicitly refuse although roots exist.",
+    "Native generation and verification have separate fixed 256,000,000 work and 64 MiB allocation ceilings; both debit the same captured active Python request.",
+    "Existing bounded synchronous factorization and specialized square-root helpers reserve work and observe cancellation at their boundaries, not inside every helper instruction.",
+    "Principal complex arithmetic retains intrinsic preflight bounds; no new caller-owned budget or cancellation guarantee is claimed for that API.",
+    "No compatibility-profile promotion, portable-certificate claim, performance claim or broad workstream closure."
+  ],
+  "bookkeeping": {
+    "beads_updated": [
+      "fra-a5x",
+      "fra-7kf"
+    ],
+    "bead_status_priority_dependencies": "unchanged",
+    "claim_evidence_updated": [
+      "MATH-001",
+      "MATH-003"
+    ],
+    "claim_tiers_and_gates": "unchanged"
+  },
+  "recorded_at": "2026-11-25T06:02:51Z"
+}

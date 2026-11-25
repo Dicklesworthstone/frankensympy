@@ -10,6 +10,12 @@ normative_contract = "docs/DEPENDENCY_SAFETY_AND_TOOLCHAIN.md"
 # before resumption. No storage dependency enters a core/verifier crate;
 # no new external package or runtime is introduced by this internal edge.
 
+# The L3 fsym-ntheory generator and its same-crate independent reference
+# checker now use the existing L0 fsym-budget ledger directly. The edge adds
+# no external package or runtime. Separate generator/verifier meters retain
+# caller accounting; bounded synchronous legacy helpers have checkpoints at
+# entry and exit, without an internal forced-cancellation claim.
+
 [policy]
 project_authored_unsafe = "forbid"
 native_algorithm_dependencies = "forbid"

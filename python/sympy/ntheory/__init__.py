@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
-from ..core import _native
+from ..core import _active_callback_session, _native
 from .. import (
     _exact_integer_value,
     _not_integer_message,
@@ -294,6 +294,64 @@ def sqrt_mod(a: Any, p: Any, all_roots: bool = False):
     return _native.modular_square_root_fn(a, p)
 
 
+def _nthroot_charge(session: Any, steps: int) -> None:
+    """Keep the shortcut paths on the captured request and retain its error."""
+    if session is None:
+        return
+    try:
+        session.charge_nested_steps(steps)
+    except Exception:
+        # The public callback counter predates atomic native admission. Mark
+        # its refusal terminal too, without replacing the original exception.
+        try:
+            session.cancel()
+        except Exception:
+            pass
+        raise
+
+
+def nthroot_mod(a: Any, n: Any, p: Any, all_roots: bool = False):
+    """Solve x**n == a modulo a positive integer, with complete exact roots.
+
+    The all-roots result is sorted and contains every distinct residue. The
+    scalar result is the least root, except that degree two preserves the
+    pinned sqrt_mod selection rule. No solution returns [] or None.
+
+    Degrees above two admit u64 degrees and moduli, at most 65536 materialized
+    roots, and a bounded odd-group logarithm table. Exhausted native work or
+    output bounds raise RuntimeError, never a false empty result. A zero scalar
+    root and a linear congruence require no enumeration. Active callback work
+    budgets remain cumulative; synchronous square-root and factorization
+    helpers reserve bounded work and observe cancellation at their boundaries.
+    """
+    session = _active_callback_session()
+    _nthroot_charge(session, 0)
+    a, p = _modular_integer(a), _modular_integer(p)
+    # Keep the pinned zero-modulus exception and its reduction order.
+    a %= p
+    n = _modular_integer(n)
+    if n < 1:
+        raise ValueError("n should be positive")
+    if p < 1:
+        raise ValueError("p should be positive")
+    all_roots = bool(all_roots)
+    if n == 1:
+        result = [a] if all_roots else a
+        _nthroot_charge(session, 1)
+        return result
+    if n == 2:
+        # Preserve the specialized scalar selection and no-enumeration path.
+        # Its fixed factorization, root-generation, and reference-check bounds
+        # fit this conservative reservation; it is not incrementally metered.
+        _nthroot_charge(session, 64_000_000)
+        result = sqrt_mod(a, p, all_roots)
+        _nthroot_charge(session, max(1, len(result)) if all_roots else 1)
+        return result
+    if all_roots:
+        return _native.modular_nth_roots_fn(a, n, p, session=session)
+    return _native.modular_nth_root_fn(a, n, p, session=session)
+
+
 def quadratic_residues(p: Any) -> list[int]:
     """Return the sorted list of all quadratic residues modulo p."""
     p = int(p)
@@ -377,6 +435,7 @@ __all__ = [
     "divisors",
     "factorint",
     "integer_nthroot",
+    "nthroot_mod",
     "is_nthpow_residue",
     "is_perfect",
     "is_primitive_root",

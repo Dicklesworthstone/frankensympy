@@ -126,6 +126,7 @@ minimum_evidence = "kernel_proved_or_certificate_verified"
 workstreams = ["WS06", "WS07", "WS08", "WS09", "WS10", "WS12", "WS17", "WS18", "WS19"]
 gate = "gate://proof-producing-transformations"
 evidence_artifacts = [
+    "artifacts/audit/2026-11-25-complex-powers-periodic-domains-nth-roots.json",
     "crates/fsym-proof-kernel/src/kernel.rs",
     "crates/fsym-evidence/src/lattice.rs",
     "crates/fsym-simplify/src/lib.rs",
@@ -244,6 +245,7 @@ minimum_evidence = "certified_numeric"
 workstreams = ["WS03", "WS04", "WS06", "WS11"]
 gate = "gate://ws11-certified-numeric"
 evidence_artifacts = [
+    "artifacts/audit/2026-11-25-complex-powers-periodic-domains-nth-roots.json",
     "crates/fsym-core/src/ball.rs",
     "crates/fsym-core/src/algebraic.rs",
     "crates/fsym-core/tests/directed_rounding_mutation.rs",

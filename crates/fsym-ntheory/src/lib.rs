@@ -26,8 +26,8 @@ pub use multiplicative::{
     verify_multiplicative_order,
 };
 pub use nth_roots::{
-    metered_modular_nth_roots, modular_nth_root, modular_nth_roots, verify_modular_nth_roots,
-    verify_modular_nth_roots_with_meter,
+    metered_modular_nth_root, metered_modular_nth_roots, modular_nth_root, modular_nth_roots,
+    verify_modular_nth_roots, verify_modular_nth_roots_with_meter,
 };
 pub use power_residues::{is_nth_power_residue, is_nth_power_residue_with_work_limit};
 

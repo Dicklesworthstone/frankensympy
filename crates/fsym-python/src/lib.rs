@@ -2546,6 +2546,8 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(ntheory::primitive_root_fn, m)?)?;
     m.add_function(wrap_pyfunction!(ntheory::discrete_log_fn, m)?)?;
     m.add_function(wrap_pyfunction!(ntheory::is_nth_power_residue_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(ntheory::modular_nth_roots_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(ntheory::modular_nth_root_fn, m)?)?;
     m.add_function(wrap_pyfunction!(integer_nth_root_fn, m)?)?;
     m.add_function(wrap_pyfunction!(mod_inverse_fn, m)?)?;
     m.add_function(wrap_pyfunction!(crt_fn, m)?)?;

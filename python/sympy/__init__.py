@@ -1309,6 +1309,7 @@ from .ntheory import (
     quadratic_residues,
     reduced_totient,
     sqrt_mod,
+    nthroot_mod,
 )
 
 
@@ -2872,6 +2873,7 @@ __all__ = [
     "sqrt",
     "summation",
     "sqrt_mod",
+    "nthroot_mod",
     "stationary_points",
     "subfactorial",
     "symbols",

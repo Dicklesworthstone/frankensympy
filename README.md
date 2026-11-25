@@ -3243,12 +3243,89 @@ expressions, bounded integer/name tokens, and at most 64 distinct coordinates;
 explicit `syms` must be a built-in list or tuple of symbols. Compound expression
 strings and external conversion hooks are unsupported.
 
+`solveset` also retains original source domains in its complete periodic and
+complex-exponential solution families. A held equation such as
+`Eq(1/x, 1/x + sin(x), evaluate=False)` cannot acquire the invalid solution
+`x = 0` after cancellation. Unknown definedness is represented by a
+`ConditionSet` over the generated family and requested domain, retaining the
+original equation and typed coordinate. Entire-function families remain
+unconditional when their source is known to be defined. Meromorphic sources
+may conservatively retain explicit conditions; this does not claim a more
+general domain-solving procedure.
+
 These are development compatibility features. The integer helpers check
 original coefficient residuals, but these shell routes do not produce portable
 proof certificates or certify an upstream profile. The
 [execution report](artifacts/audit/2026-11-15-integer-conics-and-source-domains-progress.json)
 separates the executed conic checks from the later public tests that still
 require a native-extension run.
+
+---
+
+## Complete modular nth roots (development API)
+
+`nthroot_mod(a, n, p, all_roots=False)` now solves positive-degree congruences
+over bounded positive integer moduli, including prime powers, nonunits and
+mixed composites. The all-roots result contains every distinct residue in
+increasing order:
+
+```python
+from sympy import nthroot_mod
+
+assert nthroot_mod(68, 3, 109, True) == [23, 32, 54]
+assert nthroot_mod(68, 3, 109) == 23
+assert nthroot_mod(8, 3, 72, True) == [
+    2, 8, 14, 20, 26, 32, 38, 44, 50, 56, 62, 68,
+]
+assert nthroot_mod(9, 3, 27) is None
+assert nthroot_mod(9, 3, 27, True) == []
+```
+
+The native generator reduces prime-power valuations, solves the appropriate
+unit-group congruences, and combines the local roots by CRT. An independent
+reference checker establishes the exact root count and checks every original
+congruence, canonical residue and strict ordering. A valid subset cannot be
+published as a complete answer. Powers of two use their noncyclic unit-group
+structure; large prime square roots retain the specialized existing solver.
+
+Native degrees and moduli are bounded by `u64`; a complete result has at most
+65,536 roots, and odd-group discrete logarithms have at most 65,536 table
+entries. Work, allocation and verification failures are explicit errors,
+not empty solution sets. The scalar API chooses the least root except that
+degree two retains the pinned `sqrt_mod` selection rule. Zero scalar roots
+and degree-one congruences require no enumeration.
+
+Native metered APIs keep generator and verifier accounting separate and
+check cancellation before publication. Existing factorization and specialized
+square-root helpers remain bounded synchronous calls, with cancellation
+checks before and after them. This is an independently checked in-process
+result, not a portable proof certificate or a certified compatibility profile.
+
+## Principal complex powers (native API)
+
+`ComplexBall::pow_principal(exponent, digits)` encloses
+`exp(exponent * Log(base))` over the complete base and exponent rectangles.
+`Expr::eval_complex_ball` now uses this operation for general powers,
+including principal cube roots and genuinely complex exponents. For example,
+the principal cube root of `-8` is enclosed around `1 + sqrt(3)*I`, and
+`I**I` around `exp(-pi/2)`.
+
+Exact signed integer exponents retain algebraic powering. An exactly zero
+base requires a strictly positive, exactly real exponent enclosure.
+Noninteger powers otherwise require a base excluding zero; rectangles
+meeting the negative-axis cut refuse, while exactly negative real intervals
+use principal argument `+pi`. Original undefined base or exponent
+subexpressions remain errors even when an outer zero or one would hide them.
+
+The real evaluator keeps its existing domain. This addition is a native
+complex-enclosure capability; it does not add a Python complex `evalf`
+interface. Precision controls component rounding, while input variation and
+exponent amplification remain in the output width. Fixed arithmetic
+preflights do not constitute a caller-owned resource or cancellation budget.
+
+The [implementation and validation report](artifacts/audit/2026-11-25-complex-powers-periodic-domains-nth-roots.json) records
+the exact landed units, focused native runtime results, independent reviews,
+and remaining validation limits after execution-host failures.
 
 ---
 
