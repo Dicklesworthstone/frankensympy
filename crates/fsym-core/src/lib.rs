@@ -1029,6 +1029,12 @@ impl Expr {
             Expr::Function(name, _) if name == "LambertW" => Ok(ComplexBall::from_real(
                 self.eval_real_ball(precision_digits)?,
             )),
+            // atan2 has two real arguments even inside a complex expression.
+            // The real evaluator admits both original children and retains
+            // its arity, precision, origin and principal-cut restrictions.
+            Expr::Function(name, _) if name == "atan2" => Ok(ComplexBall::from_real(
+                self.eval_real_ball(precision_digits)?,
+            )),
             Expr::Function(name, args) if args.len() == 1 => {
                 let arg = args[0].eval_complex_ball(extra)?;
                 match name.as_str() {

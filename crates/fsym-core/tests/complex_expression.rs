@@ -23,6 +23,10 @@ fn function(name: &str, argument: Expr) -> Expr {
     Expr::Function(name.into(), vec![argument])
 }
 
+fn atan2(y: Expr, x: Expr) -> Expr {
+    Expr::Function("atan2".into(), vec![y, x])
+}
+
 fn half_power(base: Expr, numerator: i64) -> Expr {
     Expr::Pow(Arc::new(base), Arc::new(Expr::Rational(q(numerator, 2))))
 }
@@ -248,4 +252,92 @@ fn rational_zero_endpoint_does_not_hide_poles_or_change_the_real_power_domain() 
     let source = Expr::Pow(Arc::new(Expr::from_i64(0)), Arc::new(invalid_exponent));
     assert!(source.evalf_ball(24).is_err());
     assert!(source.eval_complex_ball(24).is_err());
+}
+
+#[test]
+fn complex_entry_point_keeps_atan2_axes_quadrants_and_argument_order() {
+    let pi = RealBall::pi(60).unwrap();
+    for (y, x, multiple) in [
+        (0, 1, q(0, 1)),
+        (0, -1, q(1, 1)),
+        (1, 0, q(1, 2)),
+        (-1, 0, q(-1, 2)),
+        (1, 1, q(1, 4)),
+        (1, -1, q(3, 4)),
+        (-1, 1, q(-1, 4)),
+        (-1, -1, q(-3, 4)),
+    ] {
+        let source = atan2(Expr::from_i64(y), Expr::from_i64(x));
+        let actual = source.eval_complex_ball(24).unwrap();
+        let expected = pi.mul(&RealBall::exact(multiple));
+        assert!(actual.real().contains_ball(&expected), "{source}: {actual}");
+        assert_eq!(actual.imag(), &RealBall::from_i64(0));
+        assert!(actual.real().width() < tolerance());
+    }
+}
+
+#[test]
+fn atan2_composes_into_complex_phases_with_exact_pythagorean_values() {
+    // exp(I*atan2(y,x)) = (x + I*y)/5 for these exact 3-4-5 triples.
+    // Both unequal argument orders and all quadrants are exercised.
+    for (y, x) in [(3, 4), (4, 3)] {
+        for (ysign, xsign) in [(1, 1), (1, -1), (-1, 1), (-1, -1)] {
+            let y = y * ysign;
+            let x = x * xsign;
+            let angle = atan2(Expr::from_i64(y), Expr::from_i64(x));
+            let phase = function("exp", Expr::Mul(vec![Expr::Const(Constant::I), angle]));
+            assert_point(&phase.eval_complex_ball(24).unwrap(), q(x, 5), q(y, 5));
+        }
+    }
+}
+
+#[test]
+fn complex_atan2_preserves_both_original_domains_and_exact_arity() {
+    let held_pole = Expr::Mul(vec![Expr::from_i64(0), function("log", Expr::from_i64(0))]);
+    for invalid in [
+        held_pole,
+        Expr::Const(Constant::I),
+        Expr::Const(Constant::Infinity),
+        Expr::Sym(Symbol::new("atan2_unbound")),
+    ] {
+        for source in [
+            atan2(invalid.clone(), Expr::from_i64(1)),
+            atan2(Expr::from_i64(0), invalid),
+        ] {
+            assert!(source.eval_complex_ball(24).is_err(), "{source}");
+        }
+    }
+    let origin = atan2(Expr::from_i64(0), Expr::from_i64(0));
+    assert!(origin.eval_complex_ball(24).is_err());
+    for arity in [0, 1, 3] {
+        let source = Expr::Function("atan2".into(), vec![Expr::from_i64(1); arity]);
+        assert!(source.eval_complex_ball(24).is_err());
+    }
+    // The explicit atan2 route does not admit arbitrary multiargument functions.
+    let unknown = Expr::Function(
+        "unregistered_binary".into(),
+        vec![Expr::from_i64(1), Expr::from_i64(1)],
+    );
+    assert!(unknown.eval_complex_ball(24).is_err());
+}
+
+#[test]
+fn complex_atan2_retains_principal_cut_and_precision_refusals() {
+    let tiny = BigRational::new(BigInt::from(1), BigInt::from(10).pow(80));
+    let above = atan2(Expr::Rational(tiny.clone()), Expr::from_i64(-1))
+        .eval_complex_ball(24)
+        .unwrap();
+    let below = atan2(Expr::Rational(-tiny), Expr::from_i64(-1))
+        .eval_complex_ball(24)
+        .unwrap();
+    assert!(above.real().lower() > q(3, 1));
+    assert!(below.real().upper() < q(-3, 1));
+    // A raw sin(pi) enclosure crosses zero. Its uncertain side of the cut
+    // cannot be collapsed to the exceptional exact-zero positive-pi value.
+    let uncertain = atan2(function("sin", Expr::Const(Constant::Pi)), Expr::from_i64(-1));
+    assert!(uncertain.eval_complex_ball(24).is_err());
+    let source = atan2(Expr::from_i64(0), Expr::from_i64(1));
+    for precision in [0, RealBall::MAX_ATAN2_PRECISION_DIGITS + 1, u32::MAX] {
+        assert!(source.eval_complex_ball(precision).is_err());
+    }
 }
