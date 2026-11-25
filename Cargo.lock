@@ -848,6 +848,7 @@ dependencies = [
 name = "fsym-ntheory"
 version = "0.1.0"
 dependencies = [
+ "fsym-budget",
  "fsym-core",
  "proptest",
  "serde",

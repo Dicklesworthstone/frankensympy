@@ -10,6 +10,7 @@ mod discrete_log;
 mod factorization;
 mod modular_roots;
 mod multiplicative;
+mod nth_roots;
 mod power_residues;
 pub use discrete_log::{MAX_DISCRETE_LOG_TABLE, discrete_log, discrete_log_with_work_limit};
 pub use factorization::{
@@ -23,6 +24,10 @@ pub use multiplicative::{
     MAX_MODULAR_GROUP_WORK, is_primitive_root, multiplicative_order,
     multiplicative_order_with_work_limit, primitive_root, primitive_root_with_work_limit,
     verify_multiplicative_order,
+};
+pub use nth_roots::{
+    metered_modular_nth_roots, modular_nth_root, modular_nth_roots, verify_modular_nth_roots,
+    verify_modular_nth_roots_with_meter,
 };
 pub use power_residues::{is_nth_power_residue, is_nth_power_residue_with_work_limit};
 
@@ -71,6 +76,18 @@ pub enum NTheoryError {
     ModularRootWorkLimitExceeded,
     #[error("Modular square-root verification failed: {0}")]
     ModularRootVerificationFailed(&'static str),
+    #[error("Root degree must be a positive integer")]
+    InvalidRootDegree,
+    #[error("Modular nth-root output contains {0} roots, exceeding the limit of 65536")]
+    ModularNthRootCountExceeded(u64),
+    #[error("Modular nth-root work limit reached")]
+    ModularNthRootWorkLimitExceeded,
+    #[error("Modular nth-root allocation limit reached")]
+    ModularNthRootAllocationLimitExceeded,
+    #[error("Modular nth-root verification failed: {0}")]
+    ModularNthRootVerificationFailed(&'static str),
+    #[error(transparent)]
+    Meter(#[from] fsym_budget::MeterError),
     #[error("Exact result does not fit u64 while computing {0}")]
     ArithmeticOverflow(&'static str),
     #[error("n should be an odd positive integer")]
