@@ -471,7 +471,7 @@ class _SolveSourceCheck:
 
 
 class _SolveSetSourceCheck(_SolveSourceCheck):
-    """Keep original definedness in a complete finite solution set.
+    """Keep original definedness in complete finite or infinite solution sets.
 
     ``solve`` may retain a candidate whose original domain is undecidable.
     ``solveset`` must retain that obligation as a condition on the returned
@@ -509,8 +509,14 @@ class _SolveSetSourceCheck(_SolveSourceCheck):
         )
         return ConditionSet(symbol, condition, base)
 
-    def identity_set(self, symbol, domain):
-        """A normalized identity holds only where its original source exists."""
+    def restrict_set(self, symbol, candidates):
+        """Retain original domains without enumerating an infinite family.
+
+        A periodic solver proves its normalized equation, which can have
+        lost a pole in the original source. Prove definedness for an
+        unconstrained coordinate before publishing the whole candidate set;
+        otherwise keep the original equation as a membership condition.
+        """
         from ..sets import EmptySet
 
         # The requested set domain governs the solved coordinate. Its
@@ -520,5 +526,9 @@ class _SolveSetSourceCheck(_SolveSourceCheck):
         if verdict is False:
             return EmptySet()
         if verdict is None:
-            return self.condition_set(symbol, domain)
-        return domain
+            return self.condition_set(symbol, candidates)
+        return candidates
+
+    def identity_set(self, symbol, domain):
+        """A normalized identity holds only where its original source exists."""
+        return self.restrict_set(symbol, domain)

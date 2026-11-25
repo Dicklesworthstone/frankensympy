@@ -784,8 +784,9 @@ def solveset(expression, variable=None, domain=None):
     Abs nodes use complete disjoint sign branches and retain original poles.
     Closed Abs forms outside that grammar remain conditional; exhausted work
     bounds raise instead of returning a partial set of solutions.
-    Finite native results also retain original equation poles: undecidable
-    definedness stays conditional instead of becoming an unconditional root.
+    Finite and periodic results also retain original equation poles:
+    undecidable definedness stays conditional instead of becoming an
+    unconditional root or infinite family.
     Bounded rational-affine/exponential forms use an independent real Lambert-W
     checker, including both real branches and exact tangent or empty cases.
     """
@@ -842,6 +843,7 @@ def solveset(expression, variable=None, domain=None):
     from .sets import Reals as _RealsP
     over_reals = domain is not None and (domain == _RealsP() or isinstance(domain, _RealsP))
     original = expression
+    original_equation = expression if type(expression) is Eq else None
     if type(expression) is Eq:
         if over_reals:
             # Preserve holes on both sides before subtraction cancels them.
@@ -855,7 +857,9 @@ def solveset(expression, variable=None, domain=None):
     if type(original) in (Expr, _native.Expr):
         original = _wrap(_native_expr(original))
     from .solvers._checksol import _SolveSetSourceCheck
-    source_check = _SolveSetSourceCheck(original)
+    source_check = _SolveSetSourceCheck(
+        original_equation if original_equation is not None else original,
+    )
     if variable is None:
         symbols = original.free_symbols if isinstance(original, Basic) else expr.free_symbols
         if len(symbols) == 1:
@@ -910,8 +914,8 @@ def solveset(expression, variable=None, domain=None):
         if domain is not None and not over_reals and type(domain).__name__ != "Complexes":
             from .sets import Intersection as _IntersectionP
 
-            return _IntersectionP(sol, domain)
-        return sol
+            sol = _IntersectionP(sol, domain)
+        return source_check.restrict_set(symbol, sol)
     try:
         results = _native.solve_native(_native_expr(expr), _symbol_binding(symbol))
     except ValueError as exc:
