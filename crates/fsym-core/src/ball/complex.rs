@@ -1,4 +1,4 @@
-//! Principal complex logarithm and square root on rational rectangles.
+//! Principal complex logarithm, square root and powers on rational rectangles.
 //!
 //! Logarithm uses log(z) = log(x^2 + y^2)/2 + i atan2(y, x).
 //! Square root uses u^2 = (|z| + x)/2 and v^2 = (|z| - x)/2,
@@ -10,13 +10,71 @@ use super::{
     BallError, BigInt, BigRational, ComplexBall, RealBall, checked_work_bits,
     ensure_endpoint_construction_fits,
 };
-use num_traits::{Signed, Zero};
+use num_traits::{One, Signed, ToPrimitive, Zero};
 
 impl ComplexBall {
     /// The component transcendental kernels and branch calculations share
     /// this ceiling, including every internal guard digit.
     pub const MAX_ELEMENTARY_PRECISION_DIGITS: u32 =
         RealBall::MAX_TRANSCENDENTAL_PRECISION_DIGITS - 8;
+
+    /// Enclose the principal power `z^w = exp(w * Log(z))` over both complete
+    /// input rectangles, using the logarithm branch with argument in (-pi, pi].
+    ///
+    /// An exact signed-i32 integer exponent uses algebraic powering and does
+    /// not impose a logarithmic branch cut. An exactly zero base is admitted
+    /// only for a strictly positive, exactly real exponent enclosure. Other
+    /// noninteger powers require a base rectangle excluding zero and obey
+    /// the same negative-axis branch restrictions as [`Self::ln`]. In
+    /// particular, a negative real point has its principal complex root,
+    /// never the real odd root selected by an unrelated real-root convention.
+    ///
+    /// Precision is decimal digits in 1..=MAX_ELEMENTARY_PRECISION_DIGITS.
+    /// Input uncertainty and amplification by the exponent remain in the
+    /// result; the requested digits do not promise an absolute output width.
+    /// Every composition is bounded before its rational products. This is
+    /// an intrinsic work envelope, not a caller-owned cancellation budget.
+    pub fn pow_principal(&self, exponent: &Self, precision_digits: u32) -> Result<Self, BallError> {
+        preflight(self, precision_digits, "ComplexBall principal-power base")?;
+        preflight(
+            exponent,
+            precision_digits,
+            "ComplexBall principal-power exponent",
+        )?;
+        let real_exponent =
+            exponent.imag().midpoint().is_zero() && exponent.imag().radius().is_zero();
+        if real_exponent
+            && exponent.real().radius().is_zero()
+            && exponent.real().midpoint().denom().is_one()
+            && let Some(integer) = exponent.real().midpoint().numer().to_i32()
+        {
+            return self.pow(integer);
+        }
+        let zero_base = self.real().midpoint().is_zero()
+            && self.real().radius().is_zero()
+            && self.imag().midpoint().is_zero()
+            && self.imag().radius().is_zero();
+        if zero_base && real_exponent && exponent.real().lower().is_positive() {
+            return Ok(Self::from_i64(0));
+        }
+        let logarithm = self.ln(precision_digits)?;
+        checked_work_bits(
+            "ComplexBall principal-power logarithm product",
+            [logarithm
+                .power_height()
+                .saturating_add(exponent.power_height())
+                .saturating_add(2)
+                .saturating_mul(16)],
+        )?;
+        let scaled = logarithm.mul(exponent);
+        preflight(
+            &scaled,
+            precision_digits,
+            "ComplexBall principal-power exponential input",
+        )?;
+        let result = scaled.exp(precision_digits)?;
+        finish(result.real, result.imag)
+    }
 
     /// Enclose the principal complex logarithm of the complete rectangle.
     ///

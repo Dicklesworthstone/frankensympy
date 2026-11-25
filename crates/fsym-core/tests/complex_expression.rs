@@ -196,7 +196,10 @@ fn exact_zero_bases_admit_positive_literal_rational_powers() {
             let source = rational_power(base, numerator, denominator);
             assert_eq!(source.evalf_ball(24).unwrap(), RealBall::from_i64(0));
             assert_eq!(source.eval_real_ball(24).unwrap(), RealBall::from_i64(0));
-            assert_eq!(source.eval_complex_ball(24).unwrap(), ComplexBall::from_i64(0));
+            assert_eq!(
+                source.eval_complex_ball(24).unwrap(),
+                ComplexBall::from_i64(0)
+            );
         }
     }
 }
@@ -334,7 +337,10 @@ fn complex_atan2_retains_principal_cut_and_precision_refusals() {
     assert!(below.real().upper() < q(-3, 1));
     // A raw sin(pi) enclosure crosses zero. Its uncertain side of the cut
     // cannot be collapsed to the exceptional exact-zero positive-pi value.
-    let uncertain = atan2(function("sin", Expr::Const(Constant::Pi)), Expr::from_i64(-1));
+    let uncertain = atan2(
+        function("sin", Expr::Const(Constant::Pi)),
+        Expr::from_i64(-1),
+    );
     assert!(uncertain.eval_complex_ball(24).is_err());
     let source = atan2(Expr::from_i64(0), Expr::from_i64(1));
     for precision in [0, RealBall::MAX_ATAN2_PRECISION_DIGITS + 1, u32::MAX] {
@@ -441,4 +447,57 @@ fn raw_indeterminate_folding_does_not_change_evaluated_power_policy() {
     let evaluated = fsym_core::elementary::eval_pow(Expr::from_i64(0), Expr::from_i64(0));
     assert_eq!(evaluated, Expr::from_i64(1));
     assert_eq!(evaluated.evalf_ball(24).unwrap().midpoint(), &q(1, 1));
+}
+
+#[test]
+fn general_complex_powers_compose_through_the_existing_expression_evaluator() {
+    for (numerator, real, imag) in [
+        (1, q(2, 1), q(1, 1)),
+        (2, q(3, 1), q(4, 1)),
+        (-1, q(2, 5), q(-1, 5)),
+        (-2, q(3, 25), q(-4, 25)),
+    ] {
+        let source = rational_power(complex(2, 11), numerator, 3);
+        assert_point(&source.eval_complex_ball(24).unwrap(), real, imag);
+        assert!(source.eval_real_ball(24).is_err());
+    }
+    // Nested powers preserve their successive principal branches.
+    let cube_root = rational_power(complex(-2, 2), 1, 3);
+    let squared = Expr::Pow(Arc::new(cube_root), Arc::new(Expr::from_i64(2)));
+    assert_point(&squared.eval_complex_ball(24).unwrap(), q(0, 1), q(2, 1));
+}
+
+#[test]
+fn complex_and_nonliteral_exponents_are_evaluated_without_real_coercion() {
+    let imaginary_power = Expr::Pow(
+        Arc::new(Expr::Const(Constant::I)),
+        Arc::new(Expr::Const(Constant::I)),
+    );
+    let result = imaginary_power.eval_complex_ball(24).unwrap();
+    assert!(result.real().lower() > q(1, 5));
+    assert!(result.real().upper() < q(1, 4));
+    assert!(result.imag().contains(&q(0, 1)));
+    assert!(imaginary_power.eval_real_ball(24).is_err());
+    let exponent = Expr::Add(vec![Expr::Rational(q(1, 6)), Expr::Rational(q(1, 6))]);
+    let source = Expr::Pow(Arc::new(complex(2, 11)), Arc::new(exponent));
+    assert_point(&source.eval_complex_ball(24).unwrap(), q(2, 1), q(1, 1));
+}
+
+#[test]
+fn general_power_evaluation_does_not_erase_original_base_or_exponent_failures() {
+    let pole = Expr::Pow(Arc::new(Expr::from_i64(0)), Arc::new(Expr::from_i64(-1)));
+    let held_pole = Expr::Mul(vec![Expr::from_i64(0), pole]);
+    let invalid_exponent = Expr::Add(vec![Expr::Rational(q(1, 3)), held_pole.clone()]);
+    for source in [
+        rational_power(held_pole, 1, 3),
+        Expr::Pow(
+            Arc::new(Expr::from_i64(1)),
+            Arc::new(invalid_exponent.clone()),
+        ),
+        Expr::Pow(Arc::new(Expr::from_i64(0)), Arc::new(invalid_exponent)),
+        rational_power(Expr::Sym(Symbol::new("unbound_power_base")), 1, 3),
+        rational_power(Expr::Const(Constant::Infinity), 1, 3),
+    ] {
+        assert!(source.eval_complex_ball(24).is_err(), "{source}");
+    }
 }

@@ -414,3 +414,174 @@ fn integer_powers_preflight_growth_while_retaining_exact_unit_cycles() {
         Err(BallError::ResourceLimitExceeded { .. }),
     ));
 }
+
+#[test]
+fn principal_powers_recover_exact_gaussian_roots_and_reciprocals() {
+    // These witnesses are ordinary integer products, with the root's angle
+    // inside the principal sector: (2+i)^3=2+11i, (1+i)^3=-2+2i,
+    // (3+i)^3=18+26i and (2+i)^5=-38+41i.
+    for (real, imag, degree, root_real, root_imag) in [
+        (2, 11, 3, 2, 1),
+        (-2, 2, 3, 1, 1),
+        (18, 26, 3, 3, 1),
+        (-38, 41, 5, 2, 1),
+    ] {
+        for sign in [-1, 1] {
+            let source = ComplexBall::exact_complex(q(real, 1), q(sign * imag, 1));
+            for numerator in [-1, 1, 2] {
+                let exponent = ComplexBall::from_real(RealBall::exact(q(numerator, degree)));
+                let result = source.pow_principal(&exponent, 30).unwrap();
+                let a = q(root_real, 1);
+                let b = q(sign * root_imag, 1);
+                let (expected_real, expected_imag) = match numerator {
+                    -1 => {
+                        let norm = &a * &a + &b * &b;
+                        (&a / &norm, -&b / norm)
+                    }
+                    1 => (a, b),
+                    _ => (&a * &a - &b * &b, q(2, 1) * a * b),
+                };
+                assert!(result.contains(&expected_real, &expected_imag));
+                assert!(result.real().width() < tolerance(24));
+                assert!(result.imag().width() < tolerance(24));
+            }
+        }
+    }
+}
+
+#[test]
+fn negative_real_cube_root_keeps_the_principal_complex_branch() {
+    let exponent = ComplexBall::from_real(RealBall::exact(q(1, 3)));
+    let result = ComplexBall::from_i64(-8)
+        .pow_principal(&exponent, 30)
+        .unwrap();
+    // Principal (-8)^(1/3) = 1 + sqrt(3)*i; the real odd root -2
+    // also cubes to -8 but is not the requested branch.
+    assert!(result.real().contains(&q(1, 1)));
+    assert!(result.imag().lower() > q(1, 1));
+    assert!(result.imag().upper() < q(2, 1));
+    assert!(result.imag().pow(2).unwrap().contains(&q(3, 1)));
+    assert!(!result.contains(&q(-2, 1), &q(0, 1)));
+    assert!(result.pow(3).unwrap().contains(&q(-8, 1), &q(0, 1)));
+}
+
+/// Alternating Taylor bounds for exp(-x), 0 <= x <= 4. Terms decrease
+/// after the fourth; the remainder after 80 terms has the next term's
+/// positive sign and magnitude at most x^80/80!.
+fn reference_negative_exp(value: BigRational) -> (BigRational, BigRational) {
+    assert!(value >= q(0, 1) && value <= q(4, 1));
+    let mut term = q(1, 1);
+    let mut sum = q(1, 1);
+    for index in 1..80 {
+        term = term * &value / q(index, 1);
+        if index % 2 == 0 {
+            sum += &term;
+        } else {
+            sum -= &term;
+        }
+    }
+    let upper = &sum + term * value / q(80, 1);
+    (sum, upper)
+}
+
+#[test]
+fn imaginary_exponents_match_independent_exact_taylor_bounds() {
+    let (pi_lower, pi_upper) = reference_pi();
+    for (base, divisor) in [(ComplexBall::i(), 2), (ComplexBall::from_i64(-1), 1)] {
+        // i^i = exp(-pi/2), (-1)^i = exp(-pi). The reference uses
+        // Machin's formula and exact rational Taylor bounds, not ln/pow/exp.
+        let lower = reference_negative_exp(&pi_upper / q(divisor, 1)).0;
+        let upper = reference_negative_exp(&pi_lower / q(divisor, 1)).1;
+        let result = base.pow_principal(&ComplexBall::i(), 40).unwrap();
+        inside_reference(result.real(), &(lower, upper));
+        assert!(result.imag().contains(&q(0, 1)));
+        assert!(result.imag().width() < tolerance(30));
+    }
+}
+
+#[test]
+fn principal_power_retains_whole_base_and_exponent_intervals() {
+    let base = ComplexBall::from_real(interval(q(4, 1), q(9, 1)));
+    let exponent = ComplexBall::from_real(interval(q(1, 2), q(1, 1)));
+    let result = base.pow_principal(&exponent, 30).unwrap();
+    // The full image on these positive rectangles is [2, 9]. Selecting
+    // either midpoint, or silently treating the exponent as an integer,
+    // would exclude at least one of these independently known corners.
+    for value in [2, 3, 4, 9] {
+        assert!(result.contains(&q(value, 1), &q(0, 1)));
+    }
+    assert!(result.real().width() >= q(7, 1));
+}
+
+#[test]
+fn principal_power_branch_cut_is_separate_from_integer_power_domain() {
+    let cube_root = ComplexBall::from_real(RealBall::exact(q(1, 3)));
+    for source in [
+        rectangle(-2, -1, -1, 1),
+        rectangle(-2, -1, 0, 1),
+        rectangle(-2, -1, -1, 0),
+    ] {
+        assert!(source.pow_principal(&cube_root, 30).is_err());
+        assert!(source.pow_principal(&ComplexBall::from_i64(3), 30).is_ok());
+    }
+    let upper = rectangle(-2, -1, 1, 2)
+        .pow_principal(&cube_root, 30)
+        .unwrap();
+    let lower = rectangle(-2, -1, -2, -1)
+        .pow_principal(&cube_root, 30)
+        .unwrap();
+    assert!(upper.imag().lower() > q(0, 1));
+    assert_eq!(upper.conj(), lower);
+}
+
+#[test]
+fn zero_power_requires_a_defined_positive_real_exponent() {
+    let zero = ComplexBall::from_i64(0);
+    for exponent in [
+        ComplexBall::from_real(RealBall::exact(q(1, 3))),
+        ComplexBall::from_real(interval(q(1, 3), q(2, 3))),
+        ComplexBall::from_i64(3),
+    ] {
+        assert_eq!(zero.pow_principal(&exponent, 30).unwrap(), zero);
+    }
+    for exponent in [
+        zero.clone(),
+        ComplexBall::from_i64(-1),
+        ComplexBall::from_real(interval(q(0, 1), q(1, 3))),
+        ComplexBall::i(),
+        ComplexBall::exact_complex(q(1, 1), q(1, 1)),
+    ] {
+        assert!(zero.pow_principal(&exponent, 30).is_err());
+    }
+    let uncertain = rectangle(0, 1, 0, 0);
+    let exponent = ComplexBall::from_real(RealBall::exact(q(1, 3)));
+    assert!(uncertain.pow_principal(&exponent, 30).is_err());
+}
+
+#[test]
+fn general_powers_preflight_both_inputs_and_precision_before_trivial_values() {
+    for digits in [
+        0,
+        ComplexBall::MAX_ELEMENTARY_PRECISION_DIGITS + 1,
+        u32::MAX,
+    ] {
+        assert!(
+            ComplexBall::from_i64(1)
+                .pow_principal(&ComplexBall::from_i64(0), digits)
+                .is_err()
+        );
+    }
+    let enormous = ComplexBall::from_real(RealBall::exact(BigRational::from_integer(
+        BigInt::one() << (MAX_REAL_BALL_WORK_BITS / 128 + 16) as u32,
+    )));
+    for (base, exponent) in [
+        (enormous.clone(), ComplexBall::from_i64(0)),
+        (ComplexBall::from_i64(1), enormous.clone()),
+        (ComplexBall::from_i64(0), enormous),
+    ] {
+        assert!(matches!(
+            base.pow_principal(&exponent, 30),
+            Err(BallError::ResourceLimitExceeded { .. }),
+        ));
+    }
+}

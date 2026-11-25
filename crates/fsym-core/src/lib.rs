@@ -1028,9 +1028,13 @@ impl Expr {
                 {
                     return b.eval_complex_ball(extra)?.sqrt(precision_digits)?.pow(p);
                 }
-                Ok(ComplexBall::from_real(
-                    self.eval_real_ball(precision_digits)?,
-                ))
+                // Both original children must be admitted before the power
+                // can return, even when a base of one or a positive power of
+                // zero makes the value trivial. The complex lane uses the
+                // principal logarithm; the real lane keeps its own domain.
+                let base = b.eval_complex_ball(extra)?;
+                let exponent = e.eval_complex_ball(extra)?;
+                base.pow_principal(&exponent, precision_digits)
             }
             Expr::Function(name, _) if name == "LambertW" => Ok(ComplexBall::from_real(
                 self.eval_real_ball(precision_digits)?,
