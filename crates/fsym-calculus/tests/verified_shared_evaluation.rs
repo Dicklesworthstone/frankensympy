@@ -188,7 +188,19 @@ fn shared_original_source_domains_precede_zero_weight_products_and_publication()
 }
 
 #[test]
-fn cached_finite_sources_do_not_hide_derivative_domain_errors() {
+fn finite_source_values_do_not_bypass_shared_smooth_domain_checks() {
+    fn assert_nonsmooth_power<T: std::fmt::Debug>(result: Result<T, ResidualEvaluationError>) {
+        assert!(
+            matches!(
+                result,
+                Err(ResidualEvaluationError::Evaluation(
+                    EvalError::NonsmoothSource("power")
+                ))
+            ),
+            "expected the original power's smooth-domain refusal, got {result:?}"
+        );
+    }
+
     let source = parse("x^(1/2)").unwrap();
     let system =
         VerifiedResidualSystem::try_compile(&[source.clone(), source], &[Symbol::new("x")])
@@ -200,10 +212,43 @@ fn cached_finite_sources_do_not_hide_derivative_domain_errors() {
             .iter()
             .all(|program| program.try_eval_finite(&[0.0]).unwrap() == 0.0)
     );
-    assert_domain_error(system.try_eval_dense(&[0.0]));
-    assert_domain_error(system.evaluate_sparse(&[0.0]));
-    assert_domain_error(system.jacobian_vector_product(&[0.0], &[0.0]));
-    assert_domain_error(system.jacobian_transpose_vector_product(&[0.0], &[0.0, 0.0]));
+    // A finite scalar endpoint cannot authorize a smooth derivative bundle.
+    // This source refusal precedes derivative evaluation or memo reuse.
+    assert_nonsmooth_power(system.try_eval_dense(&[0.0]));
+    assert_nonsmooth_power(system.evaluate_sparse(&[0.0]));
+    assert_nonsmooth_power(system.jacobian_vector_product(&[0.0], &[0.0]));
+    assert_nonsmooth_power(system.jacobian_transpose_vector_product(&[0.0], &[0.0, 0.0]));
+}
+
+#[test]
+fn cached_finite_sources_do_not_hide_derivative_overflow() {
+    let source = parse("log(x)").unwrap();
+    let system =
+        VerifiedResidualSystem::try_compile(&[source.clone(), source], &[Symbol::new("x")])
+            .unwrap();
+    let point = [f64::from_bits(1)];
+    assert!(point[0] > 0.0);
+    assert!(system.shared_subexpression_count() > 0);
+    assert!(
+        system
+            .residual_programs()
+            .iter()
+            .all(|program| program.try_eval_finite(&point).unwrap().is_finite())
+    );
+    // log is smooth and finite at the smallest positive binary64 value, but
+    // its reciprocal derivative cannot be represented as a finite binary64.
+    // Check independent derivative programs before testing the shared bundle.
+    assert_eq!(system.sparse_jacobian().entries.len(), 2);
+    for entry in &system.sparse_jacobian().entries {
+        assert_eq!(
+            entry.compiled_deriv.try_eval_finite(&point),
+            Err(EvalError::NonFiniteValue)
+        );
+    }
+    assert_domain_error(system.try_eval_dense(&point));
+    assert_domain_error(system.evaluate_sparse(&point));
+    assert_domain_error(system.jacobian_vector_product(&point, &[0.0]));
+    assert_domain_error(system.jacobian_transpose_vector_product(&point, &[0.0, 0.0]));
 }
 
 #[test]

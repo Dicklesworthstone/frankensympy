@@ -82,8 +82,14 @@ fn reference_acute_angle() -> (BigRational, BigRational) {
 }
 
 fn inside_reference(value: &RealBall, bounds: &(BigRational, BigRational)) {
-    assert!(value.lower() >= bounds.0, "lower endpoint escaped the exact reference");
-    assert!(value.upper() <= bounds.1, "upper endpoint escaped the exact reference");
+    assert!(
+        value.lower() >= bounds.0,
+        "lower endpoint escaped the exact reference"
+    );
+    assert!(
+        value.upper() <= bounds.1,
+        "upper endpoint escaped the exact reference"
+    );
 }
 
 #[test]
@@ -107,7 +113,9 @@ fn principal_square_roots_recover_exact_gaussian_rational_squares() {
     // A wrong real-only fallback, a sign error, or omission of the modulus
     // factor cannot satisfy this rational identity in all four quadrants.
     assert_eq!(
-        ComplexBall::exact_complex(q(-3, 1), q(-4, 1)).sqrt(30).unwrap(),
+        ComplexBall::exact_complex(q(-3, 1), q(-4, 1))
+            .sqrt(30)
+            .unwrap(),
         ComplexBall::exact_complex(q(1, 1), q(-2, 1)),
     );
 }
@@ -170,13 +178,19 @@ fn square_root_encloses_rectangles_on_both_sides_of_the_positive_axis() {
                 }
             }
         }
-        assert!(witnesses >= 5, "fixture did not cover enough exact square images");
+        assert!(
+            witnesses >= 5,
+            "fixture did not cover enough exact square images"
+        );
     }
 }
 
 #[test]
 fn real_axis_square_root_keeps_zero_and_the_principal_negative_side() {
-    assert_eq!(ComplexBall::from_i64(0).sqrt(20).unwrap(), ComplexBall::from_i64(0));
+    assert_eq!(
+        ComplexBall::from_i64(0).sqrt(20).unwrap(),
+        ComplexBall::from_i64(0)
+    );
     assert_eq!(
         ComplexBall::from_i64(-4).sqrt(20).unwrap(),
         ComplexBall::exact_complex(q(0, 1), q(2, 1)),
@@ -197,8 +211,14 @@ fn negative_axis_contact_is_a_refusal_for_genuinely_complex_boxes() {
         rectangle(-2, -1, -1, 0),
         rectangle(-1, 1, 0, 1),
     ] {
-        assert!(matches!(source.sqrt(20), Err(BallError::ArgumentOutsideDeclaredEnvelope(_))));
-        assert!(matches!(source.ln(20), Err(BallError::ArgumentOutsideDeclaredEnvelope(_))));
+        assert!(matches!(
+            source.sqrt(20),
+            Err(BallError::ArgumentOutsideDeclaredEnvelope(_))
+        ));
+        assert!(matches!(
+            source.ln(20),
+            Err(BallError::ArgumentOutsideDeclaredEnvelope(_))
+        ));
     }
     // Exact cut points retain their defined principal values.
     assert!(rectangle(-4, -1, 0, 0).sqrt(20).is_ok());
@@ -214,13 +234,19 @@ fn logarithm_rejects_every_rectangle_that_contains_the_origin() {
         rectangle(-1, 1, -1, 1),
         rectangle(-1, 0, 0, 0),
     ] {
-        assert!(matches!(source.ln(20), Err(BallError::ArgumentOutsideDeclaredEnvelope(_))));
+        assert!(matches!(
+            source.ln(20),
+            Err(BallError::ArgumentOutsideDeclaredEnvelope(_))
+        ));
     }
 }
 
 #[test]
 fn logarithm_principal_axes_match_exact_constants_and_rational_pi_bounds() {
-    assert_eq!(ComplexBall::from_i64(1).ln(40).unwrap(), ComplexBall::from_i64(0));
+    assert_eq!(
+        ComplexBall::from_i64(1).ln(40).unwrap(),
+        ComplexBall::from_i64(0)
+    );
     let (pi0, pi1) = reference_pi();
     for (source, lower, upper) in [
         (ComplexBall::from_i64(-1), pi0.clone(), pi1.clone()),
@@ -245,8 +271,14 @@ fn logarithm_all_quadrants_agree_with_independent_exact_series() {
         } else {
             (&pi.0 - &acute.1, &pi.1 - &acute.0)
         };
-        let angle = if imag > 0 { angle } else { (-angle.1, -angle.0) };
-        let result = ComplexBall::exact_complex(q(real, 1), q(imag, 1)).ln(40).unwrap();
+        let angle = if imag > 0 {
+            angle
+        } else {
+            (-angle.1, -angle.0)
+        };
+        let result = ComplexBall::exact_complex(q(real, 1), q(imag, 1))
+            .ln(40)
+            .unwrap();
         inside_reference(result.real(), &magnitude);
         inside_reference(result.imag(), &angle);
         assert!(result.real().width() < tolerance(40));
@@ -263,7 +295,11 @@ fn wide_log_rectangles_keep_original_input_variation() {
     for (source, sign) in [(rectangle(2, 4, 3, 5), 1), (rectangle(2, 4, -5, -3), -1)] {
         let result = source.ln(40).unwrap();
         assert!(result.real().contains_ball(&expected_real));
-        let expected = if sign > 0 { expected_imag.clone() } else { expected_imag.neg() };
+        let expected = if sign > 0 {
+            expected_imag.clone()
+        } else {
+            expected_imag.neg()
+        };
         assert!(result.imag().contains_ball(&expected));
         assert!(result.real().width() > q(1, 10));
         assert!(result.imag().width() > q(1, 10));
@@ -281,7 +317,10 @@ fn conjugation_commutes_away_from_the_principal_branch_cut() {
         rectangle(-5, 3, 1, 4),
         rectangle(1, 4, -2, 3),
     ] {
-        assert_eq!(source.sqrt(30).unwrap().conj(), source.conj().sqrt(30).unwrap());
+        assert_eq!(
+            source.sqrt(30).unwrap().conj(),
+            source.conj().sqrt(30).unwrap()
+        );
         assert_eq!(source.ln(30).unwrap().conj(), source.conj().ln(30).unwrap());
     }
 }
@@ -304,7 +343,11 @@ fn square_root_handles_extreme_scale_without_float_bounds_or_cancellation_loss()
 
 #[test]
 fn complex_elementary_precision_is_checked_even_for_trivial_constants() {
-    for digits in [0, ComplexBall::MAX_ELEMENTARY_PRECISION_DIGITS + 1, u32::MAX] {
+    for digits in [
+        0,
+        ComplexBall::MAX_ELEMENTARY_PRECISION_DIGITS + 1,
+        u32::MAX,
+    ] {
         assert!(matches!(
             ComplexBall::from_i64(0).sqrt(digits),
             Err(BallError::ArgumentOutsideDeclaredEnvelope(_)),
@@ -314,8 +357,16 @@ fn complex_elementary_precision_is_checked_even_for_trivial_constants() {
             Err(BallError::ArgumentOutsideDeclaredEnvelope(_)),
         ));
     }
-    assert!(ComplexBall::from_i64(0).sqrt(ComplexBall::MAX_ELEMENTARY_PRECISION_DIGITS).is_ok());
-    assert!(ComplexBall::from_i64(1).ln(ComplexBall::MAX_ELEMENTARY_PRECISION_DIGITS).is_ok());
+    assert!(
+        ComplexBall::from_i64(0)
+            .sqrt(ComplexBall::MAX_ELEMENTARY_PRECISION_DIGITS)
+            .is_ok()
+    );
+    assert!(
+        ComplexBall::from_i64(1)
+            .ln(ComplexBall::MAX_ELEMENTARY_PRECISION_DIGITS)
+            .is_ok()
+    );
 }
 
 #[test]
@@ -330,10 +381,19 @@ fn oversized_rationals_refuse_before_nested_complex_arithmetic() {
         for source in [
             ComplexBall::exact_complex(value.clone(), q(1, 1)),
             ComplexBall::exact_complex(q(1, 1), value.clone()),
-            ComplexBall::new(RealBall::new(q(1, 1), value.clone()).unwrap(), RealBall::from_i64(1)),
+            ComplexBall::new(
+                RealBall::new(q(1, 1), value.clone()).unwrap(),
+                RealBall::from_i64(1),
+            ),
         ] {
-            assert!(matches!(source.sqrt(20), Err(BallError::ResourceLimitExceeded { .. })));
-            assert!(matches!(source.ln(20), Err(BallError::ResourceLimitExceeded { .. })));
+            assert!(matches!(
+                source.sqrt(20),
+                Err(BallError::ResourceLimitExceeded { .. })
+            ));
+            assert!(matches!(
+                source.ln(20),
+                Err(BallError::ResourceLimitExceeded { .. })
+            ));
         }
     }
 }
@@ -344,7 +404,10 @@ fn integer_powers_preflight_growth_while_retaining_exact_unit_cycles() {
         ComplexBall::exact_complex(q(2, 1), q(1, 1)).pow(i32::MAX),
         Err(BallError::ResourceLimitExceeded { .. }),
     ));
-    assert_eq!(ComplexBall::i().pow(i32::MIN).unwrap(), ComplexBall::from_i64(1));
+    assert_eq!(
+        ComplexBall::i().pow(i32::MIN).unwrap(),
+        ComplexBall::from_i64(1)
+    );
     let huge = BigRational::from_integer(BigInt::one() << 70_000u32);
     assert!(matches!(
         ComplexBall::exact_complex(huge, q(1, 1)).pow(2),

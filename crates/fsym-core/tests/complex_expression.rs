@@ -28,7 +28,10 @@ fn half_power(base: Expr, numerator: i64) -> Expr {
 }
 
 fn assert_point(result: &ComplexBall, real: BigRational, imag: BigRational) {
-    assert!(result.contains(&real, &imag), "{result} excludes {real} + {imag}*I");
+    assert!(
+        result.contains(&real, &imag),
+        "{result} excludes {real} + {imag}*I"
+    );
     assert!(result.real().width() < tolerance());
     assert!(result.imag().width() < tolerance());
 }
@@ -146,19 +149,13 @@ fn logarithms_and_roots_compose_inside_existing_complex_arithmetic() {
 
 #[test]
 fn complex_evaluation_preserves_original_poles_and_unknown_sources() {
-    let reciprocal_zero = Expr::Pow(
-        Arc::new(Expr::from_i64(0)),
-        Arc::new(Expr::from_i64(-1)),
-    );
+    let reciprocal_zero = Expr::Pow(Arc::new(Expr::from_i64(0)), Arc::new(Expr::from_i64(-1)));
     let held_zero_pole = Expr::Mul(vec![Expr::from_i64(0), reciprocal_zero]);
     for source in [
         function("log", Expr::from_i64(0)),
         function("sqrt", held_zero_pole.clone()),
         half_power(held_zero_pole, 1),
-        Expr::Mul(vec![
-            Expr::from_i64(0),
-            function("log", Expr::from_i64(0)),
-        ]),
+        Expr::Mul(vec![Expr::from_i64(0), function("log", Expr::from_i64(0))]),
         function("log", Expr::Sym(Symbol::new("x"))),
         function("sqrt", Expr::Sym(Symbol::new("x"))),
     ] {

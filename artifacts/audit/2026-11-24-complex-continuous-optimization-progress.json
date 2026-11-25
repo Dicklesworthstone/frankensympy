@@ -39,41 +39,144 @@
       "crates/fsym-core/tests/complex_expression.rs",
       "crates/fsym-core/tests/continuous_box_optimization.rs",
       "crates/fsym-calculus/tests/continuous_box_optimization.rs",
-      "python/tests/test_continuous_box_optimization.py"
+      "python/tests/test_continuous_box_optimization.py",
+      "crates/fsym-calculus/tests/verified_shared_evaluation.rs"
     ],
     "independent_mathematical_oracles": [
       "Exact Gaussian rational squares.",
       "Finite rational atan/log series with proved remainder bounds.",
       "Quartic sign brackets for both components of sqrt(1+i).",
       "Known endpoint and interior-cusp extrema; original-source independent complete-cover replay."
-    ]
+    ],
+    "additional_shared_derivative_overflow_test_functions": 1
   },
   "validation": {
     "source_review": "Separate agents reviewed the complex primitives, expression composition, work bounds and tests; root and a separate agent reviewed optimizer acceptance, source binding, checkpoint accounting and regressions. Public API/tests received separate source review.",
-    "rustfmt": "not executed",
-    "compilation": "not executed",
-    "clippy": "not executed",
-    "rust_tests": "not executed",
-    "python_syntax_and_runtime": "not executed; source reviewed only",
-    "blocker": "The exact nightly-2026-08-20 installation failed with No space left on device (os error 28). An isolated minimal retry was downloading when the execution host disconnected and was marked unavailable. Reattachment diagnostics confirmed the repository survived but both compiler-installation paths were absent, with about 966 MB workspace disk and 1.2 GB temporary space free. The next compiler inventory failed with exec-server transport disconnected. No compiler, formatter, Python parser or test execution was possible.",
+    "rustfmt": "Passed full pinned cargo fmt --check after mechanical formatting and the shared-evaluation fixture correction; git diff --check also passed.",
+    "compilation": "Targeted fsym-core and fsym-calculus library and test builds passed with warnings denied. Full workspace all-targets check exited 101 when an external dependency compiler was killed by SIGKILL.",
+    "clippy": "Passed fsym-core and fsym-calculus production-library Clippy with -D warnings. Full workspace/all-targets Clippy was not run after repeated external compiler kills.",
+    "rust_tests": "92 targeted native tests passed: 48 core, 30 calculus optimization/search/checkpoint, and 14 shared-evaluation/smooth-domain. Full workspace tests were not run after repeated external compiler kills.",
+    "python_syntax_and_runtime": "Both changed Python files passed AST parsing under CPython 3.12.14; public runtime tests remain unrun. An isolated CPython 3.14.10 / pytest 8.4.2 environment was prepared, but fsym-python's asupersync dependency compiler was killed before an importable extension could be produced.",
+    "blocker": "The Python extension build exited 101 after asupersync rustc received SIGKILL. The full workspace metadata check also exited 101 after zerocopy 0.8.56 rustc received SIGKILL. Neither emitted a Rust source diagnostic. Observed shared-host resource pressure is consistent with these kills, but kernel OOM attribution was not independently established.",
     "hosted_ci": {
-      "commit": "794632520d5d8cd6cade73485b47e1db3de0aaeb",
-      "run_id": 45511545958,
-      "status": "queued at observation",
-      "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/45511545958"
+      "commit": "9825da98e454bfccb9d94b6b4c6b8129bc7e6aa1",
+      "run_id": 45512645300,
+      "status": "queued at last observation; G0 had no assigned runner",
+      "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/45512645300"
     },
-    "remote_integrity": "First commit message, six changed paths, all file blob identities and main head independently fetched after the connector ref update. The containing optimization commit receives the same verification in the session report."
+    "remote_integrity": "Both feature commits were fetched and verified after direct-main writes, including messages, changed paths and exact file blob identities. The validation follow-up uses blobs verified equal to the locally tested Git blob hashes and preserves the committed feature ancestry.",
+    "initial_environment_blocker": "The exact nightly-2026-08-20 installation failed with No space left on device (os error 28). An isolated minimal retry was downloading when the execution host disconnected and was marked unavailable. Reattachment diagnostics confirmed the repository survived but both compiler-installation paths were absent, with about 966 MB workspace disk and 1.2 GB temporary space free. The next compiler inventory failed with exec-server transport disconnected. No compiler, formatter, Python parser or test execution was possible.",
+    "local_run_results": {
+      "base_commit": "9825da98e454bfccb9d94b6b4c6b8129bc7e6aa1",
+      "rust_toolchain": "nightly-2026-08-20",
+      "rustc": "1.100.0-nightly f7d782a3b (2026-08-19)",
+      "python": "CPython 3.14.10",
+      "pytest": "8.4.2",
+      "formatting": {
+        "status": "passed",
+        "scope": "cargo fmt --check",
+        "changes": "Nine files mechanically formatted; exact content staged separately.",
+        "rechecked_after_shared_fixture_fix": "passed"
+      },
+      "syntax": {
+        "status": "passed",
+        "python_files": [
+          "python/tests/test_continuous_box_optimization.py",
+          "python/sympy/utilities/source_certification.py"
+        ],
+        "workflow": ".github/workflows/ci.yml",
+        "python_version": "CPython 3.12.14"
+      },
+      "registry": {
+        "status": "passed",
+        "command": "PYTHON_BIN=/home/agent/frankensympy-python314-validation/bin/python PYTHONPYCACHEPREFIX=/home/agent/frankensympy-pycache PYTHONDONTWRITEBYTECODE=1 ./scripts/check.sh registries",
+        "tests_run": 165,
+        "skipped": 13
+      },
+      "core": {
+        "status": "passed",
+        "tests": 48,
+        "suites": {
+          "complex_elementary": 14,
+          "complex_expression": 6,
+          "continuous_box_optimization": 10,
+          "nonsmooth_box_optimization": 11,
+          "box_optimization_monotonicity": 7
+        },
+        "warnings": "denied by RUSTFLAGS=-Dwarnings",
+        "cold_compile_elapsed": "11m46s",
+        "test_elapsed": "38s"
+      },
+      "calculus": {
+        "status": "passed",
+        "tests": 30,
+        "suites": {
+          "continuous_box_optimization": 6,
+          "nonsmooth_box_optimization": 7,
+          "box_optimization_checkpoint": 9,
+          "box_optimization_search": 8
+        },
+        "test_threads": 1,
+        "compile_elapsed": "14s",
+        "test_elapsed": "approximately34s"
+      },
+      "python_runtime": {
+        "status": "not run",
+        "blocker": "fsym-python extension build exited 101 after pinned asupersync rustc was killed with SIGKILL (signal9); no source diagnostic and no importable native artifact produced."
+      },
+      "workspace_check": {
+        "status": "blocked",
+        "exit_code": 101,
+        "blocker": "Full --workspace --all-targets metadata check lost the zerocopy 0.8.56 compiler to SIGKILL (signal9); no source diagnostic. fsym-core checking had completed."
+      },
+      "workspace_clippy": {
+        "status": "not run",
+        "reason": "Repeated external compiler kills under shared resource pressure; scoped production-library lint attempted separately."
+      },
+      "workspace_tests": {
+        "status": "not run",
+        "reason": "Repeated external compiler kills under shared resource pressure;92focused native tests passed."
+      },
+      "shared_domain": {
+        "status": "passed",
+        "tests": 14,
+        "suites": {
+          "verified_shared_evaluation": 5,
+          "smooth_source_domains": 9
+        },
+        "test_threads": 1,
+        "original_failure": {
+          "test": "cached_finite_sources_do_not_hide_derivative_domain_errors",
+          "exit_code": 101,
+          "expected": "NonFiniteValue",
+          "actual": "NonsmoothSource(\"power\")",
+          "diagnosis": "Existing test conflated nonsmooth original-source rejection with derivative numerical overflow.",
+          "fix": "Keep exact nonsmooth rejection and add separate log(minimum-positive-subnormal) finite-source/overflowing-derivative fixture; no production admission change."
+        }
+      },
+      "targeted_native_total": 92,
+      "scoped_clippy": {
+        "status": "passed",
+        "scope": "fsym-core and fsym-calculus production libraries",
+        "command": "cargo +nightly-2026-08-20 clippy --locked -p fsym-core -p fsym-calculus --lib -j1 -- -D warnings",
+        "elapsed": "33.05s"
+      },
+      "whitespace_check": {
+        "status": "passed",
+        "command": "git diff --check"
+      },
+      "observed_at_utc": "2026-11-25T00:16:45Z"
+    },
+    "shared_fixture_repair": "Reproduced the existing x^(1/2) at zero with expected NonFiniteValue / actual NonsmoothSource failure before changing the test. Kept exact original-source nonsmooth refusal and added independent log(minimum-positive-subnormal) derivative-overflow assertions for all four shared evaluation methods, including zero-weight products. Entire shared-evaluation and smooth-domain suites passed; production refusal semantics did not change."
   },
   "remaining_commands": [
-    "cargo fmt --check",
-    "cargo check --workspace --all-targets",
-    "cargo clippy --workspace --all-targets -- -D warnings",
-    "cargo test --workspace",
-    "cargo test --locked -p fsym-core --test complex_elementary --test complex_expression --test continuous_box_optimization --test nonsmooth_box_optimization --test box_optimization_monotonicity -j1",
-    "cargo test --locked -p fsym-calculus --test continuous_box_optimization --test nonsmooth_box_optimization --test box_optimization_search --test box_optimization_checkpoint -j1",
-    "python -m pytest python/tests/test_continuous_box_optimization.py",
-    "./scripts/check.sh registries"
+    "cargo check --locked --workspace --all-targets -j1",
+    "cargo clippy --locked --workspace --all-targets -j1 -- -D warnings",
+    "cargo test --locked --workspace -j1",
+    "cargo build --locked -p fsym-python --features extension-module -j1",
+    "Run python/tests/test_continuous_box_optimization.py and neighboring optimization/source-certification suites against the exact current native extension, with shell/native identity assertions as in G3."
   ],
   "claim_effects": "No workstream, campaign, profile, performance or portable-proof gate is closed or promoted. Existing Beads status, priority and dependency edges are retained.",
-  "recorded_at_utc": "2026-11-24 23:42:33 UTC"
+  "recorded_at_utc": "2026-11-24 23:42:33 UTC",
+  "updated_at_utc": "2026-11-25T00:16:45Z"
 }

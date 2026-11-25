@@ -2,8 +2,8 @@
 
 use fsym_budget::{Budget, BudgetLimits, BudgetMeter, Dimension, MeterError, Unbounded};
 use fsym_calculus::binomial_sum::{
-    BinomialSummationError, PolynomialBinomialCertificate, metered_polynomial_binomial_sum, polynomial_binomial_sum,
-    verify_polynomial_binomial_sum,
+    BinomialSummationError, PolynomialBinomialCertificate, metered_polynomial_binomial_sum,
+    polynomial_binomial_sum, verify_polynomial_binomial_sum,
 };
 use fsym_calculus::summation::checked_summation;
 use fsym_core::elementary::rational_expr;
@@ -64,7 +64,8 @@ fn direct(coefficients: &[BigRational], a: &BigRational, b: &BigRational, n: usi
             .iter()
             .rev()
             .fold(BigRational::zero(), |v, c| v * &x + c.clone());
-        result += weight * q(choose, 1)
+        result += weight
+            * q(choose, 1)
             * a.pow(k as i32).expect("nonnegative exact power")
             * b.pow((n - k) as i32).expect("nonnegative exact power");
         if k < n {
@@ -269,7 +270,9 @@ fn unsupported_symbolic_bounds_weights_and_typed_indices_remain_unaccepted() {
             .unwrap()
             .is_none()
     );
-    let constant = checked_summation(&binomial(e(5), &other), &k, &e(0), &e(5)).unwrap().unwrap();
+    let constant = checked_summation(&binomial(e(5), &other), &k, &e(0), &e(5))
+        .unwrap()
+        .unwrap();
     assert!(constant.free_symbols().contains(&other));
     assert!(!constant.free_symbols().contains(&k));
     let unadmitted = power(
@@ -299,11 +302,24 @@ fn unsupported_symbolic_bounds_weights_and_typed_indices_remain_unaccepted() {
 fn short_partial_ranges_and_binomial_powers_keep_existing_exact_results() {
     let k = Symbol::new("k");
     let summand = binomial(e(5), &k);
-    assert_eq!(checked_summation(&summand, &k, &e(1), &e(5)).unwrap(), Some(e(31)));
-    assert_eq!(checked_summation(&summand, &k, &e(0), &e(3)).unwrap(), Some(e(26)));
+    assert_eq!(
+        checked_summation(&summand, &k, &e(1), &e(5)).unwrap(),
+        Some(e(31))
+    );
+    assert_eq!(
+        checked_summation(&summand, &k, &e(0), &e(3)).unwrap(),
+        Some(e(26))
+    );
     let squared = power(summand, e(2));
-    assert!(polynomial_binomial_sum(&squared, &k, &e(0), &e(5)).unwrap().is_none());
-    assert_eq!(checked_summation(&squared, &k, &e(0), &e(5)).unwrap(), Some(e(252)));
+    assert!(
+        polynomial_binomial_sum(&squared, &k, &e(0), &e(5))
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        checked_summation(&squared, &k, &e(0), &e(5)).unwrap(),
+        Some(e(252))
+    );
 }
 
 struct Stop {
@@ -315,7 +331,9 @@ struct Stop {
 fn verifier_cannot_be_fooled_by_extra_degree_or_a_nonlinear_exponent() {
     let k = Symbol::new("k");
     let summand = binomial(e(5), &k);
-    let valid = polynomial_binomial_sum(&summand, &k, &e(0), &e(5)).unwrap().unwrap();
+    let valid = polynomial_binomial_sum(&summand, &k, &e(0), &e(5))
+        .unwrap()
+        .unwrap();
     // (k)_32 vanishes at 0..31, and even over the whole finite range0..5.
     // It still cannot be certified as the original constant weight.
     let mut extra_degree = valid.certificate().clone();
@@ -328,13 +346,23 @@ fn verifier_cannot_be_fooled_by_extra_degree_or_a_nonlinear_exponent() {
     // k+k*(k-1) agrees with k at zero and one but is quadratic. A degree
     // proof and a third exact evaluation must reject its exponential role.
     let ke = Expr::Sym(k.clone());
-    let exponent = Expr::Add(vec![ke.clone(), Expr::Mul(vec![ke.clone(), Expr::Add(vec![ke, e(-1)])])]);
+    let exponent = Expr::Add(vec![
+        ke.clone(),
+        Expr::Mul(vec![ke.clone(), Expr::Add(vec![ke, e(-1)])]),
+    ]);
     let nonlinear = Expr::Mul(vec![summand.clone(), power(e(2), exponent)]);
     let forged = PolynomialBinomialCertificate {
-        source: nonlinear.clone(), index: k.clone(), lower: e(0), upper: e(5),
-        falling_coefficients: vec![q(1, 1)], claimed_sum: q(243, 1),
+        source: nonlinear.clone(),
+        index: k.clone(),
+        lower: e(0),
+        upper: e(5),
+        falling_coefficients: vec![q(1, 1)],
+        claimed_sum: q(243, 1),
     };
-    assert!(verify_polynomial_binomial_sum(&nonlinear, &k, &e(0), &e(5), forged, &mut Unbounded).is_err());
+    assert!(
+        verify_polynomial_binomial_sum(&nonlinear, &k, &e(0), &e(5), forged, &mut Unbounded)
+            .is_err()
+    );
 }
 
 #[test]
@@ -349,7 +377,10 @@ fn traversal_stack_capacity_is_charged_before_wide_source_admission() {
     assert!(matches!(
         metered_polynomial_binomial_sum(&summand, &k, &e(0), &e(5), &mut meter),
         Err(BinomialSummationError::Meter(MeterError::Budget(
-            fsym_budget::BudgetError::Exhausted { dimension: Dimension::MemoryBytes, .. }
+            fsym_budget::BudgetError::Exhausted {
+                dimension: Dimension::MemoryBytes,
+                ..
+            }
         )))
     ));
 }

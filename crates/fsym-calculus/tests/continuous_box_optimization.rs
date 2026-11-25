@@ -199,10 +199,7 @@ fn range_only_cells_choose_width_without_fabricating_zero_slopes() {
     let checkpoint = search.checkpoint(&mut Unbounded).unwrap();
     // No slope certificate exists on the original box. Both widths remain
     // candidates even when one variable does not occur in the source.
-    assert_eq!(
-        checkpoint.partition[0],
-        BoxPartitionStep::Split { axis: 1 }
-    );
+    assert_eq!(checkpoint.partition[0], BoxPartitionStep::Split { axis: 1 });
     assert_eq!(checkpoint.partition.len(), 3);
 }
 

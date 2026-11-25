@@ -65,7 +65,11 @@ impl ComplexBall {
     /// for the square root's sensitivity at zero. Positive input widths
     /// cannot be removed by increasing precision.
     pub fn sqrt(&self, precision_digits: u32) -> Result<Self, BallError> {
-        preflight(self, precision_digits, "ComplexBall square-root composition")?;
+        preflight(
+            self,
+            precision_digits,
+            "ComplexBall square-root composition",
+        )?;
         let bits = precision_digits * 4 + 32;
         let x_lower = self.real().lower();
         let x_upper = self.real().upper();
@@ -90,8 +94,7 @@ impl ComplexBall {
 
         if !y_lower.is_positive() && !y_upper.is_negative() && x_lower.is_negative() {
             return Err(BallError::ArgumentOutsideDeclaredEnvelope(
-                "principal complex square-root rectangle meets the negative-axis branch cut"
-                    .into(),
+                "principal complex square-root rectangle meets the negative-axis branch cut".into(),
             ));
         }
 

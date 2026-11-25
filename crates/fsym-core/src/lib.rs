@@ -1020,10 +1020,7 @@ impl Expr {
                     && r.denom() == &BigInt::from(2)
                     && let Some(p) = r.numer().to_i32()
                 {
-                    return b
-                        .eval_complex_ball(extra)?
-                        .sqrt(precision_digits)?
-                        .pow(p);
+                    return b.eval_complex_ball(extra)?.sqrt(precision_digits)?.pow(p);
                 }
                 Ok(ComplexBall::from_real(
                     self.eval_real_ball(precision_digits)?,

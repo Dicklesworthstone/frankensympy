@@ -32,14 +32,8 @@ fn checked_output<'py, 'session, T>(
     let mut verifier = NormalFormRequestMeter::new(py, session);
     let result = (|| {
         let modulus = modulus(original_modulus, &mut generator, "solve_mod")?;
-        let accepted = metered_solve_mod(
-            source,
-            rhs,
-            &modulus,
-            &mut generator,
-            &mut verifier,
-        )
-        .map_err(matrix_err)?;
+        let accepted = metered_solve_mod(source, rhs, &modulus, &mut generator, &mut verifier)
+            .map_err(matrix_err)?;
         let (_, _, witness, _) = accepted.into_parts();
         let output = lift(witness.outcome, &mut generator)?;
         generator.checkpoint().map_err(to_value_error)?;
@@ -99,7 +93,11 @@ fn dense_result(
 ) -> PyResult<Option<DenseModularParts>> {
     match outcome {
         IntegerModularSystemOutcome::Inconsistent { .. } => Ok(None),
-        IntegerModularSystemOutcome::Solvable { particular, generators, periods } => Ok(Some((
+        IntegerModularSystemOutcome::Solvable {
+            particular,
+            generators,
+            periods,
+        } => Ok(Some((
             integer_dense_output(particular, meter)?,
             integer_dense_output(generators, meter)?,
             period_output(periods, meter)?,
@@ -113,7 +111,11 @@ fn sparse_result(
 ) -> PyResult<Option<SparseModularParts>> {
     match outcome {
         IntegerModularSystemOutcome::Inconsistent { .. } => Ok(None),
-        IntegerModularSystemOutcome::Solvable { particular, generators, periods } => Ok(Some((
+        IntegerModularSystemOutcome::Solvable {
+            particular,
+            generators,
+            periods,
+        } => Ok(Some((
             integer_sparse_output(particular, meter)?,
             integer_sparse_output(generators, meter)?,
             period_output(periods, meter)?,

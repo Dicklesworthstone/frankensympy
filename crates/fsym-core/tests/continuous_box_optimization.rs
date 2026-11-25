@@ -140,10 +140,7 @@ fn continuous_compositions_include_interior_cusps_and_fixed_boundary_boxes() {
             function("sqrt", function("abs", x.clone())),
             interval(-1, 1),
         ),
-        (
-            function("abs", function("sqrt", x.clone())),
-            interval(0, 1),
-        ),
+        (function("abs", function("sqrt", x.clone())), interval(0, 1)),
         (function("sqrt", x), interval(0, 0)),
     ] {
         let receipt = certify_box_optimization(

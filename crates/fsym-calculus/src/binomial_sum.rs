@@ -247,7 +247,10 @@ fn trim(poly: &mut Coefficients) {
 /// `seen` is a family probe only; mathematical grammar is checked separately.
 fn admit(source: &Expr, index: &Symbol, work: &mut Work<'_, impl BudgetMeter>) -> Result<bool> {
     // Reserve the entire bounded stack before any push/extend can allocate.
-    work.allocate(1, (MAX_NODES * std::mem::size_of::<(&Expr, usize)>()) as u64)?;
+    work.allocate(
+        1,
+        (MAX_NODES * std::mem::size_of::<(&Expr, usize)>()) as u64,
+    )?;
     let mut pending = Vec::with_capacity(MAX_NODES);
     pending.push((source, 0usize));
     let (mut visited, mut seen) = (0usize, false);
@@ -688,7 +691,10 @@ fn checked_source_degree(
             let power = match exponent.as_ref() {
                 Expr::Integer(value) => value.to_i64().and_then(|v| i32::try_from(v).ok()),
                 _ => None,
-            }.ok_or(BinomialSummationError::Unsupported("noninteger original weight power"))?;
+            }
+            .ok_or(BinomialSummationError::Unsupported(
+                "noninteger original weight power",
+            ))?;
             if base_degree == 0 {
                 // A negative constant power is permitted only after its
                 // original constant expression has been checked for zero.
@@ -697,15 +703,23 @@ fn checked_source_degree(
                 0
             } else {
                 if power < 0 {
-                    return Err(BinomialSummationError::Unsupported("original weight may have poles"));
+                    return Err(BinomialSummationError::Unsupported(
+                        "original weight may have poles",
+                    ));
                 }
                 base_degree.saturating_mul(power as usize)
             }
         }
-        _ => return Err(BinomialSummationError::Unsupported("original weight is not in QQ[k]")),
+        _ => {
+            return Err(BinomialSummationError::Unsupported(
+                "original weight is not in QQ[k]",
+            ));
+        }
     };
     if degree > MAX_DEGREE {
-        return Err(BinomialSummationError::Refused("original polynomial degree bound"));
+        return Err(BinomialSummationError::Refused(
+            "original polynomial degree bound",
+        ));
     }
     Ok(degree)
 }
@@ -747,10 +761,15 @@ fn evaluate_original_weight(
             let power = match exponent.as_ref() {
                 Expr::Integer(value) => value.to_i64().and_then(|v| i32::try_from(v).ok()),
                 _ => None,
-            }.ok_or(BinomialSummationError::Unsupported("noninteger original weight power"))?;
+            }
+            .ok_or(BinomialSummationError::Unsupported(
+                "noninteger original weight power",
+            ))?;
             work.pow(&base, power)
         }
-        _ => Err(BinomialSummationError::Unsupported("original weight is not in QQ[k]")),
+        _ => Err(BinomialSummationError::Unsupported(
+            "original weight is not in QQ[k]",
+        )),
     }
 }
 
@@ -773,7 +792,13 @@ fn checked_exponent_kind(
         forward &= value == position;
         reverse &= value == opposite;
     }
-    Ok(if forward { Some(true) } else if reverse { Some(false) } else { None })
+    Ok(if forward {
+        Some(true)
+    } else if reverse {
+        Some(false)
+    } else {
+        None
+    })
 }
 
 /// Independent source classification and exact polynomial identity proof.
@@ -802,7 +827,11 @@ fn verify_original_source(
                 match args.as_slice() {
                     [Expr::Integer(top), Expr::Sym(variable)]
                         if top.to_i64() == Some(n as i64) && variable == index => {}
-                    _ => return Err(BinomialSummationError::Unsupported("original binomial arguments differ from the range")),
+                    _ => {
+                        return Err(BinomialSummationError::Unsupported(
+                            "original binomial arguments differ from the range",
+                        ));
+                    }
                 }
                 count += 1;
             }
@@ -821,14 +850,18 @@ fn verify_original_source(
                 }
                 degree = degree.saturating_add(checked_source_degree(node, index, work)?);
                 if degree > MAX_DEGREE {
-                    return Err(BinomialSummationError::Refused("original polynomial degree bound"));
+                    return Err(BinomialSummationError::Refused(
+                        "original polynomial degree bound",
+                    ));
                 }
                 weights.push(node);
             }
         }
     }
     if count != 1 {
-        return Err(BinomialSummationError::Unsupported("a single original binomial factor"));
+        return Err(BinomialSummationError::Unsupported(
+            "a single original binomial factor",
+        ));
     }
     // A polynomial of degree <=d is uniquely determined by d+1 distinct
     // rational points. Include the candidate's degree even if the source is
@@ -906,13 +939,7 @@ fn verify_with_work(
         return Err(BinomialSummationError::InvalidCertificate);
     }
     let (a, b) = verify_original_source(source, index, n, &certificate.falling_coefficients, work)?;
-    let value = verified_value(
-        &certificate.falling_coefficients,
-        &a,
-        &b,
-        n,
-        work,
-    )?;
+    let value = verified_value(&certificate.falling_coefficients, &a, &b, n, work)?;
     if value != certificate.claimed_sum {
         return Err(BinomialSummationError::InvalidCertificate);
     }
