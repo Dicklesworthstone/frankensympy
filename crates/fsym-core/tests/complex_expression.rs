@@ -341,3 +341,104 @@ fn complex_atan2_retains_principal_cut_and_precision_refusals() {
         assert!(source.eval_complex_ball(precision).is_err());
     }
 }
+
+#[test]
+fn indeterminate_and_undefined_exponents_refuse_on_both_ball_paths() {
+    let raw_power = |base: Expr, exponent: Expr| Expr::Pow(Arc::new(base), Arc::new(exponent));
+    let zero = Expr::from_i64(0);
+    let invalid_exponents = [
+        raw_power(zero.clone(), zero.clone()),
+        raw_power(zero.clone(), Expr::from_i64(-1)),
+        Expr::Mul(vec![zero.clone(), function("log", zero.clone())]),
+        function("unsupported_ground_function", Expr::from_i64(1)),
+        Expr::Sym(Symbol::new("unresolved_exponent")),
+    ];
+    for exponent in invalid_exponents {
+        for base in [
+            zero.clone(),
+            Expr::from_i64(1),
+            Expr::from_i64(2),
+            Expr::from_i64(-2),
+            Expr::Const(Constant::E),
+            Expr::Const(Constant::I),
+        ] {
+            let source = raw_power(base, exponent.clone());
+            assert!(source.evalf_ball(24).is_err(), "real: {source}");
+            assert!(source.eval_complex_ball(24).is_err(), "complex: {source}");
+        }
+    }
+}
+
+#[test]
+fn held_arithmetic_cannot_hide_an_indeterminate_nested_exponent() {
+    let raw_power = |base: Expr, exponent: Expr| Expr::Pow(Arc::new(base), Arc::new(exponent));
+    let zero = Expr::from_i64(0);
+    let undefined = raw_power(zero.clone(), zero.clone());
+    let nested = raw_power(Expr::from_i64(2), undefined.clone());
+    // Use raw held arithmetic: an evaluator must visit its original children
+    // even if a zero coefficient or an outer zero exponent hides their value.
+    for source in [
+        undefined,
+        Expr::Add(vec![Expr::from_i64(4), nested.clone()]),
+        Expr::Mul(vec![zero.clone(), nested.clone()]),
+        Expr::Mul(vec![nested.clone(), zero.clone()]),
+        raw_power(nested.clone(), zero.clone()),
+        raw_power(zero, nested.clone()),
+        raw_power(Expr::from_i64(1), nested),
+    ] {
+        assert!(source.evalf_ball(24).is_err(), "real: {source}");
+        assert!(source.eval_complex_ball(24).is_err(), "complex: {source}");
+    }
+}
+
+#[test]
+fn integer_addition_does_not_fold_a_raw_indeterminate_power() {
+    let undefined = Expr::Pow(Arc::new(Expr::from_i64(0)), Arc::new(Expr::from_i64(0)));
+    for source in [
+        undefined.clone() + Expr::from_i64(1),
+        Expr::from_i64(1) + undefined.clone(),
+        undefined + Expr::from_i64(0),
+    ] {
+        assert!(source.evalf_ball(24).is_err(), "real: {source}");
+        assert!(source.eval_complex_ball(24).is_err(), "complex: {source}");
+    }
+    let eight = Expr::Pow(Arc::new(Expr::from_i64(2)), Arc::new(Expr::from_i64(3)));
+    assert_eq!(eight + Expr::from_i64(1), Expr::from_i64(9));
+}
+
+#[test]
+fn defined_integer_exponent_shortcuts_keep_exact_rational_answers() {
+    // Independent integer arithmetic: 2**((-2)**3) = 1/256,
+    // 2**(0**3) = 1, and 2**(2**3) = 256.
+    for (base, exponent, numerator, denominator) in [
+        (-7, 0, 2, 1),
+        (-2, 3, 1, 256),
+        (0, 3, 1, 1),
+        (2, 3, 256, 1),
+        (1, 1024, 2, 1),
+        (-1, 1023, 1, 2),
+    ] {
+        let inner = Expr::Pow(
+            Arc::new(Expr::from_i64(base)),
+            Arc::new(Expr::from_i64(exponent)),
+        );
+        let source = Expr::Pow(Arc::new(Expr::from_i64(2)), Arc::new(inner));
+        let expected = q(numerator, denominator);
+        let real = source.evalf_ball(24).unwrap();
+        assert_eq!(real.midpoint(), &expected, "{source}");
+        assert_eq!(real.radius(), &q(0, 1), "{source}");
+        assert_point(&source.eval_complex_ball(24).unwrap(), expected, q(0, 1));
+    }
+}
+
+#[test]
+fn raw_indeterminate_folding_does_not_change_evaluated_power_policy() {
+    let raw = Expr::Pow(Arc::new(Expr::from_i64(0)), Arc::new(Expr::from_i64(0)));
+    assert!(raw.const_integer_value().is_none());
+    // The explicit evaluated symbolic constructor retains its existing
+    // convention. This repair concerns the original raw source, not a new
+    // global policy for already evaluated symbolic powers.
+    let evaluated = fsym_core::elementary::eval_pow(Expr::from_i64(0), Expr::from_i64(0));
+    assert_eq!(evaluated, Expr::from_i64(1));
+    assert_eq!(evaluated.evalf_ball(24).unwrap().midpoint(), &q(1, 1));
+}

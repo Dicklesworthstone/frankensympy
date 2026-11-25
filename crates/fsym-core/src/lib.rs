@@ -947,13 +947,19 @@ impl Expr {
 }
 impl Expr {
     /// Value of a fully constant integer subexpression, including integer
-    /// powers with bounded non-negative exponents. `None` if symbolic or
-    /// the exponent is too large to fold safely.
+    /// powers with bounded non-negative exponents. `None` if symbolic,
+    /// indeterminate (raw zero-to-zero), or too large to fold safely.
     pub fn const_integer_value(&self) -> Option<BigInt> {
         match self {
             Expr::Integer(n) => Some(n.clone()),
             Expr::Pow(b, e) => match (b.as_ref(), e.as_ref()) {
                 (Expr::Integer(base), Expr::Integer(exp)) if exp.bits() <= 11 => {
+                    // A raw zero-to-zero power retains an undefined source
+                    // obligation. Folding it here would let an outer power
+                    // or integer addition bypass the ball evaluator's check.
+                    if base.is_zero() && exp.is_zero() {
+                        return None;
+                    }
                     let exp_i = exp.to_i64()?;
                     // Result budget: base bits x exponent capped so a
                     // hostile (huge_base, huge_exp) pair cannot allocate
