@@ -82,6 +82,37 @@ def series(expression, x=None, x0=0, n=6, dir="+", **kwargs):
 from ..core import Expr, Function
 
 
+def _limit_inputs(expression, variable, point, direction):
+    """Retain the surface source and normalize the directional argument.
+
+    Directions are symbolic construction arguments in the pinned profile.
+    Keep an explicitly supplied Symbol, including its assumptions, so
+    reconstruction and pickle never substitute a different surface object.
+    """
+    from ..core import oo, sympify
+
+    expression = sympify(expression)
+    variable = _require_symbol(variable)
+    point = sympify(point)
+    if point.has(variable):
+        raise NotImplementedError("Limits approaching a variable point are not supported")
+
+    # Real infinities select an inward approach before direction validation,
+    # as in the pinned constructor. A Symbol or custom object printed as
+    # "oo" is not an infinity and must retain the caller's direction.
+    if type(point) is Expr and point == oo:
+        direction = "-"
+    elif type(point) is Expr and point == -oo:
+        direction = "+"
+    if isinstance(direction, str):
+        direction = Symbol(direction)
+    elif not isinstance(direction, Symbol):
+        raise TypeError("direction must be of type str or Symbol")
+    if str(direction) not in ("+", "-", "+-"):
+        raise ValueError("direction must be one of '+', '-' or '+-'")
+    return expression, variable, point, direction
+
+
 def limit(expression, variable=None, point=None, dir="+", **kwargs):
     """Limit of ``expression`` as ``variable -> point``.
 
@@ -94,28 +125,26 @@ def limit(expression, variable=None, point=None, dir="+", **kwargs):
         if isinstance(expression, Limit):
             return expression.doit()
         raise TypeError("limit requires variable and point")
-    symbol = _require_symbol(variable)
-    if str(dir) not in ("+", "-", "+-"):
-        raise ValueError("direction must be one of '+', '-' or '+-'")
+    expression, symbol, point, direction = _limit_inputs(expression, variable, point, dir)
     try:
         native = _native.limit_native(
             _native_expr(expression),
             _symbol_binding(symbol),
             _native_expr(point),
-            str(dir),
+            str(direction),
             _typed_symbol_facts(expression, symbol, point),
         )
     except ValueError as exc:
         # Upstream answers an undecidable limit (e.g. an unknown parameter
         # sign) with the unevaluated Limit object.
         if "undetermined" in str(exc):
-            return Limit(expression, symbol, point, dir=str(dir))
+            return Limit(expression, symbol, point, dir=direction)
         raise
     return _lift_native_result(native, expression, symbol, point)
 
 
 class Limit(Expr):
-    """An unevaluated limit."""
+    """An unevaluated limit retaining its source, coordinate and direction."""
 
     __slots__ = ("_expression", "_variable", "_point", "_dir")
 
@@ -128,26 +157,16 @@ class Limit(Expr):
         evaluate: bool = False,
     ):
         if evaluate:
-            return limit(expression, variable, point)
+            return limit(expression, variable, point, dir=dir)
+        expression, variable, point, direction = _limit_inputs(expression, variable, point, dir)
         obj = object.__new__(cls)
-        try:
-            obj._expression = _wrap(_native_expr(expression))
-        except (NotImplementedError, TypeError):
-            from ..core import sympify
-            obj._expression = sympify(expression)
-        obj._variable = _require_symbol(variable)
-        try:
-            obj._point = _wrap(_native_expr(point))
-        except (NotImplementedError, TypeError):
-            from ..core import sympify
-            obj._point = sympify(point)
-        # Upstream: the direction at +oo is always '-', at -oo always '+'.
-        point_text = str(obj._point)
-        if point_text == "oo":
-            dir = "-"
-        elif point_text == "-oo":
-            dir = "+"
-        obj._dir = dir
+        obj._expression = expression
+        obj._variable = variable
+        obj._point = point
+        obj._dir = direction
+        # Surface traversal and supervised substitution read retained slots,
+        # not public properties or printed text. Limit stays an opaque binder.
+        obj._struct_args = (expression, variable, point, direction)
         return obj
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -155,7 +174,7 @@ class Limit(Expr):
 
     @property
     def func(self) -> type:
-        return Limit
+        return type(self)
 
     @property
     def expr(self) -> Expr:
@@ -171,11 +190,11 @@ class Limit(Expr):
 
     @property
     def dir(self) -> str:
-        return self._dir
+        return str(self._dir)
 
     @property
     def args(self) -> tuple[Any, ...]:
-        return (self._expression, self._variable, self._point)
+        return self._struct_args
 
     @property
     def free_symbols(self) -> set[Symbol]:
@@ -201,10 +220,10 @@ class Limit(Expr):
             new_expr = self._expression
         else:
             new_expr = self._expression.subs(old, new) if hasattr(self._expression, "subs") else self._expression
-        return Limit(new_expr, self._variable, new_point, dir=self._dir)
+        return self.func(new_expr, self._variable, new_point, dir=self._dir)
 
     def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, Limit):
+        if type(self) is not type(other):
             return False
         return (
             self._expression == other._expression
@@ -214,13 +233,12 @@ class Limit(Expr):
         )
 
     def __hash__(self) -> int:
-        return hash((self.__class__, self._expression, self._variable, self._point, self._dir))
+        return hash((type(self), self._expression, self._variable, self._point, self._dir))
 
-    @property
-    def args(self) -> tuple:
-        from ..core import Symbol
-
-        return (self._expression, self._variable, self._point, Symbol(self._dir))
+    def __reduce__(self):
+        # Basic's generic Expr fallback serializes printed text. A Limit
+        # requires four typed construction arguments, including direction.
+        return self.func, self.args
 
     def __repr__(self) -> str:
         return f"Limit({self._expression}, {self._variable}, {self._point}, dir='{self._dir}')"

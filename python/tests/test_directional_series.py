@@ -189,5 +189,185 @@ class DirectionalSeriesTests(unittest.TestCase):
             _native.series_expansion_native(*arguments, "+-")
 
 
+    def test_limit_eager_evaluation_keeps_the_requested_side(self):
+        x = self.x
+        source = Abs(x)/x
+        for direction, expected in (("+", 1), ("-", -1)):
+            for argument in (direction, Symbol(direction)):
+                with self.subTest(direction=argument):
+                    self.assertEqual(Limit(source, x, 0, dir=argument, evaluate=True), expected)
+                    self.assertEqual(limit(source, x, 0, dir=argument), expected)
+        with self.assertRaises(ValueError):
+            Limit(source, x, 0, dir="+-", evaluate=True)
+
+    def test_limit_reconstruction_keeps_all_four_typed_arguments(self):
+        x = self.x
+        for direction in ("+", "-", "+-"):
+            with self.subTest(direction=direction):
+                original = Limit(exp(x), x, 0, dir=direction)
+                rebuilt = original.func(*original.args)
+                self.assertEqual(original.args, (exp(x), x, 0, Symbol(direction)))
+                self.assertEqual(rebuilt, original)
+                self.assertEqual(hash(rebuilt), hash(original))
+                self.assertEqual(rebuilt.dir, direction)
+                self.assertEqual(rebuilt.doit(), 1)
+                self.assertEqual({original: "retained"}[rebuilt], "retained")
+
+    def test_limit_copies_and_pickle_preserve_the_approach(self):
+        import copy
+        import pickle
+
+        x = Dummy("limit_axis", real=True)
+        for direction, expected in (("+", 1), ("-", -1)):
+            original = Limit(Abs(x)/x, x, 0, dir=direction)
+            copies = (copy.copy(original), copy.deepcopy(original),
+                      pickle.loads(pickle.dumps(original)))
+            for rebuilt in copies:
+                with self.subTest(direction=direction, rebuilt=rebuilt):
+                    self.assertEqual(rebuilt, original)
+                    self.assertEqual(hash(rebuilt), hash(original))
+                    self.assertEqual(rebuilt.args, original.args)
+                    self.assertEqual(rebuilt.var, x)
+                    self.assertEqual(rebuilt.doit(), expected)
+
+    def test_limit_constructor_retains_held_source_and_point_owners(self):
+        x = Dummy("limit_axis", real=True)
+        parameter = Symbol("a", positive=True)
+        source = Add(x, parameter, x, evaluate=False)
+        point = Add(parameter, 0, evaluate=False)
+        with patch.object(_native, "limit_native", side_effect=AssertionError("constructor evaluated")):
+            result = Limit(source, x, point, dir="-")
+        self.assertIs(result.expr, source)
+        self.assertEqual(result.expr.args, (x, parameter, x))
+        self.assertIs(result.var, x)
+        self.assertIs(result.point, point)
+        self.assertEqual(result.point.args, (parameter, 0))
+        self.assertEqual(result.free_symbols, {parameter})
+        rebuilt = result.func(*result.args)
+        self.assertIs(rebuilt.expr, source)
+        self.assertIs(rebuilt.point, point)
+        self.assertEqual(rebuilt, result)
+
+    def test_limit_constructor_keeps_custom_sources_out_of_native_evaluation(self):
+        from sympy import Function
+
+        class OpaqueLimitFunction(Function):
+            pass
+
+        x = self.x
+        source = OpaqueLimitFunction(x)
+        with patch.object(_native, "limit_native", side_effect=AssertionError("opaque source lowered")):
+            result = Limit(source, x, 0, dir="-")
+            self.assertIs(result.expr, source)
+            self.assertIs(type(result.expr), OpaqueLimitFunction)
+            self.assertEqual(result.func(*result.args), result)
+            with self.assertRaises(NotImplementedError):
+                result.doit()
+
+    def test_limit_symbolic_direction_retains_its_exact_identity(self):
+        x = self.x
+        direction = Symbol("-", positive=True)
+        result = Limit(exp(x), x, 0, dir=direction)
+        self.assertIs(result.args[3], direction)
+        self.assertIs(result.func(*result.args).args[3], direction)
+        self.assertNotEqual(result, Limit(exp(x), x, 0, dir="-"))
+        self.assertEqual(result.doit(), 1)
+
+    def test_limit_does_not_treat_printed_symbol_names_as_infinities(self):
+        x = self.x
+        for name, direction in (("oo", "+"), ("-oo", "-")):
+            with self.subTest(name=name):
+                point = Symbol(name, real=True)
+                result = Limit(x, x, point, dir=direction)
+                self.assertIs(result.point, point)
+                self.assertEqual(result.dir, direction)
+                self.assertEqual(result.args[3], Symbol(direction))
+                self.assertEqual(result.free_symbols, {point})
+
+    def test_limit_real_infinity_directions_are_shared_by_both_entry_points(self):
+        x = self.x
+        for point, expected in ((oo, "-"), (-oo, "+")):
+            for supplied in ("+", "-", "+-", None, "not-a-direction"):
+                with self.subTest(point=point, supplied=supplied):
+                    result = Limit(1/x, x, point, dir=supplied)
+                    self.assertEqual(result.dir, expected)
+                    self.assertEqual(result.args[3], Symbol(expected))
+                    self.assertEqual(result.doit(), 0)
+                    self.assertEqual(limit(1/x, x, point, dir=supplied), 0)
+
+    def test_limit_invalid_finite_directions_refuse_before_native_work(self):
+        x = self.x
+
+        class NotADirection:
+            def __str__(self):
+                raise AssertionError("a direction is not an arbitrary printable object")
+
+        entries = (Limit, limit)
+        with patch.object(_native, "limit_native", side_effect=AssertionError("invalid direction lowered")) as native:
+            for entry in entries:
+                for direction in (None, 1, [], NotADirection()):
+                    with self.subTest(entry=entry, direction_type=type(direction)):
+                        with self.assertRaises(TypeError):
+                            entry(x, x, 0, dir=direction)
+                for direction in ("", "left", "+-+", Symbol("side")):
+                    with self.subTest(entry=entry, direction=direction):
+                        with self.assertRaises(ValueError):
+                            entry(x, x, 0, dir=direction)
+            self.assertEqual(native.call_count, 0)
+
+    def test_limit_rejects_variable_points_without_aliasing_typed_symbols(self):
+        x = self.x
+        with patch.object(_native, "limit_native", side_effect=AssertionError("variable point lowered")) as native:
+            for entry in (Limit, limit):
+                for point in (x, x + 1):
+                    with self.subTest(entry=entry, point=point):
+                        with self.assertRaises(NotImplementedError):
+                            entry(exp(x), x, point)
+            self.assertEqual(native.call_count, 0)
+        other = Symbol("x", positive=True)
+        result = Limit(exp(x), x, other)
+        self.assertIs(result.point, other)
+        self.assertEqual(result.free_symbols, {other})
+
+    def test_undetermined_limit_retains_original_held_source_and_direction(self):
+        x = self.x
+        source = Add(Abs(x), 0, evaluate=False)
+        direction = Symbol("-", real=True)
+        with patch.object(_native, "limit_native", side_effect=ValueError("undetermined parameter sign")) as native:
+            result = limit(source, x, 0, dir=direction)
+        self.assertEqual(native.call_count, 1)
+        self.assertIs(result.expr, source)
+        self.assertIs(result.args[3], direction)
+        self.assertEqual(result.func(*result.args), result)
+
+    def test_limit_operational_failures_stay_terminal(self):
+        x = self.x
+        for failure in (ValueError("limit work budget exhausted"), RuntimeError("cancelled")):
+            with self.subTest(failure=failure):
+                with patch.object(_native, "limit_native", side_effect=failure) as native:
+                    with self.assertRaises(type(failure)) as error:
+                        Limit(exp(x), x, 0, dir="-", evaluate=True)
+                    self.assertIs(error.exception, failure)
+                    self.assertEqual(native.call_count, 1)
+
+    def test_limit_subclasses_keep_class_identity_on_reconstruction_and_substitution(self):
+        class TaggedLimit(Limit):
+            pass
+
+        x = self.x
+        parameter = Symbol("a")
+        self.assertNotEqual(TaggedLimit(x + parameter, x, 0, dir="-"),
+                            Limit(x + parameter, x, 0, dir="-"))
+        for owner in (Limit, TaggedLimit):
+            with self.subTest(owner=owner):
+                source = owner(x + parameter, x, 0, dir="-")
+                self.assertIs(source.func, owner)
+                self.assertIs(type(source.func(*source.args)), owner)
+                self.assertTrue(source.has(parameter))
+                changed = source.subs(parameter, 2)
+                self.assertIs(type(changed), owner)
+                self.assertEqual(changed.args, (x + 2, x, 0, Symbol("-")))
+
+
 if __name__ == "__main__":
     unittest.main()
