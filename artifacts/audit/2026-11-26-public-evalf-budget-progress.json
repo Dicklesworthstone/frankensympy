@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-26",
+  "feature": "Caller-owned cumulative budgets for public N, evalf and n",
+  "implemented": [
+    "Exact EvaluationBudget selection before source getters, custom hooks and same-precision shortcuts",
+    "One caller ledger for borrowed native admission, source-copy and decimal-normalization reservations, native evaluation, and result publication",
+    "Terminal typed cancellation/exhaustion and source-domain failures, with no unbudgeted fallback or budget replacement",
+    "Explicit rejection of custom and algebraic-root sources; direct CRootOf.evalf observes the same policy and cancellation"
+  ],
+  "source_git_blobs": {
+    "python/sympy/core/__init__.py": "a07ed871eb3e813a54ac54feb422608f59adccf9",
+    "python/sympy/polys/rootoftools.py": "f79f87269e8f8e67b5d3a12cba7baea8fe14a5b4",
+    "python/tests/test_public_evalf_budget.py": "cf0bdd4ae7ad7a970851314546068c7584b6e7dc",
+    "crates/fsym-python/src/numeric.rs": "d9ef33add5ccbf465817bd930ac15c450ed01502",
+    "crates/fsym-python/src/numeric_budget.rs": "a698560ece41a0565e7f4ef7c5d95f40181a1338"
+  },
+  "related_commits": {
+    "borrowed_native_source_admission": "edc9025f963d95d3c676349c1201db9bd8442f6a",
+    "concurrent_matrix_rhs_and_atomic_callback_seam_preserved": "9930b943eeb8519ac8c5b0165e7181c576c49302",
+    "high_precision_root_adapter": "14eff3ed811aa25d8fc539bc7c898112ba748ff1",
+    "public_high_precision_nroots": "64d92decb7467846d2a39383999f9a7784568d01",
+    "later_polynomial_queries_preserved": "a792cd5b4f76547e92f616e31a755c6db384884d"
+  },
+  "validation": {
+    "initial_public_budget_suite": {
+      "passed": 37,
+      "failed": 3,
+      "seconds": 0.97,
+      "core_blob": "9e9b42fa42b0836c19d45613145a11e642aac27c",
+      "tests_blob": "473720544d4cfba7bcde3e8014c505ec29a9fbeb",
+      "finding": "CRootOf is a registered Function, so source capture reached native unsupported-function rejection instead of the intended early unsupported-source refusal.",
+      "fix": "Budgeted _EvalfSource.read rejects the exact bound algebraic-root owner before function admission; tests require direct and held roots to refuse before native decimal evaluation.",
+      "raw_log": "public-budget-tests.log",
+      "raw_log_sha256": "9bc03c1dda2e45b8f72a507dc2f7fa18fd31d74fd29fe8fcedf6aa9c0eaa02ad"
+    },
+    "final_public_budget_suite": {
+      "passed": 40,
+      "failed": 0,
+      "seconds": 0.55,
+      "readme_shared_ledger_and_cancellation_example_passed": true,
+      "raw_log": "public-budget-tests-final.log",
+      "raw_log_sha256": "124465e087c05e53e9e55da7f2360140818b13f79a070da7b2d1ce8d45ae0ada",
+      "runner": "run_public_budget.py",
+      "runner_sha256": "7890abe25c395a785eedb6311d046bd43025501ee404830f5c820902e8d98652",
+      "python": "3.12.14",
+      "pytest": "8.4.2"
+    },
+    "syntax_and_scoped_diff_checks": "passed",
+    "exp_one_plus_i_fixture": "Independent exact rational Taylor lower/upper bounds for exp(1), sin(1), cos(1) round to identical 50-digit expected components.",
+    "assertions_weakened": false,
+    "combined_source_nroots_regressions": {
+      "passed": 60,
+      "failed": 0,
+      "pytest_seconds": 30.86,
+      "process_seconds": 31.984,
+      "exit_code": 0,
+      "suites": [
+        "python/tests/test_nroots_high_precision_real.py",
+        "python/tests/test_nroots_convergence.py"
+      ],
+      "raw_log": "nroots/pytest-raw.log",
+      "raw_log_sha256": "fec3ca554f82802ebb32817c2aa45348cf59f5233889648a7db6b93decb2648a",
+      "receipt": "nroots/result.json",
+      "source_git_hashes_unchanged": true,
+      "same_final_budget_core_and_root_guard": true,
+      "binary_sha256": "f89bf4890dd9fed79b3bccf0a14cafe50c4ad82363c0b93c25556a8fffabdd68"
+    },
+    "rust_format": {
+      "exit_code": 0,
+      "scope": "numeric.rs and numeric_budget.rs, pinned rustfmt with edition2024",
+      "receipt": "rust-quality/result.json"
+    },
+    "strict_component_clippy": {
+      "exit_code": 101,
+      "seconds": 41.357,
+      "raw_log": "rust-quality/clippy-raw.log",
+      "raw_log_sha256": "7edcf626ebe835b650a4cce008bc7b5e7c477c4f72766a4271f2868b58003886",
+      "findings": "Three clippy::too_many_arguments failures in existing public solver wrappers; their signatures and bodies match source_base e2ea68b exactly. No lint allowances or gate settings were changed.",
+      "preexisting_methods": [
+        {
+          "method": "solve_parametric_candidate",
+          "current_equals_local_base_body_and_signature": true,
+          "method_sha256": "374dc0adc5ec038474d53e72d86b842cf57d4cad73ef23fdc1474716f2f84dd6"
+        },
+        {
+          "method": "solve_parametric_least_squares",
+          "current_equals_local_base_body_and_signature": true,
+          "method_sha256": "b814df376a3c337e79a7fef83dcba399a92f27d395a2ccc37097deb028127b7b"
+        },
+        {
+          "method": "solve_bounded_least_squares",
+          "current_equals_local_base_body_and_signature": true,
+          "method_sha256": "ec5886b371f91500145b8feebcbc2d6dc7d4451de37748fb09b58631f8b69c2d"
+        }
+      ]
+    }
+  },
+  "native_component": {
+    "scope": "Supplementary mathematical PyO3 component; production async runtime and six recorded helpers absent; no replacement implementations.",
+    "reference_recipe": "artifacts/audit/2026-11-14-math-component-scope.json",
+    "omitted_helpers": [
+      "lib.rs::eval_error",
+      "lib.rs::eval_region",
+      "lib.rs::simplify_expr",
+      "lib.rs::expand_expr",
+      "expr.rs::PyExpr.simplify",
+      "expr.rs::PyExpr.expand"
+    ],
+    "source_function_replacements": [],
+    "runtime_alias": "The original fsym_budget implementation",
+    "exact_omission_hashes_match_reference": true,
+    "compiler": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "build_command": [
+      "/home/agent/fsym-runtime-restore/toolchain/bin/cargo",
+      "build",
+      "--locked",
+      "--offline",
+      "--features",
+      "extension-module",
+      "-j1"
+    ],
+    "build_environment": {
+      "PATH": "/home/agent/fsym-runtime-restore/toolchain/bin:/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin:/usr/local/bin:/usr/bin:/bin",
+      "CARGO_HOME": "/home/agent/fsym-complex-cargo",
+      "CARGO_TARGET_DIR": "/home/agent/fsym-complex-target",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "RUSTFLAGS": "-D warnings",
+      "PYO3_PYTHON": "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3"
+    },
+    "build_exit_code": 0,
+    "build_seconds": 106.688,
+    "build_log_sha256": "ce79577cc69636a416082dade895dedede2c07ea8b4d93d011417af6453cc138",
+    "binary_sha256": "f89bf4890dd9fed79b3bccf0a14cafe50c4ad82363c0b93c25556a8fffabdd68",
+    "binary_bytes": 74914040,
+    "component_lock_sha256": "18b69018a8ec1d7cc954f285d7838871e9b5484007c4f6ddce1a4dd7da9a4673",
+    "external_lock_identities_and_checksums_equal_production": 56,
+    "production_source_files_checked": 744,
+    "production_source_changes_during_build": [],
+    "native_source_cost_helper_retained_exactly": "d9ef33add5ccbf465817bd930ac15c450ed01502",
+    "loader_verified_actual_shell_and_native_module_identity": true
+  },
+  "limits": [
+    "Supplementary mathematical component evidence only: full production dependency graph and asynchronous runtime were not validated by this build.",
+    "The six recorded asynchronous simplify/expand helpers are absent; no replacement implementation was introduced.",
+    "The final Python source preserves concurrent charge_nested_steps_atomic dispatch, but this component predates its native wrapper; these 40 tests do not exercise an active callback session.",
+    "Logical work and conservative storage charges do not measure CPython allocation or process RSS and do not preempt every bigint/interpreter operation.",
+    "No full compatibility profile, performance gate, workstream closure or bead promotion is asserted.",
+    "The recorded component/test source identities predate concurrent polynomial coefficient-query integration; this evidence does not establish validation of those additional paths."
+  ],
+  "documentation_integration": {
+    "common_base_tree": "4bd42b867705e925bae938486fff6a7c828cf82d",
+    "readme_incoming_blob": "3b996e5a458d90bcbee177c0cd35a513d943f30e",
+    "ci_incoming_blob": "ce18a4445ffd55b8e9b337eede04ee623208ce67",
+    "readme_merged_blob": "f5e65bfd55be4f1d203046f9ff28c6da9b2b6add",
+    "ci_merged_blob": "d7cc257c9c7b40ef8b94e5c9a50c9e3d1735059a",
+    "merge": "Clean git merge-file three-way merge; concurrent polynomial matrix RHS section/selector and nroots content preserved.",
+    "subsequent_three_way_rebase": {
+      "base": "64d92decb7467846d2a39383999f9a7784568d01",
+      "incoming": "a792cd5b4f76547e92f616e31a755c6db384884d",
+      "readme_merged_blob": "35cd9f85b0d08962f3bd06da29a407162c7f71d3",
+      "ci_merged_blob": "b7408b130f36a46974ecc2f612bae0f67c6962be",
+      "outcome": "Clean merge; the exact polynomial coefficient-query section and both new query CI selectors are preserved."
+    }
+  },
+  "validation_bundle": {
+    "path": "artifacts/audit/2026-11-26-public-evalf-budget-validation.json.gz",
+    "sha256": "6f6dc2e96896dd9dacd6bf2b3dab820aae9b8a90364d38cdd3ef8c1644d8cd12",
+    "format": "gzip JSON mapping files to original UTF-8 content and SHA256; raw_log and runner names are bundle keys.",
+    "raw_entries": 18
+  }
+}

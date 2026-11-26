@@ -165,6 +165,7 @@ jobs:
               "-q", "-p", "no:cacheprovider",
               "python/tests/test_complex_decimal_evalf.py",
               "python/tests/test_complex_decimal_metered_evalf.py",
+              "python/tests/test_public_evalf_budget.py",
               "python/tests/test_nroots_high_precision_real.py",
               "python/tests/test_complex_float_conversion.py",
               "python/tests/test_float_conversion_termination.py",

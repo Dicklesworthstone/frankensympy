@@ -1537,11 +1537,15 @@ class Basic:
         else:
             raise TypeError(f"subs takes 1 or 2 positional arguments, got {len(args)}")
 
-    def evalf(self, n: int = 15) -> "Basic":
+    def evalf(self, n: int = 15, *, budget: Any = None) -> "Basic":
+        if budget is not None:
+            return _budgeted_evalf(self, n, budget)
         new_args = [a.evalf(n) if hasattr(a, "evalf") else a for a in self.args]
         return self.func(*new_args)
 
-    def n(self, n: int = 15) -> "Basic":
+    def n(self, n: int = 15, *, budget: Any = None) -> "Basic":
+        if budget is not None:
+            return _budgeted_evalf(self, n, budget)
         return self.evalf(n=n)
 
     def atoms(self, *types: type) -> set["Basic"]:
@@ -2940,7 +2944,9 @@ class Expr(Basic):
                     pass
         return (re(self, evaluate=False), im(self, evaluate=False))
 
-    def evalf(self, n: int = 15) -> "Float":
+    def evalf(self, n: int = 15, *, budget: Any = None) -> "Float":
+        if budget is not None:
+            return _budgeted_evalf(self, n, budget)
         if type(n) is not int or n < 1:
             raise TypeError("evalf dps must be a positive int")
         _charge_nested_if_active(_expr_node_count(self))
@@ -2984,7 +2990,9 @@ class Expr(Basic):
         dps = max(1, int(round(int(prec) * 0.3010299956639812 - 1)))
         return self.evalf(dps)
 
-    def n(self, n: int = 15) -> Any:
+    def n(self, n: int = 15, *, budget: Any = None) -> Any:
+        if budget is not None:
+            return _budgeted_evalf(self, n, budget)
         return self.evalf(n=n)
 
     def __complex__(self) -> complex:
@@ -4316,7 +4324,9 @@ class Float(Number):
     def is_symbol(self) -> bool:
         return False
 
-    def evalf(self, n: int = 15) -> "Float":
+    def evalf(self, n: int = 15, *, budget: Any = None) -> "Float":
+        if budget is not None:
+            return _budgeted_evalf(self, n, budget)
         if type(n) is not int or n < 1:
             raise TypeError("evalf dps must be a positive int")
         if n == self._dps:
@@ -6670,7 +6680,9 @@ class _ExactDecimalFloat(Float):
         value = decimal.Decimal(self._decimal)
         return None if value.is_nan() else value.is_finite() and value == value.to_integral_value()
 
-    def evalf(self, n: int = 15) -> "Float":
+    def evalf(self, n: int = 15, *, budget: Any = None) -> "Float":
+        if budget is not None:
+            return _budgeted_evalf(self, n, budget)
         if type(n) is not int or n < 1:
             raise TypeError("evalf dps must be a positive int")
         if n == self._dps:
@@ -6745,6 +6757,9 @@ class _UnsupportedEvalfSource(Exception):
 
 
 _EVALF_ABSENT = object()
+_EVALF_BUDGET_TYPE = _native.EvaluationBudget
+_EVALF_BUDGET_CHARGE = _EVALF_BUDGET_TYPE._charge
+_EVALF_BUDGET_CHECKPOINT = _EVALF_BUDGET_TYPE._checkpoint
 _EVALF_TYPES = (Expr, Integer, Rational, Zero, One, NegativeOne, Half,
                 Add, Mul, Pow, Float, _ExactDecimalFloat)
 _EVALF_SLOTS = tuple(
@@ -6783,20 +6798,79 @@ class _EvalfSource:
     No user getter, numeric conversion, printer or reconstruction hook runs.
     """
 
-    def __init__(self):
+    def __init__(self, budget=None):
+        self.budget = budget
+        self.charge(8, 512, 6)
         self.nodes = 0
         self.stamps = []
         self.classes = []
         self.functions = []
         self.natives = []
+        self.costs = {}
+
+    def charge(self, steps=1, memory_bytes=0, allocations=0):
+        if self.budget is not None:
+            _EVALF_BUDGET_CHARGE(
+                self.budget, steps, memory_bytes=memory_bytes, allocations=allocations,
+            )
+
+    def cost(self, native):
+        """Borrowed, metered admission before any recursive native copy."""
+        if self.budget is None:
+            return None
+        key = id(native)
+        previous = self.costs.get(key)
+        if previous is not None and previous[0] is native:
+            return previous[1]
+        self.charge(1, 160, 1)
+        value = _native.CompiledFunction._evalf_source_cost(native, budget=self.budget)
+        self.costs[key] = (native, value)
+        return value
+
+    def copy(self, native, count=1):
+        if self.budget is not None:
+            nodes, size, allocations = self.cost(native)
+            # A full-tree reservation also covers .args' owned child trees.
+            # Python wrapper/tuple allowances are logical charges, not RSS.
+            self.charge(count * (nodes + size), count * (size + 96 * nodes),
+                        count * (allocations + nodes + 1))
+
+    def arguments(self, native):
+        self.copy(native)
+        return native.args
+
+    def same(self, left, right):
+        if self.budget is not None:
+            a_nodes, a_bytes, _ = self.cost(left)
+            b_nodes, b_bytes, _ = self.cost(right)
+            self.charge(a_nodes + b_nodes + a_bytes + b_bytes)
+        return left == right
+
+    def function_cost(self, native):
+        if self.budget is not None:
+            nodes, _size, _allocations = self.cost(native)
+            probes = 0
+            if (not native.is_number and not native.is_symbol
+                    and _function_capability_roster is not None):
+                probes = len(_function_capability_roster._native_names)
+            # Each registered tag performs a separate bounded borrowed walk.
+            return ((probes + 1) * nodes, probes * nodes * 64,
+                    probes * (nodes.bit_length() + 1))
+        return 0, 0, 0
+
+    def closed_functions(self, native):
+        self.charge(*self.function_cost(native))
+        _require_closed_native_functions(native)
 
     def touch(self, depth):
+        self.charge(1, 96, 1)
         self.nodes += 1
         if self.nodes > 4096 or depth > 64:
             raise ValueError("complex evalf source exceeds its node or depth limit")
         _charge_nested_if_active(1)
 
     def retain(self, source, owner, name):
+        self.charge(1, 96, 1)
         slot = next(slot for cls, key, slot in _EVALF_SLOTS if cls is owner and key == name)
         if type.__dict__["__dict__"].__get__(owner).get(name) is not slot:
             raise NotImplementedError("complex evalf source storage implementation changed")
@@ -6808,6 +6882,17 @@ class _EvalfSource:
         return stored
 
     def unchanged(self):
+        steps = len(_EVALF_OWNERS) + len(self.classes) + len(self.functions) + len(self.stamps) + 1
+        memory = 128 * len(_EVALF_OWNERS)
+        allocations = len(_EVALF_OWNERS)
+        for native in self.natives:
+            extra_steps, extra_memory, extra_allocations = self.function_cost(native)
+            steps += extra_steps
+            memory += extra_memory
+            allocations += extra_allocations
+        # Charge first: the native ledger seam may release the GIL. The
+        # subsequent final storage check has no further ledger crossings.
+        self.charge(steps, memory, allocations)
         _require_evalf_owners()
         for source, kind in self.classes:
             if type(source) is not kind:
@@ -6826,8 +6911,12 @@ class _EvalfSource:
             if current is not previous:
                 raise RuntimeError("complex evalf source mutated during evaluation")
 
-    @staticmethod
-    def rebuild(native, children):
+    def rebuild(self, native, children):
+        self.charge(len(children) + 1, 96 * (len(children) + 1), len(children) + 1)
+        self.copy(native)
+        for child in children:
+            # Constructors and as_expr each retain a native value.
+            self.copy(child, 2)
         if native.is_add:
             return _native.Add(*children, evaluate=False).as_expr()
         if native.is_mul:
@@ -6836,11 +6925,11 @@ class _EvalfSource:
             return _native.Pow(*children, evaluate=False).as_expr()
         return _native.py_function(native.func_name, *children)
 
-    @staticmethod
-    def floating(native):
-        children = native.args
+    def floating(self, native):
+        children = self.arguments(native)
         if native.func_name != _FLOAT_INTERN or len(children) != 1 or not children[0].is_integer:
             raise ValueError("complex evalf requires an exact Float payload")
+        self.copy(children[0])
         bits = children[0].exact_numerator()
         if bits < 0 or bits.bit_length() > 64:
             raise ValueError("complex evalf requires an exact Float payload")
@@ -6848,14 +6937,17 @@ class _EvalfSource:
 
     def native(self, source, depth):
         self.touch(depth)
+        self.cost(source)
         if source.is_number or source.is_symbol:
             return source
+        self.copy(source)
         if source.func_name == _FLOAT_INTERN:
             value = self.floating(source)
             if not math.isfinite(value):
                 raise _UnsupportedEvalfSource
+            self.charge(128, 1024, 4)
             return _native.py_rational(*value.as_integer_ratio())
-        children = source.args
+        children = self.arguments(source)
         if len(children) > 256:
             raise ValueError("complex evalf source exceeds its arity limit")
         if not children:
@@ -6865,10 +6957,13 @@ class _EvalfSource:
     def read(self, source, depth=0):
         self.touch(depth)
         kind = type(source)
+        if self.budget is not None and kind is _bound_algebraic_root_type:
+            raise _UnsupportedEvalfSource
         builtin = any(kind is owner for owner in _EVALF_TYPES)
         function = _is_registered_function_class(kind)
         if not builtin and not function:
             raise _UnsupportedEvalfSource
+        self.charge(1, 96, 1)
         self.classes.append((source, kind))
         if function:
             _require_closed_function_class(kind)
@@ -6878,8 +6973,12 @@ class _EvalfSource:
         if type(native) is not _native.Expr:
             raise ValueError("complex evalf built-in owner requires exact native storage")
         # Borrowed native preflight precedes .args and exact integer copies.
-        _native.CompiledFunction._validate_source(native)
-        _require_closed_native_functions(native)
+        if self.budget is None:
+            _native.CompiledFunction._validate_source(native)
+        else:
+            self.cost(native)
+        self.closed_functions(native)
+        self.charge(1, 64, 1)
         self.natives.append(native)
         if any(kind is owner for owner in (Integer, Zero, One, NegativeOne)) and not native.is_integer:
             raise ValueError("complex evalf integer owner disagrees with its native value")
@@ -6887,8 +6986,11 @@ class _EvalfSource:
             raise ValueError("complex evalf rational owner disagrees with its native value")
         for owner, numerator, denominator in ((Zero, 0, 1), (One, 1, 1),
                                               (NegativeOne, -1, 1), (Half, 1, 2)):
-            if kind is owner and (native.exact_numerator(), native.exact_denominator()) != (numerator, denominator):
-                raise ValueError("complex evalf singleton has an inconsistent native value")
+            if kind is owner:
+                self.copy(native)
+                if (native.exact_numerator(), native.exact_denominator()) != (numerator, denominator):
+                    raise ValueError("complex evalf singleton has an inconsistent native value")
+        self.copy(native)
         tag = native.func_name
         if ((kind is Add and not native.is_add) or (kind is Mul and not native.is_mul)
                 or (kind is Pow and not native.is_pow)):
@@ -6906,6 +7008,7 @@ class _EvalfSource:
                 text = self.retain(source, _ExactDecimalFloat, "_decimal")
                 if type(text) is not str or len(text) > 4096:
                     raise ValueError("complex evalf decimal literal exceeds its size limit")
+                self.charge(len(text) + 1, 8 * len(text) + 128, 4)
                 try:
                     parsed = decimal.Decimal(text)
                 except decimal.InvalidOperation as error:
@@ -6915,22 +7018,30 @@ class _EvalfSource:
                 decimal_tuple = parsed.as_tuple()
                 if abs(decimal_tuple.exponent) > 4096:
                     raise ValueError("complex evalf decimal exponent exceeds its size limit")
+                coefficient_digits = len(decimal_tuple.digits) + abs(decimal_tuple.exponent) + 1
+                # Decimal-to-rational conversion includes powers of ten and
+                # normalization; reserve quadratic logical integer work.
+                self.charge(coefficient_digits * coefficient_digits,
+                            32 * coefficient_digits + 256, 8)
                 if float(text) != value:
                     raise ValueError("complex evalf decimal literal disagrees with its native value")
                 value = Fraction(text)
             else:
                 if not math.isfinite(value):
                     raise _UnsupportedEvalfSource
+                self.charge(128, 1024, 4)
                 value = Fraction(value)
             if max(abs(value.numerator).bit_length(), value.denominator.bit_length()) > 16384:
                 raise ValueError("complex evalf Float literal exceeds its bit limit")
             if any(children is not _EVALF_ABSENT and children is not None
                    and (type(children) is not tuple or children) for children in retained):
                 raise ValueError("complex evalf Float has inconsistent retained arguments")
+            bits = max(abs(value.numerator).bit_length(), value.denominator.bit_length())
+            self.charge(bits * bits + 1, bits * 4 + 256, 6)
             return native, _native.py_rational(value.numerator, value.denominator)
         if kind is Add or kind is Mul or kind is Pow or function:
             retained.append(self.retain(source, Function if function else kind, "_args"))
-        expected = native.args
+        expected = self.arguments(native)
         groups = []
         for children in retained:
             if children is _EVALF_ABSENT or children is None:
@@ -6942,11 +7053,11 @@ class _EvalfSource:
         lowered = None
         for children in groups:
             values = [self.read(child, depth + 1) for child in children]
-            if any(original != expected_child for (original, _), expected_child in zip(values, expected)):
+            if any(not self.same(original, expected_child) for (original, _), expected_child in zip(values, expected)):
                 raise ValueError("complex evalf source disagrees with its retained arguments")
             if lowered is None:
                 lowered = [value for _, value in values]
-            elif any(value != previous for (_, value), previous in zip(values, lowered)):
+            elif any(not self.same(value, previous) for (_, value), previous in zip(values, lowered)):
                 raise ValueError("complex evalf source disagrees with its retained decimal arguments")
         if lowered is None:
             result = self.native(native, depth)
@@ -6955,6 +7066,67 @@ class _EvalfSource:
         else:
             result = self.rebuild(native, lowered)
         return native, result
+
+
+def _assemble_decimal_pair(value, digits):
+    """Lift already rounded component strings without numeric simplification."""
+    real, imaginary = value
+    real_part = _ExactDecimalFloat(_format_decimal(real, digits), digits) if real != "0" else _ZERO
+    if imaginary == "0":
+        return real_part
+    imag_part = _ExactDecimalFloat(_format_decimal(imaginary, digits), digits)
+    imag_term = Mul(imag_part, I, evaluate=False)
+    return imag_term if real == "0" else Add(real_part, imag_term, evaluate=False)
+
+
+def _budgeted_evalf(expression, digits, budget):
+    """One explicit ledger for closed-source decimal evaluation and lifting.
+
+    No user conversion, property or evaluation hook participates in this
+    lane. Work reservations include borrowed native admission, recursive
+    copies, capability walks, decimal normalization and result construction.
+    Python object allowances are deterministic logical charges; CPython's
+    allocator, collection and scheduler are not controlled by this ledger.
+    """
+    if type(budget) is not _EVALF_BUDGET_TYPE:
+        raise TypeError("budget must be an EvaluationBudget or None")
+    _EVALF_BUDGET_CHECKPOINT(budget)
+    if type(digits) is not int:
+        raise TypeError("budgeted evalf precision must be an exact built-in integer")
+    if not 1 <= digits <= 1000:
+        raise ValueError("budgeted evalf precision must be between 1 and 1000 digits")
+    capture = _EvalfSource(budget)
+    capture.charge(len(_EVALF_OWNERS) + 1, 128 * len(_EVALF_OWNERS), len(_EVALF_OWNERS))
+    _require_evalf_owners()
+    if type(expression) is int:
+        bits = int.bit_length(expression)
+        if bits > 4096:
+            raise ValueError("budgeted evalf integer exceeds its 4096-bit source limit")
+        capture.charge(bits + 1, (bits + 7) // 8 + 256, 4)
+        expression = Integer(expression)
+    elif type(expression) is float:
+        if not math.isfinite(expression):
+            raise ValueError("budgeted evalf requires a finite floating source")
+        capture.charge(128, 1024, 4)
+        expression = Float(expression)
+    try:
+        _original, native = capture.read(expression)
+    except _UnsupportedEvalfSource:
+        capture.unchanged()
+        raise NotImplementedError("budgeted evalf requires an admitted closed numerical source") from None
+    capture.unchanged()
+    # Reserve the PyO3 tuple and string copies before native evaluation.
+    capture.charge(2 * digits + 4, 4 * (digits + 64) + 128, 4)
+    value = _native.evalf_complex_decimal_native(native, digits, budget=budget)
+    capture.unchanged()
+    if value is None:
+        raise NotImplementedError("budgeted evalf source was not admitted by the native evaluator")
+    # Includes decimal rendering, Float owners and held Add/Mul output nodes.
+    capture.charge(2 * digits + 8, 16 * (digits + 64) + 2048, 16)
+    result = _assemble_decimal_pair(value, digits)
+    _charge_nested_if_active(1)
+    capture.unchanged()
+    return result
 
 
 def _certified_complex_float(expression: Any, n: int) -> Any:
@@ -6978,16 +7150,7 @@ def _certified_complex_float(expression: Any, n: int) -> Any:
     capture.unchanged()
     if value is None:
         return None
-    real, imaginary = value
-    real_part = _ExactDecimalFloat(_format_decimal(real, n), n) if real != "0" else _ZERO
-    if imaginary == "0":
-        result = real_part
-    else:
-        imag_part = _ExactDecimalFloat(_format_decimal(imaginary, n), n)
-        # Evaluated constructors would fold these decimal owners through
-        # binary64. Retained arithmetic preserves their justified digits.
-        imag_term = Mul(imag_part, I, evaluate=False)
-        result = imag_term if real == "0" else Add(real_part, imag_term, evaluate=False)
+    result = _assemble_decimal_pair(value, n)
     _charge_nested_if_active(1)
     capture.unchanged()
     return result
@@ -7051,7 +7214,7 @@ def _certified_float(expression: Any, n: int) -> Any:
     return _ExactDecimalFloat(_format_decimal(sci, n), n)
 
 
-def N(expression: Any, n: Any = None) -> Basic:
+def N(expression: Any, n: Any = None, *, budget: Any = None) -> Basic:
     """Evaluate to a Float with justified significant decimal digits.
 
     Admitted real and complex constants use native enclosures, rounding
@@ -7060,7 +7223,18 @@ def N(expression: Any, n: Any = None) -> Basic:
     ``pi`` retains its bounded Machin-series route. Unsupported expressions
     beyond the binary64-honest 15 digits raise rather than padding an f64.
     The returned rounded Float is not itself an enclosing interval.
+
+    An explicit ``EvaluationBudget`` selects bounded evaluation of original
+    closed real or complex sources, with 1..1000 significant digits. Source
+    preparation, native refinement and output reservations consume that same
+    reusable ledger. Cancellation and every refusal are terminal; unsupported
+    custom hooks or algebraic-root wrappers do not enter an unbudgeted route.
+    Reservations are deterministic logical work and allocation allowances,
+    not measurements of CPython allocations or process memory. Cancellation
+    is observed at preparation, native-kernel and publication safe points.
     """
+    if budget is not None:
+        return _budgeted_evalf(expression, _F64_HONEST_DIGITS if n is None else n, budget)
     explicit = n is not None
     if not explicit:
         n = _F64_HONEST_DIGITS

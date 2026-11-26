@@ -324,6 +324,9 @@ class CRootOf(Function):
         return self.index < _real_count(p)
 
     def evalf(self, n: int = 15, **kwargs: Any) -> Any:
+        budget = kwargs.get("budget")
+        if budget is not None:
+            return _core._budgeted_evalf(self, n, budget)
         from ..core import I, _ExactDecimalFloat, _format_decimal, _native
         from .. import _float_digits
 

@@ -3471,9 +3471,40 @@ The development PyO3 function `evalf_complex_decimal_native` accepts an
 optional `budget=EvaluationBudget(...)`. Supplying it selects that metered
 lane and makes every refusal terminal, including unsupported syntax.
 Omitting it preserves the original grammar, size limits and `None` selection
-for unsupported syntax. Normal `N`/`evalf` calls keep their existing selection
-policy; Python source capture and output construction do not acquire a
-uniform caller-owned native budget through this optional bridge parameter.
+for unsupported syntax. Calling the bridge directly covers native work;
+its caller remains responsible for source capture and result construction.
+
+### Shared budgets for public decimal evaluation
+
+Pass `budget=...` to `N`, `.evalf` or `.n` to include source preparation,
+native decimal evaluation and output construction in one reusable ledger:
+
+```python
+from sympy import EvaluationBudget, I, N, Rational
+
+budget = EvaluationBudget(max_steps=10_000_000,
+                          max_memory_bytes=64*1024*1024,
+                          max_allocations=100_000)
+value = N(Rational(1, 3) + I, 60, budget=budget)
+imaginary_unit = I.n(60, budget=budget)  # reuses the same ledger
+budget.cancel()                       # subsequent budgeted calls cancel
+```
+
+These public methods select the metered lane and its limits above, with
+1–1000 significant digits. Finite Float leaves retain their stored value;
+exact decimal components retain their decimal payload. Unsupported custom
+evaluation hooks and algebraic-root wrappers raise an explicit refusal.
+An explicit budget never enters an unbudgeted fallback, including after a
+domain, precision or rounding failure. Omitting the budget preserves the
+existing public evaluation policy.
+
+`EvaluationBudgetExceeded` and `EvaluationCancelled` remain distinct errors,
+and failed calls keep resources already spent. Cancellation is checked
+before source inspection and at bounded preparation, native operation and
+publication boundaries. The ledger charges deterministic logical work and
+conservative storage reservations, including source copies and decimal
+conversion. It does not measure CPython allocations or process memory,
+and it does not interrupt every individual bigint or interpreter operation.
 
 The result retains decimal Float components for rendering,
 `as_real_imag()`, predicates and reevaluation. General Float arithmetic and

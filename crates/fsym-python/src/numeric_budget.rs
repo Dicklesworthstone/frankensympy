@@ -47,8 +47,12 @@ fn limit(value: Option<&Bound<'_, PyAny>>, default: u64, name: &str) -> PyResult
 /// rejected root boxes and precision retries. Numeric, residual and objective
 /// compilation can share this ledger through their explicit budget argument,
 /// including native source snapshots and independent proof/bytecode admission.
-/// Python source capture, bounded bridge structural preflight and CPython's own
-/// allocation overhead are outside this ledger.
+/// Ordinary compiled-program Python source capture, bounded structural
+/// preflight and CPython's own allocation overhead are outside this ledger.
+/// Public decimal N/evalf with an explicit budget additionally charges bounded
+/// source inspection, conservative snapshot/lowering reservations and result
+/// construction to this same ledger. These are logical work/storage charges,
+/// not a measurement of interpreter allocations or process memory.
 /// Memory is cumulative charged buffer bytes and conservative interval-work
 /// reservations, not RSS
 /// or a peak-live-memory measurement. Omitting a budget preserves the existing
