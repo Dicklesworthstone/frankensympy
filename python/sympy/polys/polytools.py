@@ -95,8 +95,9 @@ class Poly(Basic):
         obj = object.__new__(cls)
         obj._expr = wrapped_expr
         obj._gens = tuple(generator_list)
-        obj._domain = kwargs.get("domain", "QQ")
-        obj._domain_given = "domain" in kwargs
+        domain = kwargs.get("domain")
+        obj._domain = "QQ" if domain is None else domain
+        obj._domain_given = domain is not None
         # Coefficient symbols the domain carries beyond the current
         # coefficients (upstream Poly keeps its domain through diff/div).
         obj._extra_syms = frozenset(kwargs.get("_extra", ())) - set(generator_list)

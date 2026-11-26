@@ -102,6 +102,35 @@ def test_profile_dense_univariate_coefficients_include_holes_and_ec_is_not_tc(cl
 
 
 @pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("denominator", (1, 3))
+def test_profile_explicit_none_domain_matches_automatic_coefficients_and_roots(cls, denominator):
+    x = sp.Symbol("x")
+    expression = (x - 1)*(x + 2)/denominator
+    automatic = cls(expression, x)
+    explicit_none = cls(expression, x, domain=None)
+    assert str(explicit_none.domain) == str(automatic.domain) == (
+        "ZZ" if denominator == 1 else "QQ"
+    )
+    assert explicit_none.all_coeffs() == automatic.all_coeffs() == [
+        sp.Rational(1, denominator), sp.Rational(1, denominator),
+        sp.Rational(-2, denominator),
+    ]
+    assert explicit_none.terms() == automatic.terms()
+    assert explicit_none.nroots() == automatic.nroots() == [sp.Float(-2), sp.Float(1)]
+
+
+@native_only
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("operation", ("all_coeffs", "nroots"))
+def test_mutated_none_domain_is_refused_after_polynomial_construction(cls, operation):
+    x = sp.Symbol("x")
+    polynomial = cls(x**2 + x - 2, x)
+    polynomial._domain = None
+    with pytest.raises(NotImplementedError, match="supported exact coefficient domain"):
+        getattr(polynomial, operation)()
+
+
+@pytest.mark.parametrize("cls", CLASSES)
 def test_profile_reordered_and_unused_axes_define_the_coefficient_coordinates(cls):
     x, y, unused = sp.symbols("x y unused")
     polynomial = cls(2*x**2*y + 3*y + 7, y, unused, x, domain="QQ")

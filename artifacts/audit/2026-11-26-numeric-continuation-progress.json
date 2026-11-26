@@ -78,5 +78,60 @@
     "performance_claim": false,
     "claim_tiers_changed": false,
     "bead_status_priority_dependencies_changed": false
+  },
+  "subsequent_current_main_integration": {
+    "native_source_commit": "7062af6bfd24ff3eb97224238b48d59aec957491",
+    "concurrent_metadata_commit_preserved": "d485ba04783ac9cc4c0099cdfeeabb939c45cdde",
+    "component_binary_sha256": "8b455b685251d6e45bdf728e3b2074a1acf3c39f62ed8b6b2187061b00f58c58",
+    "native_build": {
+      "exit_code": 0,
+      "seconds": 30.697,
+      "tracked_source_hashes_unchanged": 937,
+      "includes": [
+        "actual atomic callback PyO3 seam",
+        "actual native polynomial coefficient-query registration"
+      ],
+      "scope": "Genuine mathematical component with the same six documented async simplify/expand omissions; no replacement implementations and no full production-runtime pass."
+    },
+    "initial_combined_suite": {
+      "passed": 99,
+      "failed": 1,
+      "finding": "The new coefficient queries rejected constructor domain=None metadata, breaking an existing numerical-root multiplicity case."
+    },
+    "fix": "Normalize an explicit None domain only in Poly/PurePoly construction to the same automatic metadata as an omitted domain; strict checks on post-construction modified domain state remain unchanged.",
+    "source_git_blobs": {
+      "python/sympy/polys/polytools.py": "269787913549b9404543729ac0ca12cca94d4049",
+      "python/tests/test_polynomial_coefficient_queries.py": "faf314adc15c640345626cb5668d480d48b391ee"
+    },
+    "final_combined_suite": {
+      "passed": 108,
+      "failed": 0,
+      "seconds": 32.15,
+      "cases": {
+        "public_budget": 40,
+        "nroots": 60,
+        "new_none_domain_and_mutation": 8
+      },
+      "raw_log_sha256": "b11bd3f09f8998afc6e5dda15824b1dde104cab4f97eb50c907621843778da88",
+      "source_hashes_unchanged": true
+    },
+    "active_supervised_session_smoke": {
+      "result": "passed",
+      "ambient_consumed_steps": [
+        0,
+        3,
+        6
+      ],
+      "caller_dimensions_consumed_cumulatively": true,
+      "caller_cancellation_preserves_both_ledgers": true,
+      "zero_ambient_allowance_refuses_without_partial_ambient_charge": true,
+      "raw_log_sha256": "fc68229f695b2668d660153abcb298b4bc7b97ccadca378fb0aa210a19f0ba4b"
+    },
+    "evidence": {
+      "archive": "artifacts/audit/2026-11-26-numeric-main-integration-validation.json.gz",
+      "sha256": "4cfe95e1e00a5cacc4643f1a8ed5599ea9e56a2838ce08c7472d76b35e5e3232",
+      "contents": "Original and final raw logs, exact commands, source hashes, component recipe/build/loader receipts and actual callback smoke."
+    },
+    "broad_gates_promoted": false
   }
 }
