@@ -7,11 +7,85 @@ constant from a Float or assert a hidden mpmath binary payload contract.
 
 from decimal import Decimal, localcontext
 import operator
+import pickle
 
 import pytest
 import sympy as s
 
 from sympy.core import _ExactDecimalFloat, _native
+
+
+@pytest.mark.parametrize("text,digits", [
+    ("1.000000000000000000000000000000000000001", 50),
+    ("1.23456789012345678901234567890123456789", 22),
+    ("9.999999999999999999999999999999", 20),
+    ("-1.00000000000000000000001e-400", 30),
+    ("1.00000000000000000000001e400", 30),
+    ("0", 1000),
+])
+def test_public_float_rounds_the_original_decimal_string(text, digits):
+    with localcontext() as context:
+        context.prec = digits
+        expected = +Decimal(text)
+    value = s.Float(value=text, dps=digits)
+    assert isinstance(value, s.Float)
+    assert value.dps == digits
+    assert Decimal(str(value)) == expected
+    assert value.is_zero is expected.is_zero()
+    assert value.is_finite is True
+
+
+def test_public_decimal_literal_arithmetic_preserves_sub_binary64_difference():
+    value = s.Float("1.000000000000000000000000000001", 40)
+    assert value > 1
+    assert Decimal(str(value - 1)) == Decimal("1e-30")
+    assert type(s.Float("1.25", 15)) is s.Float
+    assert type(s.Float(1.25, 40)) is s.Float
+    assert type(s.Float("-Infinity", 40)) is s.Float
+
+
+@pytest.mark.parametrize("text,digits", [("1e4097", 40), ("0" * 4097, 40), ("1.2", 1001)])
+def test_public_decimal_literal_refuses_out_of_bounds_requests(text, digits):
+    with pytest.raises(ValueError, match="limit|precision"):
+        s.Float(text, digits)
+
+
+def test_public_decimal_literal_propagates_native_rounding_failure(monkeypatch):
+    def fail(*args, **kwargs):
+        raise RuntimeError("literal rounding refused")
+    monkeypatch.setattr(_native, "evalf_complex_decimal_native", fail)
+    with pytest.raises(RuntimeError, match="literal rounding refused"):
+        s.Float("1.2", 30)
+
+
+@pytest.mark.parametrize("protocol", range(pickle.HIGHEST_PROTOCOL + 1))
+@pytest.mark.parametrize("text", ["1.2345678901234567890123456789", "1e-400", "-1e400"])
+def test_retained_decimal_pickle_preserves_payload_and_precision(text, protocol):
+    original = s.Float(text, 40)
+    restored = pickle.loads(pickle.dumps(original, protocol))
+    assert type(restored) is type(original)
+    assert restored.dps == original.dps
+    assert str(restored) == str(original)
+    assert restored == original and hash(restored) == hash(original)
+    assert restored * 2 == original * 2
+
+
+def test_held_power_pickle_roundtrips_retained_decimal_child():
+    original = s.N(s.Rational(1, 3), 50)
+    expression = s.Pow(original, s.Symbol("x"), evaluate=False)
+    restored = pickle.loads(pickle.dumps(expression))
+    assert restored.args == expression.args
+    assert str(restored.args[0]) == str(original)
+    assert restored.args[0].dps == 50
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("9999999999999999999.9", 9999999999999999999),
+    ("-9999999999999999999.9", -9999999999999999999),
+    ("-1e400", -(10**400)), ("1e-400", 0), ("-0.99999999999999999999", 0),
+])
+def test_int_truncates_the_retained_decimal_instead_of_its_preview(text, expected):
+    assert int(s.Float(text, 30)) == expected
 
 
 def retained(text, digits=50):

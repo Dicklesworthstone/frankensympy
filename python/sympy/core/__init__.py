@@ -4278,9 +4278,14 @@ def _fold_floats(expr: Any) -> Any:
 
 
 class Float(Number):
-    """Profile-compatible binary64 float. Distinct from Rational and from RealBall."""
+    """Floating-point atom with binary64 or retained decimal storage."""
 
     __slots__ = ("_dps",)
+
+    def __new__(cls, *args, **kwargs):
+        if cls is Float:
+            return _allocate_float(*args, **kwargs)
+        return super().__new__(cls, *args, **kwargs)
 
     def __eq__(self, other: object) -> bool:
         # Float structural identity includes precision. This also keeps
@@ -4517,6 +4522,17 @@ class Float(Number):
                 return _float_arithmetic_result(rhs / divisor, rhs == 0.0)
             return Float(rhs / divisor)
         return Expr.__rtruediv__(self, other)
+
+
+def _allocate_float(value: Any = 0, dps: int = 15) -> Float:
+    if type(value) is str and type(dps) is int and dps > 15:
+        if len(value) > 4096:
+            raise ValueError("Float decimal literal exceeds its size limit")
+        if value.strip().lower().lstrip("+-") not in ("inf", "infinity", "nan"):
+            from ._decimal_arithmetic import from_decimal_literal
+
+            return from_decimal_literal(value, dps)
+    return object.__new__(Float)
 
 
 def _restore_float(value: float, dps: int) -> Float:
@@ -6717,10 +6733,24 @@ class _ExactDecimalFloat(Float):
 
         return value_hash(self)
 
-    def __init__(self, decimal: str, dps: int):
-        self._decimal = decimal
-        self._dps = dps
-        self._value = _float_intern(_ieee_bits(_admitted_python_float(float(decimal))))
+    def __new__(cls, decimal: str, dps: int):
+        obj = Basic.__new__(cls, decimal, dps)
+        obj._decimal = decimal
+        obj._dps = dps
+        obj._value = _float_intern(_ieee_bits(float(decimal)))
+        return obj
+
+    # Float.__new__ can return this already constructed immutable atom.
+    # It must not be initialized again with the original, unrounded input.
+    __init__ = object.__init__
+
+    def __reduce__(self):
+        return _restore_decimal_float, (self._decimal, self._dps)
+
+    def __int__(self) -> int:
+        from ._decimal_arithmetic import truncate
+
+        return truncate(self)
 
     def __str__(self) -> str:
         return self._decimal
@@ -6812,6 +6842,10 @@ class _ExactDecimalFloat(Float):
         _charge_nested_if_active(1)
         capture.unchanged()
         return result
+
+
+def _restore_decimal_float(text: str, dps: int) -> Float:
+    return _ExactDecimalFloat(text, dps)
 
 
 _ExactDecimalFloat.__name__ = "Float"

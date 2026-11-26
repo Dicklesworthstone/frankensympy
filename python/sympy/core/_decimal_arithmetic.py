@@ -185,6 +185,37 @@ def _output_reservation(capture, digits):
     capture.charge(4 * digits + 16, 24 * (digits + 64) + 2048, 20)
 
 
+def from_decimal_literal(text, digits):
+    """Round the original finite base-ten literal once at its requested precision."""
+    if digits > _MAX_DIGITS:
+        raise ValueError("Float decimal literal precision must be in 1..=1000")
+    budget = _budget()
+    source = _ExactDecimalFloat(text, digits)
+    capture, lowered, _values = _capture((source,), budget)
+    if lowered is None:
+        raise ValueError("Float requires a finite decimal literal")
+    _output_reservation(capture, digits)
+    real, imaginary = _native.evalf_complex_decimal_native(lowered[0], digits, budget=budget)
+    if imaginary != "0":
+        raise RuntimeError("real decimal literal produced a non-real value")
+    result = _ExactDecimalFloat(_format_decimal(real, digits), digits)
+    return _finish(capture, result)
+
+
+def truncate(value):
+    """Truncate the retained rational value toward zero, including beyond binary64."""
+    capture, lowered, _values = _capture((value,), _budget())
+    if lowered is None:
+        raise ValueError("integer conversion requires a finite retained decimal")
+    rational = lowered[0]
+    capture.copy(rational, 2)
+    _nodes, size, _allocations = capture.cost(rational)
+    capture.charge(64 * size * size + 1, 16 * size + 256, 8)
+    numerator = rational.exact_numerator()
+    magnitude = abs(numerator) // rational.exact_denominator()
+    return _finish(capture, -magnitude if numerator < 0 else magnitude)
+
+
 def arithmetic(operation, operands, *, operator_method=False):
     """Compute admitted scalar arithmetic, or retain its actual surface owners.
 
