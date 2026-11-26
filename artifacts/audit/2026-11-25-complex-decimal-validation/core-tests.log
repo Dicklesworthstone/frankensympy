@@ -1,0 +1,113 @@
+   Compiling fsym-core v0.1.0 (/workspace/scratch/3e08385e9c11/frankensympy/crates/fsym-core)
+   Compiling fsym-core-exact-source-tests v0.0.0 (/tmp/fsym-validation-3e08385e9c11/core-source-tests-e936)
+    Finished `test` profile [unoptimized] target(s) in 32.53s
+     Running /workspace/scratch/3e08385e9c11/frankensympy/crates/fsym-core/tests/complex_decimal.rs (/tmp/fsym-validation-3e08385e9c11/target/debug/build/fsym-core-exact-source-tests/abb94a378a25ad83/out/complex_decimal-abb94a378a25ad83)
+
+running 9 tests
+test original_undefined_children_cannot_be_erased_by_simple_values ... ok
+test exact_gaussian_roots_and_reciprocals_retain_zero_components ... ok
+test exact_components_use_independent_half_even_rounding ... ok
+test precision_bounds_are_checked_before_source_evaluation ... ok
+test unsupported_grammar_stays_distinct_from_domain_and_resource_failures ... ok
+test principal_logarithms_keep_both_certified_components ... ok
+test general_powers_keep_the_principal_complex_branch ... ok
+test nonpoint_intermediate_enclosures_survive_complex_functions ... ok
+test tiny_components_are_never_chopped_or_converted_through_binary64 ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.67s
+
+     Running /workspace/scratch/3e08385e9c11/frankensympy/crates/fsym-core/tests/complex_decimal_metered.rs (/tmp/fsym-validation-3e08385e9c11/target/debug/build/fsym-core-exact-source-tests/a9c6e8401c2598c3/out/complex_decimal_metered-a9c6e8401c2598c3)
+
+running 16 tests
+test budget_exhaustion_stays_typed_and_consumption_survives_failure_and_reuse ... ok
+test exact_gaussian_values_retain_one_hundred_significant_digits_per_component ... ok
+test cancellation_at_admission_midwork_and_final_publication_returns_no_pair ... ok
+test exact_ties_are_half_even_and_carry_changes_the_decimal_exponent ... ok
+test held_invalid_children_and_indeterminate_zero_powers_never_disappear ... ok
+test principal_square_roots_and_half_integer_powers_keep_their_branch ... ok
+test real_only_fallbacks_do_not_bypass_intermediate_growth_guards ... ok
+test unknown_names_and_malformed_arity_fail_closed_without_printing_source ... ok
+test precision_and_source_envelopes_refuse_before_large_work ... ok
+test differently_scaled_components_and_tiny_exponentials_are_not_flushed_to_zero ... ok
+test principal_logarithms_and_nonreal_exponents_have_verified_decimal_components ... ok
+test named_constants_and_component_projection_keep_high_precision ... ok
+test exponential_phase_matches_independent_one_hundred_digit_taylor_bounds ... ok
+test default_certification_sized_budget_admits_one_hundred_digit_complex_values ... ok
+test bounded_real_function_compositions_preserve_lambert_and_atan2_domains ... ok
+test exact_zero_is_accepted_but_unresolved_transcendental_cancellation_refuses ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 40.19s
+
+     Running /workspace/scratch/3e08385e9c11/frankensympy/crates/fsym-core/tests/complex_elementary.rs (/tmp/fsym-validation-3e08385e9c11/target/debug/build/fsym-core-exact-source-tests/4ca900b74fc70a2e/out/complex_elementary-4ca900b74fc70a2e)
+
+running 26 tests
+test general_powers_preflight_both_inputs_and_precision_before_trivial_values ... ok
+test complex_elementary_precision_is_checked_even_for_trivial_constants ... ok
+test complex_exponential_keeps_phase_variation_in_both_components ... ok
+test inexact_square_root_rounding_encloses_independently_characterized_roots ... ok
+test logarithm_principal_axes_match_exact_constants_and_rational_pi_bounds ... ok
+test exponential_compositions_admit_precision_and_whole_input_before_evaluation ... ok
+test logarithm_rejects_every_rectangle_that_contains_the_origin ... ok
+test negative_axis_contact_is_a_refusal_for_genuinely_complex_boxes ... ok
+test oversized_rationals_refuse_before_nested_complex_arithmetic ... ok
+test logarithm_all_quadrants_agree_with_independent_exact_series ... ok
+test conjugation_commutes_away_from_the_principal_branch_cut ... ok
+test complex_exponential_keeps_real_interval_variation_and_exact_endpoint_bounds ... ok
+test principal_square_roots_recover_exact_gaussian_rational_squares ... ok
+test real_axis_square_root_keeps_zero_and_the_principal_negative_side ... ok
+test square_root_encloses_rectangles_on_both_sides_of_the_positive_axis ... ok
+test square_root_handles_extreme_scale_without_float_bounds_or_cancellation_loss ... ok
+test negative_real_cube_root_keeps_the_principal_complex_branch ... ok
+test zero_power_requires_a_defined_positive_real_exponent ... ok
+test principal_power_retains_whole_base_and_exponent_intervals ... ok
+test wide_log_rectangles_keep_original_input_variation ... ok
+test integer_powers_preflight_growth_while_retaining_exact_unit_cycles ... ok
+test principal_power_branch_cut_is_separate_from_integer_power_domain ... ok
+test elementary_compositions_keep_point_accuracy_and_conjugate_symmetry ... ok
+test complex_circular_functions_keep_imaginary_ranges_and_component_signs ... ok
+test principal_powers_recover_exact_gaussian_roots_and_reciprocals ... ok
+test imaginary_exponents_match_independent_exact_taylor_bounds ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 32.64s
+
+     Running /workspace/scratch/3e08385e9c11/frankensympy/crates/fsym-core/tests/complex_expression.rs (/tmp/fsym-validation-3e08385e9c11/target/debug/build/fsym-core-exact-source-tests/d4bcd03f0238ecf4/out/complex_expression-d4bcd03f0238ecf4)
+
+running 21 tests
+test complex_evaluation_preserves_original_poles_and_unknown_sources ... ok
+test complex_atan2_preserves_both_original_domains_and_exact_arity ... ok
+test defined_integer_exponent_shortcuts_keep_exact_rational_answers ... ok
+test adding_complex_branches_does_not_weaken_real_domain_checks ... ok
+test exact_zero_bases_admit_positive_literal_rational_powers ... ok
+test general_power_evaluation_does_not_erase_original_base_or_exponent_failures ... ok
+test held_arithmetic_cannot_hide_an_indeterminate_nested_exponent ... ok
+test integer_addition_does_not_fold_a_raw_indeterminate_power ... ok
+test complex_atan2_retains_principal_cut_and_precision_refusals ... ok
+test rational_zero_endpoint_does_not_hide_poles_or_change_the_real_power_domain ... ok
+test raw_function_and_half_power_use_the_same_principal_square_root ... ok
+test positive_zero_powers_compose_with_inverse_circular_endpoint_values ... ok
+test raw_indeterminate_folding_does_not_change_evaluated_power_policy ... ok
+test signed_half_integer_powers_compose_without_changing_branches ... ok
+test logarithm_aliases_respect_all_four_unit_axis_values ... ok
+test complex_entry_point_keeps_atan2_axes_quadrants_and_argument_order ... ok
+test indeterminate_and_undefined_exponents_refuse_on_both_ball_paths ... ok
+test complex_and_nonliteral_exponents_are_evaluated_without_real_coercion ... ok
+test logarithms_and_roots_compose_inside_existing_complex_arithmetic ... ok
+test atan2_composes_into_complex_phases_with_exact_pythagorean_values ... ok
+test general_complex_powers_compose_through_the_existing_expression_evaluator ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.91s
+
+     Running /workspace/scratch/3e08385e9c11/frankensympy/crates/fsym-core/tests/transcendental_rounding_enclosures.rs (/tmp/fsym-validation-3e08385e9c11/target/debug/build/fsym-core-exact-source-tests/c1a67655b1f39f11/out/transcendental_rounding_enclosures-c1a67655b1f39f11)
+
+running 8 tests
+test monotone_ball_extensions_keep_both_endpoint_rounding_enclosures ... ok
+test wide_trigonometric_intervals_use_the_valid_global_range ... ok
+test rounded_zero_atan_powers_keep_the_missing_exact_remainder ... ok
+test logarithm_preserves_power_rounding_error_on_both_sides_of_one ... ok
+test rounded_transcendental_constants_cannot_certify_a_box_missing_the_root ... ok
+test ordinary_atan_log_and_range_reductions_enclose_independent_exact_bounds ... ok
+test trig_reduction_rounds_outward_and_preserves_exact_reference_bounds ... ok
+test exp_scaling_keeps_outward_enclosures_and_bounded_rational_operands ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+

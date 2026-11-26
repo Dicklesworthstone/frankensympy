@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "scope": "Bounded native complex decimal evaluation and Python N/Expr.evalf integration",
-  "implementation_status": "implemented; production runtime validation pending at this checkpoint",
+  "implementation_status": "implemented; combined-source 80 native integration and 88 public mathematical-component tests passed",
   "verified_preceding_commits": [
     {
       "sha": "cdd8a6d129d8021084795a9cf721912addd1be64",
@@ -10,9 +10,13 @@
     {
       "sha": "f181477bb26611ced5c695a1328e2b4dceb2d57b",
       "change": "Add typed component decimal rounding, source bounds, native regressions and focused CI coverage"
+    },
+    {
+      "sha": "ef2dd191ff3acc47939a80f6dd9e0cf5976b0c3e",
+      "change": "Connect native decimal evaluation to Python N/Expr.evalf with precision-preserving component surfaces"
     }
   ],
-  "containing_commit": "Connects the native API through PyO3 to N, Expr.evalf and Expr.n; preserves decimal owners, held source domains and supervised custom hooks",
+  "containing_commit": "Records completed focused runtime validation without claiming full async-runtime/workspace or compatibility gates",
   "capabilities": [
     "Independent round-to-nearest/ties-to-even component decimals accepted only when both exact rational endpoints agree",
     "Exact zero requires an exactly zero enclosure; tiny nonzero components and unresolved cancellation are not chopped",
@@ -35,7 +39,8 @@
     "component_arithmetic": "Existing component kernels may refuse before the input precision ceiling",
     "float_arithmetic_and_comparisons": "Existing binary64 limitations remain",
     "budgets": "Intrinsic envelopes; no uniform caller-owned resource or cancellation guarantee for the whole Python wrapper",
-    "evidence": "Rounded values are not portable certificates or compatibility-profile certification"
+    "evidence": "Rounded values are not portable certificates or compatibility-profile certification",
+    "api_scope": "Limits here describe the original unmetered decimal API and Python N/Expr.evalf. The separate concurrent metered API has its own contract."
   },
   "tests_authored": {
     "native_range_integration_functions": 5,
@@ -86,6 +91,58 @@
     {
       "check": "Pinned touched-file formatting",
       "result": "rustfmt --check --edition 2024 --config skip_children=true passed on all nine touched Rust files after final restoration"
+    },
+    {
+      "check": "Production native integration sources",
+      "result": "80 passed; 0 failed",
+      "suites": {
+        "complex_decimal": 9,
+        "complex_decimal_metered": 16,
+        "complex_elementary": 26,
+        "complex_expression": 21,
+        "transcendental_rounding_enclosures": 8
+      },
+      "command": "cargo test --locked --tests -j1",
+      "scope": "Original production fsym-core package and five original integration tests; excludes unrelated proptest development dependency, private unit tests, and full workspace gates.",
+      "external_dependencies_exactly_match_production_lock": 28,
+      "production_files_unchanged": 117,
+      "log": "artifacts/audit/2026-11-25-complex-decimal-validation/core-tests.log",
+      "source_commit": "e936bfeb8d588fa499c4c8f667f8bf6648a2489a"
+    },
+    {
+      "check": "Actual mathematical PyO3 component and public shell",
+      "result": "88 passed; 0 failed",
+      "suites": {
+        "test_complex_decimal_evalf.py": 40,
+        "test_precision_honesty.py": 9,
+        "test_complex_float_conversion.py": 20,
+        "test_algebraic_expression_evalf.py": 19
+      },
+      "component_build_exit_code": 0,
+      "pytest_version": "8.4.2",
+      "external_dependencies_exactly_match_production_lock": 56,
+      "production_files_unchanged": 537,
+      "donor_sources_unchanged": true,
+      "native_sha256": "eb0f6a85775c7f6b4165c3d4e1497161f1e3c79b1b8f73213f6420833ea8e042",
+      "log": "artifacts/audit/2026-11-25-complex-decimal-validation/python-tests.log",
+      "source_commit": "e936bfeb8d588fa499c4c8f667f8bf6648a2489a",
+      "pytest_seconds": 16.23
+    },
+    {
+      "check": "Production fsym-core Clippy",
+      "result": "Passed, exit 0",
+      "command": "cargo clippy --locked -p fsym-core --lib --no-deps -j1 -- -D warnings",
+      "scope": "Actual production library selected through exact-source harness manifest; no full workspace claim",
+      "log": "artifacts/audit/2026-11-25-complex-decimal-validation/core-clippy.log",
+      "source_commit": "e936bfeb8d588fa499c4c8f667f8bf6648a2489a"
+    },
+    {
+      "check": "Planning integrity",
+      "result": "Passed on final restored implementation, updated README and bead note; links, graph and existing claim gates unchanged"
+    },
+    {
+      "check": "Concurrent implementation formatting",
+      "result": "Pinned rustfmt --check passed all four Rust files changed by e936; prior nine-file formatting pass remains recorded"
     }
   ],
   "incomplete_validation": [
@@ -98,8 +155,16 @@
       "result": "Focused candidate attempt failed with exit 101 when existing zerocopy dev-dependency rustc received SIGKILL before fsym-core compiled"
     },
     {
-      "command": "Candidate core/runtime tests, actual Python extension suite and Clippy",
-      "result": "No completed production pass at this checkpoint; executor repeatedly disconnected"
+      "command": "Full workspace check/tests/Clippy and complete production async extension",
+      "result": "Not completed; earlier asupersync SIGKILL remains a full-workspace blocker. The focused successful component does not include that runtime graph"
+    },
+    {
+      "command": "Private ball and metered rounding unit tests and proptest-based suites",
+      "result": "Not executed in these focused harnesses; no full crate or workspace test pass claimed"
+    },
+    {
+      "command": "Hosted CI",
+      "result": "Queued when last inspected; no hosted pass claimed"
     }
   ],
   "ci_changes": {
@@ -110,6 +175,11 @@
     "latest_observed_first_commit_run": {
       "id": 45759766510,
       "status": "queued"
+    },
+    "latest_observed_containing_implementation_run": {
+      "id": 45761927153,
+      "status": "queued",
+      "head_sha": "ef2dd191ff3acc47939a80f6dd9e0cf5976b0c3e"
     }
   },
   "work_graph": {
@@ -119,5 +189,47 @@
     "dependency_changes": false,
     "claim_promotions": false
   },
-  "checkpoint_utc": "2026-11-26T05:28:36Z"
+  "checkpoint_utc": "2026-11-26T05:43:06Z",
+  "pyO3_component_scope": {
+    "reference_recipe": "artifacts/audit/2026-11-14-math-component-scope.json",
+    "byte_identical_bridge_files": 54,
+    "shortened_bridge_files": [
+      "lib.rs",
+      "expr.rs"
+    ],
+    "omitted_members": [
+      "lib.rs::eval_error",
+      "lib.rs::eval_region",
+      "lib.rs::simplify_expr",
+      "lib.rs::expand_expr",
+      "expr.rs::PyExpr.simplify",
+      "expr.rs::PyExpr.expand"
+    ],
+    "permitted_other_changes": [
+      "Remove imports used only by omitted helpers",
+      "Remove the two omitted free-function PyO3 registrations",
+      "Alias runtime only to the original fsym_budget implementation"
+    ],
+    "source_function_replacements": [],
+    "native_decimal_bridge": "Retained byte-identically",
+    "mathematics": "Original production Rust packages and shell; no substitute or upstream production engine",
+    "not_covered": [
+      "Full production Cargo dependency graph",
+      "Asynchronous runtime and cancellation",
+      "Simplify/expand runtime helpers",
+      "Compatibility profile certification"
+    ],
+    "details": "artifacts/audit/2026-11-25-complex-decimal-validation/scope.json"
+  },
+  "validated_source_commit": "e936bfeb8d588fa499c4c8f667f8bf6648a2489a",
+  "concurrent_change_preserved": {
+    "sha": "e936bfeb8d588fa499c4c8f667f8bf6648a2489a",
+    "change": "Another collaborator added the metered API and shared complex dispatcher after ef2; its work was preserved and the combined sources revalidated"
+  },
+  "earlier_validation": {
+    "source_commit": "ef2dd191ff3acc47939a80f6dd9e0cf5976b0c3e",
+    "native_passed": 64,
+    "python_passed": 88,
+    "note": "Superseded by fresh combined-source results above, not attributed to the later dispatcher without rerunning"
+  }
 }
