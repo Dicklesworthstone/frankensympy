@@ -901,21 +901,7 @@ pub(crate) fn extract_variables_metered(
 /// preflight, before cloning any expression payload. Powers share Arc children;
 /// charging their reachable payload too intentionally overestimates that copy.
 fn charge_source_snapshot(source: &Expr, meter: &mut impl BudgetMeter) -> Result<(), EvalError> {
-    let (payload, allocations) = match source {
-        Expr::Sym(symbol) => (symbol.name.len(), usize::from(!symbol.name.is_empty())),
-        Expr::Integer(value) => ((value.bits().div_ceil(64) * 8) as usize, 1),
-        Expr::Rational(value) => (
-            ((value.numer().bits().div_ceil(64) + value.denom().bits().div_ceil(64)) * 8) as usize,
-            2,
-        ),
-        Expr::Function(name, children) => (
-            name.len(),
-            usize::from(!name.is_empty()) + usize::from(!children.is_empty()),
-        ),
-        Expr::Add(children) | Expr::Mul(children) => (0, usize::from(!children.is_empty())),
-        Expr::Pow(_, _) => (0, 2),
-        Expr::Const(_) => (0, 0),
-    };
+    let (payload, allocations) = source_snapshot_payload(source);
     charge_compilation_work(
         meter,
         payload as u64 + 1,
@@ -936,6 +922,24 @@ fn charge_source_snapshot(source: &Expr, meter: &mut impl BudgetMeter) -> Result
     }
     meter.checkpoint()?;
     Ok(())
+}
+
+fn source_snapshot_payload(source: &Expr) -> (usize, usize) {
+    match source {
+        Expr::Sym(symbol) => (symbol.name.len(), usize::from(!symbol.name.is_empty())),
+        Expr::Integer(value) => ((value.bits().div_ceil(64) * 8) as usize, 1),
+        Expr::Rational(value) => (
+            ((value.numer().bits().div_ceil(64) + value.denom().bits().div_ceil(64)) * 8) as usize,
+            2,
+        ),
+        Expr::Function(name, children) => (
+            name.len(),
+            usize::from(!name.is_empty()) + usize::from(!children.is_empty()),
+        ),
+        Expr::Add(children) | Expr::Mul(children) => (0, usize::from(!children.is_empty())),
+        Expr::Pow(_, _) => (0, 2),
+        Expr::Const(_) => (0, 0),
+    }
 }
 
 fn extract_expressions_metered(
@@ -970,45 +974,8 @@ fn extract_expressions_metered(
 pub(crate) fn check_source(expr: &Expr, nodes: &mut usize) -> PyResult<()> {
     let mut pending = vec![(expr, 0usize)];
     while let Some((node, depth)) = pending.pop() {
-        *nodes += 1;
-        if *nodes > MAX_SOURCE_NODES || depth > MAX_COMPILE_DEPTH {
-            return Err(PyValueError::new_err(
-                "numeric source exceeds the node or depth limit",
-            ));
-        }
-        let children = match node {
-            Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => args.len(),
-            Expr::Pow(_, _) => 2,
-            _ => 0,
-        };
-        if children > MAX_SOURCE_NODES.saturating_sub(*nodes + pending.len()) {
-            return Err(PyValueError::new_err(
-                "numeric source exceeds the node limit",
-            ));
-        }
+        check_source_node(node, depth, nodes, pending.len())?;
         match node {
-            Expr::Sym(symbol) if symbol.name.len() > MAX_COMPILE_NAME_BYTES => {
-                return Err(PyValueError::new_err(
-                    "numeric symbol name exceeds the 4096-byte limit",
-                ));
-            }
-            Expr::Function(name, _) if name.len() > MAX_COMPILE_NAME_BYTES => {
-                return Err(PyValueError::new_err(
-                    "numeric function name exceeds the 4096-byte limit",
-                ));
-            }
-            Expr::Integer(value) if value.bits() > MAX_LITERAL_BITS => {
-                return Err(PyValueError::new_err(
-                    "numeric integer exceeds the literal limit",
-                ));
-            }
-            Expr::Rational(value)
-                if value.numer().bits().max(value.denom().bits()) > MAX_LITERAL_BITS =>
-            {
-                return Err(PyValueError::new_err(
-                    "numeric rational exceeds the literal limit",
-                ));
-            }
             Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => {
                 pending.extend(args.iter().map(|child| (child, depth + 1)));
             }
@@ -1020,6 +987,106 @@ pub(crate) fn check_source(expr: &Expr, nodes: &mut usize) -> PyResult<()> {
         }
     }
     Ok(())
+}
+
+/// Admission shared by the unmetered preflight and the borrowed cost walk.
+/// Nothing here clones a coefficient, formats a number, or inspects Python.
+fn check_source_node(
+    node: &Expr,
+    depth: usize,
+    nodes: &mut usize,
+    pending: usize,
+) -> PyResult<usize> {
+    *nodes = nodes.saturating_add(1);
+    if *nodes > MAX_SOURCE_NODES || depth > MAX_COMPILE_DEPTH {
+        return Err(PyValueError::new_err(
+            "numeric source exceeds the node or depth limit",
+        ));
+    }
+    let children = match node {
+        Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => args.len(),
+        Expr::Pow(_, _) => 2,
+        _ => 0,
+    };
+    if children > MAX_SOURCE_NODES.saturating_sub(nodes.saturating_add(pending)) {
+        return Err(PyValueError::new_err(
+            "numeric source exceeds the node limit",
+        ));
+    }
+    match node {
+        Expr::Sym(symbol) if symbol.name.len() > MAX_COMPILE_NAME_BYTES => {
+            return Err(PyValueError::new_err(
+                "numeric symbol name exceeds the 4096-byte limit",
+            ));
+        }
+        Expr::Function(name, _) if name.len() > MAX_COMPILE_NAME_BYTES => {
+            return Err(PyValueError::new_err(
+                "numeric function name exceeds the 4096-byte limit",
+            ));
+        }
+        Expr::Integer(value) if value.bits() > MAX_LITERAL_BITS => {
+            return Err(PyValueError::new_err(
+                "numeric integer exceeds the literal limit",
+            ));
+        }
+        Expr::Rational(value)
+            if value.numer().bits().max(value.denom().bits()) > MAX_LITERAL_BITS =>
+        {
+            return Err(PyValueError::new_err(
+                "numeric rational exceeds the literal limit",
+            ));
+        }
+        _ => {}
+    }
+    Ok(children)
+}
+
+/// Inspect borrowed native storage on the caller's ledger before Python asks
+/// for cloned children. The result reserves a conservative complete-tree copy;
+/// Arc sharing and allocator internals are deliberately not assumed. Only this
+/// walk and its scratch storage are consumed here, not the later snapshot.
+fn evalf_source_cost(expr: &Expr, meter: &mut impl BudgetMeter) -> PyResult<(u64, u64, u64)> {
+    use crate::numeric_budget::evaluation_error;
+
+    let mut pending = evaluation_buffer::<(&Expr, usize)>(1, meter).map_err(evaluation_error)?;
+    pending.push((expr, 0));
+    let (mut nodes, mut bytes, mut allocations) = (0usize, 0u64, 0u64);
+    while let Some((node, depth)) = pending.pop() {
+        meter
+            .charge(Dimension::ComputeSteps, 1)
+            .map_err(evaluation_error)?;
+        let children = check_source_node(node, depth, &mut nodes, pending.len())?;
+        let (payload, owned_allocations) = source_snapshot_payload(node);
+        bytes += (std::mem::size_of::<Expr>() + payload) as u64;
+        allocations += owned_allocations as u64;
+        // The admitted node count bounds every size operation below. Reserve
+        // before asking Vec to grow, retaining all consumption if it fails.
+        let needed = pending.len() + children;
+        if needed > pending.capacity() {
+            charge_compilation_work(
+                meter,
+                1,
+                (needed * std::mem::size_of::<(&Expr, usize)>()) as u64,
+                1,
+            )
+            .map_err(evaluation_error)?;
+            pending
+                .try_reserve_exact(needed - pending.len())
+                .map_err(|_| evaluation_error(EvalError::AllocationFailure))?;
+        }
+        match node {
+            Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => {
+                pending.extend(args.iter().map(|child| (child, depth + 1)));
+            }
+            Expr::Pow(base, exponent) => {
+                pending.push((base, depth + 1));
+                pending.push((exponent, depth + 1));
+            }
+            _ => {}
+        }
+    }
+    meter.checkpoint().map_err(evaluation_error)?;
+    Ok((nodes as u64, bytes, allocations))
 }
 
 fn extract_expressions(values: &Bound<'_, PyAny>) -> PyResult<Vec<Expr>> {
@@ -1434,6 +1501,29 @@ impl PyCompiledFunction {
         }
         let source = source.extract::<PyRef<'_, PyExpr>>()?;
         check_source(&source.inner, &mut 0)
+    }
+
+    /// Meter borrowed source admission and estimate a subsequent owned copy.
+    /// Returns (visited nodes, conservative snapshot bytes, allocations).
+    /// This performs no evaluation and does not grant mathematical evidence.
+    #[staticmethod]
+    #[pyo3(signature = (source, *, budget))]
+    fn _evalf_source_cost(
+        source: &Bound<'_, PyAny>,
+        budget: &PyEvaluationBudget,
+    ) -> PyResult<(u64, u64, u64)> {
+        with_evaluation_meter_attached(Some(budget), |meter| meter.checkpoint())?;
+        if !source.is_exact_instance(&source.py().get_type::<PyExpr>()) {
+            return Err(PyTypeError::new_err(
+                "numeric source must be an exact native Expr object",
+            ));
+        }
+        let source = source.extract::<PyRef<'_, PyExpr>>()?;
+        // Keep admission/type errors intact while the enclosing meter applies
+        // its cancellation checkpoints before and after this borrowed walk.
+        with_evaluation_meter_attached(Some(budget), |meter| {
+            Ok::<_, fsym_budget::MeterError>(evalf_source_cost(&source.inner, meter))
+        })?
     }
 
     /// Check all borrowed matrix entries before Python snapshots native cells.
