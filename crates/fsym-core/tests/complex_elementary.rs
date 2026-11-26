@@ -779,3 +779,238 @@ fn general_powers_preflight_both_inputs_and_precision_before_trivial_values() {
         ));
     }
 }
+
+
+mod inverse_functions {
+    use fsym_core::{BallError, BigInt, BigRational, ComplexBall, RealBall};
+
+    type Inverse = fn(&ComplexBall, u32) -> Result<ComplexBall, BallError>;
+
+    fn q(n: i64, d: i64) -> BigRational {
+        BigRational::new(n.into(), d.into())
+    }
+
+    fn point(real: i64, imag: i64) -> ComplexBall {
+        ComplexBall::exact_complex(q(real, 1), q(imag, 1))
+    }
+
+    fn interval(lower: BigRational, upper: BigRational) -> RealBall {
+        let two = q(2, 1);
+        RealBall::new((&lower + &upper) / &two, (upper - lower) / two).unwrap()
+    }
+
+    fn inverses() -> [Inverse; 6] {
+        [
+            ComplexBall::asin,
+            ComplexBall::acos,
+            ComplexBall::atan,
+            ComplexBall::asinh,
+            ComplexBall::acosh,
+            ComplexBall::atanh,
+        ]
+    }
+
+    fn assert_components(actual: ComplexBall, real: &RealBall, imag: &RealBall) {
+        assert!(actual.real().contains_ball(real), "{actual} excludes real {real}");
+        assert!(actual.imag().contains_ball(imag), "{actual} excludes imaginary {imag}");
+        let tolerance = BigRational::new(BigInt::from(1), BigInt::from(10).pow(18));
+        assert!(actual.real().width() < tolerance, "{actual}");
+        assert!(actual.imag().width() < tolerance, "{actual}");
+    }
+
+    #[test]
+    fn exact_cut_values_keep_the_pinned_principal_branches() {
+        let pi = RealBall::pi(70).unwrap();
+        let half_pi = pi.div(&RealBall::from_i64(2)).unwrap();
+        let a = RealBall::from_i64(2).acosh(70).unwrap();
+        let l = RealBall::from_i64(3).ln(70).unwrap().div(&RealBall::from_i64(2)).unwrap();
+        let zero = RealBall::from_i64(0);
+        assert_components(point(2, 0).asin(28).unwrap(), &half_pi, &a.neg());
+        assert_components(point(-2, 0).asin(28).unwrap(), &half_pi.neg(), &a);
+        assert_components(point(2, 0).acos(28).unwrap(), &zero, &a);
+        assert_components(point(-2, 0).acos(28).unwrap(), &pi, &a.neg());
+        assert_components(point(0, 2).atan(28).unwrap(), &half_pi, &l);
+        assert_components(point(0, -2).atan(28).unwrap(), &half_pi.neg(), &l.neg());
+        assert_components(point(0, 2).asinh(28).unwrap(), &a, &half_pi);
+        assert_components(point(0, -2).asinh(28).unwrap(), &a.neg(), &half_pi.neg());
+        assert_components(point(-2, 0).acosh(28).unwrap(), &a, &pi);
+        assert_components(point(2, 0).atanh(28).unwrap(), &l, &half_pi.neg());
+        assert_components(point(-2, 0).atanh(28).unwrap(), &l.neg(), &half_pi);
+    }
+
+    #[test]
+    fn finite_branch_points_and_zero_components_remain_exact() {
+        let zero = RealBall::from_i64(0);
+        let pi = RealBall::pi(70).unwrap();
+        let half_pi = pi.div(&RealBall::from_i64(2)).unwrap();
+        assert_components(point(1, 0).asin(28).unwrap(), &half_pi, &zero);
+        assert_components(point(-1, 0).asin(28).unwrap(), &half_pi.neg(), &zero);
+        assert_eq!(point(1, 0).acos(28).unwrap(), point(0, 0));
+        assert_components(point(-1, 0).acos(28).unwrap(), &pi, &zero);
+        assert_components(point(0, 1).asinh(28).unwrap(), &zero, &half_pi);
+        assert_components(point(0, -1).asinh(28).unwrap(), &zero, &half_pi.neg());
+        assert_eq!(point(1, 0).acosh(28).unwrap(), point(0, 0));
+        assert_components(point(-1, 0).acosh(28).unwrap(), &zero, &pi);
+        for inverse in [
+            ComplexBall::asin as Inverse,
+            ComplexBall::atan,
+            ComplexBall::asinh,
+            ComplexBall::atanh,
+        ] {
+            assert_eq!(inverse(&point(0, 0), 28).unwrap(), point(0, 0));
+        }
+    }
+
+    #[test]
+    fn four_quadrants_match_independent_modulus_and_angle_formulas() {
+        // For z=1+i, |z+1|=sqrt(5), |z-1|=1. The real-modulus
+        // formulas give asin(z)=asin(B)+i*acosh(A), where
+        // A=(sqrt(5)+1)/2 and B=(sqrt(5)-1)/2. These do not
+        // repeat the production complex logarithm/square-root composition.
+        let one = RealBall::from_i64(1);
+        let two = RealBall::from_i64(2);
+        let root = RealBall::from_i64(5).sqrt(400).unwrap();
+        let a = root.add(&one).div(&two).unwrap();
+        let b = root.sub(&one).div(&two).unwrap();
+        let sine_real = b.asin(70).unwrap();
+        let sine_imag = a.acosh(70).unwrap();
+        let half_pi = RealBall::pi(70).unwrap().div(&two).unwrap();
+        let tangent_real = two.atan2(&RealBall::from_i64(-1), 70).unwrap().div(&two).unwrap();
+        let tangent_imag = RealBall::from_i64(5).ln(70).unwrap().div(&RealBall::from_i64(4)).unwrap();
+        for x in [-1, 1] {
+            for y in [-1, 1] {
+                let z = point(x, y);
+                let ar = if x < 0 { sine_real.neg() } else { sine_real.clone() };
+                let ai = if y < 0 { sine_imag.neg() } else { sine_imag.clone() };
+                assert_components(z.asin(28).unwrap(), &ar, &ai);
+                assert_components(z.acos(28).unwrap(), &half_pi.sub(&ar), &ai.neg());
+                let tr = if x < 0 { tangent_real.neg() } else { tangent_real.clone() };
+                let ti = if y < 0 { tangent_imag.neg() } else { tangent_imag.clone() };
+                assert_components(z.atan(28).unwrap(), &tr, &ti);
+                let hr = if x < 0 { sine_imag.neg() } else { sine_imag.clone() };
+                let hi = if y < 0 { sine_real.neg() } else { sine_real.clone() };
+                assert_components(z.asinh(28).unwrap(), &hr, &hi);
+                let angle = if x < 0 { b.neg() } else { b.clone() }.acos(70).unwrap();
+                let angle = if y < 0 { angle.neg() } else { angle };
+                assert_components(z.acosh(28).unwrap(), &sine_imag, &angle);
+                let hr = if x < 0 { tangent_imag.neg() } else { tangent_imag.clone() };
+                let hi = if y < 0 { tangent_real.neg() } else { tangent_real.clone() };
+                assert_components(z.atanh(28).unwrap(), &hr, &hi);
+            }
+        }
+    }
+
+    #[test]
+    fn cut_sides_are_selected_from_the_full_source_sign() {
+        let epsilon = q(1, 1000);
+        let above = ComplexBall::exact_complex(q(2, 1), epsilon.clone());
+        let below = ComplexBall::exact_complex(q(2, 1), -&epsilon);
+        assert!(above.asin(28).unwrap().imag().is_positive());
+        assert!(below.asin(28).unwrap().imag().is_negative());
+        assert!(above.acos(28).unwrap().imag().is_negative());
+        assert!(below.acos(28).unwrap().imag().is_positive());
+        assert!(above.atanh(28).unwrap().imag().is_positive());
+        assert!(below.atanh(28).unwrap().imag().is_negative());
+        let right = ComplexBall::exact_complex(epsilon.clone(), q(2, 1));
+        let left = ComplexBall::exact_complex(-&epsilon, q(2, 1));
+        assert!(right.atan(28).unwrap().real().is_positive());
+        assert!(left.atan(28).unwrap().real().is_negative());
+        assert!(right.asinh(28).unwrap().real().is_positive());
+        assert!(left.asinh(28).unwrap().real().is_negative());
+        let upper_left = ComplexBall::exact_complex(q(-2, 1), epsilon.clone());
+        let lower_left = ComplexBall::exact_complex(q(-2, 1), -epsilon);
+        assert!(upper_left.acosh(28).unwrap().imag().is_positive());
+        assert!(lower_left.acosh(28).unwrap().imag().is_negative());
+    }
+
+    #[test]
+    fn complete_real_and_imaginary_axis_hulls_cross_finite_branch_points() {
+        let real = ComplexBall::from_real(interval(q(-2, 1), q(2, 1)));
+        let asin = real.asin(28).unwrap();
+        let acos = real.acos(28).unwrap();
+        let imaginary = ComplexBall::new(RealBall::from_i64(0), interval(q(-2, 1), q(2, 1)));
+        let asinh = imaginary.asinh(28).unwrap();
+        let acosh_source = ComplexBall::from_real(interval(q(-3, 1), q(2, 1)));
+        let acosh = acosh_source.acosh(28).unwrap();
+        for x in -2..=2 {
+            for (outer, inner) in [
+                (&asin, point(x, 0).asin(60).unwrap()),
+                (&acos, point(x, 0).acos(60).unwrap()),
+                (&asinh, point(0, x).asinh(60).unwrap()),
+                (&acosh, point(x, 0).acosh(60).unwrap()),
+            ] {
+                assert!(outer.real().contains_ball(inner.real()));
+                assert!(outer.imag().contains_ball(inner.imag()));
+            }
+        }
+        let endpoint = point(-3, 0).acosh(60).unwrap();
+        assert!(acosh.real().contains_ball(endpoint.real()));
+        assert!(acosh.imag().contains_ball(endpoint.imag()));
+        assert!(asin.imag().lower() < q(-1, 1));
+        assert!(asin.imag().upper() > q(1, 1));
+        assert!(acosh.real().contains(&q(0, 1)));
+    }
+
+    #[test]
+    fn nonzero_input_width_is_retained_for_every_inverse() {
+        let axis = interval(q(99, 100), q(101, 100));
+        let source = ComplexBall::new(axis.clone(), axis);
+        for inverse in inverses() {
+            let result = inverse(&source, 30).unwrap();
+            let refined = inverse(&source, 60).unwrap();
+            for x in [99, 100, 101] {
+                for y in [99, 100, 101] {
+                    let value = inverse(&ComplexBall::exact_complex(q(x, 100), q(y, 100)), 70).unwrap();
+                    assert!(result.real().contains_ball(value.real()));
+                    assert!(result.imag().contains_ball(value.imag()));
+                    assert!(refined.real().contains_ball(value.real()));
+                    assert!(refined.imag().contains_ball(value.imag()));
+                }
+            }
+            assert!(result.real().width() > q(1, 1000));
+            assert!(refined.real().width() > q(1, 1000));
+        }
+    }
+
+    #[test]
+    fn exact_and_interval_poles_refuse_including_endpoint_contact() {
+        for x in [-1, 1] {
+            assert!(point(x, 0).atanh(28).is_err());
+            assert!(point(0, x).atan(28).is_err());
+        }
+        for (lower, upper) in [(-2, -1), (-1, 0), (0, 1), (1, 2), (-2, 2)] {
+            let axis = interval(q(lower, 1), q(upper, 1));
+            assert!(ComplexBall::from_real(axis.clone()).atanh(28).is_err());
+            assert!(ComplexBall::new(RealBall::from_i64(0), axis).atan(28).is_err());
+        }
+    }
+
+    #[test]
+    fn off_axis_rectangles_touching_cuts_refuse_even_with_safe_midpoints() {
+        let touch = interval(q(0, 1), q(1, 1));
+        for sign in [-1, 1] {
+            let source = ComplexBall::new(RealBall::from_i64(2 * sign), touch.clone());
+            assert!(source.asin(28).is_err());
+            assert!(source.acos(28).is_err());
+            assert!(source.atanh(28).is_err());
+            let source = ComplexBall::new(touch.clone(), RealBall::from_i64(2 * sign));
+            assert!(source.atan(28).is_err());
+            assert!(source.asinh(28).is_err());
+        }
+        for x in [-2, 0, 1] {
+            assert!(ComplexBall::new(RealBall::from_i64(x), touch.clone()).acosh(28).is_err());
+        }
+    }
+
+    #[test]
+    fn inverse_precision_and_source_height_are_preflighted() {
+        let huge = ComplexBall::from_real(RealBall::exact(BigRational::from_integer(
+            BigInt::from(2).pow(20_000),
+        )));
+        for inverse in inverses() {
+            assert!(inverse(&point(1, 1), 0).is_err());
+            assert!(inverse(&point(1, 1), ComplexBall::MAX_ELEMENTARY_PRECISION_DIGITS + 1).is_err());
+            assert!(matches!(inverse(&huge, 24), Err(BallError::ResourceLimitExceeded { .. })));
+        }
+    }
+}

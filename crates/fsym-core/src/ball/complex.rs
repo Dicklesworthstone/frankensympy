@@ -12,6 +12,8 @@ use super::{
 };
 use num_traits::{Signed, ToPrimitive, Zero};
 
+mod inverse;
+
 impl ComplexBall {
     /// The component transcendental kernels and branch calculations share
     /// this ceiling, including every internal guard digit.
