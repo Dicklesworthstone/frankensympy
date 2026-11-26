@@ -11,6 +11,7 @@ mod error_functions;
 mod inverse_circular;
 mod inverse_hyperbolic;
 mod lambert;
+mod reciprocal_inverse;
 mod sinc;
 
 pub use lambert::LambertWError;

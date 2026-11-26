@@ -473,6 +473,12 @@ fn evaluate_inner(
                     let curvature = work.mul(&argument.value, &cube)?;
                     (value, slope, curvature)
                 }
+                "acot" | "acoth" | "asec" | "acsc" | "asech" | "acsch" => {
+                    let (value, slope) = work.reciprocal_inverse(&argument.value, name)?;
+                    let curvature =
+                        work.reciprocal_inverse_curvature(&argument.value, name, &slope)?;
+                    (value, slope, curvature)
+                }
                 "asinh" | "acosh" => {
                     let (value, slope) = work.inverse_hyperbolic(&argument.value, name)?;
                     let cube = work.power(&slope, 3)?;

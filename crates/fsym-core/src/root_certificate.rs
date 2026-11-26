@@ -59,6 +59,7 @@ mod continuous;
 mod lambert;
 mod lipschitz;
 mod piecewise;
+mod reciprocal_inverse;
 
 // This precise internal refusal distinguishes an absolute-value corner from
 // every other domain failure. Global value bounds may retry it in the separate
@@ -1240,6 +1241,9 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
             }
             "asin" | "acos" => self.inverse_circular(argument, name == "acos")?,
             "asinh" | "acosh" | "atanh" => self.inverse_hyperbolic(argument, name)?,
+            "acot" | "acoth" | "asec" | "acsc" | "asech" | "acsch" => {
+                self.reciprocal_inverse(argument, name)?
+            }
             "erf" | "erfc" => self.error_function(argument, name == "erfc")?,
             "sinc" => {
                 let [value, slope, _] = self.sinc(argument)?;

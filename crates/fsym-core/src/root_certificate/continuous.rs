@@ -34,6 +34,8 @@ pub(super) fn is_continuity_only_boundary(error: &RootBoxError) -> bool {
     match error {
         RootBoxError::Domain(reason) => {
             *reason == ABSOLUTE_VALUE_CORNER
+                || *reason == super::reciprocal_inverse::CIRCULAR_ENDPOINT
+                || *reason == super::reciprocal_inverse::SECH_ENDPOINT
                 || matches!(
                     *reason,
                     "square root is not C1 on this box"
@@ -263,6 +265,7 @@ fn unary_value(
                 argument.asin(work.precision)?
             })
         }
+        "asec" | "acsc" | "asech" => work.closed_reciprocal_inverse_value(argument, name),
         "acosh" => {
             work.arithmetic(&[argument], &[])?;
             if argument.lower() < BigRational::one() {

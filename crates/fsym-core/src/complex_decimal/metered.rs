@@ -270,7 +270,8 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
                         "exp" | "log" | "ln" | "sqrt" | "sin" | "cos" | "tan" | "sinh" | "cosh"
                         | "tanh" | "abs" | "Abs" | "re" | "im" | "conjugate" | "asin" | "acos"
                         | "atan" | "asinh" | "acosh" | "atanh" | "erf" | "erfc" | "sinc"
-                        | "cot" | "sec" | "csc" | "coth" | "sech" | "csch" => args.len() == 1,
+                        | "acot" | "acoth" | "asec" | "acsc" | "asech" | "acsch" | "cot"
+                        | "sec" | "csc" | "coth" | "sech" | "csch" => args.len() == 1,
                         _ => false,
                     };
                     if !supported {
@@ -485,6 +486,12 @@ impl<M: BudgetMeter> BallWork for Work<'_, M> {
             "asinh" => arg.asinh(digits)?,
             "acosh" => arg.acosh(digits)?,
             "atanh" => arg.atanh(digits)?,
+            "acot" => arg.acot(digits)?,
+            "acoth" => arg.acoth(digits)?,
+            "asec" => arg.asec(digits)?,
+            "acsc" => arg.acsc(digits)?,
+            "asech" => arg.asech(digits)?,
+            "acsch" => arg.acsch(digits)?,
             "erf" => arg.erf(digits)?,
             "erfc" => arg.erfc(digits)?,
             "sinc" => arg.sinc(digits)?,
