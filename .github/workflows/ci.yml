@@ -166,10 +166,12 @@ jobs:
               "python/tests/test_complex_decimal_evalf.py",
               "python/tests/test_complex_decimal_metered_evalf.py",
               "python/tests/test_public_evalf_budget.py",
+              "python/tests/test_retained_decimal_arithmetic.py",
               "python/tests/test_nroots_high_precision_real.py",
               "python/tests/test_complex_float_conversion.py",
               "python/tests/test_float_conversion_termination.py",
               "python/tests/test_surface.py::SurfaceTests::test_rsolve_and_complex_evalf",
+              "python/tests/test_surface.py::SurfaceTests::test_float_negation_preserves_shell_precision_metadata",
           ]))
           PY
 

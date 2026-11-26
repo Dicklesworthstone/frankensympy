@@ -329,7 +329,10 @@ class SurfaceTests(unittest.TestCase):
         value = sympy.Float(1.5, 30)
         self.assertEqual((-value).dps, 30)
         self.assertEqual(value.dps, 30)
-        self.assertEqual(value, sympy.Float(1.5))
+        self.assertEqual(-(-value), value)
+        # SymPy 1.14.0 includes precision in finite Float structural identity.
+        self.assertEqual(value, sympy.Float(1.5, 30))
+        self.assertNotEqual(value, sympy.Float(1.5))
 
     def test_exact_number_division_uses_float_arithmetic(self):
         for numerator in (sympy.Integer(0), sympy.Integer(3), sympy.Integer(-3),

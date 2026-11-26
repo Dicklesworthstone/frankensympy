@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-26",
+  "feature": "Retained decimal scalar arithmetic and Float structural identity",
+  "source_parent": "fa18f6f4e4430ff24d91e0dce290febb72c3161a",
+  "implemented": [
+    "Retained decimal scalar addition, subtraction, multiplication, division and integer powers, including reflected operands and evaluated Add/Mul/Pow constructors",
+    "Exact native rational arithmetic with one rounding at the greatest input Float precision; retained decimal payloads are the operands, not reconstructed original symbolic expressions",
+    "Exact finite retained-value ordering, precision-sensitive Float equality, and coherent hashing across ordinary and retained owners",
+    "Structural identity over actual Float children in arithmetic and function expressions, preserving differences lost in native binary64 previews",
+    "Original owners and held structure for symbolic or noninteger-power combinations; normal foreign reflected-operator dispatch with strict constructors",
+    "One finite private ledger for admitted scalar source preparation, native work, copies and output; final cancellation, mutation and implementation checks before publication"
+  ],
+  "source_git_blobs": {
+    "python/sympy/core/__init__.py": "8f7fa543c7b583e36efed4d565fa8866c3fdc9df",
+    "python/sympy/core/_decimal_arithmetic.py": "a4dcef647270403222b5e205003d1bb85caf96a8",
+    "python/tests/test_retained_decimal_arithmetic.py": "b46f3741e31da35d863fe652053855d343d91f37",
+    "python/tests/test_surface.py": "c88903a2b739c0a71f56090e2bdf03037943e418"
+  },
+  "source_sha256": {
+    "python/sympy/core/__init__.py": "b1282f46d43cf728779cccac123c40b49492490b0f16032540f4df11c71ea444",
+    "python/sympy/core/_decimal_arithmetic.py": "cde0170a35d831cefc360c0db7e436b77411f2842f05cbce7a15fabc0fb03309",
+    "python/tests/test_retained_decimal_arithmetic.py": "5487239b3fbf14b5414f255c168d1fa893e7d8b7494a7006fd0bd948c3dd0076",
+    "python/tests/test_surface.py": "3bd482c510385e4994b3030f901cb53abe5ea847e9e8ac41722beb3e95652f94"
+  },
+  "bounds": {
+    "significant_digits": [
+      1,
+      1000
+    ],
+    "maximum_absolute_integer_exponent": 4096,
+    "maximum_exact_input_bits": 4096,
+    "private_scalar_budget": {
+      "max_steps": 1000000000,
+      "max_memory_bytes": 536870912,
+      "max_allocations": 4000000
+    },
+    "charges": "Deterministic logical work and conservative storage reservations, not measurements of CPython allocations or process RSS.",
+    "caller_budget": "Operators have no budget keyword. N(..., budget=...) meters that evaluation call, not prior arithmetic that constructed its argument."
+  },
+  "validation": {
+    "final": {
+      "passed": 313,
+      "failed": 0,
+      "pytest_seconds": 31.06,
+      "measured_seconds": 31.213156596999397,
+      "breakdown": {
+        "new_arithmetic_and_protocol": 84,
+        "identity_and_admission": 128,
+        "public_budgets": 40,
+        "nroots": 60,
+        "corrected_precision_identity": 1
+      },
+      "log": "arithmetic-final-protocol-integration.log"
+    },
+    "exact_pytest_arguments": [
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "python/tests/test_retained_decimal_arithmetic.py",
+      "/workspace/scratch/76118f3f5149/frankensympy/python/tests/test_held_power_surface_identity.py",
+      "/workspace/scratch/76118f3f5149/frankensympy/python/tests/test_opaque_identity_protocol.py",
+      "/workspace/scratch/76118f3f5149/frankensympy/python/tests/test_undefined_function_identity.py",
+      "/workspace/scratch/76118f3f5149/frankensympy/python/tests/test_function_capability_admission.py",
+      "/workspace/scratch/76118f3f5149/frankensympy/python/tests/test_public_evalf_budget.py",
+      "/workspace/scratch/76118f3f5149/frankensympy/python/tests/test_nroots_high_precision_real.py",
+      "/workspace/scratch/76118f3f5149/frankensympy/python/tests/test_nroots_convergence.py",
+      "python/tests/test_surface.py::SurfaceTests::test_float_negation_preserves_shell_precision_metadata"
+    ],
+    "earlier_checks": [
+      {
+        "log": "arithmetic-identity.log",
+        "passed": 201,
+        "failed": 0,
+        "pytest_seconds": 1.75
+      },
+      {
+        "log": "arithmetic-numeric-regressions.log",
+        "passed": 273,
+        "failed": 2,
+        "pytest_seconds": 57.04,
+        "failures": [
+          {
+            "test": "SurfaceTests.test_float_negation_preserves_shell_precision_metadata",
+            "cause": "Existing assertion incorrectly equated finite Floats of different precision; isolated SymPy 1.14.0 oracle disproved it. Corrected test passes in final313."
+          },
+          {
+            "test": "SurfaceTests.test_exact_number_division_uses_float_arithmetic",
+            "cause": "All preceding numeric assertions passed; test then calls Expr.expand, one of six omitted runtime-dependent component helpers. Unchanged failure is retained; no replacement helper added."
+          }
+        ]
+      },
+      {
+        "log": "arithmetic-final-integration.log",
+        "passed": 101,
+        "failed": 0,
+        "pytest_seconds": 28.49
+      },
+      {
+        "log": "float-identity-upstream-oracle.log",
+        "scope": "Isolated upstream SymPy 1.14.0 precision identity and negation oracle only; never a production fallback"
+      },
+      {
+        "log": "arithmetic-readme-smoke.log",
+        "scope": "README arithmetic assertions passed on the genuine8b component before the later foreign-protocol-only patch; example code was unchanged"
+      }
+    ],
+    "independent_review": "Independent architecture source review approved all four final blobs and separately verified foreign reflection, matrix delegation, strict constructors, finite precision identity, and mixed retained/ordinary composite hashes.",
+    "final_log_sha256": "33e6e3dc670e17496fcb79c525c454da0b751beeba3fc121b5faf87ef2466630",
+    "source_integrity": "All four published source files match the exact tested Git/SHA256 identities; AST parsing and scoped git diff --check passed.",
+    "protocol_regression_fixed_before_publication": "A strict scalar admission check initially prevented matrix/custom reflection. Exactly nine binary operator entry points now opt into foreign NotImplemented dispatch before scalar capture. Constructors remain strict; native errors remain terminal.",
+    "upstream_oracle": "Isolated SymPy 1.14.0 confirms precision-sensitive finite Float equality and precision-preserving negation. The corrected local test is not an immutable profile/golden rewrite."
+  },
+  "native_component": {
+    "native_source_commit": "7062af6bfd24ff3eb97224238b48d59aec957491",
+    "binary_sha256": "8b455b685251d6e45bdf728e3b2074a1acf3c39f62ed8b6b2187061b00f58c58",
+    "scope": "Supplementary genuine mathematical/PyO3 component with exact source identity checks; six recorded async-runtime-dependent helpers are omitted. No fake helpers or upstream production engine. Full extension/profile gates remain unverified locally.",
+    "omitted_helpers": [
+      "lib.rs::eval_error",
+      "lib.rs::eval_region",
+      "lib.rs::simplify_expr",
+      "lib.rs::expand_expr",
+      "expr.rs::PyExpr.simplify",
+      "expr.rs::PyExpr.expand"
+    ],
+    "production_function_replacements": [],
+    "includes_current_atomic_callback_and_polynomial_query_seams": true,
+    "build_and_current_main_integration_evidence": "artifacts/audit/2026-11-26-numeric-main-integration-validation.json.gz"
+  },
+  "limits": [
+    "Finite scalar arithmetic and held-expression identity only; matrix/native foreign implementations keep their own numerical contracts and do not gain arbitrary precision from this feature.",
+    "Ordinary arithmetic without retained decimal operands keeps its existing binary64 value path; mixed ordinary inputs contribute only their already-stored IEEE values.",
+    "Rounded decimal values are not enclosing intervals or portable certificates.",
+    "The earlier exact-number-division test passed its numeric assertions and then failed at component-omitted Expr.expand; its original failure log is retained and the production helper/test is unchanged.",
+    "The final 313-case result is supplementary mathematical-component evidence, not a full production extension, async runtime or compatibility-profile pass.",
+    "No claim tier, gate, workstream or Beads status is promoted and no performance improvement is claimed."
+  ],
+  "ci": "Added arithmetic/protocol and precision-negation regressions to the existing full-extension numerical selector; all existing tests and gates remain present.",
+  "validation_bundle": {
+    "path": "artifacts/audit/2026-11-26-retained-decimal-arithmetic-validation.json.gz",
+    "sha256": "27ed3bdfcd2c9263ffdcf621a93def9212a0c1d5f0bff5e0d4113813f50fe425",
+    "format": "gzip JSON mapping original raw logs, loader and manifest to SHA256 plus UTF-8 content",
+    "raw_entries": 11
+  }
+}

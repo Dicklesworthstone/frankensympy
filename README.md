@@ -3507,14 +3507,82 @@ conversion. It does not measure CPython allocations or process memory,
 and it does not interrupt every individual bigint or interpreter operation.
 
 The result retains decimal Float components for rendering,
-`as_real_imag()`, predicates and reevaluation. General Float arithmetic and
-comparisons retain the shell's existing binary64 limitations. The displayed
-decimals are rounded values, not portable certificates or intervals, and
-this feature does not certify a compatibility profile.
+`as_real_imag()`, predicates and reevaluation. Ordinary Float arithmetic
+without retained decimal operands keeps its existing binary64 path;
+retained decimal arithmetic and shared Float identity are described below.
+The displayed decimals are rounded values, not portable certificates or
+intervals, and this feature does not certify a compatibility profile.
 
 The [complex decimal progress report](artifacts/audit/2026-11-25-complex-decimal-evaluation-progress.json)
 records the implementation, authored regressions, completed checks and
 remaining runtime-validation limits.
+
+### Arithmetic with retained decimal values
+
+Finite decimal Float values returned by `N`, `.evalf` and high precision real
+`nroots` now preserve their stored digits through scalar addition,
+subtraction, multiplication, division and integer powers. Both operand orders
+and evaluated `Add`, `Mul` and `Pow` constructors use this path. Each admitted
+numeric operation performs exact native rational arithmetic and rounds once
+at the greatest input Float precision:
+
+```python
+from sympy import Float, N, Rational
+
+value = N(Rational(1, 8), 50)
+result = (value + 1) / 3
+assert result.dps == 50
+assert str(result) == "0.375" + "0" * 47
+
+tiny = N(Rational(1, 10**400), 50)
+assert (2*tiny).is_nonzero is True
+assert (2*tiny).is_finite is True
+
+close = N(Rational(10**49 + 1, 10**49), 50)
+assert close > 1
+assert Float(1.5, 30) != Float(1.5, 15)
+```
+
+The input is the retained decimal value, not the original expression that
+produced it. For example, multiplying a rounded decimal approximation to
+`1/3` by three need not produce exactly one. An ordinary binary64 Float in a
+mixed operation contributes its exact stored IEEE value; adding a higher
+precision operand cannot recover digits already lost in an earlier input.
+Ordinary Float arithmetic without a retained decimal operand keeps its
+existing binary64 path.
+
+Ordering compares admitted retained values without converting them to
+binary64, including nonzero values such as `1e-400` and finite values such as
+`1e400`. Finite Float structural equality includes precision, consistently
+across ordinary and retained owners. Arithmetic and function expressions
+compare their actual Float children, so coefficients that differ beyond
+binary64 precision cannot silently become the same expression. Equal
+retained and ordinary Float expressions also have equal hashes.
+
+This is a bounded development lane: numerical operations support 1–1000
+significant digits, integer exponents with magnitude at most 4096, and the
+metered native source and work limits above. Each admitted numerical operation
+uses one finite private ledger for source capture, exact work, copies and
+result construction. Its charges are logical work and storage reservations,
+not measurements of CPython allocations or process memory. Operators do not
+accept a caller budget; an explicit `N(..., budget=...)` controls that
+evaluation call, not operations already performed while constructing its
+argument.
+
+Symbolic operands and noninteger powers remain held with their original
+decimal owners for later explicit evaluation. Unknown symbolic subclasses
+remain opaque. Binary operators give foreign operands normal Python
+reflected dispatch; evaluated constructors remain strict. Matrix reflected
+dispatch works, but existing matrix scalar arithmetic can still reduce
+retained decimal inputs to binary64 previews.
+Native failures, exhaustion and cancellation never trigger a binary64
+replacement. These rounded Float values are not enclosing intervals
+or portable certificates, and this feature does not certify a compatibility
+profile.
+
+The [retained decimal arithmetic progress report](artifacts/audit/2026-11-26-retained-decimal-arithmetic-progress.json)
+records the exact implementation, regression results and remaining validation
+limits.
 
 ---
 

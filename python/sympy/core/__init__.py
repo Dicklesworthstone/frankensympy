@@ -264,6 +264,17 @@ def _surface_arithmetic(operator, values, *, evaluate=True, cls=None):
     return arithmetic(operator, values, evaluate=evaluate, cls=cls)
 
 
+def _retained_decimal_arithmetic(operator, values, *, operator_method=False):
+    # Numeric singleton construction precedes retained Float admission. Load
+    # this lane only once its original class/storage records are complete.
+    if "_EVALF_OWNERS" not in globals():
+        return None
+    from ._decimal_arithmetic import UNHANDLED, arithmetic
+
+    result = arithmetic(operator, values, operator_method=operator_method)
+    return None if result is UNHANDLED else result
+
+
 def _native_expr(value: Any):
     if isinstance(value, Basic):
         cls = type(value)
@@ -1643,6 +1654,12 @@ class Basic:
             root_hash = hash_override(self)
             if root_hash is not None:
                 return root_hash
+        if "_EVALF_OWNERS" in globals():
+            from ._decimal_arithmetic import UNHANDLED, structural_hash
+
+            retained_hash = structural_hash(self)
+            if retained_hash is not UNHANDLED:
+                return retained_hash
         if _contains_opaque(self):
             from ._opaque_arithmetic import surface_hash
 
@@ -1679,6 +1696,12 @@ class Basic:
             root_equality = equality_override(self, other)
             if root_equality is not None:
                 return root_equality
+        if "_EVALF_OWNERS" in globals():
+            from ._decimal_arithmetic import UNHANDLED, structural_equal
+
+            retained_equality = structural_equal(self, other)
+            if retained_equality is not UNHANDLED:
+                return retained_equality
         if _contains_opaque(self) or _contains_opaque(other):
             from ._opaque_arithmetic import surface_equal
 
@@ -3236,6 +3259,9 @@ class Expr(Basic):
         return GreaterThan(self, other)
 
     def __add__(self, other: Any) -> "Expr":
+        retained = _retained_decimal_arithmetic("add", (self, other), operator_method=True)
+        if retained is not None:
+            return retained
         try:
             surface = _surface_arithmetic("add", (self, other))
             if surface is not None:
@@ -3250,6 +3276,9 @@ class Expr(Basic):
             raise
 
     def __radd__(self, other: Any) -> "Expr":
+        retained = _retained_decimal_arithmetic("add", (other, self), operator_method=True)
+        if retained is not None:
+            return retained
         try:
             surface = _surface_arithmetic("add", (other, self))
             if surface is not None:
@@ -3261,6 +3290,9 @@ class Expr(Basic):
             raise
 
     def __sub__(self, other: Any) -> "Expr":
+        retained = _retained_decimal_arithmetic("sub", (self, other), operator_method=True)
+        if retained is not None:
+            return retained
         try:
             if _contains_opaque(self) or _contains_opaque(other):
                 return Add(self, Mul(-1, other))
@@ -3274,6 +3306,9 @@ class Expr(Basic):
             raise
 
     def __rsub__(self, other: Any) -> "Expr":
+        retained = _retained_decimal_arithmetic("sub", (other, self), operator_method=True)
+        if retained is not None:
+            return retained
         try:
             if _contains_opaque(self) or _contains_opaque(other):
                 return Add(other, Mul(-1, self))
@@ -3284,6 +3319,9 @@ class Expr(Basic):
             raise
 
     def __mul__(self, other: Any) -> "Expr":
+        retained = _retained_decimal_arithmetic("mul", (self, other), operator_method=True)
+        if retained is not None:
+            return retained
         try:
             surface = _surface_arithmetic("mul", (self, other))
             if surface is not None:
@@ -3301,6 +3339,9 @@ class Expr(Basic):
             raise
 
     def __rmul__(self, other: Any) -> "Expr":
+        retained = _retained_decimal_arithmetic("mul", (other, self), operator_method=True)
+        if retained is not None:
+            return retained
         try:
             surface = _surface_arithmetic("mul", (other, self))
             if surface is not None:
@@ -3315,6 +3356,9 @@ class Expr(Basic):
             raise
 
     def __truediv__(self, other: Any) -> "Expr":
+        retained = _retained_decimal_arithmetic("div", (self, other), operator_method=True)
+        if retained is not None:
+            return retained
         try:
             if _contains_opaque(self) or _contains_opaque(other):
                 return Mul(self, Pow(other, -1))
@@ -3343,6 +3387,9 @@ class Expr(Basic):
             raise
 
     def __rtruediv__(self, other: Any) -> "Expr":
+        retained = _retained_decimal_arithmetic("div", (other, self), operator_method=True)
+        if retained is not None:
+            return retained
         try:
             if _contains_opaque(self) or _contains_opaque(other):
                 return Mul(other, Pow(self, -1))
@@ -3367,6 +3414,9 @@ class Expr(Basic):
     def __pow__(self, exponent: Any, modulo: Any = None) -> "Expr":
         if modulo is not None:
             raise TypeError("modular symbolic exponentiation is not implemented")
+        retained = _retained_decimal_arithmetic("pow", (self, exponent), operator_method=True)
+        if retained is not None:
+            return retained
         surface = _surface_arithmetic("pow", (self, exponent))
         if surface is not None:
             return _fold_floats(surface)
@@ -3421,6 +3471,9 @@ class Expr(Basic):
         return NotImplemented
 
     def __neg__(self) -> "Expr":
+        retained = _retained_decimal_arithmetic("mul", (-1, self))
+        if retained is not None:
+            return retained
         surface = _surface_arithmetic("mul", (-1, self))
         if surface is not None:
             return _fold_floats(surface)
@@ -4157,6 +4210,11 @@ def _fold_floats(expr: Any) -> Any:
     the same non-numeric part and a Float coefficient combine. A Float
     zero coefficient annihilates a Mul; a Float zero term drops from an
     Add (upstream: 0.0*x -> 0, 0.0 + x -> x)."""
+    if "_EVALF_OWNERS" in globals():
+        from ._decimal_arithmetic import contains_decimal
+
+        if contains_decimal((expr,)):
+            return expr
     if isinstance(expr, Float) or not _has_float(expr):
         return expr
     if isinstance(expr, Pow):
@@ -4225,15 +4283,24 @@ class Float(Number):
     __slots__ = ("_dps",)
 
     def __eq__(self, other: object) -> bool:
-        # SymPy 1.14.0 parity: Float == Float by value (nan == nan True);
-        # Float == python-float by value; every other type structurally False
-        # (Float(1.0) == Integer(1) is False on the pinned oracle).
+        # Float structural identity includes precision. This also keeps
+        # equality transitive when retained and binary64 Float owners mix.
+        if "_EVALF_OWNERS" in globals():
+            from ._decimal_arithmetic import UNHANDLED, equal
+
+            retained = equal(self, other)
+            if retained is not UNHANDLED:
+                return retained
         if isinstance(other, Float):
             a, b = self._as_python_float(), other._as_python_float()
             if a != a and b != b:
                 return True
+            if math.isfinite(a) and math.isfinite(b) and self._dps != other._dps:
+                return False
             return a == b
         if isinstance(other, float) and not isinstance(other, bool):
+            if math.isfinite(self._as_python_float()) and self._dps != 15:
+                return False
             return self._as_python_float() == other
         return False
 
@@ -4492,6 +4559,12 @@ def _real_sign_of_difference(lhs: Any, rhs: Any) -> int | None:
     Other symbol-free constants retain their existing approximate lane.
     Non-real constants raise TypeError, as upstream ordering does.
     """
+    if "_EVALF_OWNERS" in globals():
+        from ._decimal_arithmetic import UNHANDLED, compare
+
+        retained = compare(lhs, rhs)
+        if retained is not UNHANDLED:
+            return retained
     r1 = _exact_ratio(lhs)
     r2 = _exact_ratio(rhs)
     if r1 is not None and r2 is not None:
@@ -4876,6 +4949,10 @@ class Add(Expr, AssocOp):
             return _ZERO
         if len(args) == 1:
             return args[0] if isinstance(args[0], Basic) else _wrap(_native_expr(args[0]))
+        if evaluate and cls is Add:
+            retained = _retained_decimal_arithmetic("add", args)
+            if retained is not None:
+                return retained
         surface = _surface_arithmetic("add", args, evaluate=evaluate, cls=cls)
         if surface is not None:
             return _fold_floats(surface) if evaluate else surface
@@ -4921,6 +4998,10 @@ class Mul(Expr, AssocOp):
             return _ONE
         if len(args) == 1:
             return args[0] if isinstance(args[0], Basic) else _wrap(_native_expr(args[0]))
+        if evaluate and cls is Mul:
+            retained = _retained_decimal_arithmetic("mul", args)
+            if retained is not None:
+                return retained
         surface = _surface_arithmetic("mul", args, evaluate=evaluate, cls=cls)
         if surface is not None:
             return _fold_floats(surface) if evaluate else surface
@@ -4982,6 +5063,10 @@ class Pow(Expr):
         return self.args[1]
 
     def __new__(cls, base: Any, exponent: Any, evaluate: bool = True):
+        if evaluate and cls is Pow:
+            retained = _retained_decimal_arithmetic("pow", (base, exponent))
+            if retained is not None:
+                return retained
         surface = _surface_arithmetic("pow", (base, exponent), evaluate=evaluate, cls=cls)
         if surface is not None:
             return _fold_floats(surface) if evaluate else surface
@@ -6600,12 +6685,37 @@ _F64_HONEST_DIGITS = 15
 
 
 class _ExactDecimalFloat(Float):
-    """A Float carrying its exact decimal rendering (precision-honest N of
-    symbolic constants). Arithmetic re-enters the binary64 backend, so the
-    exact digits describe THIS value only — matching the documented
-    not-a-certified-enclosure contract."""
+    """A Float whose retained decimal payload is its arithmetic value.
+
+    Admitted scalar operations round exact native arithmetic on that stored
+    value at the greatest input Float precision. This does not recover the
+    original symbolic constant or make the rounded value an enclosure.
+    """
 
     __slots__ = ("_decimal",)
+
+    # Override the legacy Float shortcuts before the original implementation
+    # registry is captured. Reflected dispatch therefore preserves retained
+    # values even when an ordinary Float is the left operand.
+    __add__ = Expr.__add__
+    __radd__ = Expr.__radd__
+    __sub__ = Expr.__sub__
+    __rsub__ = Expr.__rsub__
+    __mul__ = Expr.__mul__
+    __rmul__ = Expr.__rmul__
+    __truediv__ = Expr.__truediv__
+    __rtruediv__ = Expr.__rtruediv__
+
+    def __eq__(self, other: object) -> bool:
+        from ._decimal_arithmetic import UNHANDLED, equal
+
+        result = equal(self, other)
+        return Float.__eq__(self, other) if result is UNHANDLED else result
+
+    def __hash__(self) -> int:
+        from ._decimal_arithmetic import value_hash
+
+        return value_hash(self)
 
     def __init__(self, decimal: str, dps: int):
         self._decimal = decimal
