@@ -4524,14 +4524,28 @@ class Float(Number):
         return Expr.__rtruediv__(self, other)
 
 
-def _allocate_float(value: Any = 0, dps: int = 15) -> Float:
-    if type(value) is str and type(dps) is int and dps > 15:
-        if len(value) > 4096:
-            raise ValueError("Float decimal literal exceeds its size limit")
-        if value.strip().lower().lstrip("+-") not in ("inf", "infinity", "nan"):
-            from ._decimal_arithmetic import from_decimal_literal
+_FLOAT_DEFAULT_DPS = object()
 
-            return from_decimal_literal(value, dps)
+
+def _allocate_float(value: Any = 0, dps: Any = _FLOAT_DEFAULT_DPS) -> Float:
+    owner = type(value)
+    if dps is _FLOAT_DEFAULT_DPS:
+        if owner is _ExactDecimalFloat:
+            return value
+        dps = 15
+    if type(dps) is not int or dps < 1:
+        raise TypeError("Float dps must be a positive int")
+    if owner is _ExactDecimalFloat or (dps > 15 and any(
+        owner is kind for kind in (str, int, Integer, Rational, Zero, One, NegativeOne, Half)
+    )):
+        if owner is str:
+            if len(value) > 4096:
+                raise ValueError("Float decimal literal exceeds its size limit")
+            if value.strip().lower().lstrip("+-") in ("inf", "infinity", "nan"):
+                return object.__new__(Float)
+        from ._decimal_arithmetic import from_exact_source
+
+        return from_exact_source(value, dps)
     return object.__new__(Float)
 
 

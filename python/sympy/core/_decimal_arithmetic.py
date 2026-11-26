@@ -185,19 +185,29 @@ def _output_reservation(capture, digits):
     capture.charge(4 * digits + 16, 24 * (digits + 64) + 2048, 20)
 
 
-def from_decimal_literal(text, digits):
-    """Round the original finite base-ten literal once at its requested precision."""
+def from_exact_source(value, digits):
+    """Round an admitted integer, rational or decimal once at the requested precision."""
+    if type(value) is _ExactDecimalFloat:
+        original_digits = _DPS.__get__(value, Float)
+        if type(original_digits) is int and original_digits == digits:
+            return value
     if digits > _MAX_DIGITS:
-        raise ValueError("Float decimal literal precision must be in 1..=1000")
+        raise ValueError("Float conversion precision must be in 1..=1000")
     budget = _budget()
-    source = _ExactDecimalFloat(text, digits)
+    source = _ExactDecimalFloat(value, digits) if type(value) is str else value
     capture, lowered, _values = _capture((source,), budget)
     if lowered is None:
-        raise ValueError("Float requires a finite decimal literal")
+        raise ValueError("Float conversion requires a finite numerical atom")
+    rational = lowered[0]
+    if type(source) is not _ExactDecimalFloat:
+        capture.copy(rational, 2)
+        if max(rational.exact_numerator().bit_length(),
+               rational.exact_denominator().bit_length()) > _MAX_INPUT_BITS:
+            raise ValueError("Float exact input exceeds its bit limit")
     _output_reservation(capture, digits)
-    real, imaginary = _native.evalf_complex_decimal_native(lowered[0], digits, budget=budget)
+    real, imaginary = _native.evalf_complex_decimal_native(rational, digits, budget=budget)
     if imaginary != "0":
-        raise RuntimeError("real decimal literal produced a non-real value")
+        raise RuntimeError("real Float input produced a non-real value")
     result = _ExactDecimalFloat(_format_decimal(real, digits), digits)
     return _finish(capture, result)
 

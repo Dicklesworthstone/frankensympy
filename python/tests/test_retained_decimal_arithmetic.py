@@ -88,6 +88,57 @@ def test_int_truncates_the_retained_decimal_instead_of_its_preview(text, expecte
     assert int(s.Float(text, 30)) == expected
 
 
+@pytest.mark.parametrize("source,expected", [
+    (10**400, Decimal("1e400")), (s.Integer(-(10**400)), Decimal("-1e400")),
+    (s.Rational(1, 10**400), Decimal("1e-400")),
+    (s.S.Half, Decimal("0.5")),
+    (s.S.Zero, Decimal(0)), (s.S.One, Decimal(1)), (s.S.NegativeOne, Decimal(-1)),
+])
+def test_high_precision_float_accepts_exact_numeric_sources(source, expected):
+    result = s.Float(source, 50)
+    assert result.dps == 50
+    assert Decimal(str(result)) == expected
+    assert result.is_finite is True
+
+
+def test_high_precision_float_rational_rounds_once_from_the_fraction():
+    with localcontext() as context:
+        context.prec = 70
+        expected = Decimal(1) / Decimal(7)
+    result = s.Float(s.Rational(1, 7), 70)
+    assert Decimal(str(result)) == expected
+    assert result == s.N(s.Rational(1, 7), 70)
+
+
+def test_retained_float_reconstruction_and_explicit_precision_changes():
+    value = s.Float("1.000000000000000000000000000001", 40)
+    assert s.Float(value) is value
+    assert s.Float(value, 40) is value
+    extended = s.Float(value, 60)
+    assert extended.dps == 60 and Decimal(str(extended)) == Decimal(str(value))
+    rounded_down = s.Float(value, 15)
+    assert rounded_down.dps == 15 and Decimal(str(rounded_down)) == 1
+    with pytest.raises(TypeError, match="positive int"):
+        s.Float(value, 0)
+    with pytest.raises(ValueError, match="precision"):
+        s.Float(value, 1001)
+
+
+@pytest.mark.parametrize("source", [1 << 4096, s.Integer(1 << 4096),
+                                   s.Rational(1, (1 << 4096) + 1)])
+def test_high_precision_float_rejects_oversize_exact_input(source):
+    with pytest.raises(ValueError, match="bit limit"):
+        s.Float(source, 50)
+
+
+def test_custom_numeric_subclass_conversion_does_not_call_user_hooks():
+    class ForeignInteger(int):
+        def __float__(self):
+            raise AssertionError("unexpected foreign Float conversion")
+    with pytest.raises(TypeError):
+        s.Float(ForeignInteger(7), 30)
+
+
 def retained(text, digits=50):
     return _ExactDecimalFloat(text, digits)
 
