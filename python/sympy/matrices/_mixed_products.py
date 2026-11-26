@@ -148,19 +148,42 @@ def _require_zero_product(value, *, raw, zero_left):
         raise ValueError("mixed matrix product cannot omit a nonzero implicit-zero product")
 
 
+def _values_meeting_sparse_zeros(shape, coordinates, dense_entries, *, left_sparse):
+    """Yield dense cells with a missing sparse factor at their inner index."""
+    sparse_axis = 1 if left_sparse else 0
+    dense_axis = 1 - sparse_axis
+    extent = shape[dense_axis]
+    occupancy = {}
+    for coordinate in coordinates:
+        inner = coordinate[sparse_axis]
+        occupancy[inner] = occupancy.get(inner, 0) + 1
+    for coordinate, value in dense_entries.items():
+        if occupancy.get(coordinate[dense_axis], 0) < extent:
+            yield value
+
+
 def _raw_zero_preflight(snapshots):
     left_sparse = snapshots[0][1][1] is _sparse.SparseMatrix
     sparse, dense = snapshots if left_sparse else snapshots[::-1]
     sparse_entries = _entries(sparse, native_only=True)
     dense_entries = _entries(dense, native_only=True)
     if len(sparse_entries) < sparse[3][0]*sparse[3][1]:
-        for value in dense_entries.values():
+        for value in _values_meeting_sparse_zeros(
+            sparse[3], sparse_entries, dense_entries, left_sparse=left_sparse,
+        ):
             _require_zero_product(value, raw=True, zero_left=left_sparse)
+    # The native product converts the dense operand to sparse too. Its exact
+    # zeros can omit products only at their own inner-axis coordinate.
     zero = _sparse._REDUCTION_NATIVE_ZERO
-    if any(_sparse._REDUCTION_NATIVE_EQUAL(value, zero) is True
-           for value in dense_entries.values()):
-        for value in sparse_entries.values():
-            _require_zero_product(value, raw=True, zero_left=not left_sparse)
+    sparse_axis = 1 if left_sparse else 0
+    zero_inner = {
+        coordinate[1 - sparse_axis] for coordinate, value in dense_entries.items()
+        if _sparse._REDUCTION_NATIVE_EQUAL(value, zero) is True
+    }
+    if zero_inner:
+        for coordinate, value in sparse_entries.items():
+            if coordinate[sparse_axis] in zero_inner:
+                _require_zero_product(value, raw=True, zero_left=not left_sparse)
     _check(snapshots)
 
 
@@ -227,19 +250,11 @@ def matmul(left, right):
     if len(occupied)*width > _sparse._MAX_SPARSE_ENTRIES:
         raise ValueError("mixed matrix multiplication exceeds the stored-entry limit")
     if stored < sparse[3][0]*sparse[3][1] and width:
-        # A zero from sparse column k (or row k) can multiply only the
-        # matching dense row k (or column k). Fully occupied inner-axis
-        # slots need no implicit-zero admission.
-        occupancy = {}
-        for coordinate in coordinates:
-            inner = coordinate[1 if left_sparse else 0]
-            occupancy[inner] = occupancy.get(inner, 0) + 1
-        extent = sparse[3][0 if left_sparse else 1]
-        for coordinate, value in (b if left_sparse else a).items():
-            inner = coordinate[0 if left_sparse else 1]
-            if occupancy.get(inner, 0) < extent:
-                _require_zero_product(value, raw=False, zero_left=left_sparse)
-                _check(snapshots)
+        for value in _values_meeting_sparse_zeros(
+            sparse[3], coordinates, b if left_sparse else a, left_sparse=left_sparse,
+        ):
+            _require_zero_product(value, raw=False, zero_left=left_sparse)
+            _check(snapshots)
     terms = {}
 
     def checked(value):

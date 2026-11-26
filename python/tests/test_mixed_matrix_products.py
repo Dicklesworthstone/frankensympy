@@ -220,3 +220,41 @@ def test_skipped_implicit_zeros_cannot_discard_scalar_operator_callbacks(sparse_
     with pytest.raises(NotImplementedError, match="implicit-zero"):
         sparse*dense if sparse_first else dense*sparse
     assert calls == []
+
+
+@pytest.mark.parametrize("sparse_first", [True, False])
+@pytest.mark.parametrize("nonfinite_sparse", [True, False])
+@pytest.mark.parametrize("infinity", [s.oo, -s.oo])
+def test_native_snapshots_admit_infinity_with_an_unrelated_zero(
+    sparse_first, nonfinite_sparse, infinity,
+):
+    # Scaling by one creates native snapshots via ordinary public operations.
+    # The sole infinite input at inner index 0 only meets a stored one. A
+    # dense-to-sparse conversion may discard a zero at index 1 independently.
+    sparse_values, dense_values = ([infinity, 2], [1, 0]) if nonfinite_sparse else (
+        [1, 0], [infinity, 2],
+    )
+    if sparse_first:
+        sparse = s.SparseMatrix(s.Matrix([sparse_values]) * 1)
+        dense = s.Matrix([[v] for v in dense_values]) * 1
+        lhs, rhs = sparse, dense
+    else:
+        sparse = s.SparseMatrix(s.Matrix([[v] for v in sparse_values]) * 1)
+        dense = s.Matrix([dense_values]) * 1
+        lhs, rhs = dense, sparse
+    assert lhs._surface is None and rhs._surface is None
+    result = lhs @ rhs
+    assert result.shape == (1, 1)
+    assert result[0, 0] == infinity
+
+
+@pytest.mark.parametrize("nonfinite_sparse", [True, False])
+def test_native_snapshots_still_reject_each_actual_infinite_zero_product(nonfinite_sparse):
+    if nonfinite_sparse:
+        sparse = s.SparseMatrix(s.Matrix([[s.oo, 2]]) * 1)
+        dense = s.Matrix([[1, 0], [2, 3]]) * 1
+    else:
+        sparse = s.SparseMatrix(s.Matrix([[1, 0], [0, 3]]) * 1)
+        dense = s.Matrix([[s.oo], [2]]) * 1
+    with pytest.raises(ValueError, match="implicit-zero"):
+        sparse @ dense
