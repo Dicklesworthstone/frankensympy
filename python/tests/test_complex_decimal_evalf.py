@@ -169,6 +169,25 @@ def test_decimal_rendering_and_decomposition_keep_all_justified_digits():
     assert str(negative.as_real_imag()[1]).lstrip("-") in str(negative)
 
 
+@pytest.mark.parametrize("sign, separator", [(1, " + "), (-1, " - ")])
+def test_rectangular_rendering_orders_parts_and_trims_only_nested_padding(sign, separator):
+    result = s.N(-1 + sign * 2 * s.I, 15)
+    real, imaginary = result.as_real_imag()
+    assert str(result) == "-1.0" + separator + "2.0*I"
+    assert str(real) == "-1.00000000000000"
+    assert str(imaginary).lstrip("-") == "2.00000000000000"
+    assert str(s.N(sign * 2 * s.I, 15)) == ("-" if sign < 0 else "") + "2.0*I"
+
+
+@pytest.mark.parametrize("exponent", [-400, 400])
+def test_rectangular_rendering_keeps_signed_scientific_coefficients(exponent):
+    coefficient = -s.Rational(10) ** exponent
+    source = s.Add(1, s.Mul(coefficient, s.I, evaluate=False), evaluate=False)
+    result = s.N(source, 40)
+    assert str(result) == f"1.0 - 1.0e{exponent:+d}*I"
+    assert components(result) == (Decimal(1), Decimal(-1).scaleb(exponent))
+
+
 def test_finite_float_leaves_are_exact_binary64_inputs_not_reparsed_printing():
     source = s.Add(s.Float(0.1), s.Mul(s.Float(-0.2), s.I, evaluate=False), evaluate=False)
     expected = Decimal.from_float(0.1), Decimal.from_float(-0.2)

@@ -489,6 +489,9 @@ class StrPrinter:
         if type(e).__module__.startswith("sympy.logic") or isinstance(e, getattr(c, "Relational", ())):
             return str(e)  # booleans and relationals carry their own printer
         if _is_held(e):
+            rectangle = self._print_decimal_rectangle(e)
+            if rectangle is not None:
+                return rectangle
             return self._fallback(e)
         k = _kind(e)
         if k == "Add":
@@ -512,6 +515,36 @@ class StrPrinter:
                 self._print(child) for child in stored_args(e)
             )
         return self._fallback(e)
+
+    def _print_decimal_rectangle(self, e: Any) -> str | None:
+        """Render the held real and imaginary parts produced by decimal evalf."""
+        c = _core()
+        real = None
+        if type(e) is c.Add:
+            if len(e._args) != 2:
+                return None
+            real, e = e._args
+            if type(real) is not c._ExactDecimalFloat:
+                real, e = e, real
+            if type(real) is not c._ExactDecimalFloat:
+                return None
+
+        if type(e) is not c.Mul:
+            return None
+        factors = getattr(e, "_args", None)
+        if factors is None or len(factors) != 2:
+            return None
+        coefficient, unit = factors
+        if type(coefficient) is not c._ExactDecimalFloat or unit is not c.I:
+            return None
+
+        # Print Float children at nested precision and keep the retained sign
+        # even when the coefficient would underflow or overflow binary64.
+        imaginary = self._print(coefficient) + "*I"
+        if real is None:
+            return imaginary
+        sign = " - " if imaginary.startswith("-") else " + "
+        return self._print(real) + sign + imaginary.removeprefix("-")
 
     def _print_Function(self, e: Any) -> str:
         if getattr(e, "_struct_args", None) is not None:
