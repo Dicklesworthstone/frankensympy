@@ -515,4 +515,165 @@ def real_roots(f: Any, multiple: bool = True, radicals: bool = True, extension: 
     return result
 
 
+# Capture the implementation owners when this eagerly imported module loads,
+# before a first nroots call can install replacement polynomial protocols.
+from .polytools import GroebnerBasis as _NrootsBasis, Poly as _NrootsPoly, PurePoly as _NrootsPurePoly
+from ._evaluation_owners import require_original_owners as _nroots_scalar_owners
+from ..core._function_capabilities import _owner_matches as _nroots_owner_matches
+from ..core._function_capabilities import _owner_record as _nroots_owner_record
+from ..core._function_capabilities import _implementation as _nroots_implementation
+
+_NROOTS_MRO = type.__dict__["__mro__"]
+_NROOTS_OWNERS = tuple(
+    (owner, _NROOTS_MRO.__get__(owner), _nroots_owner_record(owner))
+    for owner in (_NrootsPoly, _NrootsPurePoly, _NrootsBasis)
+)
+_NROOTS_POLY_METHODS = tuple(
+    (owner, name, _nroots_implementation(type.__dict__["__dict__"].__get__(owner).get(name)))
+    for owner, names in (
+        (_NrootsPoly, ("as_expr", "nroots", "gen", "gens", "_domain_syms", "_parametric")),
+        (_NrootsBasis, ("_ideal_inputs",)),
+    ) for name in names
+)
+_NROOTS_NATIVE = tuple(
+    (name, getattr(_core._native, name)) for name in (
+        "real_root_coefficients_native", "real_roots_isolate_native",
+        "real_root_decimal_native", "ideal_source_preflight_native",
+        "ideal_source_arguments_native", "evalf_complex_decimal_native",
+        "Mul", "Pow", "py_integer",
+    )
+)
+_NROOTS_FLOAT = _core._ExactDecimalFloat
+
+
+def _nroots_original_interfaces():
+    _nroots_scalar_owners()
+    _core._require_evalf_owners()
+    for owner, parents, record in _NROOTS_OWNERS:
+        current = _NROOTS_MRO.__get__(owner)
+        if (len(current) != len(parents)
+                or any(a is not b for a, b in zip(current, parents))
+                or not _nroots_owner_matches(owner, record)):
+            raise TypeError("high-precision nroots requires original polynomial implementations")
+    for owner, name, recorded in _NROOTS_POLY_METHODS:
+        current = _nroots_implementation(type.__dict__["__dict__"].__get__(owner).get(name))
+        if (len(current) != len(recorded)
+                or any(a is not b for a, b in zip(current, recorded))):
+            raise TypeError("high-precision nroots requires original polynomial implementations")
+    if _core._ExactDecimalFloat is not _NROOTS_FLOAT:
+        raise TypeError("high-precision nroots requires the original decimal Float implementation")
+    if any(vars(_core._native).get(name) is not function for name, function in _NROOTS_NATIVE):
+        raise TypeError("high-precision nroots requires original native root interfaces")
+
+
+def _high_precision_real_nroots(source, digits, maxsteps):
+    """Complete all-real numerical roots using existing exact native checks.
+
+    No factorization, binary64 candidate, proximity ordering or numerical
+    imaginary-part cleanup participates in this selected lane. Each native
+    operation retains its existing fixed work/growth/refinement envelope;
+    this adapter does not claim a caller-owned cumulative native budget.
+    """
+    from .polytools import _IdealQuotientSnapshot, _rational_ideal_source
+    from ..core import Dummy, _surface_binding_key
+
+    if digits > 512:
+        raise NotImplementedError("high-precision all-real nroots supports at most 512 digits")
+    if maxsteps != 50:
+        raise NotImplementedError(
+            "high-precision nroots accepts only the default maxsteps=50; "
+            "exact native isolation and refinement use their own bounded limits"
+        )
+    _nroots_original_interfaces()
+    kind = type(source)
+    domain = None
+    if kind is _NrootsPoly or kind is _NrootsPurePoly:
+        namespace = object.__getattribute__(source, "__dict__")
+        if (type(namespace) is not dict or len(namespace) > 32
+                or any(type(key) is not str or len(key) > 128 for key in namespace)):
+            raise TypeError("high-precision nroots requires bounded built-in Poly storage")
+        _rational_ideal_source(source)
+        domain = namespace.get("_domain")
+        generators = namespace.get("_gens")
+        extra = namespace.get("_extra_syms")
+        if type(generators) is not tuple or len(generators) != 1:
+            raise ValueError("high-precision nroots requires a univariate polynomial")
+        if type(extra) is not frozenset or extra:
+            raise NotImplementedError("high-precision nroots requires numeric QQ/ZZ coefficients")
+        if type(namespace.get("_domain_given")) is not bool:
+            raise ValueError("high-precision nroots requires an exact domain declaration")
+    else:
+        generators = ()
+
+    snapshot = _IdealQuotientSnapshot(_NrootsBasis([source], generators, "QQ", "lex"))
+    classes = [(source, kind)]
+    seen = {id(source)}
+    for node, *_ in snapshot.slots:
+        if id(node) not in seen:
+            classes.append((node, type(node)))
+            seen.add(id(node))
+
+    def unchanged():
+        # Any ambient publication charge precedes the callback-free source
+        # checks, so a mutable original cannot publish stale numerical roots.
+        _core._charge_nested_if_active(1)
+        _nroots_original_interfaces()
+        if any(type(node) is not owner for node, owner in classes):
+            raise RuntimeError("high-precision nroots source class changed during evaluation")
+        snapshot.unchanged()
+
+    unchanged()
+    (data,) = snapshot.inputs()
+    sources, generators, equations, bindings = data
+    unchanged()
+    if not generators:
+        symbols = sources[0].free_symbols
+        if len(symbols) > 1:
+            raise ValueError("high-precision nroots requires a univariate polynomial")
+        generator = next(iter(symbols)) if symbols else Dummy("_fsym_nroots_constant")
+        binding = _core._symbol_binding(generator)
+    else:
+        generator, binding = generators[0], bindings[0]
+    if type(generator) is not Symbol and type(generator) is not Dummy:
+        raise TypeError("high-precision nroots requires an exact Symbol or Dummy generator")
+    raw_generator = _core.Basic.__dict__["_value"].__get__(generator, _core.Basic)
+    if (type(raw_generator) is not _core._native.Expr or not raw_generator.is_symbol
+            or _surface_binding_key(raw_generator.symbol_binding) != _surface_binding_key(binding)):
+        raise ValueError("high-precision nroots generator disagrees with its typed assumptions")
+    unchanged()
+    coefficients = _core._native.real_root_coefficients_native(equations[0], binding)
+    unchanged()
+    if domain == "ZZ" and any(coefficient.exact_denominator() != 1 for coefficient in coefficients):
+        raise ValueError("high-precision nroots ZZ coefficients must be exact integers")
+    roots = _core._native.real_roots_isolate_native(coefficients)
+    unchanged()
+    degree = len(coefficients) - 1
+    if sum(multiplicity for _, _, multiplicity in roots) != degree:
+        raise NotImplementedError(
+            "high-precision nroots requires the complete polynomial root set to be real; "
+            "mixed or nonreal roots currently support at most 15 digits"
+        )
+    result = []
+    for index, (_, _, multiplicity) in enumerate(roots):
+        if degree == 1:
+            # The sole root is exactly -c0/c1. Avoid absolute-interval
+            # bisection work for rational roots far outside binary64's range;
+            # the complete isolation above has already checked multiplicity.
+            native = _core._native
+            minus_one = native.py_integer(-1)
+            inverse = native.Pow(coefficients[1], minus_one, evaluate=False).as_expr()
+            quotient = native.Mul(minus_one, coefficients[0], inverse, evaluate=False).as_expr()
+            pair = native.evalf_complex_decimal_native(quotient, digits)
+            if pair is None or pair[1] != "0":
+                raise RuntimeError("exact linear-root refinement did not return a real decimal")
+            text = pair[0]
+        else:
+            text = _core._native.real_root_decimal_native(coefficients, index, digits)
+        unchanged()
+        value = _NROOTS_FLOAT(_core._format_decimal(text, digits), digits)
+        result.extend([value] * multiplicity)
+    unchanged()
+    return result
+
+
 __all__ = ["CRootOf", "ComplexRootOf", "RootOf", "all_roots", "real_roots", "rootof"]
