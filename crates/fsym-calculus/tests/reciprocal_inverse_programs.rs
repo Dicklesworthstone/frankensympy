@@ -625,3 +625,61 @@ fn kernels_share_caller_limits_and_cancellation_keeps_destinations_atomic() {
         }
     }
 }
+
+#[test]
+fn values_near_reciprocal_branch_edges_do_not_amplify_reciprocal_roundoff() {
+    // These literals denote exact binary64 inputs, not exact decimal rationals.
+    // Independent 110-digit rational-series references used sqrt(x*x-1),
+    // alternating atan, log via an atanh series, and Machin's pi formula.
+    // They never evaluated the private jets or these binary64 value kernels.
+    let cases = [
+        (
+            1.00000001,
+            [
+                9.556913967794891,
+                0.00014142135521831177,
+                1.5706549054396783,
+            ],
+        ),
+        (
+            1.000000000001,
+            [
+                14.162039699929037,
+                0.000001414276423180071,
+                1.5707949125184735,
+            ],
+        ),
+        (
+            1.0001,
+            [4.95176877564314, 0.014141546406083378, 1.5566547803888133],
+        ),
+    ];
+    let variables = [Symbol::new("x")];
+    for (column, name) in ["acoth", "asec", "acsc"].iter().enumerate() {
+        let source = function(name, Expr::symbol("x"));
+        let scalar = compile(&source);
+        let residual =
+            VerifiedResidualSystem::try_compile(std::slice::from_ref(&source), &variables).unwrap();
+        let objective = VerifiedObjective::try_compile(&source, &variables).unwrap();
+        for (magnitude, values) in cases {
+            for sign in [-1.0, 1.0] {
+                let argument = sign * magnitude;
+                let expected = if *name == "asec" && sign < 0.0 {
+                    std::f64::consts::PI - values[column]
+                } else {
+                    sign * values[column]
+                };
+                for actual in [
+                    scalar.try_eval_finite(&[argument]).unwrap(),
+                    residual.evaluate_sparse(&[argument]).unwrap().residuals[0],
+                    objective.evaluate(&[argument]).unwrap().value,
+                ] {
+                    assert!(
+                        (actual - expected).abs() <= 2e-15 * expected.abs(),
+                        "{name}({argument:e}): actual={actual:e}, expected={expected:e}"
+                    );
+                }
+            }
+        }
+    }
+}

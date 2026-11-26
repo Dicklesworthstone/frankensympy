@@ -167,19 +167,28 @@ def _math_acot(value):
 def _math_acoth(value):
     if not math.isfinite(value) or abs(value) <= 1:
         raise ValueError("math domain error")
+    magnitude = abs(value)
+    if magnitude <= 2:
+        # Preserve the distance to a pole before rounding a reciprocal.
+        return math.copysign(0.5 * math.log1p(2 / (magnitude - 1)), value)
     return math.atanh(1 / value)
 
 
 def _math_asec(value):
     if not math.isfinite(value) or abs(value) < 1:
         raise ValueError("math domain error")
-    return math.acos(1 / value)
+    magnitude = abs(value)
+    # Factoring the norm retains |x|-1 near the closed real endpoints.
+    norm = math.sqrt((magnitude - 1) / magnitude) * math.sqrt(1 + 1 / magnitude)
+    return math.atan2(norm, 1 / value)
 
 
 def _math_acsc(value):
     if not math.isfinite(value) or abs(value) < 1:
         raise ValueError("math domain error")
-    return math.asin(1 / value)
+    magnitude = abs(value)
+    norm = math.sqrt((magnitude - 1) / magnitude) * math.sqrt(1 + 1 / magnitude)
+    return math.atan2(1 / value, norm)
 
 
 def _math_asech(value):

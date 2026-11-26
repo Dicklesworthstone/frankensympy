@@ -96,7 +96,15 @@ pub(super) fn evaluate_reciprocal_inverse<M: BudgetMeter + ?Sized>(
                 return Err(EvalError::NonFiniteValue);
             }
             match order {
-                ReciprocalInverseOrder::Value => value.recip().atanh(),
+                ReciprocalInverseOrder::Value => {
+                    if magnitude <= 2.0 {
+                        // Subtract the pole before rounding a reciprocal.
+                        // Otherwise atanh amplifies the reciprocal's error.
+                        (0.5 * (2.0 / (magnitude - 1.0)).ln_1p()).copysign(value)
+                    } else {
+                        value.recip().atanh()
+                    }
+                }
                 ReciprocalInverseOrder::First => {
                     // -1/((|x|-1)(|x|+1)); no rounded x*x-1 near a pole.
                     -((magnitude - 1.0).recip() / (magnitude + 1.0))
@@ -119,16 +127,18 @@ pub(super) fn evaluate_reciprocal_inverse<M: BudgetMeter + ?Sized>(
                 return Err(EvalError::NonsmoothSource(function.name()));
             }
             let is_secant = matches!(function, ReciprocalInverse::Asec);
+            let reciprocal = magnitude.recip();
+            // Retain the distance from |x|=1 in both values and derivatives;
+            // acos/asin of a rounded reciprocal lose accuracy near that edge.
+            let norm = ((magnitude - 1.0) / magnitude).sqrt() * (1.0 + reciprocal).sqrt();
             if order == ReciprocalInverseOrder::Value {
+                let signed_reciprocal = reciprocal.copysign(value);
                 if is_secant {
-                    value.recip().acos()
+                    norm.atan2(signed_reciprocal)
                 } else {
-                    value.recip().asin()
+                    signed_reciprocal.atan2(norm)
                 }
             } else {
-                let reciprocal = magnitude.recip();
-                // sqrt(1-1/x^2), factored to retain the distance from |x|=1.
-                let norm = ((magnitude - 1.0) / magnitude).sqrt() * (1.0 + reciprocal).sqrt();
                 let scaled = reciprocal / norm;
                 let derivative = if order == ReciprocalInverseOrder::First {
                     scaled * reciprocal

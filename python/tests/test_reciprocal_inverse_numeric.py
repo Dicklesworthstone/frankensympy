@@ -39,6 +39,46 @@ def test_public_evalf_retains_thirty_digits_from_exact_real_arguments(
             assert abs(Decimal(str(value)) - Decimal(expected)) < Decimal("1e-29")
 
 
+# These references come from 110-digit fixed-point series on each exact
+# binary64 input: log via an atanh series, atan(sqrt(x*x-1)), and Machin pi.
+# They do not reuse the production reciprocal/atan2 value formulas.
+@pytest.mark.parametrize("point,reference_values", [
+    (1.00000001, (
+        "9.55691396779489086403189279587969017858",
+        "0.00014142135521831176881057371181605432",
+        "1.57065490543967830746251111792793538778",
+    )),
+    (1.000000000001, (
+        "14.16203969992903756665553006488733404574",
+        "0.00000141427642318007092633958070705303",
+        "1.57079491251847343916039535205904438907",
+    )),
+    (1.0001, (
+        "4.95176877564313991960551952262753552300",
+        "0.01414154640608337903549021978231684299",
+        "1.55665478038881324019583147185743459911",
+    )),
+])
+@pytest.mark.parametrize("name,reference_index", [("acoth", 0), ("asec", 1), ("acsc", 2)])
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_values_near_real_branch_endpoints_preserve_binary64_accuracy(
+    point, reference_values, name, reference_index, sign,
+):
+    with localcontext() as context:
+        context.prec = 50
+        reference = Decimal(reference_values[reference_index])
+        if sign < 0:
+            reference = (
+                Decimal("3.14159265358979323846264338327950288419716939937510") - reference
+                if name == "asec" else -reference
+            )
+        expected = float(reference)
+    x = s.Symbol("reciprocal_near_endpoint")
+    source = getattr(s, name)(x)
+    for program in (s.lambdify(x, source, modules="math"), s.compile_numeric(x, source)):
+        assert program(sign*point) == pytest.approx(expected, rel=2e-15, abs=0)
+
+
 @pytest.mark.parametrize("name", CASES)
 def test_values_jacobians_and_hessians_retain_both_chain_terms(name):
     anchor, expected, slope, curvature, _ = CASES[name]
