@@ -82,6 +82,16 @@ fn bounded_function_presence(source: &Expr, name: &str) -> Result<bool, &'static
 /// Inspect borrowed nodes before the Python shell can clone any child tree.
 /// Count repeated Arc paths as well: they become owned values in `raw_args`.
 fn multiquadratic_source_size(source: &Expr) -> Result<usize, MultiquadraticSourceError> {
+    bounded_exact_source_size(source, false)
+}
+
+/// Polynomial RHS binding also admits typed symbol atoms. Keep this separate
+/// from multiquadratic admission: allowing a variable there would silently
+/// broaden the algebraic-number contract.
+fn bounded_exact_source_size(
+    source: &Expr,
+    symbols: bool,
+) -> Result<usize, MultiquadraticSourceError> {
     let mut pending = vec![(source, 0usize)];
     let mut visited = 0usize;
     while let Some((node, depth)) = pending.pop() {
@@ -93,6 +103,13 @@ fn multiquadratic_source_size(source: &Expr) -> Result<usize, MultiquadraticSour
         }
         match node {
             Expr::Const(Constant::I) => {}
+            Expr::Sym(symbol) if symbols => {
+                if symbol.name.len() > 4096 {
+                    return Err(MultiquadraticSourceError::ResourceLimit(
+                        "polynomial RHS symbol name exceeds 4096 bytes",
+                    ));
+                }
+            }
             Expr::Integer(value) if value.bits() <= 4096 => {}
             Expr::Rational(value)
                 if value.numer().bits() <= 4096 && value.denom().bits() <= 4096 => {}
@@ -253,6 +270,19 @@ impl PyExpr {
                 "minimal_polynomial supports exact multiquadratic constants over QQ",
             ),
             MultiquadraticSourceError::ResourceLimit(message) => PyValueError::new_err(message),
+        })
+    }
+
+    /// Bound borrowed exact arithmetic and typed symbols before the matrix
+    /// shell reads retained children. This grants no polynomial/domain proof.
+    pub fn polynomial_source_size(&self) -> PyResult<usize> {
+        bounded_exact_source_size(&self.inner, true).map_err(|error| match error {
+            MultiquadraticSourceError::Unsupported => PyNotImplementedError::new_err(
+                "polynomial RHS requires exact rational/I arithmetic and symbols",
+            ),
+            MultiquadraticSourceError::ResourceLimit(message) => {
+                PyValueError::new_err(message.replace("minimal_polynomial", "polynomial RHS"))
+            }
         })
     }
 

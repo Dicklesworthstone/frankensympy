@@ -13,7 +13,7 @@ use super::{
     BudgetMeter, Constant, Expr, Gaussian, GaussianMatrix, Matrix, MatrixError, Operation, Result,
     SparseMatrix, Work, check_bits, limit, propose,
 };
-use fsym_core::{BigRational, Symbol};
+use fsym_core::{BigRational, Symbol, cmp_add_args, cmp_mul_factors};
 use fsym_proof_kernel::hermitian_inertia::{
     MAX_GAUSSIAN_RATIONAL_INPUT_BITS, MAX_GAUSSIAN_SOURCE_DEPTH, MAX_GAUSSIAN_SOURCE_NODES,
     MAX_GAUSSIAN_SOURCE_POWER, MAX_HERMITIAN_INERTIA_DIMENSION,
@@ -555,17 +555,22 @@ impl PolynomialMatrix {
     fn into_matrix(self, work: &mut Work<'_, impl BudgetMeter>) -> Result<Matrix> {
         let mut entries = work.vector(self.entries.len())?;
         for polynomial in self.entries {
-            let mut terms = work.vector(polynomial.len())?;
+            // A non-real constant coefficient contributes two canonical Add
+            // children; every other monomial contributes one.
+            let mut terms = work.vector(polynomial.len() + 1)?;
             for (powers, coefficient) in polynomial {
                 work.tick(1)?;
                 check_bits(&coefficient.0, MAX_GAUSSIAN_RATIONAL_INPUT_BITS)?;
                 check_bits(&coefficient.1, MAX_GAUSSIAN_RATIONAL_INPUT_BITS)?;
-                let mut factors = work.vector(self.generators.len() + 1)?;
+                let mut factors = work.vector(self.generators.len() + 2)?;
                 if !coefficient.0.is_one()
                     || !coefficient.1.is_zero()
                     || powers.iter().all(|power| *power == 0)
                 {
-                    factors.push(coefficient_expression(coefficient, work)?);
+                    match coefficient_expression(coefficient, work)? {
+                        Expr::Mul(coefficient_factors) => factors.extend(coefficient_factors),
+                        coefficient => factors.push(coefficient),
+                    }
                 }
                 for (symbol, exponent) in self.generators.iter().zip(powers) {
                     if exponent == 0 {
@@ -583,14 +588,20 @@ impl PolynomialMatrix {
                         )
                     });
                 }
-                terms.push(match factors.len() {
+                order_output(&mut factors, true, work)?;
+                let term = match factors.len() {
                     0 => Expr::from_i64(1),
                     1 => factors.pop().ok_or_else(|| {
                         MatrixError::ArithmeticInvariantViolation("empty polynomial factor".into())
                     })?,
                     _ => Expr::Mul(factors),
-                });
+                };
+                match term {
+                    Expr::Add(constant_parts) => terms.extend(constant_parts),
+                    term => terms.push(term),
+                }
             }
+            order_output(&mut terms, false, work)?;
             entries.push(match terms.len() {
                 0 => Expr::from_i64(0),
                 1 => terms.pop().ok_or_else(|| {
@@ -602,6 +613,69 @@ impl PolynomialMatrix {
         work.tick(1)?;
         Matrix::new(self.rows, self.cols, entries)
     }
+}
+
+/// Order freshly constructed, bounded output through the same total orders
+/// as ordinary Expr arithmetic. Monomial-map order is not expression order:
+/// returning raw map iteration makes `solve(B)[i] == expected` spuriously
+/// false. No input expression is simplified by this publication step.
+///
+/// The existing core comparators format some bounded output operands. Reserve
+/// their temporary strings and integer-formatting work before sorting. Every
+/// node here was constructed from the admitted coefficient map above.
+fn order_output(
+    values: &mut [Expr],
+    product: bool,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<()> {
+    if values.len() < 2 {
+        return Ok(());
+    }
+    fn weight(expression: &Expr) -> (u64, u64) {
+        match expression {
+            Expr::Integer(value) => {
+                let limbs = value.limb_count() + 1;
+                (value.bits() + 64, 16 * limbs * limbs + value.bits() + 64)
+            }
+            Expr::Rational(value) => {
+                let limbs = value.numer().limb_count() + value.denom().limb_count() + 2;
+                let bits = value.numer().bits() + value.denom().bits();
+                (bits + 128, 16 * limbs * limbs + bits + 128)
+            }
+            Expr::Sym(symbol) => {
+                let bytes = symbol.name.len() as u64 + 128;
+                (bytes, bytes)
+            }
+            Expr::Add(children) | Expr::Mul(children) | Expr::Function(_, children) => {
+                children.iter().fold((128, 128), |(bytes, steps), child| {
+                    let (child_bytes, child_steps) = weight(child);
+                    (bytes + child_bytes + 32, steps + child_steps + 32)
+                })
+            }
+            Expr::Pow(base, exponent) => {
+                let (base_bytes, base_steps) = weight(base);
+                let (exponent_bytes, exponent_steps) = weight(exponent);
+                (
+                    base_bytes + exponent_bytes + 128,
+                    base_steps + exponent_steps + 128,
+                )
+            }
+            Expr::Const(_) => (128, 128),
+        }
+    }
+    let (bytes, steps) = values.iter().map(weight).fold((0, 0), |largest, next| {
+        (largest.0.max(next.0), largest.1.max(next.1))
+    });
+    let count = values.len() as u64;
+    let comparisons = 4 * count * (count.ilog2() as u64 + 2);
+    work.tick(2 * comparisons * steps)?;
+    work.storage(8 * comparisons * bytes)?;
+    values.sort_unstable_by(if product {
+        cmp_mul_factors
+    } else {
+        cmp_add_args
+    });
+    Ok(())
 }
 
 fn coefficient_expression(

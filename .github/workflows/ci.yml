@@ -413,6 +413,7 @@ jobs:
               "python/tests/test_matrix_complex_least_squares.py",
               "python/tests/test_matrix_complex_least_squares_family.py",
               "python/tests/test_matrix_complex_exact_solve.py",
+              "python/tests/test_matrix_polynomial_rhs.py",
               "python/tests/test_matrix_complex_row_reduction.py",
               "python/tests/test_matrix_rank_decomposition.py",
               "python/tests/test_matrix_lu_exact.py",

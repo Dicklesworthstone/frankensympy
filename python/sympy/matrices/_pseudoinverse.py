@@ -8,7 +8,7 @@ and columns. Sparse complex sources enter a bounded dense native view only
 after admission. Ordinary literal-rational calls retain their existing bounds.
 """
 
-from ..core import _active_callback_session, _charge_nested_if_active
+from ..core import _active_callback_session, _charge_nested_if_active, _wrap
 from . import _definiteness as _source
 
 
@@ -18,13 +18,14 @@ _NAMES = ("shape", "is_exact_rational", "validate_gaussian_pseudoinverse_source"
           "solve", "inv", "has_gaussian_rational_syntax", "gaussian_qr",
           "gaussian_rref", "gaussian_nullspace", "gaussian_gauss_jordan_solve",
           "gaussian_lu", "lu", "gaussian_det", "gaussian_ldl", "gaussian_cholesky", "ldl",
-          "gaussian_power")
+          "gaussian_power", "has_polynomial_rhs_syntax", "validate_polynomial_rhs_source")
 _METHODS = tuple(_source._DICT.__get__(_NATIVE)[name] for name in _NAMES)
 _CLASSES = (_source.Matrix, _source.ImmutableDenseMatrix)
 _SPARSE_CLASSES = (_source.SparseMatrix, _source.ImmutableSparseMatrix)
 _SPARSE_NATIVE = _source._NATIVE[_source.SparseMatrix]
 _SPARSE_NAMES = ("shape", "is_exact_rational", "validate_gaussian_pseudoinverse_source",
-                 "to_dense", "has_gaussian_rational_syntax")
+                 "to_dense", "has_gaussian_rational_syntax",
+                 "has_polynomial_rhs_syntax", "validate_polynomial_rhs_source")
 _SPARSE_METHODS = tuple(_source._DICT.__get__(_SPARSE_NATIVE)[name] for name in _SPARSE_NAMES)
 
 
@@ -35,6 +36,8 @@ def _interfaces(operation, context, base):
                 else (0, 1, 2, operation))
     if operation in (8, 11, 12, 13, 16, 17, 18, 20):
         required += (9,)
+    if operation == 7:
+        required += (9, 21, 22)
     if any(namespace.get(_NAMES[index]) is not _METHODS[index]
            for index in required):
         raise NotImplementedError("%s requires original native interfaces" % context)
@@ -66,9 +69,96 @@ def _needs_gaussian(matrix):
             not any(type(entry) is atom for atom in _source._ATOMS) for entry in cells))
 
 
-def _capture(matrix, session, operation, context, *, allow_sparse=False, force_gaussian=False):
+def _ingress_snapshot(matrix, context):
+    """Retain built-in storage before the first reentrant request charge.
+
+    The established rational lane admits larger sparse matrices. Reuse its
+    stored-entry bound here; polynomial/Gaussian source admission still applies
+    its stricter dimension and expression limits before any scalar lift.
+    """
+    from .sparse import _MAX_SPARSE_ENTRIES
+
+    dense = any(type(matrix) is cls for cls in _CLASSES)
+    sparse = any(type(matrix) is cls for cls in _SPARSE_CLASSES)
+    if not dense and not sparse:
+        # Legacy rational subclasses retain their existing supervised/view
+        # checks; capturing their custom accessors here would change that lane.
+        return None
+    base = _source.Matrix if dense else _source.SparseMatrix
+    native_type = _NATIVE if dense else _SPARSE_NATIVE
+    methods = _METHODS if dense else _SPARSE_METHODS
+    state = tuple(slot.__get__(matrix, base) for slot in _source._SLOTS[base])
+    native, shape, surface, generation = state
+    if (type(shape) is not tuple or len(shape) != 2
+            or any(type(size) is not int or size < 0 for size in shape)
+            or type(generation) is not int or generation < 0):
+        raise ValueError("%s has an invalid source snapshot" % context)
+    if native is not None and (
+            type(native) is not native_type
+            or methods[0].__get__(native, native_type) != shape):
+        raise ValueError("%s requires intact native matrix storage" % context)
+    if surface is not None:
+        if (type(surface) is not (tuple if dense else dict)
+                or len(surface) > _MAX_SPARSE_ENTRIES):
+            raise ValueError("%s has an invalid stored-cell snapshot" % context)
+        if native is not None and (
+                len(surface) != shape[0]*shape[1] if dense
+                else len(surface) > shape[0]*shape[1]):
+            raise ValueError("%s retained cells do not match its shape" % context)
+        if sparse and any(
+                type(key) is not tuple or len(key) != 2
+                or any(type(index) is not int for index in key)
+                or not (0 <= key[0] < shape[0] and 0 <= key[1] < shape[1])
+                for key in surface):
+            # Reject foreign keys before copying or the unchanged check can
+            # invoke their hash/equality methods.
+            raise ValueError("%s has an invalid retained sparse coordinate" % context)
+    retained = dict(surface) if sparse and surface is not None else surface
+    return matrix, base, state, retained
+
+
+def _check_ingress(snapshot):
+    if snapshot is not None:
+        _source._unchanged(*snapshot)
+
+
+def _polynomial_rhs(matrix, session, *, ingress=None):
+    """Select the polynomial grammar before solving, without copying cells.
+
+    A false syntax result selects the established exact numeric path. Every
+    resource, cancellation, malformed-storage or later domain error is terminal.
+    """
+    dense = any(type(matrix) is cls for cls in _CLASSES)
+    sparse = any(type(matrix) is cls for cls in _SPARSE_CLASSES)
+    if not dense and not sparse:
+        return False
+    base = _source.Matrix if dense else _source.SparseMatrix
+    ingress = _ingress_snapshot(matrix, "exact linear solve") if ingress is None else ingress
+    if ingress[0] is not matrix:
+        raise RuntimeError("exact linear solve received a different ingress owner")
+    _interfaces(7, "exact linear solve", base)
+    _check_ingress(ingress)
+    state, retained = ingress[2:]
+    native, _shape, _surface, _generation = state
+    if native is None:
+        return False
+    gaussian = _METHODS[9] if dense else _SPARSE_METHODS[4]
+    polynomial = _METHODS[21] if dense else _SPARSE_METHODS[5]
+    selected = not gaussian(native, session=session) and polynomial(native, session=session)
+    if _active_callback_session() is not session:
+        raise RuntimeError("exact linear solve request changed during selection")
+    _source._unchanged(matrix, base, state, retained)
+    return selected
+
+
+def _capture(matrix, session, operation, context, *, allow_sparse=False,
+             force_gaussian=False, polynomial_rhs=False, ingress=None):
     """Bind one original source and retain its publication-time check."""
+    ingress = _ingress_snapshot(matrix, context) if ingress is None else ingress
+    if ingress is not None and ingress[0] is not matrix:
+        raise RuntimeError("%s received a different ingress owner" % context)
     _charge_nested_if_active()
+    _check_ingress(ingress)
     dense = any(type(matrix) is cls for cls in _CLASSES)
     sparse = allow_sparse and any(type(matrix) is cls for cls in _SPARSE_CLASSES)
     if not dense and not sparse:
@@ -77,8 +167,7 @@ def _capture(matrix, session, operation, context, *, allow_sparse=False, force_g
     native_type = _NATIVE if dense else _SPARSE_NATIVE
     methods = _METHODS if dense else _SPARSE_METHODS
     _interfaces(operation, context, base)
-    slots = _source._SLOTS[base]
-    state = tuple(slot.__get__(matrix, base) for slot in slots)
+    state = ingress[2]
     native, shape, surface, generation = state
     if (type(shape) is not tuple or len(shape) != 2
             or any(type(size) is not int or size < 0 for size in shape)
@@ -104,19 +193,24 @@ def _capture(matrix, session, operation, context, *, allow_sparse=False, force_g
 
     # Select from the original source grammar. A held rational value may still
     # contain an undefined pole and cannot enter the literal-rational shortcut.
-    preflighted = session is not None or force_gaussian
+    preflighted = session is not None or force_gaussian or polynomial_rhs
+    preflight = ((_METHODS[22] if dense else _SPARSE_METHODS[6])
+                 if polynomial_rhs else methods[2])
     if preflighted:
-        methods[2](native, session=session)
+        preflight(native, session=session)
+        _check_ingress(ingress)
     cells = surface if dense or surface is None else dict.values(surface)
     literal = methods[1].__get__(native, native_type) and (
         surface is None or all(any(type(entry) is atom for atom in _source._ATOMS)
                                for entry in cells)
     )
     rational_snapshot = None
+    symbol_records = ()
     scalars = ()
-    retained = surface
+    retained = ingress[3]
     if literal:
         _charge_nested_if_active(rows*columns + 1)
+        _check_ingress(ingress)
         captured = _source._rational_source_snapshot(matrix, dense=dense, context=context)
         if captured is None:
             raise RuntimeError("%s lost its original rational source" % context)
@@ -126,15 +220,51 @@ def _capture(matrix, session, operation, context, *, allow_sparse=False, force_g
     else:
         # Bound the complete original native graph before copying its cells.
         if not preflighted:
-            methods[2](native, session=session)
-        if surface is not None:
-            retained = surface if dense else dict(surface)
+            preflight(native, session=session)
+            _check_ingress(ingress)
+        if polynomial_rhs:
+            from ..solvers import _sparse_linear as symbols
+
+            # Validate typed-binding descriptors before lifting or asking the
+            # retained forest to read any symbol declarations.
+            symbols._interfaces()
+        if surface is not None or polynomial_rhs:
+            if surface is None:
+                # Native-only polynomial values still need their registered
+                # Symbol/Dummy owners and declarations. Admission above bounds
+                # this copy before any expression children can be lifted.
+                _charge_nested_if_active(rows*columns + 1)
+                _check_ingress(ingress)
+                entries = _source._NATIVE_CELLS[base][1](native)
+                retained = (tuple(_wrap(entry) for entry in entries) if dense else
+                            {key: _wrap(entry) for key, entry in entries.items()})
             scalars = _source._closed(
-                retained if dense else dict.values(retained), gaussian=True)
+                retained if dense else dict.values(retained), gaussian=True,
+                polynomial=polynomial_rhs)
             if scalars is None:
                 raise NotImplementedError(
-                    "%s requires closed exact Gaussian-rational cells" % context)
-            _source._bind_gaussian(native, base, retained, scalars)
+                    "%s requires closed exact commuting polynomial cells" % context
+                    if polynomial_rhs else "%s requires closed exact Gaussian-rational cells" % context)
+            if polynomial_rhs:
+                # Reuse the exact linear-system symbol boundary: it binds
+                # declarations, registry owners and both Dummy identity slots.
+                # Check each supplied owner, even repeated equal Dummies.
+                records = []
+                for scalar, *_ in scalars:
+                    if type(scalar) not in (_source.Symbol, _source.Dummy):
+                        continue
+                    if type(scalar) is _source.Dummy:
+                        name, number = (slot.__get__(scalar, _source.Dummy)
+                                        for slot in symbols._DUMMY_SLOTS)
+                        if (type(name) is not str or len(name) > 1024
+                                or type(number) not in (int, bool)
+                                or int.bit_length(number) > 4096):
+                            raise ValueError("polynomial RHS Dummy identity exceeds its bounds")
+                    records.extend(symbols._coordinates((scalar,), 1))
+                symbol_records = tuple(records)
+                _source._bind_gaussian(native, base, retained, scalars, polynomial=True)
+            else:
+                _source._bind_gaussian(native, base, retained, scalars)
 
     def unchanged():
         _interfaces(operation, context, base)
@@ -142,6 +272,9 @@ def _capture(matrix, session, operation, context, *, allow_sparse=False, force_g
             raise RuntimeError("%s request changed during evaluation" % context)
         if rational_snapshot is not None:
             _source._check_rational_source(rational_snapshot)
+        if symbol_records:
+            symbols._interfaces()
+            symbols._check_coordinates(symbol_records)
         _source._unchanged(matrix, base, state, retained, scalars)
 
     if sparse:
@@ -166,8 +299,8 @@ def _publish(native, shape, cls, unchanged, context):
     result = object.__new__(cls)
     for slot, value in zip(_source._SLOTS[_source.Matrix], (native, shape, None, 0)):
         slot.__set__(result, value)
-    unchanged()
     _charge_nested_if_active()
+    unchanged()
     return result
 
 
@@ -321,24 +454,32 @@ def solve_least_squares(matrix, rhs):
 def solve_exact(matrix, rhs, *, lu=False):
     """Return the unique exact solution of both retained original sources.
 
-    The Q(i) lane checks a left inverse and the full original residual.
+    The Q(i) and polynomial-RHS lanes check a left inverse and the full
+    original residual. Polynomial coefficients remain exact throughout.
     Failure is terminal, including inconsistency and request exhaustion.
     """
     original_matrix, original_rhs = matrix, rhs
     if not any(parent is _source.Matrix or parent is _source.SparseMatrix
                for parent in _source._MRO.__get__(type(rhs))):
         raise TypeError("solve requires a built-in Matrix right-hand side")
+    left_ingress = _ingress_snapshot(matrix, "exact linear solve")
+    right_ingress = _ingress_snapshot(rhs, "exact linear solve")
     _charge_nested_if_active()
+    _check_ingress(left_ingress)
+    _check_ingress(right_ingress)
     session = _active_callback_session()
     matrix, matrix_owner_unchanged = _legacy_rational_view(matrix, 7, "exact linear solve")
     rhs, rhs_owner_unchanged = _legacy_rational_view(rhs, 7, "exact linear solve")
     gaussian = session is not None or _needs_gaussian(matrix) or _needs_gaussian(rhs)
+    polynomial = gaussian and _polynomial_rhs(rhs, session, ingress=right_ingress)
     if gaussian and (original_matrix is not matrix or original_rhs is not rhs):
         raise NotImplementedError("custom matrix subclasses require a supervised override lane")
     left, (rows, columns), left_unchanged = _capture(
-        matrix, session, 7, "exact linear solve", allow_sparse=True, force_gaussian=gaussian)
+        matrix, session, 7, "exact linear solve", allow_sparse=True, force_gaussian=gaussian,
+        ingress=left_ingress)
     right, (rhs_rows, rhs_columns), right_unchanged = _capture(
-        rhs, session, 7, "exact linear solve", allow_sparse=True, force_gaussian=gaussian)
+        rhs, session, 7, "exact linear solve", allow_sparse=True, force_gaussian=gaussian,
+        polynomial_rhs=polynomial, ingress=right_ingress)
     if rows != rhs_rows:
         raise ValueError("The matrices have incompatible number of rows")
     if rows != columns:
@@ -363,15 +504,16 @@ def solve_exact(matrix, rhs, *, lu=False):
     solution = _METHODS[7](left, right, session=session)
     unchanged()
     shape = (columns, rhs_columns)
-    # Sparse LUsolve keeps the RHS class for every shape. Ordinary sparse
-    # solve promotes mutable coefficients to the RHS class, while immutable
-    # sparse coefficients retain their own class. Dense rectangular LUsolve
-    # has the established RHS rule; its square contract retains the owner.
+    # Built-in LUsolve follows the RHS class for every shape/storage kind;
+    # square legacy dense subclasses keep their established _new constructor.
+    # Ordinary sparse solve promotes mutable coefficients to the RHS class,
+    # while immutable sparse coefficients retain their own class.
     if any(type(original_matrix) is cls for cls in _SPARSE_CLASSES):
         owner = (original_rhs if lu or type(original_matrix) is _source.SparseMatrix
                  else original_matrix)
     else:
-        owner = (original_rhs if lu and rows != columns
+        owner = (original_rhs if lu
+                 and (rows != columns or any(type(original_matrix) is known for known in _CLASSES))
                  and any(type(original_rhs) is known for known in _CLASSES + _SPARSE_CLASSES)
                  else original_matrix)
     cls = type(owner)
@@ -379,8 +521,8 @@ def solve_exact(matrix, rhs, *, lu=False):
         # Keep the legacy subclass's construction hook, then recheck every
         # original input in case that hook had effects during publication.
         result = owner._new(solution)
-        unchanged()
         _charge_nested_if_active()
+        unchanged()
         return result
     if not any(cls is candidate for candidate in _SPARSE_CLASSES):
         return _publish(solution, shape, cls, unchanged, "exact linear solve")
@@ -395,8 +537,8 @@ def solve_exact(matrix, rhs, *, lu=False):
     result = object.__new__(cls)
     for slot, value in zip(_source._SLOTS[_source.SparseMatrix], (sparse, shape, None, 0)):
         slot.__set__(result, value)
-    unchanged()
     _charge_nested_if_active()
+    unchanged()
     return result
 
 

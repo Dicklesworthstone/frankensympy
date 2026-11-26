@@ -885,6 +885,42 @@ impl PyMatrix {
         }
     }
 
+    /// Borrow original polynomial RHS roots before the shell copies cells.
+    #[pyo3(signature = (*, session=None))]
+    pub fn validate_polynomial_rhs_source(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<()> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = self
+            .inner
+            .validate_polynomial_rhs_source_with_meter(&mut meter)
+            .map_err(matrix_err);
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
+    }
+
+    /// Select bounded Q(i)[symbols] syntax without granting domain admission.
+    #[pyo3(signature = (*, session=None))]
+    pub fn has_polynomial_rhs_syntax(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<bool> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = self
+            .inner
+            .has_polynomial_rhs_syntax_with_meter(&mut meter)
+            .map_err(matrix_err);
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
+    }
+
     /// Borrowed integer admission before any public source copying.
     pub fn validate_integer_normal_form_source(&self) -> PyResult<()> {
         self.inner
@@ -1690,7 +1726,8 @@ impl PyMatrix {
         Ok(Self { inner: m })
     }
 
-    /// Solves `self * X = B` exactly and uniquely, including bounded Q(i).
+    /// Solves `self * X = B` exactly and uniquely, including Q(i) coefficients
+    /// with bounded polynomial right-hand sides.
     /// A complex least-squares projection is never an exact solution.
     #[pyo3(signature = (b, *, session=None))]
     pub fn solve(
@@ -1704,6 +1741,15 @@ impl PyMatrix {
             meter.checkpoint().map_err(to_value_error)?;
             let solution = if session.is_none() {
                 self.inner.solve(&b.inner)
+            } else if !b
+                .inner
+                .has_gaussian_rational_syntax_with_meter(&mut meter)
+                .map_err(matrix_err)?
+                && b.inner
+                    .has_polynomial_rhs_syntax_with_meter(&mut meter)
+                    .map_err(matrix_err)?
+            {
+                self.inner.metered_polynomial_solve(&b.inner, &mut meter)
             } else {
                 self.inner.metered_gaussian_solve(&b.inner, &mut meter)
             }
@@ -2174,6 +2220,42 @@ impl PySparseMatrix {
         let result = self
             .inner
             .validate_gaussian_pseudoinverse_source_with_meter(&mut meter)
+            .map_err(matrix_err);
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
+    }
+
+    /// Admit sparse polynomial RHS roots before any dense allocation.
+    #[pyo3(signature = (*, session=None))]
+    pub fn validate_polynomial_rhs_source(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<()> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = self
+            .inner
+            .validate_polynomial_rhs_source_with_meter(&mut meter)
+            .map_err(matrix_err);
+        match meter.failure {
+            Some(error) => Err(error),
+            None => result,
+        }
+    }
+
+    /// Select sparse polynomial syntax without copying or simplifying cells.
+    #[pyo3(signature = (*, session=None))]
+    pub fn has_polynomial_rhs_syntax(
+        &self,
+        py: Python<'_>,
+        session: Option<PyRef<'_, PySupervisedCallbackSession>>,
+    ) -> PyResult<bool> {
+        let mut meter = InertiaRequestMeter::new(py, session.as_deref());
+        let result = self
+            .inner
+            .has_polynomial_rhs_syntax_with_meter(&mut meter)
             .map_err(matrix_err);
         match meter.failure {
             Some(error) => Err(error),

@@ -2307,9 +2307,9 @@ and the complete original residual `A*X == B`. This establishes both uniqueness
 and existence; an inconsistent system cannot return its least-squares
 projection. Inverse acceptance checks both multiplication orders.
 
-Built-in mutable and immutable dense coefficient classes are preserved.
-Rectangular `LUsolve()` retains the right-hand side's built-in dense or sparse
-class. Existing literal-rational subclass operations retain their construction
+Dense `solve()` and `inv()` preserve the coefficient matrix class. `LUsolve()`
+retains the right-hand side's built-in dense or sparse class for both square
+and rectangular systems. Existing literal-rational subclass operations retain their construction
 hooks, with original sources checked again before publication. Held arithmetic
 is admitted from its original expression graph, so hidden undefined children
 cannot disappear through zero multiplication or cancellation.
@@ -2324,6 +2324,56 @@ bounds, and symbolic inverse selection retains its existing path.
 This is synchronous in-process reference checking. It does not issue a new
 portable certificate or reserve protected verifier resources, and the broad
 matrix compatibility profile remains open.
+
+## Exact systems with polynomial right-hand sides (development API)
+
+`solve()` and `LUsolve()` accept polynomial right-hand sides when the coefficient
+matrix has exact rational or Gaussian-rational entries. This includes nonlinear
+polynomials, multiple variables, several RHS columns and consistent tall systems:
+
+```python
+from sympy import Matrix, SparseMatrix, symbols
+
+x, y = symbols("x y")
+A = Matrix([[1, 2], [0, 1]])
+B = Matrix([[x**2 + 2*y, x*y + 2], [y, 1]])
+X = A.LUsolve(B)
+# X is Matrix([[x**2, x*y], [y, 1]]).
+
+tall = SparseMatrix([[1, 0], [0, 1], [1, 1]])
+rhs = Matrix([x**2, y, x**2 + y])
+result = tall.LUsolve(rhs)
+# result is Matrix([[x**2], [y]]).
+```
+
+The native solver operates on exact polynomial coefficient maps. A separate
+coefficient-by-coefficient checker rereads the original sources and checks
+`L*A == I`, `X == L*B` and `A*X == B`. A residual that vanishes at a few sampled
+points is insufficient. Inconsistent systems and systems without a unique
+solution refuse the request; the API does not assign arbitrary free parameters.
+
+Both dense and sparse built-in matrix classes are supported. `LUsolve()` keeps
+the RHS class. Dense `solve()` keeps the coefficient class; mutable sparse
+`solve()` uses the RHS class, and immutable sparse `solve()` keeps its own class.
+The existing sparse `solve()` restriction to square systems still applies;
+use `LUsolve()` for consistent tall sparse systems. Sparse inputs are admitted
+before a bounded dense view, so this polynomial lane makes no sparse scaling claim.
+
+The polynomial lane admits at most 32 rows, unknowns and RHS columns, eight
+typed symbol identities, total degree 64, 256 terms per cell and 16,384 terms
+per matrix. Coefficients stay in Q(i), with 4096-bit input/output components
+and bounded intermediate growth. The native solve shares its existing
+20-million-step and 256-MiB logical-allocation envelope through generation,
+reference checking and publication; active requests retain cumulative accounting.
+
+Same-name symbols with different declarations and distinct Dummies remain
+distinct coordinates. Original retained cells, symbol declarations, Dummy
+identities and storage owners are checked through publication. Held symbolic
+denominators, unresolved symbolic zeroth powers, undefined children, floating
+inputs and noncommuting or infinite declared symbols are explicitly refused.
+Symbolic coefficient matrices and polynomial affine-family generation are
+outside this slice. The result is checked by an in-process reference algorithm;
+it does not establish a portable proof certificate or close the matrix profile.
 
 ## Exact sparse linear algebra (development API)
 

@@ -10,7 +10,7 @@ from typing import Any, Dict, Tuple
 from ..core import (
     Basic, Expr, Half, Integer, NegativeOne, One, Rational, Symbol,
     Tuple as _SymbolicTuple, Zero,
-    _native, _native_expr, _wrap, _SYMBOL_CACHE, _surface_symbols,
+    _active_callback_session, _native, _native_expr, _wrap, _SYMBOL_CACHE, _surface_symbols,
 )
 from .dense import Matrix, MatrixBase, ImmutableDenseMatrix, _matrix_dimensions, _surface_entry
 
@@ -1137,13 +1137,14 @@ class SparseMatrix(MatrixBase):
         complex coefficient/RHS matrices use the bounded exact checker through
         32 axes, preserving the pinned result class and original source owners.
         """
-        from ._pseudoinverse import solve_exact
+        from ._pseudoinverse import _needs_gaussian, _polynomial_rhs, solve_exact
         from ._row_reduction import _selected
 
         if (any(type(self) is cls for cls in (SparseMatrix, ImmutableSparseMatrix))
                 and any(type(b) is cls for cls in
                         (Matrix, ImmutableDenseMatrix, SparseMatrix, ImmutableSparseMatrix))
-                and (_selected(self) or _selected(b))):
+                and (_selected(self) or _selected(b)
+                     or _needs_gaussian(b) and _polynomial_rhs(b, _active_callback_session()))):
             return solve_exact(self, b)
         # SparseMatrix.solve and LUsolve have different rectangular contracts
         # in the pinned profile. The native solve also serves LUsolve below.
@@ -1163,7 +1164,12 @@ class SparseMatrix(MatrixBase):
         else:
             sparse_rhs = SparseMatrix(b.to_dense())
         if self._native.is_exact_rational and sparse_rhs._native.is_exact_rational:
-            return self._new(self._native.solve(sparse_rhs._native))
+            solution = self._native.solve(sparse_rhs._native)
+            if (type(self) is SparseMatrix
+                    and any(type(b) is cls for cls in
+                            (Matrix, ImmutableDenseMatrix, SparseMatrix, ImmutableSparseMatrix))):
+                return _checked_sparse_lift(solution, type(b))
+            return self._new(solution)
         return self._new(self.to_dense().solve(sparse_rhs.to_dense()))
 
     def LUdecomposition(self, iszerofunc=None, simpfunc=None, rankcheck=False):
@@ -1254,10 +1260,11 @@ class SparseMatrix(MatrixBase):
         rhs_sparse = any(type(b) is cls for cls in (SparseMatrix, ImmutableSparseMatrix))
         if not rhs_sparse and not any(type(b) is cls for cls in (Matrix, ImmutableDenseMatrix)):
             raise TypeError("LUsolve requires a built-in Matrix right-hand side")
-        from ._pseudoinverse import solve_exact
+        from ._pseudoinverse import _needs_gaussian, _polynomial_rhs, solve_exact
         from ._row_reduction import _selected
 
-        if _selected(self) or _selected(b):
+        if (_selected(self) or _selected(b)
+                or _needs_gaussian(b) and _polynomial_rhs(b, _active_callback_session())):
             return solve_exact(self, b, lu=True)
         left = _rational_source_snapshot(self, context="sparse LUsolve")
         right = _rational_source_snapshot(b, dense=not rhs_sparse, context="sparse LUsolve")

@@ -339,6 +339,13 @@ impl PySupervisedCallbackSession {
         Ok(())
     }
 
+    /// Atomically reserve internal native work without spending a refused
+    /// charge. The existing public charger below keeps its legacy accounting.
+    #[pyo3(name = "charge_nested_steps_atomic")]
+    pub fn charge_nested_steps_atomic_py(&self, py: Python<'_>, steps: u64) -> PyResult<u64> {
+        self.charge_nested_steps_atomic(py, steps)
+    }
+
     /// Monotonically charges nested native evaluation steps against this session.
     ///
     /// Fallback never resets accounting. Exceeding `max_nested_steps` taints

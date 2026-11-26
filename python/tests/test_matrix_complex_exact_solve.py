@@ -168,9 +168,9 @@ def test_mutated_retained_scalar_graphs_are_terminal(method, mutation, monkeypat
     elif mutation == "arguments":
         monkeypatch.setattr(child, "_args", (Integer(3), I))
     elif mutation == "surface":
-        monkeypatch.setattr(child, "_surface_args", (Integer(3), I))
+        monkeypatch.setattr(child, "_surface_args", (Integer(3), I), raising=False)
     else:
-        monkeypatch.setattr(child, "_struct_args", (Integer(3), I))
+        monkeypatch.setattr(child, "_struct_args", (Integer(3), I), raising=False)
     with pytest.raises(RuntimeError, match="retained.*differ"):
         if method == "inv":
             matrix.inv()

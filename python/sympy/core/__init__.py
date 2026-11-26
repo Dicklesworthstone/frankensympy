@@ -173,7 +173,7 @@ def supervised_callback_session(
 def _charge_nested_if_active(steps: int = 1) -> None:
     session = _active_callback_session()
     if session is not None:
-        session.charge_nested_steps(max(1, int(steps)))
+        session.charge_nested_steps_atomic(max(1, int(steps)))
 
 
 def _invoke_supervised_callback(

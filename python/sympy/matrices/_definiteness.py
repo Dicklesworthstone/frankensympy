@@ -63,6 +63,9 @@ _NATIVE_CELLS = {
 _SCALAR_NATIVE_NAMES = ("raw_args", "is_integer", "is_rational", "is_add", "is_mul", "is_pow",
                         "multiquadratic_source_size")
 _SCALAR_NATIVE = tuple(_DICT.__get__(_NATIVE_EXPR)[name] for name in _SCALAR_NATIVE_NAMES)
+_POLYNOMIAL_NATIVE_NAMES = ("is_symbol", "polynomial_source_size")
+_POLYNOMIAL_NATIVE = tuple(_DICT.__get__(_NATIVE_EXPR)[name]
+                           for name in _POLYNOMIAL_NATIVE_NAMES)
 _NATIVE_ZERO = _SCALAR_SLOTS[0].__get__(Zero(), Basic)
 _FIXED_NATIVE = {cls: _SCALAR_SLOTS[0].__get__(cls(), Basic)
                  for cls in (Zero, One, NegativeOne, Half)}
@@ -75,6 +78,9 @@ def _interfaces():
     if any(_DICT.__get__(_NATIVE_EXPR).get(name) is not descriptor
            for name, descriptor in zip(_SCALAR_NATIVE_NAMES, _SCALAR_NATIVE)):
         raise NotImplementedError("matrix definiteness requires original native scalar interfaces")
+    if any(_DICT.__get__(_NATIVE_EXPR).get(name) is not descriptor
+           for name, descriptor in zip(_POLYNOMIAL_NATIVE_NAMES, _POLYNOMIAL_NATIVE)):
+        raise NotImplementedError("matrix source binding requires original native scalar interfaces")
     if any(_reduction_binding(cls, "_assumptions") is not _DECLARATIONS
            for cls in (Symbol, Dummy)):
         raise NotImplementedError("matrix definiteness requires original symbol declarations")
@@ -132,7 +138,7 @@ def _unchanged(matrix, base, state, retained, scalars=()):
                 raise RuntimeError("Matrix symbol assumptions mutated during definiteness evaluation")
 
 
-def _closed(entries, *, gaussian=False):
+def _closed(entries, *, gaussian=False, polynomial=False):
     from ..assumptions._query import typed_symbol
     from ..core._opaque_arithmetic import _children
 
@@ -152,13 +158,13 @@ def _closed(entries, *, gaussian=False):
         stored = tuple(_slot(slot, value) for slot in slots)
         if stored[0] is not None and type(stored[0]) is not _NATIVE_EXPR:
             raise NotImplementedError("matrix definiteness requires original native scalar storage")
-        if gaussian:
+        if gaussian or polynomial:
             if type(stored[0]) is not _NATIVE_EXPR:
                 raise NotImplementedError("matrix definiteness requires original native scalar storage")
             # Retained handles are mutable independently of matrix storage.
             # Bound each current graph before equality, child copies or any
             # scalar property can traverse a replaced handle.
-            size = _SCALAR_NATIVE[-1](stored[0])
+            size = (_POLYNOMIAL_NATIVE[1] if polynomial else _SCALAR_NATIVE[-1])(stored[0])
             expanded += size
             if expanded > 4096 * 65:
                 raise ValueError("Gaussian definiteness binding exceeds its expression envelope")
@@ -174,6 +180,7 @@ def _closed(entries, *, gaussian=False):
             declared = _DECLARATIONS.__get__(value, Symbol)
             if (type(declared) is not dict or len(declared) > 64
                     or any(type(name) is not str or type(fact) is not bool
+                           or polynomial and len(name) > 256
                            for name, fact in dict.items(declared))):
                 raise ValueError("matrix definiteness requires bounded canonical symbol declarations")
             typed_symbol(value)
@@ -203,8 +210,9 @@ def _closed(entries, *, gaussian=False):
             pending.extend((child, depth + 1) for child in children)
     # Admit the entire retained graph before an assumption property can inspect
     # any child. Owner checks alone do not bind mutable scalar payloads.
-    if not gaussian and any(value.is_commutative is not True or value.is_finite is False
-                            for value, *_ in records):
+    if (not gaussian or polynomial) and any(
+            value.is_commutative is not True or value.is_finite is False
+            for value, *_ in records):
         return None
     return tuple(records)
 
@@ -218,7 +226,7 @@ def _all(values):
     return None
 
 
-def _bind_gaussian(native, base, retained, scalars):
+def _bind_gaussian(native, base, retained, scalars, *, polynomial=False):
     """Bind every retained cell and child before native exact publication.
 
     Admission has already bounded the borrowed native graph. Checking only the
@@ -257,6 +265,9 @@ def _bind_gaussian(native, base, retained, scalars):
         elif type(scalar) is _IMAGINARY_TYPE:
             if _NATIVE_EQUAL(value, _IMAGINARY_VALUE) is not True:
                 raise RuntimeError("Matrix retained imaginary unit differs from its native source")
+        elif polynomial and type(scalar) in (Symbol, Dummy):
+            if _POLYNOMIAL_NATIVE[0].__get__(value, _NATIVE_EXPR) is not True:
+                raise RuntimeError("Matrix retained symbol differs from its native polynomial source")
         else:
             kind = kinds.get(type(scalar))
             if kind is None or kind.__get__(value, _NATIVE_EXPR) is not True:

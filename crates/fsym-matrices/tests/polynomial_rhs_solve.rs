@@ -651,3 +651,24 @@ fn independent_checker_keeps_its_final_budget_and_cancellation_boundary() {
         Err(MatrixError::ResourceLimit(_))
     ));
 }
+
+#[test]
+fn published_polynomials_have_the_canonical_expression_structure() {
+    let x = variable("canonical_x");
+    let y = variable("canonical_y");
+    // Independently construct normal expressions through the core arithmetic
+    // API. These assertions check public structural equality, not expansion.
+    let expected = matrix(
+        1,
+        4,
+        vec![
+            x.clone() - integer(2) * y.clone(),
+            integer(3) * imaginary() * power(x.clone(), 2) * y.clone(),
+            x.clone() + integer(3) + integer(2) * imaginary(),
+            (integer(1) + imaginary()) * power(x, 2) * y,
+        ],
+    );
+    let identity = matrix(1, 1, vec![integer(1)]);
+    let actual = identity.solve(&expected).unwrap();
+    assert_eq!(actual, expected);
+}
