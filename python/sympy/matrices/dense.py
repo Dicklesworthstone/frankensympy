@@ -191,6 +191,13 @@ def _surface_entry(elem):
     return sympify(elem)
 
 
+def _cells_have_decimal(cells):
+    """Inspect original cell owners, including children of held expressions."""
+    from ..core._decimal_arithmetic import contains_decimal
+
+    return any(contains_decimal((cell,)) for cell in cells)
+
+
 class Matrix(MatrixBase):
     """Shell-owned matrix with a native snapshot when every cell can lower."""
 
@@ -2169,28 +2176,44 @@ class Matrix(MatrixBase):
             ])
         return self._new(self._native @ other._native)
 
+    def _decimal_scale(self, scalar):
+        return (_cells_have_decimal((scalar,))
+                or self._surface is not None and _cells_have_decimal(self._surface))
+
+    def _scale(self, other, *, left=False):
+        from ..core._opaque_arithmetic import contains_opaque
+
+        generation = self._mutation_generation
+        scalar = _surface_entry(other)
+        if self._native_storage is None or contains_opaque(scalar) or self._decimal_scale(scalar):
+            entries = ([scalar * self[i] for i in range(len(self))] if left else
+                       [self[i] * scalar for i in range(len(self))])
+            return self._finish_traversal(self.rows, self.cols, entries, generation)
+        return self._new(self._native * _native_expr(scalar))
+
     def __mul__(self, other):
         from .sparse import SparseMatrix
 
         if isinstance(other, (Matrix, SparseMatrix)):
             return self.__matmul__(other)
         if isinstance(other, (Expr, Basic, int, float)):
-            from ..core._opaque_arithmetic import contains_opaque
-            scalar = _surface_entry(other)
-            if self._native_storage is None or contains_opaque(scalar):
-                return self._new(self.rows, self.cols, [self[i] * scalar for i in range(len(self))])
-            return self._new(self._native * _native_expr(other))
+            return self._scale(other)
         raise TypeError(f"Cannot multiply Matrix and {type(other)}")
 
     def __rmul__(self, other):
         if isinstance(other, (Expr, Basic, int, float)):
-            from ..core._opaque_arithmetic import contains_opaque
-            scalar = _surface_entry(other)
-            if self._native_storage is None or contains_opaque(scalar):
-                return self._new(self.rows, self.cols, [scalar * self[i] for i in range(len(self))])
+            return self._scale(other, left=True)
         return self.__mul__(other)
 
     def __truediv__(self, other):
+        if isinstance(other, (Expr, Basic, int, float)):
+            generation = self._mutation_generation
+            scalar = _surface_entry(other)
+            if self._decimal_scale(scalar):
+                # Rounding a decimal reciprocal before multiplying would
+                # round twice, e.g. at 3 digits 2/3 != 2 * 0.333.
+                entries = [self[i] / scalar for i in range(len(self))]
+                return self._finish_traversal(self.rows, self.cols, entries, generation)
         if isinstance(other, int):
             return self * Rational(1, other)
         if isinstance(other, (Expr, Basic, float)):

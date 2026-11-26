@@ -12,7 +12,7 @@ from ..core import (
     Tuple as _SymbolicTuple, Zero,
     _active_callback_session, _native, _native_expr, _wrap, _SYMBOL_CACHE, _surface_symbols,
 )
-from .dense import Matrix, MatrixBase, ImmutableDenseMatrix, _matrix_dimensions, _surface_entry
+from .dense import Matrix, MatrixBase, ImmutableDenseMatrix, _cells_have_decimal, _matrix_dimensions, _surface_entry
 
 _NativeSparseMatrix = _native.SparseMatrix
 _NATIVE_SPARSE_CONSTRUCTION = (_NativeSparseMatrix.__new__, _NativeSparseMatrix.__init__)
@@ -1960,11 +1960,19 @@ class SparseMatrix(MatrixBase):
 
         sources = _capture_sources(self)
         scalar = _checked_entry(other, sources)
-        if not contains_opaque(scalar):
+        retained_scalar = _cells_have_decimal((scalar,))
+        if retained_scalar and self.nnz < self.rows*self.cols:
+            # An implicit cell cannot store a held or indeterminate product.
+            # Probe one original zero without visiting the dense rectangle.
+            zero_product = scalar * _ZERO if left else _ZERO * scalar
+            if not _is_exact_zero(zero_product):
+                raise NotImplementedError("sparse scaling requires a zero implicit product")
+        if not retained_scalar and not contains_opaque(scalar):
             native_scalar = _native_expr(scalar)
             if (self._native_storage is not None
                     and (self._surface is None
                          or self._native_storage.is_exact_rational
+                         and not _cells_have_decimal(self._surface.values())
                          and (native_scalar.is_integer or native_scalar.is_rational))):
                 return self._new(self._native_storage*native_scalar)
             if self.nnz < self.rows*self.cols:

@@ -406,9 +406,57 @@ def test_constructors_do_not_publish_notimplemented_for_foreign_operands(constru
         constructor(retained("0.125"), object())
 
 
-def test_matrix_reflection_still_receives_scalar_multiplication():
-    # This checks the existing reflected protocol, not a new matrix precision
-    # contract; matrix entries have their separate numerical implementation.
-    result = retained("0.25") * s.Matrix([[1, 2]])
-    assert result.shape == (1, 2)
-    assert [float(result[0, column]) for column in range(2)] == [0.25, 0.5]
+@pytest.mark.parametrize("cls", [s.Matrix, s.ImmutableMatrix, s.SparseMatrix, s.ImmutableSparseMatrix])
+@pytest.mark.parametrize("left", [False, True])
+def test_matrix_scaling_uses_original_decimal_owners(cls, left):
+    value = s.N(s.Rational(10**49 + 1, 10**49), 50)
+    original = cls([[2, 0], [0, -1]])
+    result = value * original if left else original * value
+    assert type(result) is type(original)
+    assert result.shape == (2, 2)
+    assert result[0, 0].dps == 50
+    assert decimal(result[0, 0]) == Decimal("2." + "0" * 48 + "2")
+    assert decimal(result[1, 1]) == Decimal("-1." + "0" * 48 + "1")
+    assert result[0, 1] == 0
+
+
+@pytest.mark.parametrize("cls", [s.Matrix, s.ImmutableMatrix, s.SparseMatrix, s.ImmutableSparseMatrix])
+def test_scaling_preserves_retained_matrix_cells(cls):
+    original = cls([[retained("1e-400"), retained("1e400")]])
+    result = original * 3
+    assert decimal(result[0, 0]) == Decimal("3e-400")
+    assert decimal(result[0, 1]) == Decimal("3e400")
+    assert result[0, 0].is_nonzero is True
+    assert result[0, 1].is_finite is True
+
+
+def test_dense_decimal_division_rounds_each_quotient_once():
+    assert decimal((s.Matrix([[2]]) / retained("3.00", 3))[0]) == Decimal("0.667")
+    assert decimal((s.Matrix([[retained("2.00", 3)]]) / 3)[0]) == Decimal("0.667")
+
+
+def test_decimal_scaling_preserves_implicit_zeros_and_native_sparse_input():
+    original = s.SparseMatrix.eye(2)
+    result = original * retained("1e-400")
+    assert result.nnz == 2
+    assert decimal(result[1, 1]) == Decimal("1e-400")
+    assert result[0, 1] == 0
+    wide = s.SparseMatrix(1, 10**9, {(0, 5): 2})
+    scaled = retained("1e400") * wide
+    assert scaled.nnz == 1
+    assert decimal(scaled[0, 5]) == Decimal("2e400")
+
+
+def test_scaling_held_decimal_cells_preserves_original_symbolic_children():
+    coefficient = retained("1.0000000000000000000000000000000000000000000000001")
+    held = s.Mul(coefficient, s.Symbol("x"), evaluate=False)
+    for cls in (s.Matrix, s.SparseMatrix):
+        result = (cls([[held]]) * 2)[0, 0]
+        assert result.args[0] is held
+        assert result.args[0].args[0] is coefficient
+
+
+def test_sparse_implicit_decimal_products_must_be_representable():
+    scalar = s.Mul(retained("0.1"), s.Symbol("x"), evaluate=False)
+    with pytest.raises(NotImplementedError, match="implicit product"):
+        s.SparseMatrix.eye(2) * scalar

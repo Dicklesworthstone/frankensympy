@@ -11,7 +11,6 @@ use fsym_proof_kernel::integer_modular_system::{
     IntegerModularSystemOutcome, verify_integer_modular_system,
 };
 use fsym_proof_kernel::sparse_rref::RationalSparseMatrix;
-use num_traits::ToPrimitive;
 use std::collections::BTreeSet;
 
 fn matrix(rows: usize, columns: usize, values: &[i64]) -> Matrix {
