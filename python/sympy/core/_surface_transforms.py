@@ -50,13 +50,28 @@ def _validate(values):
 def _same(left, right):
     if left is right:
         return True
+    from ._decimal_arithmetic import UNHANDLED, contains_decimal, equal, structural_equal
+
     if _subclass(type(left), Basic) and _subclass(type(right), Basic):
+        atom = equal(left, right)
+        if atom is not UNHANDLED:
+            return atom is True
+        if type(left) is Float and type(right) is Float:
+            return Float.__eq__(left, right)
+        if type(left) is type(right) or contains_decimal((left, right)):
+            precise = structural_equal(left, right)
+            if precise is not UNHANDLED:
+                return precise
         return surface_equal(left, right)
     if type(right) is int:
         number = _fraction(left)
         return number is not None and number.denominator == 1 and number.numerator == right
-    if type(right) is float and type(left) is Float:
-        return Float.__dict__["_as_python_float"](left) == right
+    if type(right) is float:
+        precise = equal(left, right)
+        if precise is not UNHANDLED:
+            return precise is True
+        if type(left) is Float:
+            return Float.__eq__(left, right)
     return False
 
 
@@ -150,13 +165,15 @@ def _effect_key(value):
             binding = native.symbol_binding
             return ("symbol", binding.name, binding.identity_hex)
         if native.is_integer or native.is_rational:
-            return ("number", native.exact_numerator(), native.exact_denominator())
+            return ("number", hex(native.exact_numerator()), hex(native.exact_denominator()))
         return (native.func_name, tuple(native_record(child, depth + 1) for child in native.args),
                 str(native) if native.func_name == "Constant" else "")
 
     converted = []
     for record in records:
-        if record[0] == "leaf":
+        if record[0] == "decimal":
+            record = (record[0], record[1], native_record(record[2]))
+        elif record[0] in ("leaf", "float-precision"):
             _native.CompiledFunction._validate_source(record[2])
             record = (record[0], record[1], native_record(record[2]))
         converted.append(record)

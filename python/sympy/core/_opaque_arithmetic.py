@@ -343,6 +343,33 @@ def _key(value, *, names=False):
         if not _subclass(cls, Basic):
             raise NotImplementedError("opaque arithmetic requires symbolic surface arguments")
         children = stored_args(node)
+        if cls is Float:
+            precision = Float.__dict__["_dps"].__get__(node, Float)
+            if type(precision) is not int or precision < 1:
+                raise ValueError("Float identity requires a positive exact precision")
+            native = _slot(_VALUE, node)
+            if precision != 15 and type(native) is _native.Expr:
+                # Lifted native Float children have the default precision.
+                # Preserve the existing default key for this shared case.
+                result = intern(("float-precision", precision, native))
+                memo[identity] = result
+                return result
+        elif _subclass(cls, Float):
+            from . import _ExactDecimalFloat
+
+            if cls is _ExactDecimalFloat:
+                # Callback identity must distinguish numbers with identical
+                # IEEE previews. Use the admitted original rational payload.
+                from ._decimal_arithmetic import _budget, _capture, _finish
+
+                capture, lowered, _ = _capture((node,), _budget())
+                if lowered is None:
+                    raise ValueError("decimal callback identity requires a finite original value")
+                precision = capture.retain(node, Float, "_dps")
+                capture.copy(lowered[0])
+                result = intern(("decimal", precision, lowered[0]))
+                memo[identity] = _finish(capture, result)
+                return result
         if children is not None:
             result = intern(("surface", label(cls), tuple(visit(child, depth + 1) for child in children)))
         else:

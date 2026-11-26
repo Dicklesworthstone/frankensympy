@@ -1527,7 +1527,8 @@ class Basic:
                 from ._surface_transforms import substitute
 
                 res = substitute(self, old_s, new_s)
-            elif _tree_requires_supervised_subs(self):
+            elif (_tree_requires_supervised_subs(self)
+                  or _substitution_contains_decimal(self, old_s, new_s)):
                 _charge_nested_if_active(_expr_node_count(self))
                 res = _subs_supervised(self, old_s, new_s)
             else:
@@ -5848,8 +5849,21 @@ def _require_symbol(value: Any) -> Symbol:
     raise TypeError("differentiation variable must be a Symbol")
 
 
+def _substitution_contains_decimal(*values: Any) -> bool:
+    if "_EVALF_OWNERS" not in globals():
+        return False
+    from ._decimal_arithmetic import contains_decimal
+
+    return contains_decimal(values)
+
+
 def _aresame_surface(a: Any, b: Any) -> bool:
     if type(a) is not type(b):
+        if (isinstance(a, Float) and isinstance(b, Float)
+                and _substitution_contains_decimal(a, b)):
+            from ._decimal_arithmetic import equal
+
+            return equal(a, b) is True
         return False
     if _bound_algebraic_root_type is not None and type(a) is _bound_algebraic_root_type:
         return bool(a == b)
@@ -5960,6 +5974,12 @@ def _subs_supervised(node: Any, old_s: Basic, new_s: Basic) -> Basic:
     if cls.subs is not Basic.subs and cls.__module__.startswith("sympy."):
         return node.subs(old_s, new_s)
     if not _tree_requires_supervised_subs(node):
+        if _substitution_contains_decimal(node, old_s, new_s):
+            # The native tree has only IEEE previews. Keep the matched node
+            # and replacement on the surface, including algebraic matches.
+            from ._surface_transforms import substitute
+
+            return substitute(node, old_s, new_s)
         try:
             return _wrap(_native_expr(node).subs(_native_expr(old_s), _native_expr(new_s)))
         except (NotImplementedError, TypeError):

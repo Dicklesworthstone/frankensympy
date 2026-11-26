@@ -3519,6 +3519,18 @@ remaining runtime-validation limits.
 
 ### Arithmetic with retained decimal values
 
+At 16–1000 requested decimal digits, `Float(text, dps)` rounds a finite
+decimal literal from its original digits. Python integers and exact symbolic
+integers and rationals use their exact values within a 4096-bit component
+limit. Reconstructing a retained Float at the same precision preserves its
+owner. Pickling preserves its digits and precision, and `int(value)`
+truncates the stored value toward zero.
+
+Scalar substitution and structural replacement retain these values. For example,
+`(x - 1).subs(x, Float("1.000000000000000000000000000001", 40))` yields a
+nonzero residual of `1e-30`. Replacement rules distinguish coefficients that
+share a binary64 preview but differ in their stored decimal digits.
+
 Finite decimal Float values returned by `N`, `.evalf` and high precision real
 `nroots` now preserve their stored digits through scalar addition,
 subtraction, multiplication, division and integer powers. Both operand orders

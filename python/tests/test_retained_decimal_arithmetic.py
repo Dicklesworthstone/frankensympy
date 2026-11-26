@@ -147,6 +147,79 @@ def decimal(value):
     return Decimal(str(value))
 
 
+@pytest.mark.parametrize("method", ["subs", "xreplace"])
+def test_replacement_distinguishes_decimal_atoms_and_composite_patterns(method):
+    x = s.Symbol("decimal_replacement")
+    first = retained("1.000000000000000000000000000001", 40)
+    second = retained("1.000000000000000000000000000002", 40)
+    source = s.Mul(x, first, evaluate=False)
+    wrong = s.Mul(x, second, evaluate=False)
+
+    def replace(expr, old, new):
+        return expr.subs(old, new) if method == "subs" else expr.xreplace({old: new})
+
+    assert replace(first, second, x) is first
+    assert replace(source, wrong, x) is source
+    assert replace(source, first, second).args == (x, second)
+    assert replace(first, retained(str(first), 40), x) is x
+    assert replace(first, retained(str(first), 39), x) is first
+
+
+def test_subs_carries_original_decimal_into_native_arithmetic_and_power_matches():
+    x = s.Symbol("decimal_input")
+    coefficient = retained("1.000000000000000000000000000001", 40)
+    assert (x - 1).subs(x, coefficient) == retained("1e-30", 40)
+    tiny = retained("1e-160", 50)
+    assert (x**6).subs(x**2, tiny) == retained("1e-480")
+    assert x.subs(x, tiny) is tiny
+    assert tiny.subs(x, 2) is tiny
+
+
+def test_simultaneous_decimal_replacements_keep_owners_distinct():
+    x, y = s.symbols("decimal_x decimal_y")
+    low = retained("1e-400")
+    high = retained("2e-400")
+    assert (x - y).subs({x: high, y: low}, simultaneous=True) == low
+
+
+def test_retained_decimal_substitution_callbacks_are_keyed_by_exact_input():
+    from sympy.core import supervised_callback_session
+    x = s.Symbol("decimal_callback")
+    calls = []
+
+    class Law(s.Function):
+        def _eval_subs(self, old, new):
+            calls.append(new)
+            return new
+
+    source = Law(x)
+    first, second = retained("1e-400"), retained("2e-400")
+    with supervised_callback_session():
+        assert source.subs(x, first) is first
+        assert source.subs(x, second) is second
+        assert source.subs(x, first) is first
+    assert calls == [first, second]
+
+
+def test_ordinary_float_precision_in_compound_rules_and_substitution_callbacks():
+    x = s.Symbol("ordinary_precision")
+    low, high = s.Float(0.25, 30), s.Float(0.25, 40)
+    source = s.Mul(x, low, evaluate=False)
+    rule = s.Mul(x, high, evaluate=False)
+    assert source != rule
+    assert source.xreplace({rule: x}) is source
+
+    class ReturnReplacement(s.Function):
+        def _eval_subs(self, old, new):
+            return new
+
+    from sympy.core import supervised_callback_session
+    source = ReturnReplacement(x)
+    with supervised_callback_session():
+        assert source.subs(x, low) is low
+        assert source.subs(x, high) is high
+
+
 def rounded(value, digits):
     with localcontext() as context:
         context.prec = digits
