@@ -20,6 +20,7 @@ _MAX_SPARSE_ROOT_RESIDUALS = 4096
 _MAX_JACOBIAN_ENTRIES = 4096
 _MAX_LINE_SEARCH_STEPS = 64
 _MAX_SYSTEM_EVALUATIONS = 4096
+_MAX_SCALAR_EVALUATIONS = 4096
 _MAX_LINEAR_WORK = 20_000_000
 _RELATIONAL_SIDES = Relational.__dict__["_relational_sides"]
 _TYPE_MRO = type.__dict__["__mro__"]
@@ -284,6 +285,10 @@ def _scalar_uses_checked_jets(instructions):
     return True
 
 
+class _ScalarTrialDomainError(ValueError):
+    """A closed scalar residual left its finite real evaluation domain."""
+
+
 def _scalar_newton_functions(expr, var, budget):
     """Keep scalar value semantics and select derivatives before compilation.
 
@@ -300,11 +305,35 @@ def _scalar_newton_functions(expr, var, budget):
     _math_program(expr, {_BASIC_VALUE.__get__(var, Basic): 0}, _functions(), [0], instructions)
     instructions = tuple(instructions)
 
-    if budget is None:
-        def residual(value):
-            return _evaluate_math(instructions, (value,))
-    else:
-        residual = compile_numeric(var, expr)
+    native_residual = None if budget is None else compile_numeric(var, expr)
+
+    def residual(value, *, budget=None):
+        # Admission above closes the source before any numerical trial. The
+        # native evaluator separates operational RuntimeError subclasses from
+        # domain ValueError. Math evaluation additionally uses ValueError for
+        # integer-work limits, which must never become a line-search retry.
+        try:
+            result = (_evaluate_math(instructions, (value,))
+                      if native_residual is None else native_residual(value, budget=budget))
+        except ValueError as error:
+            if native_residual is None and error.args != ("math domain error",):
+                raise
+            raise _ScalarTrialDomainError(
+                "nsolve residual left the finite real domain"
+            ) from error
+        except (OverflowError, ZeroDivisionError) as error:
+            raise _ScalarTrialDomainError(
+                "nsolve residual left the finite real domain"
+            ) from error
+        try:
+            return _finite_real(result, "residual")
+        except (ValueError, OverflowError, TypeError) as error:
+            # Only the result of the admitted built-in evaluator reaches this
+            # conversion. Nonreal powers and nonfinite arithmetic can reject a
+            # trial without admitting an opaque conversion or callback.
+            raise _ScalarTrialDomainError(
+                "nsolve residual left the finite real domain"
+            ) from error
 
     if not _scalar_uses_checked_jets(instructions):
         derivative = (lambdify(var, diff(expr, var), modules="math") if budget is None
@@ -316,6 +345,90 @@ def _scalar_newton_functions(expr, var, budget):
             return program.jacobian(value, budget=budget)[0][0]
 
     return residual, derivative
+
+
+def _iterate_scalar_newton(residual, derivative, value, tolerance, maxiter, budget):
+    """Damped Newton over one admitted scalar residual and derivative.
+
+    Full steps are preferred. Closed finite-real domain refusals may reject a
+    trial, but source admission, structural limits, operational failures and
+    unknown exceptions are terminal. Rejected trials spend the same evaluation
+    count and caller ledger. The undamped step, never the shortened trial step,
+    participates in convergence, matching the system solver's contract.
+    """
+    evaluations = 0
+
+    def evaluate(function, point, name):
+        nonlocal evaluations
+        _check_evaluation_budget(budget)
+        if evaluations >= _MAX_SCALAR_EVALUATIONS:
+            raise ValueError("nsolve scalar exhausted its numerical evaluation budget")
+        evaluations += 1
+        try:
+            result = function(point) if budget is None else function(point, budget=budget)
+            result = _finite_real(result, name)
+        except (OverflowError, ZeroDivisionError, TypeError) as error:
+            raise ValueError(f"nsolve {name} left the finite real domain") from error
+        _check_evaluation_budget(budget)
+        return result
+
+    residual_value = evaluate(residual, value, "residual")
+    # Preserve source checks before accepting initial multiple roots or cusps;
+    # their derivative need not exist once the original residual is zero.
+    if residual_value == 0.0:
+        return value
+
+    for _ in range(maxiter):
+        if budget is not None:
+            budget._charge(4)
+        derivative_value = evaluate(derivative, value, "derivative")
+        if derivative_value == 0.0:
+            raise ValueError("nsolve derivative is zero away from a root")
+        step = residual_value / derivative_value
+        if not math.isfinite(step):
+            raise ValueError("nsolve Newton step left the finite real domain")
+        norm, step_norm = abs(residual_value), abs(step)
+        if norm <= tolerance and step_norm <= tolerance:
+            return value
+
+        fraction = 1.0
+        for _ in range(_MAX_LINE_SEARCH_STEPS):
+            if budget is not None:
+                budget._charge(3)
+            candidate = value - fraction * step
+            if candidate == value:
+                raise ValueError("nsolve stagnated before meeting the residual and step tolerances")
+            candidate_residual = None
+            if math.isfinite(candidate):
+                try:
+                    candidate_residual = evaluate(residual, candidate, "residual")
+                except _ScalarTrialDomainError:
+                    # Only the already admitted residual can grant this retry.
+                    # A simultaneous cancellation still wins over backtracking.
+                    _check_evaluation_budget(budget)
+            if candidate_residual is not None:
+                candidate_norm = abs(candidate_residual)
+                if candidate_norm == 0.0 or (
+                    candidate_norm <= tolerance and step_norm <= tolerance
+                ):
+                    return candidate
+                # Same fixed-merit Armijo test as the system Newton route.
+                # Accepting a small residual still requires the next undamped
+                # step check; damping alone cannot masquerade as convergence.
+                if candidate_norm <= tolerance or (
+                    candidate_norm < norm
+                    and candidate_norm <= (1.0 - 0.0001 * fraction) * norm
+                ):
+                    value, residual_value = candidate, candidate_residual
+                    break
+            fraction *= 0.5
+        else:
+            raise ValueError("nsolve line search could not reduce the residual within its budget")
+
+    raise ValueError(
+        f"nsolve failed to converge in {maxiter} iterations "
+        f"(last x = {value}, residual = {residual_value})"
+    )
 
 
 def _bisect_bounds(initial):
@@ -708,6 +821,11 @@ def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False, budget=Non
     residuals retain math-backend arithmetic. Other scalar sources, Piecewise,
     math-only functions, large exact integer arithmetic and sources with
     noninteger/dynamic powers retain typed symbolic differentiation.
+    Scalar steps use bounded residual-decrease backtracking, recovering from
+    overshoots and rejected finite-real domain trials. Each iteration permits
+    at most 64 trial fractions, and a call permits at most 4,096 residual and
+    derivative evaluations. Source, work-limit, cancellation and operational
+    failures remain terminal; only admitted numerical domain failures can retry.
     The system path uses checked native Jacobians, equilibrated column-pivoted
     QR and bounded backtracking. Systems supply equations and variables as list,
     tuple, or matrix vectors. This route admits square and overdetermined
@@ -853,40 +971,6 @@ def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False, budget=Non
         return solution(_bisect_scalar(expr, var, lower, upper, tolerance, maxiter, budget))
 
     residual, derivative = _scalar_newton_functions(expr, var, budget)
-
-    def evaluate(function, value, name):
-        try:
-            result = function(value) if budget is None else function(value, budget=budget)
-            return _finite_real(result, name)
-        except (OverflowError, ZeroDivisionError, TypeError) as error:
-            raise ValueError(f"nsolve {name} left the finite real domain") from error
-
-    f_value = evaluate(residual, x_value, "residual")
-    # Multiple roots and roots with a singular derivative may already satisfy
-    # the equation. Do not evaluate or divide by the derivative in that case.
-    if f_value == 0.0:
-        return solution(x_value)
-
-    for _ in range(maxiter):
-        if budget is not None:
-            budget._charge(4)
-        derivative_value = evaluate(derivative, x_value, "derivative")
-        if derivative_value == 0.0:
-            raise ValueError("nsolve derivative is zero away from a root")
-        step = f_value / derivative_value
-        candidate = x_value - step
-        if not math.isfinite(step) or not math.isfinite(candidate):
-            raise ValueError("nsolve Newton step left the finite real domain")
-        candidate_residual = evaluate(residual, candidate, "residual")
-        if candidate_residual == 0.0 or (
-            abs(candidate_residual) <= tolerance and abs(step) <= tolerance
-        ):
-            return solution(candidate)
-        if candidate == x_value:
-            raise ValueError("nsolve stagnated before meeting the residual tolerance")
-        x_value, f_value = candidate, candidate_residual
-
-    raise ValueError(
-        f"nsolve failed to converge in {maxiter} iterations "
-        f"(last x = {x_value}, residual = {f_value})"
-    )
+    return solution(_iterate_scalar_newton(
+        residual, derivative, x_value, tolerance, maxiter, budget,
+    ))

@@ -135,6 +135,43 @@ jobs:
           cargo test --locked -p fsym-core --lib complex_ -j1
       - name: Build the full extension for complex decimal regression coverage
         run: cargo build --locked -p fsym-python --features extension-module -j1
+      - name: Scalar Newton damping and numerical solver regressions
+        run: |
+          python - <<'PY'
+          import importlib.util
+          import os
+          from pathlib import Path
+          import sys
+
+          root = Path.cwd().resolve()
+          target = Path(os.environ.get("CARGO_TARGET_DIR", "target"))
+          if not target.is_absolute():
+              target = root / target
+          binary = (target / "debug/libfsym_python.so").resolve()
+          assert binary.is_file(), binary
+          spec = importlib.util.spec_from_file_location("fsym_python", binary)
+          assert spec is not None and spec.loader is not None
+          native = importlib.util.module_from_spec(spec)
+          sys.modules["fsym_python"] = native
+          spec.loader.exec_module(native)
+          assert Path(native.__file__).resolve() == binary
+          sys.path.insert(0, str(root / "python"))
+          import sympy
+          from sympy.core import _native
+          assert _native is native
+          assert Path(sympy.__file__).resolve() == root / "python/sympy/__init__.py"
+          import pytest
+          raise SystemExit(pytest.main([
+              "-q", "-p", "no:cacheprovider",
+              "python/tests/test_nsolve_damping.py",
+              "python/tests/test_nsolve_convergence.py",
+              "python/tests/test_nsolve_bisect.py",
+              "python/tests/test_nsolve_systems.py",
+              "python/tests/test_nsolve_inverse_jets.py",
+              "python/tests/test_scalar_numeric_derivatives.py",
+              "python/tests/test_numeric_evaluation_budget.py",
+          ]))
+          PY
       - name: Precision-preserving public numerical evaluation
         run: |
           python - <<'PY'
