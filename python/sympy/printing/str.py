@@ -543,6 +543,12 @@ class StrPrinter:
         imaginary = self._print(coefficient) + "*I"
         if real is None:
             return imaginary
+        # SymPy orders terms by complex binary64 coefficients. A positive
+        # imaginary term whose sort key underflows precedes a positive real
+        # term with a nonzero sort key. Render both from their decimal owners.
+        if (not imaginary.startswith("-") and float(coefficient._decimal) == 0.0
+                and float(real._decimal) > 0.0):
+            return imaginary + " + " + self._print(real)
         sign = " - " if imaginary.startswith("-") else " + "
         return self._print(real) + sign + imaginary.removeprefix("-")
 

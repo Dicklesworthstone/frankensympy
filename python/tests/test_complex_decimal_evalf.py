@@ -188,6 +188,19 @@ def test_rectangular_rendering_keeps_signed_scientific_coefficients(exponent):
     assert components(result) == (Decimal(1), Decimal(-1).scaleb(exponent))
 
 
+@pytest.mark.parametrize("real, imaginary, expected", [
+    ("1", "1e-400", "1.0e-400*I + 1.0"),
+    ("-1", "1e-400", "-1.0 + 1.0e-400*I"),
+    ("2e-400", "1e-400", "2.0e-400 + 1.0e-400*I"),
+    ("1", "1e-320", "1.0 + 1.0e-320*I"),
+])
+def test_rectangular_sort_key_underflow_only_changes_display_order(real, imaginary, expected):
+    source = s.Add(s.Rational(real), s.Mul(s.Rational(imaginary), s.I, evaluate=False), evaluate=False)
+    result = s.N(source, 40)
+    assert str(result) == expected
+    assert components(result) == (Decimal(real), Decimal(imaginary))
+
+
 def test_finite_float_leaves_are_exact_binary64_inputs_not_reparsed_printing():
     source = s.Add(s.Float(0.1), s.Mul(s.Float(-0.2), s.I, evaluate=False), evaluate=False)
     expected = Decimal.from_float(0.1), Decimal.from_float(-0.2)

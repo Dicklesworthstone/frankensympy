@@ -130,22 +130,26 @@ def test_imaginary_trigonometry_and_explicit_complex_projections():
     )
 
 
-@pytest.mark.parametrize("source, expected", [
-    (s.I, (0, 1)),
-    (-s.I, (0, -1)),
-    (1+2*s.I, (1, 2)),
-    (1-2*s.I, (1, -2)),
-    (-1-2*s.I, (-1, -2)),
+@pytest.mark.parametrize("source, expected, rendered", [
+    (s.I, (0, 1), "1.0*I"),
+    (-s.I, (0, -1), "-1.0*I"),
+    (1+2*s.I, (1, 2), "1.0 + 2.0*I"),
+    (1-2*s.I, (1, -2), "1.0 - 2.0*I"),
+    (-1-2*s.I, (-1, -2), "-1.0 - 2.0*I"),
 ])
-def test_complex_float_printing_and_exact_zero_components(source, expected):
+def test_complex_float_printing_and_exact_zero_components(source, expected, rendered):
     result = s.N(source, 50)
     assert decimal_parts(result) == expected
-    assert " + -" not in str(result)
-    real, imaginary = result.as_real_imag()
-    if source == s.I or source == -s.I:
-        assert real is s.S.Zero
-    assert type(imaginary) is _ExactDecimalFloat and imaginary.dps == 50
-    assert str(imaginary).lstrip("-") in str(result)
+    assert str(result) == rendered
+    for part, integer in zip(result.as_real_imag(), expected):
+        if integer == 0:
+            assert part is s.S.Zero
+            assert part.is_zero is True and part.is_nonzero is False
+            assert str(part) == "0"
+        else:
+            assert type(part) is _ExactDecimalFloat and part.dps == 50
+            assert part.is_zero is False and part.is_nonzero is True
+            assert str(part) == str(integer) + "." + "0"*49
 
 
 def test_printing_signs_and_real_imag_projection_do_not_rebuild_decimal_owners():

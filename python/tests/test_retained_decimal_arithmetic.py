@@ -124,10 +124,13 @@ def test_retained_float_reconstruction_and_explicit_precision_changes():
         s.Float(value, 1001)
 
 
-@pytest.mark.parametrize("source", [1 << 4096, s.Integer(1 << 4096),
-                                   s.Rational(1, (1 << 4096) + 1)])
-def test_high_precision_float_rejects_oversize_exact_input(source):
-    with pytest.raises(ValueError, match="bit limit"):
+@pytest.mark.parametrize("source,message", [
+    (1 << 4096, "retained decimal integer exceeds its bit limit"),
+    (s.Integer(1 << 4096), "numeric integer exceeds the literal limit"),
+    (s.Rational(1, (1 << 4096) + 1), "numeric rational exceeds the literal limit"),
+])
+def test_high_precision_float_rejects_oversize_exact_input(source, message):
+    with pytest.raises(ValueError, match=f"^{message}$"):
         s.Float(source, 50)
 
 
