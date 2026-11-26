@@ -2774,8 +2774,12 @@ print(json.dumps({
             "[-1.18920711500272, 1.18920711500272, -1.18920711500272*I, 1.18920711500272*I]",
         )
         self.assertEqual(str(sympy.nroots(x**2 - 2 * x + 1)), "[1.00000000000000, 1.00000000000000]")
+        self.assertEqual(
+            [str(root) for root in sympy.nroots(x**2 - 2, n=30)],
+            ["-1.41421356237309504880168872421", "1.41421356237309504880168872421"],
+        )
         with self.assertRaises(NotImplementedError):
-            sympy.nroots(x**2 - 2, n=30)  # binary64 is honest to 15 digits only
+            sympy.nroots(x**2 + 1, n=30)  # nonreal roots retain the binary64 limit
         I = sympy.I
         self.assertEqual(sympy.re(sympy.exp(I) / 2 + sympy.exp(-I) / 2), sympy.cos(1))
         self.assertEqual(sympy.im(sympy.exp(2 * I)), sympy.sin(2))

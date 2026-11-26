@@ -135,7 +135,7 @@ jobs:
           cargo test --locked -p fsym-core --lib complex_ -j1
       - name: Build the full extension for complex decimal regression coverage
         run: cargo build --locked -p fsym-python --features extension-module -j1
-      - name: Precision-preserving public complex evaluation
+      - name: Precision-preserving public numerical evaluation
         run: |
           python - <<'PY'
           import importlib.util
@@ -165,6 +165,7 @@ jobs:
               "-q", "-p", "no:cacheprovider",
               "python/tests/test_complex_decimal_evalf.py",
               "python/tests/test_complex_decimal_metered_evalf.py",
+              "python/tests/test_nroots_high_precision_real.py",
               "python/tests/test_complex_float_conversion.py",
               "python/tests/test_float_conversion_termination.py",
               "python/tests/test_surface.py::SurfaceTests::test_rsolve_and_complex_evalf",

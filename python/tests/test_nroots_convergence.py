@@ -118,10 +118,10 @@ def test_zero_and_constant_polynomials_have_no_roots():
     assert sympy.nroots(sympy.Poly(7, x)) == []
 
 
-def test_binary64_precision_limit_remains_explicit():
+def test_mixed_complex_binary64_precision_limit_remains_explicit():
     x = sympy.Symbol("x")
     with pytest.raises(NotImplementedError, match="at most 15"):
-        sympy.nroots(x**2 - 2, n=30)
+        sympy.nroots(x**2 + 1, n=30)
     for precision in (0, -1, 1.5, True):
         with pytest.raises(ValueError):
             sympy.nroots(x**2 - 2, n=precision)

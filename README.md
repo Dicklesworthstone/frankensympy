@@ -3459,6 +3459,44 @@ remaining runtime-validation limits.
 
 ---
 
+## High precision real polynomial roots (development)
+
+`nroots` and `Poly.nroots` now support 16–512 significant digits for bounded
+exact QQ/ZZ univariate polynomials whose complete root set is real.
+
+```python
+from sympy import Poly, Symbol, nroots
+
+x = Symbol("x")
+roots = nroots(x**2 - 2, n=80)
+repeated = Poly((x - 1)**3 * (x + 2), x).nroots(n=60)
+assert len(repeated) == 4
+```
+
+Native exact isolation establishes the complete real root count, ordering
+and multiplicities before any result is returned. Each distinct root is
+refined until the exact enclosure endpoints agree on its rounded decimal.
+Linear roots use their exact rational quotient followed by native decimal
+rounding, including finite values outside binary64's range. Results retain
+their decimal text and requested precision; they are rounded approximations,
+not enclosing intervals or portable certificates.
+
+The lane admits degree at most 64 and coefficients of at most 4096 bits.
+Mixed or nonreal root sets refuse explicitly at these precisions rather than
+returning an incomplete real subset. The existing path for requests up to
+15 digits remains available. High precision requests accept only the default
+`maxsteps=50`: the exact algorithm uses its existing bounded native work
+and refinement limits, rather than fifty numerical iterations. Nondefault
+`maxsteps` values refuse explicitly. Both `cleanup` settings preserve every
+root because the imaginary components are exactly zero.
+
+The [numeric continuation record](artifacts/audit/2026-11-26-numeric-continuation-progress.json)
+records 60 passing focused cases against the genuine mathematical component
+and its explicit runtime omissions. Full production-extension and
+compatibility-profile validation remain separate.
+
+---
+
 ## Planned algorithm program
 
 The native program includes proof- or certificate-aware portfolios for:

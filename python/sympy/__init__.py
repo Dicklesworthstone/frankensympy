@@ -2060,7 +2060,17 @@ def _float_digits(v: float, n: int) -> Any:
 def nroots(f: Any, n: int = 15, maxsteps: int = 50, cleanup: bool = True) -> list:
     """Finite numerical roots of a univariate polynomial.
 
-    The binary64 lane supports at most 15 significant digits. It honors the
+    Requests for 16..512 significant digits admit nonzero exact QQ/ZZ polynomials
+    whose complete root set is real, with degree at most 64 and coefficients
+    of at most 4096 bits. Exact isolation establishes completeness, ordering
+    and multiplicities before independently checked decimal refinement.
+    These requests accept only the default maxsteps=50: the exact algorithm
+    uses its native bounded work and refinement limits, not fifty numerical
+    iterations. Nondefault maxsteps refuses explicitly. Both cleanup values
+    preserve every root because all imaginary components are exactly zero.
+    Mixed or nonreal root sets remain outside this high-precision lane.
+
+    Requests up to 15 digits retain the binary64 lane. It honors the
     iteration limit and raises the local ArithmeticError subclass
     polys._numeric_roots.NoConvergence when the numerical checks fail.
     This exception is dependency-free, not mpmath's exception class.
@@ -2072,15 +2082,14 @@ def nroots(f: Any, n: int = 15, maxsteps: int = 50, cleanup: bool = True) -> lis
     """
     if type(n) is not int or n < 1:
         raise ValueError("nroots precision must be a positive integer")
-    if n > 15:
-        raise NotImplementedError(
-            "precision-honest nroots: this shell computes roots in binary64 and "
-            "is honest to at most 15 significant digits; requested %d" % n
-        )
     if type(maxsteps) is not int or maxsteps < 0:
         raise ValueError("nroots maxsteps must be a nonnegative integer")
     if type(cleanup) is not bool:
         raise TypeError("nroots cleanup must be a boolean")
+    if n > 15:
+        from .polys.rootoftools import _high_precision_real_nroots
+
+        return _high_precision_real_nroots(f, n, maxsteps)
 
     from .core import Half, NegativeOne, One, Zero
     from .polys import _finitefield

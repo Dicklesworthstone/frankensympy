@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-26",
+  "kind": "targeted_implementation_progress",
+  "source_base": "e2ea68befa60c642d6fb260d6cd93e181480b2b7",
+  "concurrent_main_preserved": "642b32a77da78253d55023c32c355af0140e56bf",
+  "scope": "High-precision complete all-real polynomial nroots",
+  "implementation": {
+    "entry_points": [
+      "sympy.nroots",
+      "Poly.nroots",
+      "PurePoly.nroots"
+    ],
+    "precision_digits": [
+      16,
+      512
+    ],
+    "maximum_degree": 64,
+    "maximum_coefficient_bits": 4096,
+    "completeness": "Native exact real-root isolation must account for the polynomial's full degree including multiplicities before any decimal roots are published.",
+    "rounding": "Each distinct real root uses native exact endpoint agreement; linear polynomials use the exact rational root and native decimal rounding.",
+    "source_integrity": "Bounded original held-source snapshots, typed coordinates, exact built-in owners and native interface identities are rechecked through output publication.",
+    "maxsteps": "Only the established default value 50 is admitted in this lane. Native intrinsic work/refinement caps govern execution; the adapter does not claim fifty bisections or silently accept other values.",
+    "cleanup": "Both values preserve every root because every imaginary component is proved exactly zero.",
+    "limits": "Mixed/nonreal sets, unsupported domains/sources and native operational refusals are terminal. General arbitrary-precision complex roots and a caller-owned cumulative nroots budget remain outside this lane."
+  },
+  "executed_validation": [
+    {
+      "check": "Focused new and existing numerical-root suites",
+      "result": "60 passed in 30.65 seconds",
+      "cases": {
+        "new_high_precision": 41,
+        "existing_convergence": 19
+      },
+      "files": [
+        "python/tests/test_nroots_high_precision_real.py",
+        "python/tests/test_nroots_convergence.py"
+      ],
+      "runtime": "Python 3.12.14; pytest 8.4.2; genuine mathematical PyO3 component",
+      "binary_sha256": "d96d67ac22c6f6815248d54978cb9ef4c0a2ec35912e6fd4273cb4d5d1087fa0",
+      "scope_reference": "artifacts/audit/2026-11-25-complex-decimal-budget-validation/scope.json",
+      "log_sha256": "e9ad803bea3c1ab2542e8a87aff632bcdb7a5f2fb96661d65ffc330376566f83",
+      "raw_log_status": "Observed and hashed before execution-workspace loss; raw file unavailable for publication at this checkpoint."
+    },
+    {
+      "check": "Source review and syntax",
+      "result": "Independent source review approved; all five authored Python files parsed; scoped git diff --check passed before workspace loss."
+    }
+  ],
+  "observed_failures": [
+    {
+      "check": "Initial extreme linear root",
+      "result": "Existing generic real-root bisection exhausted its intrinsic ledger at 1e-400.",
+      "resolution": "Use the exact linear quotient after complete real-root verification; the extreme-root regression passes in the final 60-case run."
+    },
+    {
+      "check": "Composite legacy surface test",
+      "result": "57 selected cases passed; the composite surface method later failed because PyExpr.expand is one of the scoped component's six omitted runtime helpers.",
+      "scope": "All nroots assertions in that method passed first. The production implementation and the full CI selector remain unchanged except the obsolete high-precision refusal assertion.",
+      "gate_weakened": false
+    }
+  ],
+  "validation_limits": [
+    "Supplementary component omits six documented async simplify/expand helpers; no function replacements or upstream production fallback are used.",
+    "Full production Python-extension and whole-workspace validation remain blocked by earlier unchanged asupersync compiler SIGKILL outcomes.",
+    "No full production extension, asynchronous runtime, compatibility profile or broad workstream closure is claimed.",
+    "The execution workspace became unavailable after the focused run. Source recovery is checked against the previously recorded Git blob identities."
+  ],
+  "tested_source_blobs": {
+    "python/sympy/__init__.py": "530f0ee6b89b42ad334ccaa16f8009086a185df8",
+    "python/sympy/polys/rootoftools.py": "e75a2fb8884d7b46505919d655844328f0a1a536",
+    "python/tests/test_nroots_high_precision_real.py": "a7ec7686494a8bd115c7145551538bd29f177b90",
+    "python/tests/test_nroots_convergence.py": "d098df7019a82535796eddcb0553c8d42ae3fd18",
+    "python/tests/test_surface.py": "a45af6bad338c071546d59b6075440e470e32981"
+  },
+  "claims": {
+    "profile_certified": false,
+    "performance_claim": false,
+    "claim_tiers_changed": false,
+    "bead_status_priority_dependencies_changed": false
+  }
+}
