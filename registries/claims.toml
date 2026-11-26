@@ -245,6 +245,7 @@ minimum_evidence = "certified_numeric"
 workstreams = ["WS03", "WS04", "WS06", "WS11"]
 gate = "gate://ws11-certified-numeric"
 evidence_artifacts = [
+    "artifacts/audit/2026-11-25-complex-decimal-budget-progress.json",
     "artifacts/audit/2026-11-25-complex-powers-periodic-domains-nth-roots.json",
     "crates/fsym-core/src/ball.rs",
     "crates/fsym-core/src/algebraic.rs",

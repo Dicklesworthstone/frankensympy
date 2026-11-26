@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-25",
+  "kind": "targeted_implementation_progress",
+  "scope": "Caller-owned complex decimal metering, compatible Python opt-in and precision-preserving retained components",
+  "native_commit": "e936bfeb8d588fa499c4c8f667f8bf6648a2489a",
+  "concurrent_commits_preserved": [
+    "cdd8a6d129d8021084795a9cf721912addd1be64",
+    "f181477bb26611ced5c695a1328e2b4dceb2d57b",
+    "ef2dd191ff3acc47939a80f6dd9e0cf5976b0c3e",
+    "faf28b4a36989b19ef7eea8b124adb52f059c321"
+  ],
+  "containing_commit": "Compatible optional Python budget and retained-component hardening",
+  "implementation": {
+    "native": "evalf_complex_decimal_metered shares caller accounting through original-source admission, refinement, exact endpoint agreement and publication; the existing unmetered API and error type remain intact.",
+    "python": "An explicit native-bridge budget selects the metered lane with terminal typed failures. The no-budget Option/None contract and real-function selection remain unchanged.",
+    "decimal_owners": "Negation, absolute value, multiplication printing and reevaluation retain decimal text. Reevaluation propagates refusals and rechecks source after the terminal charge.",
+    "admission": "Bounded hook discovery reads retained storage; unknown opaque owners do not reach public getters in the real fallback. Float precision metadata must be a positive exact integer.",
+    "compatibility": "Preserves concurrent held-source reconstruction, exact zero, Decimal-based predicates and very small/large components. General Float arithmetic/comparison retains existing binary64 limits."
+  },
+  "bounds": {
+    "requested_digits": [
+      1,
+      1000
+    ],
+    "working_digits": 1792,
+    "source_nodes": 1024,
+    "source_depth": 32,
+    "input_bits": 4096,
+    "intermediate_bits": 65536,
+    "logical_work": 1000000000,
+    "cumulative_reserved_bytes": 536870912,
+    "allocations": 4000000,
+    "cancellation": "Bounded expression and kernel boundaries; no preemption inside every bigint or transcendental-series operation"
+  },
+  "executed_validation": [
+    {
+      "command": "cargo check --locked -p fsym-core --all-targets -j1",
+      "result": "passed",
+      "toolchain": "nightly-2026-08-20"
+    },
+    {
+      "command": "cargo test --locked -p fsym-core --test complex_decimal --test complex_decimal_metered --test complex_elementary --test complex_expression --test inverse_circular_certificates --test transcendental_rounding_enclosures -j1",
+      "result": "97 passed, 0 failed",
+      "binaries": {
+        "complex_decimal": 9,
+        "complex_decimal_metered": 16,
+        "complex_elementary": 26,
+        "complex_expression": 21,
+        "inverse_circular_certificates": 17,
+        "transcendental_rounding_enclosures": 8
+      },
+      "scope": "Original locked production workspace and pinned donors; no component omissions."
+    },
+    {
+      "command": "cargo test --locked -p fsym-core --lib complex_ -j1",
+      "result": "10 passed, 0 failed",
+      "scope": "Includes both new private rounding tests and original complex unit cases."
+    },
+    {
+      "command": "cargo clippy --locked -p fsym-core --all-targets -j1 -- -D warnings",
+      "result": "passed",
+      "toolchain": "nightly-2026-08-20"
+    },
+    {
+      "command": "cargo fmt --check",
+      "result": "passed",
+      "toolchain": "nightly-2026-08-20"
+    },
+    {
+      "check": "Python and workflow syntax",
+      "result": "Changed Python modules, both complex decimal test suites and the actual-extension CI loader parse and compile in memory; workflow YAML parses."
+    },
+    {
+      "check": "Independent source review",
+      "result": "Native arithmetic/metering, bridge errors, Python owner preservation and concurrent-change integration approved."
+    },
+    {
+      "check": "Whitespace and identity",
+      "result": "git diff --check passes; final staged blob identities match local sources; concurrent public test module retained byte-for-byte."
+    }
+  ],
+  "uncompleted_validation": [
+    {
+      "command": "cargo build --locked -p fsym-python --features extension-module -j1",
+      "result": "blocked, exit 101",
+      "reason": "rustc compiling the unchanged pinned asupersync donor received SIGKILL before fsym-python; no compiler source diagnostic preceded the kill."
+    },
+    {
+      "command": "cargo check --locked --workspace --all-targets -j1",
+      "result": "blocked, exit 101",
+      "reason": "Metadata-only rustc for the same pinned asupersync donor received SIGKILL."
+    },
+    {
+      "check": "Full production Python runtime tests, whole-workspace Clippy and tests",
+      "result": "No pass claimed; production dependency compilation remains blocked."
+    },
+    {
+      "check": "Supplementary mathematical PyO3 component",
+      "result": "Pending at this checkpoint. Earlier faf28b4 component results are separate evidence and do not validate these new Python changes."
+    }
+  ],
+  "authored_regressions": {
+    "native_integration_functions": 16,
+    "native_private_functions": 2,
+    "python_new_functions": 27,
+    "python_new_parameterized_cases": 76,
+    "concurrent_python_cases_preserved": 40
+  },
+  "environment": {
+    "toolchain": "nightly-2026-08-20",
+    "python": "3.12.14",
+    "genuine_donor_pins": {
+      "asupersync": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+      "franken_numpy": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+      "frankenscipy": "213a417c739025ed865a3875c89a7d86726ecb5a"
+    },
+    "production_graph_modified": false
+  },
+  "claims": {
+    "rounded_values_are_certificates": false,
+    "performance_claim": false,
+    "profile_certified": false,
+    "broad_gate_closed": false,
+    "bead_status_priority_dependencies_changed": false,
+    "claim_tiers_changed": false
+  },
+  "recorded_at": "2026-11-26T05:50:25Z"
+}

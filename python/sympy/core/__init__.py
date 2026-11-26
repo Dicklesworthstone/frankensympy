@@ -2955,6 +2955,11 @@ class Expr(Basic):
         certified = _certified_float(self, n)
         if certified is not None:
             return certified
+        if n > _F64_HONEST_DIGITS:
+            raise NotImplementedError(
+                f"precision-honest evalf: unsupported source beyond "
+                f"{_F64_HONEST_DIGITS} significant digits; requested {n}"
+            )
         try:
             return Float(_native_expr(self).evalf(), n)
         except ValueError as exc:
@@ -5858,15 +5863,33 @@ def _node_has_custom_evalf_hook(node: Any) -> bool:
 
 
 def _tree_has_custom_evalf_hook(node: Any) -> bool:
-    stack = [node]
+    from ._opaque_arithmetic import stored_args
+
+    stack = [(node, 0)]
+    seen = set()
     while stack:
-        cur = stack.pop()
+        cur, depth = stack.pop()
         if not isinstance(cur, Basic):
             continue
+        if id(cur) in seen:
+            continue
+        if len(seen) >= 4096 or depth > 64:
+            raise ValueError("evalf hook discovery exceeds its node or depth limit")
+        seen.add(id(cur))
         if _node_has_custom_evalf_hook(cur):
             return True
         if type(cur) in (Add, Mul, Pow, Derivative) or isinstance(cur, Function):
-            stack.extend(cur.args)
+            children = stored_args(cur)
+            if children is None:
+                if (type(cur) not in (Add, Mul, Pow, Derivative)
+                        and not _is_closed_function_class(type(cur))):
+                    continue
+                native = _native_expr(cur)
+                _native.CompiledFunction._validate_source(native)
+                children = tuple(_wrap(child) for child in native.args)
+            if len(children) > 4096 - len(seen) - len(stack):
+                raise ValueError("evalf hook discovery exceeds its argument limit")
+            stack.extend((child, depth + 1) for child in children)
     return False
 
 
@@ -6585,6 +6608,15 @@ class _ExactDecimalFloat(Float):
     def __repr__(self) -> str:
         return self._decimal
 
+    def __neg__(self) -> "Float":
+        text = self._decimal
+        if decimal.Decimal(text).is_zero():
+            return _ExactDecimalFloat(text.lstrip("-"), self._dps)
+        return _ExactDecimalFloat(text[1:] if text.startswith("-") else "-" + text, self._dps)
+
+    def __abs__(self) -> "Float":
+        return _ExactDecimalFloat(self._decimal.lstrip("-"), self._dps)
+
     def _srepr(self) -> str:
         return f"Float('{self._decimal}', precision={self._dps})"
 
@@ -6643,12 +6675,21 @@ class _ExactDecimalFloat(Float):
             raise TypeError("evalf dps must be a positive int")
         if n == self._dps:
             return self
-        try:
-            fr = Fraction(self._decimal)
-            sci = _native.evalf_decimal_native(_native_expr(Rational(fr.numerator, fr.denominator)), int(n))
-            return _ExactDecimalFloat(_format_decimal(sci, n), n)
-        except Exception:
-            return Float(self._as_python_float(), n)
+        _require_evalf_owners()
+        capture = _EvalfSource()
+        _original, native = capture.read(self)
+        capture.unchanged()
+        value = _native.evalf_complex_decimal_native(native, n)
+        capture.unchanged()
+        if value is None:
+            raise NotImplementedError("retained decimal Float is outside the certified source lane")
+        real, imaginary = value
+        if imaginary != "0":
+            raise RuntimeError("retained decimal Float evaluation produced a non-real value")
+        result = _ExactDecimalFloat(_format_decimal(real, n), n)
+        _charge_nested_if_active(1)
+        capture.unchanged()
+        return result
 
 
 _ExactDecimalFloat.__name__ = "Float"
@@ -6857,7 +6898,9 @@ class _EvalfSource:
             if ("Abs" if tag == "abs" else "log" if tag == "ln" else tag) != name:
                 raise ValueError("complex evalf function owner disagrees with its native value")
         if kind is Float or kind is _ExactDecimalFloat:
-            self.retain(source, Float, "_dps")
+            precision = self.retain(source, Float, "_dps")
+            if type(precision) is not int or precision < 1:
+                raise ValueError("complex evalf Float requires a positive exact precision")
             value = self.floating(native)
             if kind is _ExactDecimalFloat:
                 text = self.retain(source, _ExactDecimalFloat, "_decimal")
@@ -6955,13 +6998,39 @@ def _certified_float(expression: Any, n: int) -> Any:
     ball enclosure, or None when the expression is outside that lane."""
     if not isinstance(expression, Basic) or isinstance(expression, Float):
         return None
-    if _tree_has_custom_evalf_hook(expression):
-        return None
     if _bound_algebraic_root_type is not None and type(expression) is _bound_algebraic_root_type:
         # N(root, d) must reach the root's exact refinement path before the
         # generic binary64 precision refusal. Nonreal roots keep their own
         # explicitly bounded evaluation policy.
         return expression.evalf(n)
+    if _tree_has_custom_evalf_hook(expression):
+        return None
+    if _contains_opaque(expression):
+        # Preserve the genuine algebraic-root lane without inspecting an
+        # unknown surface owner's public args or free-symbol properties.
+        from ._opaque_arithmetic import stored_args
+
+        pending, seen, has_root = [(expression, 0)], set(), False
+        while pending:
+            node, depth = pending.pop()
+            if len(seen) >= 4096 or depth > 64:
+                raise ValueError("certified algebraic source exceeds its node/depth limit")
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            cls = type(node)
+            if _bound_algebraic_root_type is not None and cls is _bound_algebraic_root_type:
+                has_root = True
+                continue
+            if (not any(cls is builtin for builtin in _exact_surface_types())
+                    and not _is_closed_function_class(cls)):
+                return None
+            children = stored_args(node) or ()
+            if len(children) > 4096 - len(seen) - len(pending):
+                raise ValueError("certified algebraic source exceeds its argument limit")
+            pending.extend((child, depth + 1) for child in children)
+        if not has_root:
+            return None
     try:
         if expression.free_symbols:
             return None

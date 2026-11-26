@@ -133,6 +133,45 @@ jobs:
         run: |
           cargo test --locked -p fsym-core --test complex_elementary --test complex_expression --test complex_decimal --test complex_decimal_metered --test inverse_circular_certificates --test transcendental_rounding_enclosures -j1
           cargo test --locked -p fsym-core --lib complex_ -j1
+      - name: Build the full extension for complex decimal regression coverage
+        run: cargo build --locked -p fsym-python --features extension-module -j1
+      - name: Precision-preserving public complex evaluation
+        run: |
+          python - <<'PY'
+          import importlib.util
+          import os
+          from pathlib import Path
+          import sys
+
+          root = Path.cwd().resolve()
+          target = Path(os.environ.get("CARGO_TARGET_DIR", "target"))
+          if not target.is_absolute():
+              target = root / target
+          binary = (target / "debug/libfsym_python.so").resolve()
+          assert binary.is_file(), binary
+          spec = importlib.util.spec_from_file_location("fsym_python", binary)
+          assert spec is not None and spec.loader is not None
+          native = importlib.util.module_from_spec(spec)
+          sys.modules["fsym_python"] = native
+          spec.loader.exec_module(native)
+          sys.path.insert(0, str(root / "python"))
+          import sympy
+          from sympy.core import _native
+          assert _native is native
+          assert Path(sympy.__file__).resolve() == root / "python/sympy/__init__.py"
+          assert hasattr(native, "evalf_complex_decimal_native")
+          import pytest
+          raise SystemExit(pytest.main([
+              "-q", "-p", "no:cacheprovider",
+              "python/tests/test_complex_decimal_evalf.py",
+              "python/tests/test_complex_decimal_metered_evalf.py",
+              "python/tests/test_lambert_real_evalf.py",
+              "python/tests/test_complex_float_conversion.py",
+              "python/tests/test_float_conversion_termination.py",
+              "python/tests/test_surface.py::SurfaceTests::test_rsolve_and_complex_evalf",
+          ]))
+          PY
+
       - name: Continuous endpoint global value certificates and resumable search
         run: |
           cargo test --locked -p fsym-core --test continuous_box_optimization --test nonsmooth_box_optimization --test box_optimization_monotonicity -j1

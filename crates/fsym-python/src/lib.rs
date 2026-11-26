@@ -1279,15 +1279,30 @@ fn evalf_decimal_native(expr: &PyExpr, digits: u32) -> PyResult<String> {
 }
 
 /// Correctly rounded real and imaginary components of one original source.
-/// Only unsupported syntax returns None; an admitted domain, precision or
-/// resource failure is terminal and must not restart through binary64.
+/// Without a budget, retain the original syntax admission and None selection.
+/// An explicit budget selects the metered lane: its source/precision limits
+/// and every operational or mathematical refusal are terminal. The result is
+/// a rounded decimal pair, not an enclosing interval.
 #[pyfunction]
-fn evalf_complex_decimal_native(expr: &PyExpr, digits: u32) -> PyResult<Option<(String, String)>> {
-    match expr.inner.evalf_complex_decimal(digits) {
-        Ok(value) => Ok(Some(value)),
-        Err(fsym_core::ComplexDecimalError::UnsupportedSource(_)) => Ok(None),
-        Err(error) => Err(to_value_error(error)),
+#[pyo3(signature = (expr, digits, *, budget=None))]
+fn evalf_complex_decimal_native(
+    py: Python<'_>,
+    expr: &PyExpr,
+    digits: u32,
+    budget: Option<&numeric_budget::PyEvaluationBudget>,
+) -> PyResult<Option<(String, String)>> {
+    if budget.is_none() {
+        return match expr.inner.evalf_complex_decimal(digits) {
+            Ok(value) => Ok(Some(value)),
+            Err(fsym_core::ComplexDecimalError::UnsupportedSource(_)) => Ok(None),
+            Err(error) => Err(to_value_error(error)),
+        };
     }
+    numeric_budget::with_certification_meter(py, budget, |meter| {
+        expr.inner
+            .evalf_complex_decimal_metered(digits, meter)
+            .map(Some)
+    })
 }
 
 /// Structured univariate inequality solver `expr op 0`.

@@ -218,6 +218,38 @@ pub(crate) fn evaluation_error<E: Error + 'static>(error: E) -> PyErr {
         if let Some(lambert) = current.downcast_ref::<LambertWError>() {
             inconclusive_lambert |= !matches!(lambert, LambertWError::OutsideRealDomain { .. });
         }
+        if let Some(complex) = current.downcast_ref::<fsym_core::MeteredComplexDecimalError>() {
+            match complex {
+                fsym_core::MeteredComplexDecimalError::ResourceLimit(_) => {
+                    return EvaluationBudgetExceeded::new_err(error.to_string());
+                }
+                fsym_core::MeteredComplexDecimalError::RoundingInconclusive => {
+                    return PyRuntimeError::new_err(error.to_string());
+                }
+                fsym_core::MeteredComplexDecimalError::Arithmetic(arithmetic) => {
+                    use fsym_core::arith::RationalArithmeticError;
+                    return match arithmetic {
+                        RationalArithmeticError::Meter(MeterError::Cancelled) => {
+                            EvaluationCancelled::new_err(error.to_string())
+                        }
+                        RationalArithmeticError::Meter(MeterError::Budget(_))
+                        | RationalArithmeticError::SizeOverflow => {
+                            EvaluationBudgetExceeded::new_err(error.to_string())
+                        }
+                        RationalArithmeticError::AllocationFailure => {
+                            PyMemoryError::new_err(error.to_string())
+                        }
+                        RationalArithmeticError::InvariantViolation(_) => {
+                            PyRuntimeError::new_err(error.to_string())
+                        }
+                        RationalArithmeticError::DivisionByZero => {
+                            PyValueError::new_err(error.to_string())
+                        }
+                    };
+                }
+                _ => {}
+            }
+        }
         if let Some(meter) = current.downcast_ref::<MeterError>() {
             return match meter {
                 MeterError::Cancelled => EvaluationCancelled::new_err(error.to_string()),

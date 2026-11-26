@@ -3379,6 +3379,24 @@ integer/rational literals in Python to 4096 bits. These are intrinsic limits,
 not a uniform caller-owned
 budget or cancellation guarantee for the complete Python evaluation path.
 
+For caller-owned native work, `Expr::evalf_complex_decimal_metered(digits,
+meter)` shares one cumulative `BudgetMeter` across source admission,
+enclosure refinement, exact endpoint rounding and publication. It retains
+typed cancellation and budget failures. This lane bounds the source to 1024
+nodes, depth 32 and 4096-bit literals, with 65536-bit intermediate rationals,
+at most 1792 working digits and fixed cumulative work/allocation ceilings.
+Its real-only compositions also retain metered Lambert W and `atan2`.
+Cancellation is checked at bounded operation boundaries, not within every
+bigint operation or transcendental-series iteration.
+
+The development PyO3 function `evalf_complex_decimal_native` accepts an
+optional `budget=EvaluationBudget(...)`. Supplying it selects that metered
+lane and makes every refusal terminal, including unsupported syntax.
+Omitting it preserves the original grammar, size limits and `None` selection
+for unsupported syntax. Normal `N`/`evalf` calls keep their existing selection
+policy; Python source capture and output construction do not acquire a
+uniform caller-owned native budget through this optional bridge parameter.
+
 The result retains decimal Float components for rendering,
 `as_real_imag()`, predicates and reevaluation. General Float arithmetic and
 comparisons retain the shell's existing binary64 limitations. The displayed

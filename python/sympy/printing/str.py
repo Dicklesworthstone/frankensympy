@@ -69,7 +69,7 @@ def _kind(e: Any) -> str:
         return "Mul"
     if t is c.Pow:
         return "Pow"
-    if t is c.Float:
+    if t is c.Float or t is c._ExactDecimalFloat:
         return "Float"
     if isinstance(e, c.Rational):
         return "Integer" if e.q == 1 else "Rational"
@@ -498,7 +498,7 @@ class StrPrinter:
         if k == "Pow":
             return self._print_Pow(e)
         if k == "Float":
-            text = self._fallback(e)
+            text = e._decimal if type(e) is c._ExactDecimalFloat else self._fallback(e)
             return _strip_float(text) if self._level > 1 else text
         if isinstance(e, c.Derivative):
             return self._print_Derivative(e)
@@ -598,7 +598,12 @@ class StrPrinter:
                 sign = "-"
                 cval = -cval
         factors: list = []
-        if cval == float("inf"):
+        if type(coeff) is c._ExactDecimalFloat:
+            # Its native Float cache serves approximate arithmetic only.
+            # Keep the certified decimal owner when printing a coefficient.
+            sign = "-" if coeff._decimal.startswith("-") else ""
+            factors.append(abs(coeff) if sign else coeff)
+        elif cval == float("inf"):
             factors.append(c.oo)
         elif cval is not None and (cval != 1 or _kind(coeff) == "Float"):
             if isinstance(cval, Fraction):
