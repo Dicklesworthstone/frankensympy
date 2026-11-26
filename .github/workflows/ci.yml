@@ -135,6 +135,8 @@ jobs:
           cargo test --locked -p fsym-core --lib complex_ -j1
       - name: Reciprocal-inverse real values and independent certificates
         run: cargo test --locked -p fsym-core --test reciprocal_inverse_certificates -j1
+      - name: Compiled reciprocal-inverse values and checked derivatives
+        run: cargo test --locked -p fsym-calculus --test reciprocal_inverse_programs -j1
       - name: Build the full extension for complex decimal regression coverage
         run: cargo build --locked -p fsym-python --features extension-module -j1
       - name: Scalar Newton damping and numerical solver regressions
@@ -166,6 +168,7 @@ jobs:
           raise SystemExit(pytest.main([
               "-q", "-p", "no:cacheprovider",
               "python/tests/test_nsolve_damping.py",
+              "python/tests/test_reciprocal_inverse_numeric.py",
               "python/tests/test_nsolve_convergence.py",
               "python/tests/test_nsolve_bisect.py",
               "python/tests/test_nsolve_systems.py",

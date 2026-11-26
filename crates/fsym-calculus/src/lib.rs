@@ -327,6 +327,32 @@ fn diff_unsimplified_using<E>(
                     return Ok(Expr::from_i64(0));
                 }
             }
+            // The compiled real lane retains reciprocal-inverse domains in
+            // explicit jets. Public symbolic derivatives keep their existing
+            // formulas; original-source evaluation still checks smoothness.
+            if stable_coth && args.len() == 1 {
+                let next = match name.as_str() {
+                    "acot" => Some("_fsym_acot_d1"),
+                    "acoth" => Some("_fsym_acoth_d1"),
+                    "asec" => Some("_fsym_asec_d1"),
+                    "acsc" => Some("_fsym_acsc_d1"),
+                    "asech" => Some("_fsym_asech_d1"),
+                    "acsch" => Some("_fsym_acsch_d1"),
+                    "_fsym_acot_d1" => Some("_fsym_acot_d2"),
+                    "_fsym_acoth_d1" => Some("_fsym_acoth_d2"),
+                    "_fsym_asec_d1" => Some("_fsym_asec_d2"),
+                    "_fsym_acsc_d1" => Some("_fsym_acsc_d2"),
+                    "_fsym_asech_d1" => Some("_fsym_asech_d2"),
+                    "_fsym_acsch_d1" => Some("_fsym_acsch_d2"),
+                    _ => None,
+                };
+                if let Some(next) = next {
+                    return Ok(Expr::Mul(vec![
+                        Expr::Function(next.to_string(), vec![args[0].clone()]),
+                        diff(&args[0], var)?,
+                    ]));
+                }
+            }
             // Elementary derivatives
             if name == "sin" && args.len() == 1 {
                 let u = &args[0];

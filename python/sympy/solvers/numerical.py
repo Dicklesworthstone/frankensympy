@@ -210,9 +210,15 @@ def _scalar_uses_checked_jets(instructions):
     never execute source functions or attempt compilation to discover support.
     Sources outside this small lane retain the established symbolic route.
     """
-    from ..utilities.lambdify import _math_coth, _math_sinc
+    from ..utilities.lambdify import (
+        _math_acot, _math_acoth, _math_acsc, _math_acsch, _math_asec,
+        _math_asech, _math_coth, _math_sinc,
+    )
 
-    intrinsics = (abs, _math_sinc, math.tanh, _math_coth, math.atan, math.asinh)
+    intrinsics = (
+        abs, _math_sinc, math.tanh, _math_coth, math.atan, math.asinh,
+        _math_acot, _math_acoth, _math_asec, _math_acsc, _math_asech, _math_acsch,
+    )
     if len(instructions) > 128 or not any(
         instruction[0] == "function" and any(instruction[1] is function for function in intrinsics)
         for instruction in instructions

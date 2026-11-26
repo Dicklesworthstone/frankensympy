@@ -63,9 +63,11 @@ _CLOSED_NATIVE_FUNCTIONS = {
     "sin": "sin", "cos": "cos", "tan": "tan", "sinc": "sinc",
     "cot": "cot", "sec": "sec", "csc": "csc",
     "asin": "asin", "acos": "acos", "atan": "atan", "atan2": "atan2",
+    "acot": "acot", "asec": "asec", "acsc": "acsc",
     "sinh": "sinh", "cosh": "cosh", "tanh": "tanh",
     "coth": "coth", "sech": "sech", "csch": "csch",
     "asinh": "asinh", "acosh": "acosh", "atanh": "atanh",
+    "acoth": "acoth", "asech": "asech", "acsch": "acsch",
     "exp": "exp", "log": "log", "Abs": "Abs",
     "floor": "floor", "ceiling": "ceiling", "gamma": "gamma",
     "erf": "erf", "erfc": "erfc", "factorial": "factorial",
@@ -152,6 +154,53 @@ def _math_csch(value):
     return 1 / (0.5 * positive - 0.5 * negative)
 
 
+def _math_acot(value):
+    if not math.isfinite(value):
+        raise ValueError("math domain error")
+    if value == 0:
+        return math.pi / 2
+    if abs(value) <= 1:
+        return math.copysign(math.pi / 2, value) - math.atan(value)
+    return math.atan(1 / value)
+
+
+def _math_acoth(value):
+    if not math.isfinite(value) or abs(value) <= 1:
+        raise ValueError("math domain error")
+    return math.atanh(1 / value)
+
+
+def _math_asec(value):
+    if not math.isfinite(value) or abs(value) < 1:
+        raise ValueError("math domain error")
+    return math.acos(1 / value)
+
+
+def _math_acsc(value):
+    if not math.isfinite(value) or abs(value) < 1:
+        raise ValueError("math domain error")
+    return math.asin(1 / value)
+
+
+def _math_asech(value):
+    if not math.isfinite(value) or not 0 < value <= 1:
+        raise ValueError("math domain error")
+    # acosh(1/x), without overflowing the reciprocal of a tiny real x.
+    norm = math.sqrt(1 - value) * math.sqrt(1 + value)
+    return math.log1p(norm) - math.log(value)
+
+
+def _math_acsch(value):
+    if not math.isfinite(value) or value == 0:
+        raise ValueError("math domain error")
+    magnitude = abs(value)
+    if magnitude <= 1:
+        result = math.log1p(math.hypot(magnitude, 1)) - math.log(magnitude)
+    else:
+        result = math.asinh(1 / magnitude)
+    return math.copysign(result, value)
+
+
 def _require_numeric_function_arity(name, size):
     if name == "LambertW":
         if size not in (1, 2):
@@ -191,10 +240,10 @@ def _require_lambert_numeric_branch(value):
 def _functions():
     # Exact classes, never class names supplied by a user subclass.
     from ..functions.elementary.trigonometric import (
-        sin, cos, tan, cot, sec, csc, sinc, asin, acos, atan, atan2,
+        sin, cos, tan, cot, sec, csc, sinc, asin, acos, atan, acot, asec, acsc, atan2,
     )
     from ..functions.elementary.hyperbolic import (
-        sinh, cosh, tanh, coth, sech, csch, asinh, acosh, atanh,
+        sinh, cosh, tanh, coth, sech, csch, asinh, acosh, atanh, acoth, asech, acsch,
     )
     from ..functions.elementary.exponential import exp, log
     from ..functions.elementary.integers import floor, ceiling
@@ -207,12 +256,16 @@ def _functions():
         (cot, ("cot", _math_cot)), (sec, ("sec", _math_sec)), (csc, ("csc", _math_csc)),
         (sinc, ("sinc", _math_sinc)),
         (asin, ("asin", math.asin)), (acos, ("acos", math.acos)), (atan, ("atan", math.atan)),
+        (acot, ("acot", _math_acot)), (asec, ("asec", _math_asec)),
+        (acsc, ("acsc", _math_acsc)),
         (atan2, ("atan2", math.atan2)),
         (sinh, ("sinh", math.sinh)), (cosh, ("cosh", math.cosh)), (tanh, ("tanh", math.tanh)),
         (coth, ("coth", _math_coth)), (sech, ("sech", _math_sech)),
         (csch, ("csch", _math_csch)),
         (asinh, ("asinh", math.asinh)), (acosh, ("acosh", math.acosh)),
         (atanh, ("atanh", math.atanh)), (exp, ("exp", math.exp)), (log, ("log", math.log)),
+        (acoth, ("acoth", _math_acoth)), (asech, ("asech", _math_asech)),
+        (acsch, ("acsch", _math_acsch)),
         # Preserve the registered source tag through receipts and transport.
         # The native compiler admits Abs directly; lowering it to the opaque
         # Python spelling "abs" would lose exact class and structural identity.

@@ -61,6 +61,11 @@ pub const RULE_DIFF_ATAN2_DX: &str = "diff_atan2_dx";
 pub const RULE_DIFF_ASINH: &str = "diff_asinh";
 /// Exact real chain rule for the private asinh first-derivative node.
 pub const RULE_DIFF_ASINH_D1: &str = "diff_asinh_d1";
+/// Current numerical chain rules for principal real reciprocal inverses.
+/// The identity is restricted to the original function's open smooth domain;
+/// a point or whole-box domain check is still required before evaluation.
+pub const RULE_DIFF_RECIPROCAL_INVERSE_REAL: &str = "diff_reciprocal_inverse_real";
+pub const RULE_DIFF_RECIPROCAL_INVERSE_REAL_D1: &str = "diff_reciprocal_inverse_real_d1";
 /// Fixed integer-branch Lambert-W chain rule for public symbolic receipts.
 /// This identity does not discharge an original-source domain obligation.
 pub const RULE_DIFF_LAMBERT_W: &str = "diff_lambert_w";
@@ -156,6 +161,21 @@ fn reference_lambert_first_jet(arguments: &[Expr]) -> Option<&'static str> {
 }
 
 fn classify_diff_rule_with_form(expr: &Expr, var: &Symbol, form: DerivativeForm) -> &'static str {
+    if form == DerivativeForm::Numeric
+        && let Expr::Function(name, arguments) = expr
+        && arguments.len() == 1
+    {
+        match name.as_str() {
+            "acot" | "acoth" | "asec" | "acsc" | "asech" | "acsch" => {
+                return RULE_DIFF_RECIPROCAL_INVERSE_REAL;
+            }
+            "_fsym_acot_d1" | "_fsym_acoth_d1" | "_fsym_asec_d1" | "_fsym_acsc_d1"
+            | "_fsym_asech_d1" | "_fsym_acsch_d1" => {
+                return RULE_DIFF_RECIPROCAL_INVERSE_REAL_D1;
+            }
+            _ => {}
+        }
+    }
     if form == DerivativeForm::Numeric
         && let Expr::Function(name, arguments) = expr
         && arguments.len() == 2
@@ -1026,6 +1046,32 @@ fn reference_unsimplified_diff_with<E>(
             let du = reference_sub_derivative(u, var)?;
             if name != "Derivative" && name != "diff" && du.is_zero() {
                 return Ok(Expr::from_i64(0));
+            }
+            if form == DerivativeForm::Numeric {
+                // This verifier-local table reconstructs the complete chain
+                // independently of the optimizing differentiator. Older
+                // recipes never admitted these source functions as programs.
+                let next = match name.as_str() {
+                    "acot" => Some("_fsym_acot_d1"),
+                    "acoth" => Some("_fsym_acoth_d1"),
+                    "asec" => Some("_fsym_asec_d1"),
+                    "acsc" => Some("_fsym_acsc_d1"),
+                    "asech" => Some("_fsym_asech_d1"),
+                    "acsch" => Some("_fsym_acsch_d1"),
+                    "_fsym_acot_d1" => Some("_fsym_acot_d2"),
+                    "_fsym_acoth_d1" => Some("_fsym_acoth_d2"),
+                    "_fsym_asec_d1" => Some("_fsym_asec_d2"),
+                    "_fsym_acsc_d1" => Some("_fsym_acsc_d2"),
+                    "_fsym_asech_d1" => Some("_fsym_asech_d2"),
+                    "_fsym_acsch_d1" => Some("_fsym_acsch_d2"),
+                    _ => None,
+                };
+                if let Some(next) = next {
+                    return Ok(Expr::Mul(vec![
+                        Expr::Function(next.to_string(), vec![u.clone()]),
+                        du,
+                    ]));
+                }
             }
             match name.as_str() {
                 "sin" => Expr::Mul(vec![Expr::Function("cos".to_string(), vec![u.clone()]), du]),
@@ -1929,6 +1975,52 @@ fn verify_rule_reduction_semantics_with<E: From<KernelError>>(
                 return Err((KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Inverse curvature disagrees with the independent real chain rule"
+                        .to_string(),
+                })
+                .into());
+            }
+        }
+        RULE_DIFF_RECIPROCAL_INVERSE_REAL | RULE_DIFF_RECIPROCAL_INVERSE_REAL_D1 => {
+            let admitted_source = match expr {
+                Expr::Function(name, arguments) if arguments.len() == 1 => {
+                    if rule_name == RULE_DIFF_RECIPROCAL_INVERSE_REAL {
+                        matches!(
+                            name.as_str(),
+                            "acot" | "acoth" | "asec" | "acsc" | "asech" | "acsch"
+                        )
+                    } else {
+                        matches!(
+                            name.as_str(),
+                            "_fsym_acot_d1"
+                                | "_fsym_acoth_d1"
+                                | "_fsym_asec_d1"
+                                | "_fsym_acsc_d1"
+                                | "_fsym_asech_d1"
+                                | "_fsym_acsch_d1"
+                        )
+                    }
+                }
+                _ => false,
+            };
+            if form != DerivativeForm::Numeric || !admitted_source {
+                return Err((KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Reciprocal-inverse rules require their exact unary real source"
+                        .to_string(),
+                })
+                .into());
+            }
+            // acot'=-1/(1+u²), acoth'=1/(1-u²),
+            // asec'=1/(u²*sqrt(1-u^-2)), acsc'=-asec',
+            // asech'=-1/(u*sqrt(1-u²)), acsch'=-1/(u²*sqrt(1+u^-2)).
+            // First-jet rules differentiate these same analytic functions.
+            // The reference chain binds the original argument and inner
+            // derivative; none of these rules proves a domain obligation.
+            let expected = differentiate(expr, var, true)?;
+            if deriv != &expected {
+                return Err((KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Reciprocal-inverse derivative disagrees with the independent chain"
                         .to_string(),
                 })
                 .into());

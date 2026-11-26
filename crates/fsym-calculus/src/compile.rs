@@ -5,6 +5,7 @@
 
 mod error_functions;
 mod lambert;
+mod reciprocal_inverse;
 mod shared;
 mod sinc;
 
@@ -13,6 +14,9 @@ pub(crate) use shared::{EvaluationMemo, SharedEvaluationPlan};
 
 use self::error_functions::evaluate_error_function;
 use self::lambert::{LambertOrder, evaluate_lambert};
+use self::reciprocal_inverse::{
+    ReciprocalInverse, ReciprocalInverseOrder, evaluate_reciprocal_inverse,
+};
 use self::sinc::{SincOrder, evaluate_sinc};
 use crate::numeric_diff_with_meter;
 use fsym_budget::{BudgetError, BudgetMeter, DIMENSION_COUNT, Dimension, MeterError, Unbounded};
@@ -486,6 +490,28 @@ pub enum CompiledOp {
     LambertWSecondDerivative,
     LambertWMinusOneDerivative,
     LambertWMinusOneSecondDerivative,
+    /// Principal real reciprocal-inverse values. Closed finite endpoints are
+    /// value-only: original-source derivative evaluation retains open domains.
+    Acot,
+    Acoth,
+    Asec,
+    Acsc,
+    Asech,
+    Acsch,
+    /// Stable analytic first and second derivatives on those open domains.
+    /// These appended variants preserve every existing serialized operation.
+    AcotDerivative,
+    AcotSecondDerivative,
+    AcothDerivative,
+    AcothSecondDerivative,
+    AsecDerivative,
+    AsecSecondDerivative,
+    AcscDerivative,
+    AcscSecondDerivative,
+    AsechDerivative,
+    AsechSecondDerivative,
+    AcschDerivative,
+    AcschSecondDerivative,
 }
 
 /// Bounded forward-only stack program evaluating an expression to an f64 value.
@@ -756,6 +782,24 @@ impl CompiledExpr {
             | CompiledOp::LambertWSecondDerivative
             | CompiledOp::LambertWMinusOneDerivative
             | CompiledOp::LambertWMinusOneSecondDerivative
+            | CompiledOp::Acot
+            | CompiledOp::Acoth
+            | CompiledOp::Asec
+            | CompiledOp::Acsc
+            | CompiledOp::Asech
+            | CompiledOp::Acsch
+            | CompiledOp::AcotDerivative
+            | CompiledOp::AcotSecondDerivative
+            | CompiledOp::AcothDerivative
+            | CompiledOp::AcothSecondDerivative
+            | CompiledOp::AsecDerivative
+            | CompiledOp::AsecSecondDerivative
+            | CompiledOp::AcscDerivative
+            | CompiledOp::AcscSecondDerivative
+            | CompiledOp::AsechDerivative
+            | CompiledOp::AsechSecondDerivative
+            | CompiledOp::AcschDerivative
+            | CompiledOp::AcschSecondDerivative
             | CompiledOp::Exp
             | CompiledOp::Ln
             | CompiledOp::Sqrt
@@ -1124,6 +1168,24 @@ impl CompiledExpr {
                     "_fsym_asinh_d2" => CompiledOp::AsinhSecondDerivative,
                     "acosh" => CompiledOp::Acosh,
                     "atanh" => CompiledOp::Atanh,
+                    "acot" => CompiledOp::Acot,
+                    "acoth" => CompiledOp::Acoth,
+                    "asec" => CompiledOp::Asec,
+                    "acsc" => CompiledOp::Acsc,
+                    "asech" => CompiledOp::Asech,
+                    "acsch" => CompiledOp::Acsch,
+                    "_fsym_acot_d1" => CompiledOp::AcotDerivative,
+                    "_fsym_acot_d2" => CompiledOp::AcotSecondDerivative,
+                    "_fsym_acoth_d1" => CompiledOp::AcothDerivative,
+                    "_fsym_acoth_d2" => CompiledOp::AcothSecondDerivative,
+                    "_fsym_asec_d1" => CompiledOp::AsecDerivative,
+                    "_fsym_asec_d2" => CompiledOp::AsecSecondDerivative,
+                    "_fsym_acsc_d1" => CompiledOp::AcscDerivative,
+                    "_fsym_acsc_d2" => CompiledOp::AcscSecondDerivative,
+                    "_fsym_asech_d1" => CompiledOp::AsechDerivative,
+                    "_fsym_asech_d2" => CompiledOp::AsechSecondDerivative,
+                    "_fsym_acsch_d1" => CompiledOp::AcschDerivative,
+                    "_fsym_acsch_d2" => CompiledOp::AcschSecondDerivative,
                     "erf" => CompiledOp::Erf,
                     "erfc" => CompiledOp::Erfc,
                     "sinc" => CompiledOp::Sinc,
@@ -1691,6 +1753,56 @@ impl CompiledExpr {
                 CompiledOp::Atanh => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
                     stack.push(v.atanh());
+                }
+                CompiledOp::Acot
+                | CompiledOp::Acoth
+                | CompiledOp::Asec
+                | CompiledOp::Acsc
+                | CompiledOp::Asech
+                | CompiledOp::Acsch
+                | CompiledOp::AcotDerivative
+                | CompiledOp::AcotSecondDerivative
+                | CompiledOp::AcothDerivative
+                | CompiledOp::AcothSecondDerivative
+                | CompiledOp::AsecDerivative
+                | CompiledOp::AsecSecondDerivative
+                | CompiledOp::AcscDerivative
+                | CompiledOp::AcscSecondDerivative
+                | CompiledOp::AsechDerivative
+                | CompiledOp::AsechSecondDerivative
+                | CompiledOp::AcschDerivative
+                | CompiledOp::AcschSecondDerivative => {
+                    use ReciprocalInverse as Function;
+                    use ReciprocalInverseOrder as Order;
+                    let value = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    let (function, order) = match op {
+                        CompiledOp::Acot => (Function::Acot, Order::Value),
+                        CompiledOp::Acoth => (Function::Acoth, Order::Value),
+                        CompiledOp::Asec => (Function::Asec, Order::Value),
+                        CompiledOp::Acsc => (Function::Acsc, Order::Value),
+                        CompiledOp::Asech => (Function::Asech, Order::Value),
+                        CompiledOp::Acsch => (Function::Acsch, Order::Value),
+                        CompiledOp::AcotDerivative => (Function::Acot, Order::First),
+                        CompiledOp::AcotSecondDerivative => (Function::Acot, Order::Second),
+                        CompiledOp::AcothDerivative => (Function::Acoth, Order::First),
+                        CompiledOp::AcothSecondDerivative => (Function::Acoth, Order::Second),
+                        CompiledOp::AsecDerivative => (Function::Asec, Order::First),
+                        CompiledOp::AsecSecondDerivative => (Function::Asec, Order::Second),
+                        CompiledOp::AcscDerivative => (Function::Acsc, Order::First),
+                        CompiledOp::AcscSecondDerivative => (Function::Acsc, Order::Second),
+                        CompiledOp::AsechDerivative => (Function::Asech, Order::First),
+                        CompiledOp::AsechSecondDerivative => (Function::Asech, Order::Second),
+                        CompiledOp::AcschDerivative => (Function::Acsch, Order::First),
+                        CompiledOp::AcschSecondDerivative => (Function::Acsch, Order::Second),
+                        _ => unreachable!("matched reciprocal-inverse operation"),
+                    };
+                    stack.push(evaluate_reciprocal_inverse(
+                        value,
+                        function,
+                        order,
+                        smooth_only,
+                        meter,
+                    )?);
                 }
                 CompiledOp::Erf | CompiledOp::Erfc => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
