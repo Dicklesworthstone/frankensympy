@@ -14,8 +14,11 @@
     "native_query_tests": {
       "authored": 8,
       "typechecked": 8,
-      "executed": 0,
-      "scope": "Combined mathematical-component cargo check --tests with warnings denied, exit 0."
+      "executed": 8,
+      "passed": 8,
+      "failed": 0,
+      "seconds": 0.87,
+      "scope": "Original native test bodies and implementations in the mathematical component, actual CPython linkage; cargo unit binary uses the same six documented runtime-helper omissions."
     },
     "component_build": {
       "exit_code": 0,
@@ -77,6 +80,20 @@
       "source_files_unchanged": 1204,
       "compiler_controls": "Scoped frontend=1, backend=1 and codegen-units=256 for asupersync and fsym-python;175 dependencies reused.",
       "cause": "Not established; no measured OOM claim."
+    },
+    "native_callback_tests": {
+      "passed": 17,
+      "failed": 0,
+      "seconds": 0.38,
+      "scope": "Existing native callback tests, including atomic reentrant ownership/cancellation/overflow and unchanged public legacy charging."
+    },
+    "native_unit_build": {
+      "exit_code": 0,
+      "seconds": 26.02,
+      "warnings_denied": true,
+      "compiler_controls": "Explicit frontend=1, backend=1, codegen-units=256; original locked dependencies reused.",
+      "source_files_unchanged": 1204,
+      "source_scope": "Frozen local 14eff3ed-based checkout plus matrix/query implementation, before subsequent local alignment to concurrent published main. The tested query and callback Rust sources match the published implementation."
     }
   },
   "component_limits": {
@@ -94,7 +111,8 @@
   "concurrent_main_changes": "Preserved edc9025 numeric source-cost preflight and 14eff3ed guarded real-root adapter. The 627-case component checkpoint precedes those changes; the isolated sparse exception rerun uses the later source checkout.",
   "evidence": {
     "archive": "2026-11-26-polynomial-coefficient-queries-validation.json.gz",
-    "sha256": "5d5d033cb3444e7de82e21e739b158b7a38b734f35dfd12626f483519fb43f4e",
-    "contents": "Complete observed logs, JUnit, exact commands/status, source and dependency checkpoints, component recipe, direct smoke scripts and targeted correction result."
-  }
+    "sha256": "f713a9008db54563aae682ddd5822dbc8af0deb06b173c582357aa709bbdae6e",
+    "contents": "Complete observed logs, JUnit, exact commands/status, source and dependency checkpoints, component recipe, direct smoke scripts and targeted correction result. Includes the later eight passing native query tests and 17 passing native callback tests, actual unit compiler command/status and complete frozen source checkpoint."
+  },
+  "query_implementation_commit": "a792cd5b4f76547e92f616e31a755c6db384884d"
 }
