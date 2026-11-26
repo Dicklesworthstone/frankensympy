@@ -26,7 +26,7 @@ from ..core import (
     _wrap,
 )
 # Eagerly retain builtin implementations before the first lazy eval import.
-from . import _composition, _evaluation_owners, _reduced
+from . import _coefficient_queries, _composition, _evaluation_owners, _reduced
 
 
 _GENS_ORDER = {
@@ -168,21 +168,16 @@ class Poly(Basic):
         return max(sum(m) for m, _ in self.terms())
 
     def all_coeffs(self) -> List[Any]:
-        """Return all coefficients of the polynomial in descending degree order."""
+        """Return the dense descending coefficient list of a univariate Poly."""
         if _finitefield.is_finite(self):
             return _finitefield.coefficients(self)
-        if self._parametric:
-            return self._univariate_coeffs()
-        raw = _native.poly_coeffs_native(_native_expr(self._expr), _symbol_binding(self.gen))
-        return [_lift_native_result(c, self._expr, *self._gens) for c in raw]
+        return _coefficient_queries.query(self, "all_coeffs")
 
     def coeffs(self, order: Any = None) -> List[Any]:
-        """Return all non-zero coefficients in descending degree order."""
+        """Return nonzero coefficients in monomial order, or [0] for zero."""
         if _finitefield.is_finite(self):
             return [c for _, c in _finitefield.terms(self, order)]
-        if order not in (None, "lex"):
-            raise NotImplementedError("non-lexicographic coefficient queries require a prime-field Poly")
-        return [c for c in self.all_coeffs() if c != 0]
+        return _coefficient_queries.query(self, "coeffs", order=order)
 
     def degree(self, gen: Any = 0) -> Optional[int]:
         """Return polynomial degree."""
@@ -207,52 +202,41 @@ class Poly(Basic):
         target_gen = self._gens[gen] if isinstance(gen, int) else _require_symbol(gen)
         return _native.poly_degree_native(_native_expr(self._expr), _symbol_binding(target_gen))
 
-    def leading_coeff(self) -> Any:
-        """Return the leading coefficient."""
+    def leading_coeff(self, order: Any = None) -> Any:
+        """Return the coefficient of the leading monomial."""
         if _finitefield.is_finite(self):
-            return _finitefield.terms(self)[0][1]
-        if self._parametric:
-            return self.terms()[0][1]
-        raw = _native.poly_leading_coeff_native(_native_expr(self._expr), _symbol_binding(self.gen))
-        return _lift_native_result(raw, self._expr, *self._gens)
+            return _finitefield.terms(self, order)[0][1]
+        return _coefficient_queries.query(self, "LC", order=order)
 
-    def LC(self) -> Any:
-        """Alias for leading_coeff."""
-        return self.leading_coeff()
+    def LC(self, order: Any = None) -> Any:
+        """Return the leading coefficient in the requested monomial order."""
+        return self.leading_coeff(order)
 
     def trailing_coeff(self) -> Any:
-        """Return the trailing coefficient."""
+        """Return the constant coefficient, including a missing constant zero."""
         if _finitefield.is_finite(self):
             return _finitefield.trailing_coefficient(self)
-        coeffs = self.all_coeffs()
-        if coeffs:
-            return coeffs[-1]
-        from ..core import Integer
-        return Integer(0)
+        return _coefficient_queries.query(self, "TC")
 
     def TC(self) -> Any:
-        """Alias for trailing_coeff."""
+        """Return the constant coefficient."""
         return self.trailing_coeff()
 
-    def EC(self) -> Any:
-        """Alias for trailing_coeff."""
+    def EC(self, order: Any = None) -> Any:
+        """Return the coefficient of the last nonzero ordered term."""
         if _finitefield.is_finite(self):
-            return _finitefield.terms(self)[-1][1]
-        return self.trailing_coeff()
+            return _finitefield.terms(self, order)[-1][1]
+        return _coefficient_queries.query(self, "EC", order=order)
 
     def nth(self, *coords: int) -> Any:
-        """Return coefficient of the given monomial degree."""
+        """Return the coefficient at one nonnegative exponent per generator."""
         if _finitefield.is_finite(self):
             return _finitefield.nth(self, coords)
-        if len(coords) == 1:
-            n = int(coords[0])
-            deg = self.degree()
-            if deg is None or n < 0 or n > deg:
-                from ..core import Integer
-                return Integer(0)
-            coeffs = self.all_coeffs()
-            return coeffs[deg - n]
-        raise NotImplementedError("multivariate nth is not yet implemented")
+        return _coefficient_queries.query(self, "nth", coords)
+
+    def coeff_monomial(self, monomial: Any) -> Any:
+        """Return an exact monomial coefficient, or zero outside the support."""
+        return _coefficient_queries.query(self, "coeff_monomial", monomial)
 
     def eval(self, x: Any, a: Any = None, auto: bool = True) -> Any:
         """Evaluate exact values, retaining every unassigned polynomial axis.
@@ -853,32 +837,10 @@ class Poly(Basic):
         return hash((self._expr, self._gens))
 
     def terms(self, order: Any = None) -> list:
-        """(monomial exponents, coefficient) pairs, lex-descending in gens."""
+        """Exact exponent/coefficient pairs in descending monomial order."""
         if _finitefield.is_finite(self):
             return _finitefield.terms(self, order)
-        if order not in (None, "lex"):
-            raise NotImplementedError("non-lexicographic term queries require a prime-field Poly")
-        from ..core import Add as _Add, Integer as _Integer, Mul as _Mul, Pow as _Pow, expand
-
-        gens = list(self._gens)
-        e = expand(self._expr)
-        acc: dict = {}
-        for t in (e.args if isinstance(e, _Add) else (e,)):
-            if t == 0:
-                continue
-            exps = [0] * len(gens)
-            coeff = _Integer(1)
-            for f in (t.args if isinstance(t, _Mul) else (t,)):
-                base, k = (f.args[0], f.args[1]) if isinstance(f, _Pow) else (f, _Integer(1))
-                if base in gens and isinstance(k, _Integer) and k.p > 0:
-                    exps[gens.index(base)] += int(k.p)
-                else:
-                    coeff = coeff * f
-            key = tuple(exps)
-            acc[key] = acc.get(key, _Integer(0)) + coeff
-        items = [(m, c) for m, c in acc.items() if c != 0]
-        items.sort(key=lambda mc: mc[0], reverse=True)
-        return items or [(tuple([0] * len(gens)), _Integer(0))]
+        return _coefficient_queries.query(self, "terms", order=order)
 
     def monoms(self, order: Any = None) -> list:
         """Monomial exponent tuples in the requested supported order."""
@@ -996,6 +958,7 @@ class PurePoly(Poly):
 
 _reduced.register_poly_owners(Poly, PurePoly)
 _composition.register_poly_owners(Poly, PurePoly)
+_coefficient_queries.register_poly_owners(Poly, PurePoly)
 
 
 def _is_rational_function(c: Any) -> bool:
@@ -1471,10 +1434,9 @@ def TC(f: Any, *gens: Any) -> Any:
 
 
 def EC(f: Any, *gens: Any) -> Any:
-    """Alias for trailing_coeff."""
-    if _finitefield.is_finite(f):
-        return f.EC()
-    return trailing_coeff(f, *gens)
+    """Return the coefficient of the last nonzero lexicographic term."""
+    p = f if isinstance(f, Poly) else Poly(f, *gens)
+    return p.EC()
 
 
 def monic(f: Any) -> Any:

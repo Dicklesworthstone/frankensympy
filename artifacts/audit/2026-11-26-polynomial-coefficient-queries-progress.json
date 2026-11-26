@@ -1,0 +1,100 @@
+{
+  "date": "2026-11-26",
+  "scope": "Exact QQ/ZZ coefficient queries for Poly/PurePoly, integrated with retained typed source owners; existing coefficient-domain rendering is separately selected.",
+  "matrix_integration_commit": "9930b943eeb8519ac8c5b0165e7181c576c49302",
+  "implemented": [
+    "Multivariate terms/monoms/coeffs, ordered LC/EC, constant TC, nth and coeff_monomial.",
+    "Lex/grlex/grevlex orders, exact rational coefficients, declared unused axes and distinct typed same-name Symbol/Dummy coordinates.",
+    "Zero coefficient conventions, dense univariate all_coeffs with missing powers, strict original QQ/ZZ declarations.",
+    "Bounded native coefficient map with independent original-source replay and shared active-session accounting.",
+    "Preserved existing GF(p), generic and parameter-domain dispatch/rendering; no retry after checked admission failure."
+  ],
+  "validation": {
+    "toolchain": "nightly-2026-08-20",
+    "native_query_tests": {
+      "authored": 8,
+      "typechecked": 8,
+      "executed": 0,
+      "scope": "Combined mathematical-component cargo check --tests with warnings denied, exit 0."
+    },
+    "component_build": {
+      "exit_code": 0,
+      "seconds": 24.02,
+      "binary_sha256": "90226aaf9b230080e1ccbd7a93bc6398a6ea199765bbb901ade1fbbbc9b64eba",
+      "compiler_controls": "Explicit frontend=1, backend=1, codegen-units=256 for leaf bridge; dependencies reused."
+    },
+    "unchanged_combined_public_suite": {
+      "total": 627,
+      "passed": 402,
+      "failed": 221,
+      "skipped": 4,
+      "source_files_unchanged": 1204,
+      "failure_classification": {
+        "omitted_Expr_expand": 220,
+        "sparse_symbolic_coefficient_exception_type": 1
+      }
+    },
+    "query_suite": {
+      "passed": 78,
+      "failed_due_to_omitted_expand": 10,
+      "other_failures": 0
+    },
+    "new_matrix_suite": {
+      "passed": 69,
+      "failed_due_to_omitted_expand": 114,
+      "other_failures": 0
+    },
+    "callbacks_suite": {
+      "passed": 8,
+      "failed": 0
+    },
+    "direct_matrix_smoke": {
+      "passed": 23,
+      "failed": 0,
+      "scope": "Actual candidate public calls, structural expression equality, all built-in classes, square/tall rules, nonlinear multiple RHS, complex coefficients and typed symbols."
+    },
+    "atomic_and_legacy_accounting_smoke": {
+      "passed": 6,
+      "failed": 0
+    },
+    "sparse_exception_correction": {
+      "target": "test_symbolic_rectangular_systems_refuse_the_rational_lane",
+      "targeted_rerun_passed": 1,
+      "targeted_rerun_failed": 0,
+      "change": "Borrowed Gaussian source syntax preselection preserves the original NotImplementedError for unsupported symbolic sparse coefficients; operational errors propagate directly."
+    },
+    "isolated_sympy_1_14_oracle": {
+      "passed": 52,
+      "native_only_skipped": 36
+    },
+    "format_and_syntax": "Pinned scoped rustfmt, Python AST/compilation, and git diff --check passed.",
+    "full_production_serial_attempt": {
+      "exit_code": 101,
+      "seconds": 10.03,
+      "stopped_in": "unchanged asupersync dependency before compiling fsym-python",
+      "signal": "SIGKILL",
+      "resource_guard_triggered": false,
+      "source_files_unchanged": 1204,
+      "compiler_controls": "Scoped frontend=1, backend=1 and codegen-units=256 for asupersync and fsym-python;175 dependencies reused.",
+      "cause": "Not established; no measured OOM claim."
+    }
+  },
+  "component_limits": {
+    "omitted_runtime_helpers": [
+      "eval_error",
+      "eval_region",
+      "simplify_expr",
+      "expand_expr",
+      "PyExpr.simplify",
+      "PyExpr.expand"
+    ],
+    "fidelity": "All other bridge sources copied unchanged. Runtime wrapper reexports actual fsym-budget. No substitute algebra, upstream fallback, test comparator changes or hidden skips.",
+    "not_claimed": "A complete production-extension pass, an all-green unchanged suite, a portable proof certificate, a compatibility/profile gate or a performance win."
+  },
+  "concurrent_main_changes": "Preserved edc9025 numeric source-cost preflight and 14eff3ed guarded real-root adapter. The 627-case component checkpoint precedes those changes; the isolated sparse exception rerun uses the later source checkout.",
+  "evidence": {
+    "archive": "2026-11-26-polynomial-coefficient-queries-validation.json.gz",
+    "sha256": "5d5d033cb3444e7de82e21e739b158b7a38b734f35dfd12626f483519fb43f4e",
+    "contents": "Complete observed logs, JUnit, exact commands/status, source and dependency checkpoints, component recipe, direct smoke scripts and targeted correction result."
+  }
+}

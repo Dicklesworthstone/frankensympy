@@ -272,6 +272,7 @@ jobs:
           cargo test --locked -p fsym-polys --test finite_field_ideal_inverse --test finite_field_quotient_minpoly --test finite_field_syzygy -j1
           cargo test --locked -p fsym-polys --test finite_field_radical -j1
           cargo test --locked -p fsym-python --lib rational_cancel::tests -j1
+          cargo test --locked -p fsym-python --lib polynomial_queries::tests -j1
           cargo test --locked -p fsym-python --lib ode::tests -j1
           cargo test --locked -p fsym-python --lib assumptions::tests -j1
           cargo test --locked -p fsym-python --lib callbacks::tests::atomic_nested_steps_include_reentrant_ownership_work_without_partial_charge -j1
@@ -374,6 +375,7 @@ jobs:
               "python/tests/test_objective_program_transport.py",
               "python/tests/test_source_certification.py",
               "python/tests/test_polynomial_evaluation.py",
+              "python/tests/test_polynomial_coefficient_queries.py",
               "python/tests/test_polynomial_root_analysis.py",
               "python/tests/test_rational_compound_domains.py",
               "python/tests/test_compound_domain_calculus.py",

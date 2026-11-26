@@ -2108,6 +2108,7 @@ mod pde;
 mod polynomial_composition;
 mod polynomial_evaluation;
 mod polynomial_laplace;
+mod polynomial_queries;
 mod polynomial_relations;
 mod polynomial_systems;
 mod quadrature;
@@ -2412,6 +2413,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     polynomial_evaluation::register(m)?;
+    polynomial_queries::register(m)?;
     m.add_function(wrap_pyfunction!(poly_sqf_list_native, m)?)?;
     m.add_function(wrap_pyfunction!(
         square_free::poly_multivariate_sqf_native,

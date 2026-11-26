@@ -2797,6 +2797,34 @@ extensions, irrational nested radicals, approximate inputs and custom scalar
 hooks refuse explicitly. This extends the implemented exact arithmetic slice;
 the broad number-field and compatibility profiles remain open.
 
+## Exact polynomial coefficient queries (development API)
+
+`Poly` and `PurePoly` expose exact QQ/ZZ coefficient maps through `terms`,
+`monoms`, `coeffs`, `LC`, `EC`, `TC`, `nth`, and `coeff_monomial`.
+Ordered queries accept `lex`, `grlex`, and `grevlex` in the declared generator
+order. Unused axes and typed Symbol/Dummy identities remain part of the ring.
+
+```python
+from sympy import Poly, symbols
+x, y = symbols("x y")
+p = Poly(2*x**2*y + 3*x*y**4 + 5*y + 7, x, y, domain="QQ")
+assert p.coeffs() == [2, 3, 5, 7]
+assert p.LC(order="grlex") == 3
+assert p.nth(2, 1) == p.coeff_monomial(x**2*y) == 2
+assert p.coeff_monomial((2, 2)) == 0
+```
+
+`TC()` is the constant coefficient; `EC(order=...)` is the coefficient of
+the last nonzero ordered term. Zero polynomials retain `coeffs() == [0]`.
+`all_coeffs()` includes missing univariate coefficients and refuses multivariate
+input. The checked map admits up to eight generators, 4096 terms, total degree
+256, 4096-bit coefficients, and original sources of 4096 nodes/depth 64.
+Declared ZZ rejects fractional coefficients. Original source admission and
+independent coefficient replay precede extraction; budget/cancellation failures
+are terminal and active callback requests share native work cumulatively.
+Existing prime-field and generic/parameter coefficient surfaces retain their
+separate dispatch and rendering; they do not acquire the QQ/ZZ map's checks.
+
 ## Exact partial polynomial evaluation (development API)
 
 `Poly.eval` and `PurePoly.eval` perform checked exact partial evaluation over

@@ -474,6 +474,19 @@ def solve_exact(matrix, rhs, *, lu=False):
     polynomial = gaussian and _polynomial_rhs(rhs, session, ingress=right_ingress)
     if gaussian and (original_matrix is not matrix or original_rhs is not rhs):
         raise NotImplementedError("custom matrix subclasses require a supervised override lane")
+    if polynomial and any(type(matrix) is cls for cls in _SPARSE_CLASSES):
+        # Preserve the established sparse refusal for symbolic coefficient
+        # matrices. This borrowed grammar selection precedes admission; a
+        # budget/cancellation failure is propagated without catching it.
+        _interfaces(7, "exact linear solve", _source.SparseMatrix)
+        _check_ingress(left_ingress)
+        coefficient_source = left_ingress[2][0]
+        supported = (coefficient_source is not None
+                     and _SPARSE_METHODS[4](coefficient_source, session=session))
+        _check_ingress(left_ingress)
+        if not supported:
+            raise NotImplementedError(
+                "sparse polynomial RHS solving requires exact rational or Gaussian-rational coefficients")
     left, (rows, columns), left_unchanged = _capture(
         matrix, session, 7, "exact linear solve", allow_sparse=True, force_gaussian=gaussian,
         ingress=left_ingress)

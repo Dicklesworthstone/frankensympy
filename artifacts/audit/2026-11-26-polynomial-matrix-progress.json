@@ -85,5 +85,14 @@
     "archive": "2026-11-26-polynomial-matrix-validation.json.gz",
     "sha256": "e57882451632613f018a02d838650ed5660ae8ffa1eb08bd329d52c8b0e5afcd",
     "contents": "Complete observed test/build/Clippy/format logs, status records, dependency/recipe/source checkpoints. The unrelated scratch env.sh is omitted."
+  },
+  "later_combined_component_validation": {
+    "reference": "2026-11-26-polynomial-coefficient-queries-progress.json",
+    "build_exit_code": 0,
+    "matrix_smoke_passed": 23,
+    "atomic_and_legacy_smoke_passed": 6,
+    "new_matrix_cases_passed": 69,
+    "new_matrix_cases_blocked_by_omitted_expand": 114,
+    "note": "Later combined-source checkpoint; preserves earlier standalone failed build and typecheck evidence. No complete production runtime pass is inferred."
   }
 }
