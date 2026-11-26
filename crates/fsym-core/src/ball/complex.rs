@@ -27,7 +27,11 @@ impl ComplexBall {
     /// intermediates and output are subject to the intrinsic arithmetic
     /// envelope, not a caller-owned resource or cancellation budget.
     pub fn exp(&self, precision_digits: u32) -> Result<Self, BallError> {
-        preflight(self, precision_digits, "ComplexBall exponential composition")?;
+        preflight(
+            self,
+            precision_digits,
+            "ComplexBall exponential composition",
+        )?;
         let working = precision_digits + 4;
         let magnitude = exponential_range(self.real(), working)?;
         let phase = Self::new(self.imag().cos(working)?, self.imag().sin(working)?);
@@ -92,8 +96,10 @@ impl ComplexBall {
                 .saturating_add(2)
                 .saturating_mul(16)],
         )?;
-        let real = if cosine { &cosine_value } else { &sine }.mul(&cosh);
-        let imag = if cosine { &sine } else { &cosine_value }.mul(&sinh);
+        let real_factor = if cosine { &cosine_value } else { &sine };
+        let imag_factor = if cosine { &sine } else { &cosine_value };
+        let real = real_factor.mul(&cosh);
+        let imag = imag_factor.mul(&sinh);
         finish(real, if cosine { imag.neg() } else { imag })
     }
 

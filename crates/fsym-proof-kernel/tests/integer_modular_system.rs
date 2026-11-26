@@ -12,7 +12,6 @@ use fsym_proof_kernel::integer_normal_form::{
     MAX_INTEGER_SMITH_DIMENSION,
 };
 use fsym_proof_kernel::sparse_rref::{RationalSparseMatrix, SparseRationalEntry, SparseRrefError};
-use num_traits::ToPrimitive;
 use std::collections::BTreeSet;
 
 fn matrix(rows: usize, columns: usize, values: &[i64]) -> RationalSparseMatrix {

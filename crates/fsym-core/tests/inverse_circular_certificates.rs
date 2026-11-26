@@ -228,19 +228,27 @@ fn held_inverse_circular_endpoints_reach_every_ground_ball_entry_point() {
         }
     }
     assert_eq!(
-        function("asin", Expr::from_i64(0)).evalf_decimal(18).unwrap(),
+        function("asin", Expr::from_i64(0))
+            .evalf_decimal(18)
+            .unwrap(),
         "0"
     );
     assert_eq!(
-        function("acos", Expr::from_i64(1)).evalf_decimal(18).unwrap(),
+        function("acos", Expr::from_i64(1))
+            .evalf_decimal(18)
+            .unwrap(),
         "0"
     );
     assert_eq!(
-        function("asin", Expr::from_i64(1)).evalf_decimal(18).unwrap(),
+        function("asin", Expr::from_i64(1))
+            .evalf_decimal(18)
+            .unwrap(),
         "1.57079632679489662e0"
     );
     assert_eq!(
-        function("acos", Expr::from_i64(-1)).evalf_decimal(18).unwrap(),
+        function("acos", Expr::from_i64(-1))
+            .evalf_decimal(18)
+            .unwrap(),
         "3.14159265358979324e0"
     );
 }
@@ -304,12 +312,27 @@ fn exact_points_near_both_endpoints_remain_distinct_from_the_endpoint() {
 #[test]
 fn held_endpoint_evaluation_composes_without_changing_principal_values() {
     for (source, expected) in [
-        (function("sin", function("asin", Expr::from_i64(-1))), q(-1, 1)),
-        (function("sin", function("asin", Expr::from_i64(1))), q(1, 1)),
-        (function("cos", function("acos", Expr::from_i64(-1))), q(-1, 1)),
-        (function("asin", function("acos", Expr::from_i64(1))), q(0, 1)),
+        (
+            function("sin", function("asin", Expr::from_i64(-1))),
+            q(-1, 1),
+        ),
+        (
+            function("sin", function("asin", Expr::from_i64(1))),
+            q(1, 1),
+        ),
+        (
+            function("cos", function("acos", Expr::from_i64(-1))),
+            q(-1, 1),
+        ),
+        (
+            function("asin", function("acos", Expr::from_i64(1))),
+            q(0, 1),
+        ),
     ] {
-        assert!(source.evalf_ball(24).unwrap().contains(&expected), "{source}");
+        assert!(
+            source.evalf_ball(24).unwrap().contains(&expected),
+            "{source}"
+        );
         let complex = source.eval_complex_ball(24).unwrap();
         assert!(complex.contains(&expected, &q(0, 1)), "{source}");
     }
@@ -344,7 +367,11 @@ fn scalar_inverse_circular_endpoints_keep_original_domain_and_arity_refusals() {
             RealBall::MAX_INVERSE_CIRCULAR_PRECISION_DIGITS + 1,
             u32::MAX,
         ] {
-            assert!(function(name, Expr::from_i64(1)).evalf_ball(precision).is_err());
+            assert!(
+                function(name, Expr::from_i64(1))
+                    .evalf_ball(precision)
+                    .is_err()
+            );
         }
     }
 }

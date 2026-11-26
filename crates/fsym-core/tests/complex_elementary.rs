@@ -630,9 +630,8 @@ fn exponential_compositions_admit_precision_and_whole_input_before_evaluation() 
             ));
         }
     }
-    let huge = BigRational::from_integer(
-        BigInt::one() << (MAX_REAL_BALL_WORK_BITS / 128 + 16) as u32,
-    );
+    let huge =
+        BigRational::from_integer(BigInt::one() << (MAX_REAL_BALL_WORK_BITS / 128 + 16) as u32);
     for component in [huge.clone(), q(1, 1) / huge] {
         for source in [
             ComplexBall::exact_complex(component.clone(), q(0, 1)),
@@ -647,10 +646,7 @@ fn exponential_compositions_admit_precision_and_whole_input_before_evaluation() 
         }
     }
     // No midpoint shortcut may hide the out-of-envelope upper endpoint.
-    for source in [
-        rectangle(-1, 100_001, 0, 0),
-        rectangle(-100_001, 1, 0, 0),
-    ] {
+    for source in [rectangle(-1, 100_001, 0, 0), rectangle(-100_001, 1, 0, 0)] {
         assert!(matches!(
             source.exp(20),
             Err(BallError::ArgumentOutsideDeclaredEnvelope(_))

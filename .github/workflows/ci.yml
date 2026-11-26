@@ -129,8 +129,10 @@ jobs:
         with:
           cache-on-failure: true
       - run: python -m pip install --disable-pip-version-check pytest==8.4.2
-      - name: Principal complex logarithm and square-root enclosures
-        run: cargo test --locked -p fsym-core --test complex_elementary --test complex_expression --test inverse_circular_certificates -j1
+      - name: Principal complex enclosures and component decimal rounding
+        run: |
+          cargo test --locked -p fsym-core --test complex_elementary --test complex_expression --test complex_decimal --test inverse_circular_certificates --test transcendental_rounding_enclosures -j1
+          cargo test --locked -p fsym-core --lib complex_ -j1
       - name: Continuous endpoint global value certificates and resumable search
         run: |
           cargo test --locked -p fsym-core --test continuous_box_optimization --test nonsmooth_box_optimization --test box_optimization_monotonicity -j1

@@ -1464,11 +1464,7 @@ impl ComplexBall {
             return Ok(self.clone());
         }
         let mut mag = exp.unsigned_abs();
-        let mut base = if exp < 0 {
-            self.inv()?
-        } else {
-            self.clone()
-        };
+        let mut base = if exp < 0 { self.inv()? } else { self.clone() };
         let mut acc = Self::from_i64(1);
         while mag > 0 {
             if mag % 2 == 1 {
@@ -2072,9 +2068,8 @@ mod tests {
 
     #[test]
     fn checked_complex_arithmetic_refuses_before_cancellation_or_zero_absorption() {
-        let huge = BigRational::from_integer(
-            BigInt::one() << (MAX_REAL_BALL_WORK_BITS / 4 + 64) as u32,
-        );
+        let huge =
+            BigRational::from_integer(BigInt::one() << (MAX_REAL_BALL_WORK_BITS / 4 + 64) as u32);
         for value in [huge.clone(), BigRational::one() / huge] {
             let source = ComplexBall::exact_complex(value, q(1));
             assert!(matches!(
@@ -2122,11 +2117,6 @@ mod tests {
         let tiny = BigRational::new(BigInt::one(), BigInt::one() << 128u32);
         let source = ComplexBall::exact_complex(tiny.clone(), -tiny);
         let inverse = source.inv().unwrap();
-        assert!(
-            source
-                .checked_mul(&inverse)
-                .unwrap()
-                .contains(&q(1), &q(0))
-        );
+        assert!(source.checked_mul(&inverse).unwrap().contains(&q(1), &q(0)));
     }
 }

@@ -19,6 +19,7 @@ pub mod arith;
 pub mod assume;
 pub mod ball;
 pub mod canonical;
+mod complex_decimal;
 pub mod dag;
 pub mod domain;
 pub mod elementary;
@@ -30,6 +31,7 @@ pub mod sort;
 
 pub use algebraic::*;
 pub use ball::*;
+pub use complex_decimal::ComplexDecimalError;
 pub use dag::*;
 pub use domain::*;
 pub use lambert::*;
