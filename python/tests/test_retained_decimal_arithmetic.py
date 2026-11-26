@@ -585,3 +585,96 @@ def test_sparse_implicit_decimal_products_must_be_representable():
     scalar = s.Mul(retained("0.1"), s.Symbol("x"), evaluate=False)
     with pytest.raises(NotImplementedError, match="implicit product"):
         s.SparseMatrix.eye(2) * scalar
+
+
+@pytest.mark.parametrize("cls", [s.Matrix, s.ImmutableMatrix, s.SparseMatrix, s.ImmutableSparseMatrix])
+def test_entrywise_matrix_sums_keep_decimal_residuals(cls):
+    small = "0." + "0" * 48 + "1"
+    near = retained("1." + "0" * 48 + "1")
+    lhs, rhs = cls([[near, 2]]), cls([[1, -2]])
+    assert decimal((lhs - rhs)[0, 0]) == Decimal(small)
+    assert decimal((lhs + cls([[-1, 0]]))[0, 0]) == Decimal(small)
+    assert (lhs + rhs)[0, 1] == 0
+
+
+@pytest.mark.parametrize("left_cls,right_cls", [
+    (s.Matrix, s.Matrix), (s.ImmutableMatrix, s.Matrix),
+    (s.SparseMatrix, s.SparseMatrix), (s.ImmutableSparseMatrix, s.SparseMatrix),
+    (s.Matrix, s.SparseMatrix), (s.SparseMatrix, s.Matrix),
+])
+@pytest.mark.parametrize("operation", [operator.mul, operator.matmul])
+def test_matrix_dot_products_resolve_decimal_cancellation(left_cls, right_cls, operation):
+    near = retained("1." + "0" * 48 + "1")
+    lhs = left_cls([[near, -2]])
+    rhs = right_cls([[2], [1]])
+    result = operation(lhs, rhs)
+    assert result.shape == (1, 1)
+    assert result[0, 0].dps == 50
+    assert decimal(result[0, 0]) == Decimal("2e-49")
+
+
+@pytest.mark.parametrize("left_cls,right_cls", [
+    (s.Matrix, s.Matrix), (s.Matrix, s.SparseMatrix),
+    (s.SparseMatrix, s.Matrix), (s.SparseMatrix, s.SparseMatrix),
+])
+def test_matrix_dot_product_rounds_products_before_adding(left_cls, right_cls):
+    # At 3 significant digits 1.23 * 1.23 rounds to 1.51.
+    # A fused product/sum would instead return the nonzero 0.0029.
+    lhs = left_cls([[retained("1.23", 3), -1]])
+    rhs = right_cls([[retained("1.23", 3)], [retained("1.51", 3)]])
+    assert (lhs @ rhs)[0, 0] == 0
+
+
+@pytest.mark.parametrize("cls", [s.Matrix, s.SparseMatrix])
+def test_sparse_diagonal_products_preserve_extreme_finite_decimal_values(cls):
+    column = cls([[retained("1e400")], [retained("1e-400")]])
+    diagonal = s.SparseMatrix([[2, 0], [0, -3]])
+    result = diagonal @ column
+    assert decimal(result[0, 0]) == Decimal("2e400")
+    assert decimal(result[1, 0]) == Decimal("-3e-400")
+
+
+def test_sparse_dot_product_refuses_an_unresolved_implicit_zero():
+    held = s.Mul(retained("0.125"), s.Symbol("x"), evaluate=False)
+    lhs = s.SparseMatrix([[held]])
+    with pytest.raises(NotImplementedError, match="implicit product"):
+        lhs @ s.SparseMatrix(1, 2, {(0, 0): 1})
+    # Every potential term has a stored factor in this shape.
+    assert (lhs @ s.SparseMatrix([[2]]))[0, 0].args[0] is held
+
+
+@pytest.mark.parametrize("operation", [operator.add, operator.sub, operator.matmul])
+def test_decimal_matrix_algebra_rejects_mutated_sources(monkeypatch, operation):
+    lhs = s.Matrix([[retained("0.125")]])
+    rhs = s.Matrix([[2]])
+    original = _native.evalf_complex_decimal_native
+    def mutate_after_evaluation(*args, **kwargs):
+        result = original(*args, **kwargs)
+        rhs[0, 0] = 7
+        return result
+    monkeypatch.setattr(_native, "evalf_complex_decimal_native", mutate_after_evaluation)
+    with pytest.raises(RuntimeError, match="Matrix mutated"):
+        operation(lhs, rhs)
+
+
+@pytest.mark.parametrize("left_cls,right_cls", [
+    (s.Matrix, s.Matrix), (s.Matrix, s.SparseMatrix),
+    (s.SparseMatrix, s.Matrix), (s.SparseMatrix, s.SparseMatrix),
+])
+def test_empty_matrix_decimal_product_has_no_implicit_terms(left_cls, right_cls):
+    held = s.Mul(retained("0.125"), s.Symbol("x"), evaluate=False)
+    assert (left_cls(0, 1, []) @ right_cls([[held]])).shape == (0, 1)
+    assert (left_cls([[held]]) @ right_cls(1, 0, [])).shape == (1, 0)
+
+
+def test_sparse_dot_cannot_hide_nonfinite_terms_with_other_decimal_entries():
+    lhs = s.SparseMatrix([[s.oo, retained("1.25")]])
+    rhs = s.SparseMatrix(2, 1, {(1, 0): 2})
+    with pytest.raises(ValueError, match="implicit-zero"):
+        lhs @ rhs
+
+
+def test_sparse_decimal_products_allow_ordinary_finite_float_implicit_terms():
+    lhs = s.SparseMatrix([[s.Float(2.5), retained("1e-400")]])
+    rhs = s.SparseMatrix(2, 1, {(1, 0): 3})
+    assert decimal((lhs @ rhs)[0, 0]) == Decimal("3e-400")

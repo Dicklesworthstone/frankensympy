@@ -3572,9 +3572,16 @@ argument.
 Symbolic operands and noninteger powers remain held with their original
 decimal owners for later explicit evaluation. Unknown symbolic subclasses
 remain opaque. Binary operators give foreign operands normal Python
-reflected dispatch; evaluated constructors remain strict. Matrix reflected
-dispatch works, but existing matrix scalar arithmetic can still reduce
-retained decimal inputs to binary64 previews.
+reflected dispatch; evaluated constructors remain strict. Matrix scaling in either operand order, dense matrix division, entrywise
+addition and subtraction on supported matrix pairs, and dense, sparse and
+mixed matrix products preserve retained decimals. Each dot-product term
+uses ordinary scalar multiplication, which rounds a decimal product at the
+greatest precision of its operands. A single evaluated `Add` then sums the
+terms and rounds a decimal result at the greatest resulting Float precision.
+This follows the scalar evaluation order, including its 256-operand limit
+on retained-decimal sums. In these decimal-bearing products, sparse matrix
+arithmetic checks the relevant omitted factors before dropping implicit
+zeros. An unresolved implicit product can produce an explicit refusal.
 Native failures, exhaustion and cancellation never trigger a binary64
 replacement. These rounded Float values are not enclosing intervals
 or portable certificates, and this feature does not certify a compatibility

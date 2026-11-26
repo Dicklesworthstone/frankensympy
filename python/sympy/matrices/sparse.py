@@ -68,6 +68,17 @@ def _is_exact_zero(value):
     return value is _ZERO
 
 
+def _require_decimal_zero_product(value, *, zero_left):
+    # Use the scalar lane directly. A matrix must not lower its retained
+    # coefficient to binary64 or invoke a custom multiplication hook just
+    # to decide whether it can omit an implicit zero.
+    from ..core._decimal_arithmetic import arithmetic
+
+    operands = (_ZERO, value) if zero_left else (value, _ZERO)
+    if not _is_exact_zero(arithmetic("mul", operands)):
+        raise NotImplementedError("sparse multiplication requires a zero implicit product")
+
+
 def _stored_entries(entries):
     if len(entries) > _MAX_SPARSE_ENTRIES:
         raise ValueError("sparse matrix exceeds the stored-entry limit")
@@ -1878,7 +1889,9 @@ class SparseMatrix(MatrixBase):
         # fast paths. Other retained cells keep their original surface objects.
         return (self._surface is None and other._surface is None
                 or self._native_storage.is_exact_rational
-                and other._native_storage.is_exact_rational)
+                and other._native_storage.is_exact_rational
+                and all(matrix._surface is None or not _cells_have_decimal(matrix._surface.values())
+                        for matrix in (self, other)))
 
     def _combine(self, other, subtract=False):
         if self.shape != other.shape:
@@ -1945,6 +1958,26 @@ class SparseMatrix(MatrixBase):
             for col, _ in right_rows.get(inner, ()):
                 terms.setdefault((row, col), [])
                 _stored_entries(terms)
+        # A missing factor may be dropped only if it annihilates the actual
+        # decimal-bearing expression. Count occupied inner-axis slots instead
+        # of visiting the potentially enormous rectangle of implicit zeros.
+        if (len(right) < other.rows*other.cols or len(left) < self.rows*self.cols) and (
+                _cells_have_decimal(left.values()) or _cells_have_decimal(right.values())):
+            from ._mixed_products import _require_zero_product
+
+            if len(right) < other.rows*other.cols:
+                for (_, inner), value in left.items():
+                    if len(right_rows.get(inner, ())) < cols:
+                        _require_zero_product(value, raw=False, zero_left=False)
+                        _check_sources(sources)
+            if len(left) < self.rows*self.cols:
+                left_columns = {}
+                for _, inner in left:
+                    left_columns[inner] = left_columns.get(inner, 0) + 1
+                for (inner, _), value in right.items():
+                    if left_columns.get(inner, 0) < rows:
+                        _require_zero_product(value, raw=False, zero_left=True)
+                        _check_sources(sources)
         for (row, inner), left_value in left.items():
             for col, right_value in right_rows.get(inner, ()):
                 terms[(row, col)].append(_checked_entry(left_value*right_value, sources))
@@ -1964,9 +1997,7 @@ class SparseMatrix(MatrixBase):
         if retained_scalar and self.nnz < self.rows*self.cols:
             # An implicit cell cannot store a held or indeterminate product.
             # Probe one original zero without visiting the dense rectangle.
-            zero_product = scalar * _ZERO if left else _ZERO * scalar
-            if not _is_exact_zero(zero_product):
-                raise NotImplementedError("sparse scaling requires a zero implicit product")
+            _require_decimal_zero_product(scalar, zero_left=not left)
         if not retained_scalar and not contains_opaque(scalar):
             native_scalar = _native_expr(scalar)
             if (self._native_storage is not None

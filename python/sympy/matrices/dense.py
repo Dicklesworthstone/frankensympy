@@ -2135,21 +2135,41 @@ class Matrix(MatrixBase):
         if self.shape != other.shape:
             raise ValueError(f"Shape mismatch: {self.rows}x{self.cols} vs {other.rows}x{other.cols}")
 
+    def _has_decimal_cells(self):
+        return self._surface is not None and _cells_have_decimal(self._surface)
+
+    def _surface_algebra(self, other):
+        return (self._native_storage is None or other._native_storage is None
+                or self._has_decimal_cells() or other._has_decimal_cells())
+
+    def _combine(self, other, op):
+        if not self._surface_algebra(other):
+            return self._new(op(self._native, other._native))
+        from .sparse import _capture_sources, _check_sources
+
+        self._require_same_shape(other)
+        sources = _capture_sources(self, other)
+        entries = []
+        for i in range(len(self)):
+            entries.append(op(self[i], other[i]))
+            _check_sources(sources)
+        result = self._new(self.rows, self.cols, entries)
+        _check_sources(sources)
+        return result
+
     def __add__(self, other):
+        from operator import add
+
         if not isinstance(other, Matrix):
             raise TypeError(f"Cannot add Matrix and {type(other)}")
-        if self._native_storage is None or other._native_storage is None:
-            self._require_same_shape(other)
-            return self._new(self.rows, self.cols, [self[i] + other[i] for i in range(len(self))])
-        return self._new(self._native + other._native)
+        return self._combine(other, add)
 
     def __sub__(self, other):
+        from operator import sub
+
         if not isinstance(other, Matrix):
             raise TypeError(f"Cannot subtract {type(other)} from Matrix")
-        if self._native_storage is None or other._native_storage is None:
-            self._require_same_shape(other)
-            return self._new(self.rows, self.cols, [self[i] - other[i] for i in range(len(self))])
-        return self._new(self._native - other._native)
+        return self._combine(other, sub)
 
     def __neg__(self):
         return self * -1
@@ -2163,22 +2183,32 @@ class Matrix(MatrixBase):
             return matmul(self, other)
         if not isinstance(other, Matrix):
             raise TypeError(f"Cannot matmul Matrix and {type(other)}")
-        if self._native_storage is None or other._native_storage is None:
+        if self._surface_algebra(other):
             if self.cols != other.rows:
                 raise ValueError(f"Shape mismatch: {self.rows}x{self.cols} vs {other.rows}x{other.cols}")
             rows, cols = _matrix_dimensions(self.rows, other.cols)
             if rows * cols * self.cols > _MAX_MATRIX_MULTIPLICATION_OPS:
                 raise ValueError("matrix multiplication exceeds the operation limit of 10000000")
             from ..core import Add
-            return self._new(rows, cols, [
-                Add(*(self[r, k] * other[k, c] for k in range(self.cols)))
-                for r in range(rows) for c in range(cols)
-            ])
+            from .sparse import _capture_sources, _check_sources
+
+            sources = _capture_sources(self, other)
+            entries = []
+            for r in range(rows):
+                for c in range(cols):
+                    terms = []
+                    for k in range(self.cols):
+                        terms.append(self[r, k] * other[k, c])
+                        _check_sources(sources)
+                    entries.append(Add(*terms))
+                    _check_sources(sources)
+            result = self._new(rows, cols, entries)
+            _check_sources(sources)
+            return result
         return self._new(self._native @ other._native)
 
     def _decimal_scale(self, scalar):
-        return (_cells_have_decimal((scalar,))
-                or self._surface is not None and _cells_have_decimal(self._surface))
+        return _cells_have_decimal((scalar,)) or self._has_decimal_cells()
 
     def _scale(self, other, *, left=False):
         from ..core._opaque_arithmetic import contains_opaque

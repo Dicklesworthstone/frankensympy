@@ -3,7 +3,7 @@
 from types import WrapperDescriptorType
 
 from . import sparse as _sparse
-from .dense import Matrix, ImmutableDenseMatrix, _matrix_dimensions
+from .dense import Matrix, ImmutableDenseMatrix, _cells_have_decimal, _matrix_dimensions
 
 
 def _layout(matrix):
@@ -113,12 +113,27 @@ def _require_zero_product(value, *, raw, zero_left):
     if not raw:
         from ..core._opaque_arithmetic import _admit_source, contains_opaque
 
+        from ..core import Float
+
+        if type(value) is Float:
+            # Ordinary Floats override the scalar method, but their original
+            # finite IEEE value still has an exact-zero product. Admission
+            # validates the class and retained intern before reading it.
+            from ..core._decimal_arithmetic import _budget, _capture
+
+            _capture_state, lowered, _ = _capture((value,), _budget())
+            if lowered is None:
+                raise ValueError("mixed matrix product cannot omit a nonfinite implicit-zero product")
+            return
         method = "__rmul__" if zero_left else "__mul__"
         if (_sparse._reduction_binding(type(value), method)
                 is not _sparse._reduction_binding(_sparse.Expr, method)):
             raise NotImplementedError(
                 "effectful implicit-zero products require a supervised multiplication lane"
             )
+        if _cells_have_decimal((value,)):
+            _sparse._require_decimal_zero_product(value, zero_left=zero_left)
+            return
         if contains_opaque(value):
             _admit_source((value,), check_identity=True)
             return
@@ -212,9 +227,19 @@ def matmul(left, right):
     if len(occupied)*width > _sparse._MAX_SPARSE_ENTRIES:
         raise ValueError("mixed matrix multiplication exceeds the stored-entry limit")
     if stored < sparse[3][0]*sparse[3][1] and width:
-        for value in (b if left_sparse else a).values():
-            _require_zero_product(value, raw=False, zero_left=left_sparse)
-            _check(snapshots)
+        # A zero from sparse column k (or row k) can multiply only the
+        # matching dense row k (or column k). Fully occupied inner-axis
+        # slots need no implicit-zero admission.
+        occupancy = {}
+        for coordinate in coordinates:
+            inner = coordinate[1 if left_sparse else 0]
+            occupancy[inner] = occupancy.get(inner, 0) + 1
+        extent = sparse[3][0 if left_sparse else 1]
+        for coordinate, value in (b if left_sparse else a).items():
+            inner = coordinate[0 if left_sparse else 1]
+            if occupancy.get(inner, 0) < extent:
+                _require_zero_product(value, raw=False, zero_left=left_sparse)
+                _check(snapshots)
     terms = {}
 
     def checked(value):
