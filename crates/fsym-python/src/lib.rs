@@ -1278,6 +1278,18 @@ fn evalf_decimal_native(expr: &PyExpr, digits: u32) -> PyResult<String> {
     expr.inner.evalf_decimal(digits).map_err(to_value_error)
 }
 
+/// Correctly rounded real and imaginary components of one original source.
+/// Only unsupported syntax returns None; an admitted domain, precision or
+/// resource failure is terminal and must not restart through binary64.
+#[pyfunction]
+fn evalf_complex_decimal_native(expr: &PyExpr, digits: u32) -> PyResult<Option<(String, String)>> {
+    match expr.inner.evalf_complex_decimal(digits) {
+        Ok(value) => Ok(Some(value)),
+        Err(fsym_core::ComplexDecimalError::UnsupportedSource(_)) => Ok(None),
+        Err(error) => Err(to_value_error(error)),
+    }
+}
+
 /// Structured univariate inequality solver `expr op 0`.
 #[pyfunction]
 fn solve_inequality_native(
@@ -2341,6 +2353,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(product_native, m)?)?;
     m.add_function(wrap_pyfunction!(complex_value_native, m)?)?;
     m.add_function(wrap_pyfunction!(evalf_decimal_native, m)?)?;
+    m.add_function(wrap_pyfunction!(evalf_complex_decimal_native, m)?)?;
     m.add_function(wrap_pyfunction!(solve_inequality_native, m)?)?;
     m.add_function(wrap_pyfunction!(solve_native, m)?)?;
     m.add_function(wrap_pyfunction!(exact_ode_potential_native, m)?)?;

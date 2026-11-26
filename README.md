@@ -3317,15 +3317,77 @@ meeting the negative-axis cut refuse, while exactly negative real intervals
 use principal argument `+pi`. Original undefined base or exponent
 subexpressions remain errors even when an outer zero or one would hide them.
 
-The real evaluator keeps its existing domain. This addition is a native
-complex-enclosure capability; it does not add a Python complex `evalf`
-interface. Precision controls component rounding, while input variation and
-exponent amplification remain in the output width. Fixed arithmetic
-preflights do not constitute a caller-owned resource or cancellation budget.
+The real evaluator keeps its existing domain. Precision controls component
+rounding, while input variation and exponent amplification remain in the
+output width. Complex exponential, sine and cosine preserve that variation
+through exact-endpoint exponential hulls. Fixed arithmetic preflights do not
+constitute a caller-owned resource or cancellation budget.
 
 The [implementation and validation report](artifacts/audit/2026-11-25-complex-powers-periodic-domains-nth-roots.json) records
 the exact landed units, focused native runtime results, independent reviews,
 and remaining validation limits after execution-host failures.
+
+---
+
+## Complex decimal evaluation (development API)
+
+`N(expression, digits)`, `expression.evalf(digits)` and `expression.n(digits)`
+now use native complex enclosures for admitted ground expressions. Real and
+imaginary components are rounded independently to the requested significant
+decimal digits, using nearest rounding with ties to even. The native entry
+point is `Expr::evalf_complex_decimal(digits)`, returning two scientific
+decimal strings.
+
+```python
+from sympy import Add, I, Mul, N, Pow, Rational, log, sin
+
+value = N(log(1 + I, evaluate=False), 50)
+real, imaginary = value.as_real_imag()
+
+principal_root = N(Pow(-8, Rational(1, 3), evaluate=False), 50)
+complex_power = N(Pow(1 + I, 2 + I, evaluate=False), 50)
+complex_sine = sin(1 + I, evaluate=False).evalf(50)
+
+tiny = Add(1, Mul(Rational(1, 10**400), I, evaluate=False), evaluate=False)
+tiny_value = N(tiny, 50)
+# The retained imaginary decimal is nonzero, including in its predicates.
+assert tiny_value.as_real_imag()[1].is_zero is False
+```
+
+The admitted grammar includes exact integers and rationals, finite Float
+leaves, `pi`, `E`, `I`, arithmetic, principal powers, exponential,
+logarithm, square root, circular and hyperbolic sine/cosine/tangent,
+absolute value, conjugation, real/imaginary parts and two-real-argument
+`atan2`. Other existing real evaluation paths remain available for their
+supported functions. Genuine custom evaluation hooks retain the supervised
+callback route.
+
+A component is published only when both rational enclosure endpoints round
+to the same decimal. Only an exactly zero enclosure produces a zero
+component; small values and unresolved cancellation are never chopped.
+Held source children are preserved, including poles beneath a zero factor
+or exponent. Once this grammar is admitted, domain, resource, precision and
+rounding failures remain errors instead of falling through to binary64.
+
+The native precision input range is 1–1000 significant digits, with
+deterministic refinement up to 1536 working digits. Existing component
+kernels can impose tighter arithmetic limits. Native admission bounds the
+original tree to 4096 nodes, depth 64, 16384 bits per literal and 65536 total
+literal bits; Python capture also bounds retained argument arity and
+decimal storage. The existing borrowed preflight limits stored native
+integer/rational literals in Python to 4096 bits. These are intrinsic limits,
+not a uniform caller-owned
+budget or cancellation guarantee for the complete Python evaluation path.
+
+The result retains decimal Float components for rendering,
+`as_real_imag()`, predicates and reevaluation. General Float arithmetic and
+comparisons retain the shell's existing binary64 limitations. The displayed
+decimals are rounded values, not portable certificates or intervals, and
+this feature does not certify a compatibility profile.
+
+The [complex decimal progress report](artifacts/audit/2026-11-25-complex-decimal-evaluation-progress.json)
+records the implementation, authored regressions, completed checks and
+remaining runtime-validation limits.
 
 ---
 

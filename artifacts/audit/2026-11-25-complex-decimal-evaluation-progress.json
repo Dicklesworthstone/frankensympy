@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "scope": "Bounded native complex decimal evaluation and Python N/Expr.evalf integration",
+  "implementation_status": "implemented; production runtime validation pending at this checkpoint",
+  "verified_preceding_commits": [
+    {
+      "sha": "cdd8a6d129d8021084795a9cf721912addd1be64",
+      "change": "Preserve complete rectangle variation in complex exponential/sine/cosine and bound arithmetic composition"
+    },
+    {
+      "sha": "f181477bb26611ced5c695a1328e2b4dceb2d57b",
+      "change": "Add typed component decimal rounding, source bounds, native regressions and focused CI coverage"
+    }
+  ],
+  "containing_commit": "Connects the native API through PyO3 to N, Expr.evalf and Expr.n; preserves decimal owners, held source domains and supervised custom hooks",
+  "capabilities": [
+    "Independent round-to-nearest/ties-to-even component decimals accepted only when both exact rational endpoints agree",
+    "Exact zero requires an exactly zero enclosure; tiny nonzero components and unresolved cancellation are not chopped",
+    "Principal logarithms, roots and powers; exponential, circular and hyperbolic functions; arithmetic and component operations",
+    "Original held children, native storage, class/function implementations and retained decimal arguments checked before evaluation and publication",
+    "Retained decimal rendering, decomposition, reevaluation and sign/zero/finiteness/integer predicates, including exponents beyond binary64"
+  ],
+  "limits": {
+    "native_requested_significant_digits": [
+      1,
+      1000
+    ],
+    "maximum_working_digits": 1536,
+    "original_nodes": 4096,
+    "original_depth": 64,
+    "native_literal_bits": 16384,
+    "native_total_literal_bits": 65536,
+    "python_retained_arity": 256,
+    "python_existing_stored_native_integer_or_rational_bits": 4096,
+    "component_arithmetic": "Existing component kernels may refuse before the input precision ceiling",
+    "float_arithmetic_and_comparisons": "Existing binary64 limitations remain",
+    "budgets": "Intrinsic envelopes; no uniform caller-owned resource or cancellation guarantee for the whole Python wrapper",
+    "evidence": "Rounded values are not portable certificates or compatibility-profile certification"
+  },
+  "tests_authored": {
+    "native_range_integration_functions": 5,
+    "native_arithmetic_unit_functions": 2,
+    "native_decimal_integration_functions": 9,
+    "python_functions": 27,
+    "python_parameterized_cases": 40,
+    "files": [
+      "crates/fsym-core/tests/complex_elementary.rs",
+      "crates/fsym-core/src/ball.rs",
+      "crates/fsym-core/tests/complex_decimal.rs",
+      "python/tests/test_complex_decimal_evalf.py"
+    ],
+    "coverage": [
+      "Independent rational/Taylor witnesses and complete rectangle variation",
+      "Ties, carries, Gaussian roots, principal branches and nonpoint intermediate enclosures",
+      "Tiny/huge component preservation and signed zero",
+      "Original poles and indeterminate powers beneath trivial outer expressions",
+      "Custom hooks, unsupported-source selection and terminal operational failures",
+      "Source/class/descriptor mutation, conflicting retained decimals and precision/depth/size bounds"
+    ]
+  },
+  "completed_validation": [
+    {
+      "check": "Independent numerical fixture arithmetic",
+      "result": "All eleven 40-digit transcendental strings match separate 140-decimal-place BigInt Machin/atanh/Taylor/integer-square-root calculations; fixture validation only"
+    },
+    {
+      "check": "Python syntax and parametrization inspection",
+      "result": "Final core and test sources parse successfully; 27 test functions and 40 syntactically expanded parameter cases"
+    },
+    {
+      "check": "Decimal metadata predicates",
+      "result": "Six finite-value cases passed using the actual extracted property methods with a Float backing stub; not extension runtime evidence"
+    },
+    {
+      "check": "Source review",
+      "result": "Separate native and Python reviews completed; borrowed numeric source preflight confirmed structural-only and accepts complex syntax"
+    },
+    {
+      "check": "Whitespace",
+      "result": "git diff --check passed on the restored working tree"
+    },
+    {
+      "check": "Remote commits",
+      "result": "Both preceding commits independently fetched with expected messages/files and main head observed after each write"
+    },
+    {
+      "check": "Pinned touched-file formatting",
+      "result": "rustfmt --check --edition 2024 --config skip_children=true passed on all nine touched Rust files after final restoration"
+    }
+  ],
+  "incomplete_validation": [
+    {
+      "command": "cargo check --locked --workspace --all-targets -j2",
+      "result": "Original checkout failed with exit 101 when pinned asupersync rustc received SIGKILL before a compiler diagnostic"
+    },
+    {
+      "command": "cargo test --locked -p fsym-core --test complex_elementary --test complex_expression --test transcendental_rounding_enclosures --test complex_decimal -j1",
+      "result": "Focused candidate attempt failed with exit 101 when existing zerocopy dev-dependency rustc received SIGKILL before fsym-core compiled"
+    },
+    {
+      "command": "Candidate core/runtime tests, actual Python extension suite and Clippy",
+      "result": "No completed production pass at this checkpoint; executor repeatedly disconnected"
+    }
+  ],
+  "ci_changes": {
+    "retained_gates": true,
+    "native": "Extend existing G3 complex step with complex_decimal and transcendental_rounding_enclosures; exercise matching complex unit tests",
+    "python": "Extend existing actual-extension G3 selection with complex_decimal_evalf, precision_honesty and algebraic_expression_evalf",
+    "baseline_blockers": "Apply six existing rustfmt hunks and remove one unused ToPrimitive test import; no gate, assertion or expected value weakened",
+    "latest_observed_first_commit_run": {
+      "id": 45759766510,
+      "status": "queued"
+    }
+  },
+  "work_graph": {
+    "updated_bead": "fra-a5x",
+    "status_changes": false,
+    "priority_changes": false,
+    "dependency_changes": false,
+    "claim_promotions": false
+  },
+  "checkpoint_utc": "2026-11-26T05:28:36Z"
+}

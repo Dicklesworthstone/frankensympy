@@ -2352,6 +2352,9 @@ def _add_ordered_terms(expr: "Expr") -> list["Expr"]:
 
 def _str_term(expr: "Expr") -> tuple[bool, str]:
     """Render one additive term as (negative, unsigned_body)."""
+    if type(expr) is _ExactDecimalFloat:
+        text = expr._decimal
+        return text.startswith("-"), text.lstrip("-")
     if isinstance(expr, Rational):
         return _str_number(expr)
     if type(expr) is Float:
@@ -2371,15 +2374,19 @@ def _str_term(expr: "Expr") -> tuple[bool, str]:
         held_args = getattr(expr, "_args", None)
         if held_args is not None:
             parts = []
+            decimal_negative = bool(held_args and type(held_args[0]) is _ExactDecimalFloat
+                                    and held_args[0]._decimal.startswith("-"))
             for i, a in enumerate(held_args):
                 s = _str_expr(a)
+                if i == 0 and decimal_negative:
+                    s = s[1:]
                 if i > 0 and (
                     (isinstance(a, (Integer, Rational)) and (a.p < 0 or a.q != 1))
                     or type(a) is Add
                 ):
                     s = f"({s})"
                 parts.append(s)
-            return False, "*".join(parts)
+            return decimal_negative, "*".join(parts)
         # Self-contained coefficient split (no as_coeff_Mul dependency).
         coeff_p, coeff_q = 1, 1
         rest = []
@@ -2901,7 +2908,10 @@ class Expr(Basic):
                 r, i = a.as_real_imag()
                 re_parts.append(r)
                 im_parts.append(i)
-            return (Add(*re_parts), Add(*im_parts))
+            # A sole decimal owner must not pass through binary64 addition
+            # with exact zero while decomposing a rounded complex result.
+            return (Add(*(part for part in re_parts if part is not _ZERO)),
+                    Add(*(part for part in im_parts if part is not _ZERO)))
         if type(self) is Mul:
             has_I = False
             rest = []
@@ -2939,6 +2949,9 @@ class Expr(Basic):
             lowered_tree = _eval_custom_evalf_tree(self, n, prec)
             if not _tree_has_custom_evalf_hook(lowered_tree):
                 return lowered_tree.evalf(n) if isinstance(lowered_tree, Expr) else Float(_admitted_python_float(lowered_tree), n)
+        certified = _certified_complex_float(self, n)
+        if certified is not None:
+            return certified
         certified = _certified_float(self, n)
         if certified is not None:
             return certified
@@ -6575,6 +6588,56 @@ class _ExactDecimalFloat(Float):
     def _srepr(self) -> str:
         return f"Float('{self._decimal}', precision={self._dps})"
 
+    # The binary64 backing is only an arithmetic preview. Predicates on a
+    # retained decimal describe that decimal, including exponents outside
+    # binary64's finite, nonzero range.
+    @property
+    def is_zero(self) -> bool | None:
+        value = decimal.Decimal(self._decimal)
+        return None if value.is_nan() else value.is_zero()
+
+    @property
+    def is_nonzero(self) -> bool | None:
+        value = decimal.Decimal(self._decimal)
+        return None if value.is_nan() else not value.is_zero()
+
+    @property
+    def is_positive(self) -> bool | None:
+        value = decimal.Decimal(self._decimal)
+        return None if value.is_nan() else value > 0
+
+    @property
+    def is_negative(self) -> bool | None:
+        value = decimal.Decimal(self._decimal)
+        return None if value.is_nan() else value < 0
+
+    @property
+    def is_nonnegative(self) -> bool | None:
+        value = decimal.Decimal(self._decimal)
+        return None if value.is_nan() else value >= 0
+
+    @property
+    def is_nonpositive(self) -> bool | None:
+        value = decimal.Decimal(self._decimal)
+        return None if value.is_nan() else value <= 0
+
+    @property
+    def is_real(self) -> bool | None:
+        return None if decimal.Decimal(self._decimal).is_nan() else True
+
+    @property
+    def is_finite(self) -> bool:
+        return decimal.Decimal(self._decimal).is_finite()
+
+    @property
+    def is_infinite(self) -> bool:
+        return decimal.Decimal(self._decimal).is_infinite()
+
+    @property
+    def is_integer(self) -> bool | None:
+        value = decimal.Decimal(self._decimal)
+        return None if value.is_nan() else value.is_finite() and value == value.to_integral_value()
+
     def evalf(self, n: int = 15) -> "Float":
         if type(n) is not int or n < 1:
             raise TypeError("evalf dps must be a positive int")
@@ -6636,6 +6699,257 @@ def _float_leaves_to_rational(node: Any) -> Any:
     return node
 
 
+class _UnsupportedEvalfSource(Exception):
+    """Selection only: the original surface needs another evaluation lane."""
+
+
+_EVALF_ABSENT = object()
+_EVALF_TYPES = (Expr, Integer, Rational, Zero, One, NegativeOne, Half,
+                Add, Mul, Pow, Float, _ExactDecimalFloat)
+_EVALF_SLOTS = tuple(
+    (owner, name, owner.__dict__[name])
+    for owner, names in (
+        (Basic, ("_value", "_struct_args", "_surface_args")),
+        (Add, ("_args",)), (Mul, ("_args",)), (Pow, ("_args",)),
+        (Function, ("_args",)), (Float, ("_dps",)),
+        (_ExactDecimalFloat, ("_decimal",)),
+    ) for name in names
+)
+from ._function_capabilities import _owner_record as _evalf_owner_record
+
+_EVALF_OWNERS = tuple(
+    (owner, type.__dict__["__mro__"].__get__(owner), _evalf_owner_record(owner))
+    for owner in (Basic, Atom, AtomicExpr, Number, AssocOp, *_EVALF_TYPES)
+)
+
+
+def _require_evalf_owners():
+    from ._function_capabilities import _owner_matches
+
+    for owner, expected_mro, expected in _EVALF_OWNERS:
+        mro = type.__dict__["__mro__"].__get__(owner)
+        if (len(mro) != len(expected_mro)
+                or any(a is not b for a, b in zip(mro, expected_mro))
+                or not _owner_matches(owner, expected)):
+            raise NotImplementedError("complex evalf requires original built-in implementations")
+
+
+class _EvalfSource:
+    """Retain bounded original storage while lowering finite Float leaves.
+
+    Native arithmetic is reconstructed with evaluation disabled. This keeps
+    every original child, including poles beneath zero factors and exponents.
+    No user getter, numeric conversion, printer or reconstruction hook runs.
+    """
+
+    def __init__(self):
+        self.nodes = 0
+        self.stamps = []
+        self.classes = []
+        self.functions = []
+        self.natives = []
+
+    def touch(self, depth):
+        self.nodes += 1
+        if self.nodes > 4096 or depth > 64:
+            raise ValueError("complex evalf source exceeds its node or depth limit")
+        _charge_nested_if_active(1)
+
+    def retain(self, source, owner, name):
+        slot = next(slot for cls, key, slot in _EVALF_SLOTS if cls is owner and key == name)
+        if type.__dict__["__dict__"].__get__(owner).get(name) is not slot:
+            raise NotImplementedError("complex evalf source storage implementation changed")
+        try:
+            stored = slot.__get__(source, owner)
+        except AttributeError:
+            stored = _EVALF_ABSENT
+        self.stamps.append((source, owner, name, slot, stored))
+        return stored
+
+    def unchanged(self):
+        _require_evalf_owners()
+        for source, kind in self.classes:
+            if type(source) is not kind:
+                raise RuntimeError("complex evalf source class changed during evaluation")
+        for owner in self.functions:
+            _require_closed_function_class(owner)
+        for native in self.natives:
+            _require_closed_native_functions(native)
+        for source, owner, name, slot, previous in self.stamps:
+            if type.__dict__["__dict__"].__get__(owner).get(name) is not slot:
+                raise RuntimeError("complex evalf source storage changed during evaluation")
+            try:
+                current = slot.__get__(source, owner)
+            except AttributeError:
+                current = _EVALF_ABSENT
+            if current is not previous:
+                raise RuntimeError("complex evalf source mutated during evaluation")
+
+    @staticmethod
+    def rebuild(native, children):
+        if native.is_add:
+            return _native.Add(*children, evaluate=False).as_expr()
+        if native.is_mul:
+            return _native.Mul(*children, evaluate=False).as_expr()
+        if native.is_pow:
+            return _native.Pow(*children, evaluate=False).as_expr()
+        return _native.py_function(native.func_name, *children)
+
+    @staticmethod
+    def floating(native):
+        children = native.args
+        if native.func_name != _FLOAT_INTERN or len(children) != 1 or not children[0].is_integer:
+            raise ValueError("complex evalf requires an exact Float payload")
+        bits = children[0].exact_numerator()
+        if bits < 0 or bits.bit_length() > 64:
+            raise ValueError("complex evalf requires an exact Float payload")
+        return _bits_to_float(bits)
+
+    def native(self, source, depth):
+        self.touch(depth)
+        if source.is_number or source.is_symbol:
+            return source
+        if source.func_name == _FLOAT_INTERN:
+            value = self.floating(source)
+            if not math.isfinite(value):
+                raise _UnsupportedEvalfSource
+            return _native.py_rational(*value.as_integer_ratio())
+        children = source.args
+        if len(children) > 256:
+            raise ValueError("complex evalf source exceeds its arity limit")
+        if not children:
+            return source
+        return self.rebuild(source, [self.native(child, depth + 1) for child in children])
+
+    def read(self, source, depth=0):
+        self.touch(depth)
+        kind = type(source)
+        builtin = any(kind is owner for owner in _EVALF_TYPES)
+        function = _is_registered_function_class(kind)
+        if not builtin and not function:
+            raise _UnsupportedEvalfSource
+        self.classes.append((source, kind))
+        if function:
+            _require_closed_function_class(kind)
+            self.functions.append(kind)
+        native = self.retain(source, Basic, "_value")
+        retained = [self.retain(source, Basic, name) for name in ("_struct_args", "_surface_args")]
+        if type(native) is not _native.Expr:
+            raise ValueError("complex evalf built-in owner requires exact native storage")
+        # Borrowed native preflight precedes .args and exact integer copies.
+        _native.CompiledFunction._validate_source(native)
+        _require_closed_native_functions(native)
+        self.natives.append(native)
+        if any(kind is owner for owner in (Integer, Zero, One, NegativeOne)) and not native.is_integer:
+            raise ValueError("complex evalf integer owner disagrees with its native value")
+        if any(kind is owner for owner in (Rational, Half)) and not (native.is_integer or native.is_rational):
+            raise ValueError("complex evalf rational owner disagrees with its native value")
+        for owner, numerator, denominator in ((Zero, 0, 1), (One, 1, 1),
+                                              (NegativeOne, -1, 1), (Half, 1, 2)):
+            if kind is owner and (native.exact_numerator(), native.exact_denominator()) != (numerator, denominator):
+                raise ValueError("complex evalf singleton has an inconsistent native value")
+        tag = native.func_name
+        if ((kind is Add and not native.is_add) or (kind is Mul and not native.is_mul)
+                or (kind is Pow and not native.is_pow)):
+            raise ValueError("complex evalf arithmetic owner disagrees with its native value")
+        if function:
+            name = type.__dict__["__name__"].__get__(kind)
+            if ("Abs" if tag == "abs" else "log" if tag == "ln" else tag) != name:
+                raise ValueError("complex evalf function owner disagrees with its native value")
+        if kind is Float or kind is _ExactDecimalFloat:
+            self.retain(source, Float, "_dps")
+            value = self.floating(native)
+            if kind is _ExactDecimalFloat:
+                text = self.retain(source, _ExactDecimalFloat, "_decimal")
+                if type(text) is not str or len(text) > 4096:
+                    raise ValueError("complex evalf decimal literal exceeds its size limit")
+                try:
+                    parsed = decimal.Decimal(text)
+                except decimal.InvalidOperation as error:
+                    raise ValueError("complex evalf requires a finite decimal literal") from error
+                if not parsed.is_finite():
+                    raise ValueError("complex evalf requires a finite decimal literal")
+                decimal_tuple = parsed.as_tuple()
+                if abs(decimal_tuple.exponent) > 4096:
+                    raise ValueError("complex evalf decimal exponent exceeds its size limit")
+                if float(text) != value:
+                    raise ValueError("complex evalf decimal literal disagrees with its native value")
+                value = Fraction(text)
+            else:
+                if not math.isfinite(value):
+                    raise _UnsupportedEvalfSource
+                value = Fraction(value)
+            if max(abs(value.numerator).bit_length(), value.denominator.bit_length()) > 16384:
+                raise ValueError("complex evalf Float literal exceeds its bit limit")
+            if any(children is not _EVALF_ABSENT and children is not None
+                   and (type(children) is not tuple or children) for children in retained):
+                raise ValueError("complex evalf Float has inconsistent retained arguments")
+            return native, _native.py_rational(value.numerator, value.denominator)
+        if kind is Add or kind is Mul or kind is Pow or function:
+            retained.append(self.retain(source, Function if function else kind, "_args"))
+        expected = native.args
+        groups = []
+        for children in retained:
+            if children is _EVALF_ABSENT or children is None:
+                continue
+            if type(children) is not tuple or len(children) > 256 or len(children) != len(expected):
+                raise ValueError("complex evalf source disagrees with its retained arguments")
+            if not any(children is previous for previous in groups):
+                groups.append(children)
+        lowered = None
+        for children in groups:
+            values = [self.read(child, depth + 1) for child in children]
+            if any(original != expected_child for (original, _), expected_child in zip(values, expected)):
+                raise ValueError("complex evalf source disagrees with its retained arguments")
+            if lowered is None:
+                lowered = [value for _, value in values]
+            elif any(value != previous for (_, value), previous in zip(values, lowered)):
+                raise ValueError("complex evalf source disagrees with its retained decimal arguments")
+        if lowered is None:
+            result = self.native(native, depth)
+        elif not expected:
+            result = native
+        else:
+            result = self.rebuild(native, lowered)
+        return native, result
+
+
+def _certified_complex_float(expression: Any, n: int) -> Any:
+    """Round both components only after their enclosure endpoints agree.
+
+    None means unsupported original syntax. Once the native grammar is
+    admitted, domain, precision, resource and rounding failures propagate.
+    The result contains rounded Float components, not a portable certificate.
+    """
+    if type(expression) is Float or type(expression) is _ExactDecimalFloat:
+        return None
+    _require_evalf_owners()
+    capture = _EvalfSource()
+    try:
+        _original, native = capture.read(expression)
+    except _UnsupportedEvalfSource:
+        capture.unchanged()
+        return None
+    capture.unchanged()
+    value = _native.evalf_complex_decimal_native(native, n)
+    capture.unchanged()
+    if value is None:
+        return None
+    real, imaginary = value
+    real_part = _ExactDecimalFloat(_format_decimal(real, n), n) if real != "0" else _ZERO
+    if imaginary == "0":
+        result = real_part
+    else:
+        imag_part = _ExactDecimalFloat(_format_decimal(imaginary, n), n)
+        # Evaluated constructors would fold these decimal owners through
+        # binary64. Retained arithmetic preserves their justified digits.
+        imag_term = Mul(imag_part, I, evaluate=False)
+        result = imag_term if real == "0" else Add(real_part, imag_term, evaluate=False)
+    _charge_nested_if_active(1)
+    capture.unchanged()
+    return result
+
+
 def _certified_float(expression: Any, n: int) -> Any:
     """Correctly rounded Float of a real constant from a certified native
     ball enclosure, or None when the expression is outside that lane."""
@@ -6671,7 +6985,8 @@ def _certified_float(expression: Any, n: int) -> Any:
 def N(expression: Any, n: Any = None) -> Basic:
     """Evaluate to a Float with justified significant decimal digits.
 
-    Admitted real constants use native enclosures. Exact real roots and
+    Admitted real and complex constants use native enclosures, rounding
+    real and imaginary components independently. Exact real roots and
     bounded rational expressions in them use checked algebraic refinement;
     ``pi`` retains its bounded Machin-series route. Unsupported expressions
     beyond the binary64-honest 15 digits raise rather than padding an f64.
@@ -6700,6 +7015,11 @@ def N(expression: Any, n: Any = None) -> Basic:
             raise ValueError(f"pi digit stream length {len(digits)} != {n}")
         decimal = digits[0] + "." + digits[1:]
         return _ExactDecimalFloat(decimal, n)
+    if isinstance(expression, Basic) and _tree_has_custom_evalf_hook(expression):
+        return expression.evalf(n)
+    certified = _certified_complex_float(expression, n)
+    if certified is not None:
+        return certified
     certified = _certified_float(expression, n)
     if certified is not None:
         return certified
