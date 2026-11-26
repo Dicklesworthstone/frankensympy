@@ -197,7 +197,7 @@ jobs:
         run: |
           cargo test --locked -p fsym-matrices --test gaussian_pseudoinverse --test pseudoinverse -j1
           cargo test --locked -p fsym-matrices --lib pseudoinverse::gaussian::tests -j1
-          cargo test --locked -p fsym-matrices --test gaussian_least_squares --test gaussian_least_squares_family --test gaussian_exact_solve -j1
+          cargo test --locked -p fsym-matrices --test gaussian_least_squares --test gaussian_least_squares_family --test gaussian_exact_solve --test polynomial_rhs_solve -j1
           cargo test --locked -p fsym-matrices --lib pseudoinverse::gaussian::least_squares::tests -j1
           cargo test --locked -p fsym-matrices --test gaussian_qr --test gaussian_rref --test gaussian_lu --test gaussian_determinant --test gaussian_ldl -j1
           cargo test --locked -p fsym-matrices --lib pseudoinverse::gaussian::qr::tests -j1

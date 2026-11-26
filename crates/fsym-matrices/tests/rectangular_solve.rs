@@ -160,10 +160,32 @@ fn original_domains_shapes_and_aggregate_bounds_are_checked() {
         a.solve(&Matrix::zeros(2, 1).unwrap()),
         Err(MatrixError::ShapeMismatch(..))
     ));
-    for entry in [
-        Expr::symbol("parameter"),
-        Expr::Const(Constant::Pi),
-        Expr::Mul(vec![Expr::from_i64(0), Expr::symbol("hidden")]),
+    for (entry, expected) in [
+        // Polynomial RHS syntax is now admitted, but the zero coefficient
+        // matrix still cannot establish uniqueness, even for an exact zero.
+        (Expr::symbol("parameter"), MatrixError::SingularMatrix),
+        (
+            Expr::Mul(vec![Expr::from_i64(0), Expr::symbol("hidden")]),
+            MatrixError::SingularMatrix,
+        ),
+        (
+            Expr::Const(Constant::Pi),
+            MatrixError::UnsupportedCertificateDomain,
+        ),
+        (
+            Expr::Mul(vec![
+                Expr::from_i64(0),
+                Expr::Function("unknown".into(), vec![Expr::symbol("hidden")]),
+            ]),
+            MatrixError::UnsupportedCertificateDomain,
+        ),
+        (
+            Expr::Mul(vec![
+                Expr::from_i64(0),
+                Expr::Pow(Expr::symbol("hidden").into(), Expr::from_i64(-1).into()),
+            ]),
+            MatrixError::UnsupportedCertificateDomain,
+        ),
     ] {
         let rhs = Matrix::new(
             3,
@@ -178,10 +200,7 @@ fn original_domains_shapes_and_aggregate_bounds_are_checked() {
             ],
         )
         .unwrap();
-        assert_eq!(
-            Matrix::zeros(3, 2).unwrap().solve(&rhs),
-            Err(MatrixError::UnsupportedCertificateDomain)
-        );
+        assert_eq!(Matrix::zeros(3, 2).unwrap().solve(&rhs), Err(expected));
     }
     let huge = Expr::Integer(BigInt::from(1) << 8192u32);
     let rhs = Matrix::new(3, 1, vec![Expr::from_i64(0), Expr::from_i64(0), huge]).unwrap();

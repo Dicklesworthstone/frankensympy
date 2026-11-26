@@ -26,8 +26,8 @@ mod pseudoinverse;
 pub use pseudoinverse::{
     GaussianAffineCandidate, GaussianCholeskyCandidate, GaussianLdlCandidate,
     GaussianLeastSquaresCandidate, GaussianLinearSystemCandidate, GaussianLuCandidate,
-    GaussianQrCandidate, GaussianRrefCandidate, PseudoinverseCertificate,
-    VerifiedGaussianAffineSolution, VerifiedGaussianLeastSquaresFamily,
+    GaussianQrCandidate, GaussianRrefCandidate, PolynomialLinearSystemCandidate,
+    PseudoinverseCertificate, VerifiedGaussianAffineSolution, VerifiedGaussianLeastSquaresFamily,
     verify_pseudoinverse_certificate,
 };
 mod least_squares;
@@ -1930,12 +1930,14 @@ impl Matrix {
         Ok(cert)
     }
 
-    /// Solves an exact-rational or Gaussian-rational linear system $A \cdot X = B$ uniquely.
+    /// Solves a constant exact-rational or Gaussian-rational system $A \cdot X = B$ uniquely.
     ///
     /// Rectangular systems use independently checked complete affine outcomes
     /// for every right-hand side. That lane admits at most 128 equations,
     /// unknowns, and right-hand sides, with shared aggregate work/storage caps.
     /// Square systems retain the established row-reduction lane and its bounds.
+    /// Polynomial right-hand sides over Q(i) use the bounded coefficient-wise
+    /// reference checker, with at most 32 axes and eight typed coordinates.
     pub fn solve(&self, b: &Matrix) -> Result<Matrix, MatrixError> {
         self.validate_shape()?;
         b.validate_shape()?;
@@ -1945,6 +1947,12 @@ impl Matrix {
             .chain(&b.data)
             .any(|entry| !matches!(entry, Expr::Integer(_) | Expr::Rational(_)))
         {
+            if !b.has_gaussian_rational_syntax_with_meter(&mut fsym_budget::Unbounded)?
+                && b.has_polynomial_rhs_syntax_with_meter(&mut fsym_budget::Unbounded)?
+                && self.has_gaussian_rational_syntax_with_meter(&mut fsym_budget::Unbounded)?
+            {
+                return self.metered_polynomial_solve(b, &mut fsym_budget::Unbounded);
+            }
             return self.metered_gaussian_solve(b, &mut fsym_budget::Unbounded);
         }
         if self.rows != self.cols {

@@ -4,8 +4,8 @@ mod gaussian;
 pub use gaussian::{
     GaussianAffineCandidate, GaussianCholeskyCandidate, GaussianLdlCandidate,
     GaussianLeastSquaresCandidate, GaussianLinearSystemCandidate, GaussianLuCandidate,
-    GaussianQrCandidate, GaussianRrefCandidate, VerifiedGaussianAffineSolution,
-    VerifiedGaussianLeastSquaresFamily,
+    GaussianQrCandidate, GaussianRrefCandidate, PolynomialLinearSystemCandidate,
+    VerifiedGaussianAffineSolution, VerifiedGaussianLeastSquaresFamily,
 };
 
 use super::{MAX_MATRIX_MULTIPLICATION_OPS, Matrix, MatrixError, numeric_value};

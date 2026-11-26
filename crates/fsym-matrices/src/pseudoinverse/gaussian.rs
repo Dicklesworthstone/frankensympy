@@ -19,6 +19,8 @@ mod least_squares;
 pub use least_squares::{GaussianLeastSquaresCandidate, VerifiedGaussianLeastSquaresFamily};
 mod exact_solve;
 pub use exact_solve::GaussianLinearSystemCandidate;
+mod polynomial_solve;
+pub use polynomial_solve::PolynomialLinearSystemCandidate;
 mod qr;
 pub use qr::GaussianQrCandidate;
 mod lu;
