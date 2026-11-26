@@ -31,7 +31,7 @@ pub mod sort;
 
 pub use algebraic::*;
 pub use ball::*;
-pub use complex_decimal::ComplexDecimalError;
+pub use complex_decimal::{ComplexDecimalError, MeteredComplexDecimalError};
 pub use dag::*;
 pub use domain::*;
 pub use lambert::*;
@@ -987,104 +987,7 @@ impl Expr {
     /// Evaluates a ground real or complex expression (including `Constant::I`) into a certified
     /// `ComplexBall` rectangular enclosure at `precision_digits`.
     pub fn eval_complex_ball(&self, precision_digits: u32) -> Result<ComplexBall, BallError> {
-        let extra = precision_digits.saturating_add(4);
-        match self {
-            Expr::Integer(n) => Ok(ComplexBall::from_real(RealBall::exact(
-                BigRational::from_integer(n.clone()),
-            ))),
-            Expr::Rational(q) => Ok(ComplexBall::from_real(RealBall::exact(q.clone()))),
-            Expr::Const(Constant::Pi) => Ok(ComplexBall::from_real(RealBall::pi(extra)?)),
-            Expr::Const(Constant::E) => {
-                Ok(ComplexBall::from_real(RealBall::from_i64(1).exp(extra)?))
-            }
-            Expr::Const(Constant::I) => Ok(ComplexBall::i()),
-            Expr::Add(terms) => {
-                let mut acc = ComplexBall::from_i64(0);
-                for t in terms {
-                    acc = acc.checked_add(&t.eval_complex_ball(extra)?)?;
-                }
-                Ok(acc)
-            }
-            Expr::Mul(factors) => {
-                let mut acc = ComplexBall::from_i64(1);
-                for f in factors {
-                    acc = acc.checked_mul(&f.eval_complex_ball(extra)?)?;
-                }
-                Ok(acc)
-            }
-            Expr::Pow(b, e) => {
-                if let Some(exp) = e.const_integer_value()
-                    && let Some(k) = exp.to_i32()
-                {
-                    return b.eval_complex_ball(extra)?.pow(k);
-                }
-                if matches!(b.as_ref(), Expr::Const(Constant::E)) {
-                    return e.eval_complex_ball(extra)?.exp(precision_digits);
-                }
-                // For a literal half-integer exponent, use the principal
-                // complex square root before taking the signed integer power.
-                // Evaluate the original base once and preserve any refusal.
-                if let Expr::Rational(r) = e.as_ref()
-                    && r.denom() == &BigInt::from(2)
-                    && let Some(p) = r.numer().to_i32()
-                {
-                    return b.eval_complex_ball(extra)?.sqrt(precision_digits)?.pow(p);
-                }
-                // Both original children must be admitted before the power
-                // can return, even when a base of one or a positive power of
-                // zero makes the value trivial. The complex lane uses the
-                // principal logarithm; the real lane keeps its own domain.
-                let base = b.eval_complex_ball(extra)?;
-                let exponent = e.eval_complex_ball(extra)?;
-                base.pow_principal(&exponent, precision_digits)
-            }
-            Expr::Function(name, _) if name == "LambertW" => Ok(ComplexBall::from_real(
-                self.eval_real_ball(precision_digits)?,
-            )),
-            // atan2 has two real arguments even inside a complex expression.
-            // The real evaluator admits both original children and retains
-            // its arity, precision, origin and principal-cut restrictions.
-            Expr::Function(name, _) if name == "atan2" => Ok(ComplexBall::from_real(
-                self.eval_real_ball(precision_digits)?,
-            )),
-            Expr::Function(name, args) if args.len() == 1 => {
-                let arg = args[0].eval_complex_ball(extra)?;
-                match name.as_str() {
-                    "exp" => arg.exp(precision_digits),
-                    "log" | "ln" => arg.ln(precision_digits),
-                    "sqrt" => arg.sqrt(precision_digits),
-                    "sin" => arg.sin(precision_digits),
-                    "cos" => arg.cos(precision_digits),
-                    "tan" => {
-                        let s = arg.sin(extra)?;
-                        let c = arg.cos(extra)?;
-                        s.checked_div(&c)
-                    }
-                    "sinh" | "cosh" | "tanh" => {
-                        let ep = arg.exp(extra)?;
-                        let em = arg.neg().exp(extra)?;
-                        let two = ComplexBall::from_i64(2);
-                        match name.as_str() {
-                            "sinh" => ep.sub(&em).checked_div(&two),
-                            "cosh" => ep.add(&em).checked_div(&two),
-                            _ => ep.sub(&em).checked_div(&ep.add(&em)),
-                        }
-                    }
-                    "abs" | "Abs" => Ok(ComplexBall::from_real(
-                        arg.abs_ball(extra.saturating_mul(4).max(32))?,
-                    )),
-                    "re" => Ok(ComplexBall::from_real(arg.real().clone())),
-                    "im" => Ok(ComplexBall::from_real(arg.imag().clone())),
-                    "conjugate" => Ok(arg.conj()),
-                    _ => Ok(ComplexBall::from_real(
-                        self.eval_real_ball(precision_digits)?,
-                    )),
-                }
-            }
-            _ => Err(BallError::ArgumentOutsideDeclaredEnvelope(format!(
-                "expression '{self}' cannot be evaluated as a ground ComplexBall"
-            ))),
-        }
+        complex_decimal::unmetered_ball(self, precision_digits)
     }
 }
 

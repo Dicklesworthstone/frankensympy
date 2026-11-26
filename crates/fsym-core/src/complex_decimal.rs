@@ -8,6 +8,10 @@ use crate::{BallError, Constant, Expr, RealBall, round_significant};
 use num_traits::Zero;
 use thiserror::Error;
 
+mod metered;
+pub use metered::MeteredComplexDecimalError;
+pub(crate) use metered::unmetered_ball;
+
 const MAX_DIGITS: u32 = 1000;
 const MAX_NODES: usize = 4096;
 const MAX_DEPTH: usize = 64;
