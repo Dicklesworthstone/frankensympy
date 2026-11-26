@@ -1355,6 +1355,16 @@ impl ComplexBall {
         }
     }
 
+    /// Admit all rational additions before constructing a compound enclosure.
+    pub(crate) fn checked_add(&self, other: &Self) -> Result<Self, BallError> {
+        let height = self
+            .power_height()
+            .saturating_add(other.power_height())
+            .saturating_add(2);
+        checked_work_bits("ComplexBall addition", [height.saturating_mul(4)])?;
+        Ok(self.add(other))
+    }
+
     /// Certified complex subtraction.
     pub fn sub(&self, other: &Self) -> Self {
         Self {
@@ -1406,6 +1416,13 @@ impl ComplexBall {
     /// Certified complex multiplicative inverse $1/z = \bar{z} / |z|^2$.
     /// Fails closed with `BallError::DivisionByZero` if $0 \in |z|^2$.
     pub fn inv(&self) -> Result<Self, BallError> {
+        // Squared-modulus endpoints, reciprocal endpoints, and both
+        // component divisions can multiply unrelated denominators. Check
+        // before even forming endpoints or formatting a domain refusal.
+        checked_work_bits(
+            "ComplexBall inverse",
+            [self.power_height().saturating_mul(512).saturating_add(256)],
+        )?;
         if self.contains_zero() {
             return Err(BallError::DivisionByZero(self.to_string()));
         }
@@ -1421,7 +1438,7 @@ impl ComplexBall {
     /// Certified complex division $z_1 / z_2$.
     pub fn checked_div(&self, other: &Self) -> Result<Self, BallError> {
         let inv_other = other.inv()?;
-        Ok(self.mul(&inv_other))
+        self.checked_mul(&inv_other)
     }
 
     /// Certified integer power $z^k$ with bounded intermediate arithmetic.
@@ -1448,12 +1465,6 @@ impl ComplexBall {
         }
         let mut mag = exp.unsigned_abs();
         let mut base = if exp < 0 {
-            // Squared-modulus endpoints, reciprocal endpoints, and both
-            // component divisions can multiply unrelated denominators.
-            checked_work_bits(
-                "ComplexBall negative integer power",
-                [self.power_height().saturating_mul(512).saturating_add(256)],
-            )?;
             self.inv()?
         } else {
             self.clone()
@@ -1461,11 +1472,11 @@ impl ComplexBall {
         let mut acc = Self::from_i64(1);
         while mag > 0 {
             if mag % 2 == 1 {
-                acc = acc.checked_power_product(&base)?;
+                acc = acc.checked_mul(&base)?;
             }
             mag /= 2;
             if mag > 0 {
-                base = base.checked_power_product(&base)?;
+                base = base.checked_mul(&base)?;
             }
         }
         Ok(acc)
@@ -1483,7 +1494,7 @@ impl ComplexBall {
         .unwrap_or(0)
     }
 
-    fn checked_power_product(&self, other: &Self) -> Result<Self, BallError> {
+    pub(crate) fn checked_mul(&self, other: &Self) -> Result<Self, BallError> {
         // Each real radius is a sum of three products; a complex component
         // combines two real products. Six denominator products plus guards
         // fit under this conservative bound, including transient sums.
@@ -1491,61 +1502,8 @@ impl ComplexBall {
             .power_height()
             .saturating_add(other.power_height())
             .saturating_add(2);
-        checked_work_bits(
-            "ComplexBall integer-power product",
-            [height.saturating_mul(16)],
-        )?;
+        checked_work_bits("ComplexBall multiplication", [height.saturating_mul(16)])?;
         Ok(self.mul(other))
-    }
-
-    /// Certified complex exponential $\exp(x + i y) = e^x (\cos y + i \sin y)$.
-    pub fn exp(&self, precision_digits: u32) -> Result<Self, BallError> {
-        let extra = precision_digits.saturating_add(4);
-        let ex = self.real.exp(extra)?;
-        let cy = self.imag.cos(extra)?;
-        let sy = self.imag.sin(extra)?;
-        Ok(Self {
-            real: ex.mul(&cy),
-            imag: ex.mul(&sy),
-        })
-    }
-
-    /// Certified complex sine $\sin(x + i y) = \sin(x)\cosh(y) + i \cos(x)\sinh(y)$.
-    pub fn sin(&self, precision_digits: u32) -> Result<Self, BallError> {
-        let extra = precision_digits.saturating_add(4);
-        let sx = self.real.sin(extra)?;
-        let cx = self.real.cos(extra)?;
-        if self.imag.lower().is_zero() && self.imag.upper().is_zero() {
-            return Ok(Self::from_real(sx));
-        }
-        let ey = self.imag.exp(extra)?;
-        let emy = self.imag.neg().exp(extra)?;
-        let two = RealBall::from_i64(2);
-        let cosh_y = ey.add(&emy).div(&two)?;
-        let sinh_y = ey.sub(&emy).div(&two)?;
-        Ok(Self {
-            real: sx.mul(&cosh_y),
-            imag: cx.mul(&sinh_y),
-        })
-    }
-
-    /// Certified complex cosine $\cos(x + i y) = \cos(x)\cosh(y) - i \sin(x)\sinh(y)$.
-    pub fn cos(&self, precision_digits: u32) -> Result<Self, BallError> {
-        let extra = precision_digits.saturating_add(4);
-        let sx = self.real.sin(extra)?;
-        let cx = self.real.cos(extra)?;
-        if self.imag.lower().is_zero() && self.imag.upper().is_zero() {
-            return Ok(Self::from_real(cx));
-        }
-        let ey = self.imag.exp(extra)?;
-        let emy = self.imag.neg().exp(extra)?;
-        let two = RealBall::from_i64(2);
-        let cosh_y = ey.add(&emy).div(&two)?;
-        let sinh_y = ey.sub(&emy).div(&two)?;
-        Ok(Self {
-            real: cx.mul(&cosh_y),
-            imag: sx.mul(&sinh_y).neg(),
-        })
     }
 
     /// Canonical BLAKE3 digest of this complex ball.
@@ -2110,5 +2068,65 @@ mod tests {
             zero_cross.pow(0),
             Err(BallError::IndeterminatePower(_))
         ));
+    }
+
+    #[test]
+    fn checked_complex_arithmetic_refuses_before_cancellation_or_zero_absorption() {
+        let huge = BigRational::from_integer(
+            BigInt::one() << (MAX_REAL_BALL_WORK_BITS / 4 + 64) as u32,
+        );
+        for value in [huge.clone(), BigRational::one() / huge] {
+            let source = ComplexBall::exact_complex(value, q(1));
+            assert!(matches!(
+                source.checked_add(&source.neg()),
+                Err(BallError::ResourceLimitExceeded { .. })
+            ));
+            assert!(matches!(
+                source.checked_mul(&ComplexBall::from_i64(0)),
+                Err(BallError::ResourceLimitExceeded { .. })
+            ));
+            assert!(matches!(
+                source.checked_div(&ComplexBall::from_i64(1)),
+                Err(BallError::ResourceLimitExceeded { .. })
+            ));
+        }
+        let a = ComplexBall::exact_complex(q(3), q(4));
+        let b = ComplexBall::exact_complex(q(1), q(-2));
+        assert_eq!(
+            a.checked_add(&b).unwrap(),
+            ComplexBall::exact_complex(q(4), q(2))
+        );
+        assert_eq!(
+            a.checked_mul(&b).unwrap(),
+            ComplexBall::exact_complex(q(11), q(-2))
+        );
+    }
+
+    #[test]
+    fn complex_inverse_preflights_direct_and_quotient_entrypoints() {
+        let enormous = BigRational::new(
+            BigInt::one(),
+            BigInt::one() << (MAX_REAL_BALL_WORK_BITS / 512 + 16) as u32,
+        );
+        let denominator = ComplexBall::exact_complex(q(1), enormous);
+        assert!(matches!(
+            denominator.inv(),
+            Err(BallError::ResourceLimitExceeded { .. })
+        ));
+        assert!(matches!(
+            ComplexBall::from_i64(0).checked_div(&denominator),
+            Err(BallError::ResourceLimitExceeded { .. })
+        ));
+        // A tiny but admitted nonzero value remains invertible; the fixed
+        // envelope must not turn smallness into a mathematical zero.
+        let tiny = BigRational::new(BigInt::one(), BigInt::one() << 128u32);
+        let source = ComplexBall::exact_complex(tiny.clone(), -tiny);
+        let inverse = source.inv().unwrap();
+        assert!(
+            source
+                .checked_mul(&inverse)
+                .unwrap()
+                .contains(&q(1), &q(0))
+        );
     }
 }

@@ -999,14 +999,14 @@ impl Expr {
             Expr::Add(terms) => {
                 let mut acc = ComplexBall::from_i64(0);
                 for t in terms {
-                    acc = acc.add(&t.eval_complex_ball(extra)?);
+                    acc = acc.checked_add(&t.eval_complex_ball(extra)?)?;
                 }
                 Ok(acc)
             }
             Expr::Mul(factors) => {
                 let mut acc = ComplexBall::from_i64(1);
                 for f in factors {
-                    acc = acc.mul(&f.eval_complex_ball(extra)?);
+                    acc = acc.checked_mul(&f.eval_complex_ball(extra)?)?;
                 }
                 Ok(acc)
             }

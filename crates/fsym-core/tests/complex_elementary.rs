@@ -484,6 +484,189 @@ fn reference_negative_exp(value: BigRational) -> (BigRational, BigRational) {
     (sum, upper)
 }
 
+/// Positive exponentials use exact reciprocals of the independent
+/// alternating bounds above, not the production exponential kernel.
+fn reference_exp(value: BigRational) -> RealBall {
+    if value < q(0, 1) {
+        let (lower, upper) = reference_negative_exp(-value);
+        interval(lower, upper)
+    } else {
+        let (lower, upper) = reference_negative_exp(value);
+        interval(q(1, 1) / upper, q(1, 1) / lower)
+    }
+}
+
+fn reference_hyperbolic(value: BigRational) -> (RealBall, RealBall) {
+    let positive = reference_exp(value.clone());
+    let negative = reference_exp(-value);
+    let sinh = interval(
+        (positive.lower() - negative.upper()) / q(2, 1),
+        (positive.upper() - negative.lower()) / q(2, 1),
+    );
+    let cosh = interval(
+        (positive.lower() + negative.lower()) / q(2, 1),
+        (positive.upper() + negative.upper()) / q(2, 1),
+    );
+    (sinh, cosh)
+}
+
+#[test]
+fn complex_exponential_keeps_real_interval_variation_and_exact_endpoint_bounds() {
+    for (lower, upper) in [(-2, -1), (-1, 1), (0, 2)] {
+        let source = rectangle(lower, upper, 0, 0);
+        for digits in [8, 30] {
+            let result = source.exp(digits).unwrap();
+            for value in [lower, upper] {
+                let reference = reference_exp(q(value, 1));
+                assert!(result.real().contains_ball(&reference));
+            }
+            assert!(result.imag().contains(&q(0, 1)));
+            assert!(result.real().width() > q(1, 100));
+        }
+    }
+    // The real accuracy API retains its established refusal: input
+    // variation cannot satisfy an arbitrarily small absolute radius.
+    let wide = interval(q(-1, 1), q(1, 1));
+    assert!(matches!(
+        wide.exp(30),
+        Err(BallError::ResourceLimitExceeded { .. })
+    ));
+    assert!(ComplexBall::from_real(wide).exp(30).is_ok());
+}
+
+#[test]
+fn complex_exponential_keeps_phase_variation_in_both_components() {
+    // This rectangle contains log(2) + i*theta at theta=0, +/-pi/2,
+    // and pi. Its exponential therefore contains all four exact axis
+    // points below. Midpoint-only real or imaginary evaluation loses them.
+    let result = rectangle(-1, 1, -4, 4).exp(24).unwrap();
+    for (real, imag) in [(2, 0), (-2, 0), (0, 2), (0, -2)] {
+        assert!(result.contains(&q(real, 1), &q(imag, 1)));
+    }
+    assert!(result.real().width() >= q(4, 1));
+    assert!(result.imag().width() >= q(4, 1));
+}
+
+#[test]
+fn complex_circular_functions_keep_imaginary_ranges_and_component_signs() {
+    let (pi_lower, pi_upper) = reference_pi();
+    let half_pi = interval(pi_lower / q(2, 1), pi_upper / q(2, 1));
+    for (lower, upper) in [(-2, -1), (-1, 1), (0, 2)] {
+        let y = interval(q(lower, 1), q(upper, 1));
+        for at_half_pi in [false, true] {
+            let x = if at_half_pi {
+                half_pi.clone()
+            } else {
+                RealBall::from_i64(0)
+            };
+            let source = ComplexBall::new(x, y.clone());
+            let sine = source.sin(24).unwrap();
+            let cosine = source.cos(24).unwrap();
+            for value in [lower, upper] {
+                let (sinh, cosh) = reference_hyperbolic(q(value, 1));
+                if at_half_pi {
+                    // sin(pi/2+iy)=cosh(y), cos(pi/2+iy)=-i*sinh(y).
+                    assert!(sine.real().contains_ball(&cosh));
+                    assert!(sine.imag().contains(&q(0, 1)));
+                    assert!(cosine.real().contains(&q(0, 1)));
+                    assert!(cosine.imag().contains_ball(&sinh.neg()));
+                } else {
+                    // sin(iy)=i*sinh(y), cos(iy)=cosh(y).
+                    assert!(sine.real().contains(&q(0, 1)));
+                    assert!(sine.imag().contains_ball(&sinh));
+                    assert!(cosine.real().contains_ball(&cosh));
+                    assert!(cosine.imag().contains(&q(0, 1)));
+                }
+            }
+            let varying = if at_half_pi {
+                cosine.imag()
+            } else {
+                sine.imag()
+            };
+            assert!(varying.width() > q(1, 1));
+        }
+    }
+}
+
+#[test]
+fn elementary_compositions_keep_point_accuracy_and_conjugate_symmetry() {
+    for value in [-2, -1, 0, 1, 2] {
+        let result = ComplexBall::from_i64(value).exp(30).unwrap();
+        assert!(result.real().contains_ball(&reference_exp(q(value, 1))));
+        assert!(result.real().width() < tolerance(30));
+        assert!(result.imag().width() < tolerance(30));
+    }
+    for source in [rectangle(-1, 2, -2, 1), rectangle(0, 1, 1, 2)] {
+        assert_eq!(
+            source.exp(20).unwrap().conj(),
+            source.conj().exp(20).unwrap()
+        );
+        assert_eq!(
+            source.sin(20).unwrap().conj(),
+            source.conj().sin(20).unwrap()
+        );
+        assert_eq!(
+            source.cos(20).unwrap().conj(),
+            source.conj().cos(20).unwrap()
+        );
+    }
+}
+
+#[test]
+fn exponential_compositions_admit_precision_and_whole_input_before_evaluation() {
+    for digits in [
+        0,
+        ComplexBall::MAX_ELEMENTARY_PRECISION_DIGITS + 1,
+        u32::MAX,
+    ] {
+        for result in [
+            ComplexBall::from_i64(0).exp(digits),
+            ComplexBall::from_i64(0).sin(digits),
+            ComplexBall::from_i64(0).cos(digits),
+        ] {
+            assert!(matches!(
+                result,
+                Err(BallError::ArgumentOutsideDeclaredEnvelope(_))
+            ));
+        }
+    }
+    let huge = BigRational::from_integer(
+        BigInt::one() << (MAX_REAL_BALL_WORK_BITS / 128 + 16) as u32,
+    );
+    for component in [huge.clone(), q(1, 1) / huge] {
+        for source in [
+            ComplexBall::exact_complex(component.clone(), q(0, 1)),
+            ComplexBall::exact_complex(q(0, 1), component),
+        ] {
+            for result in [source.exp(20), source.sin(20), source.cos(20)] {
+                assert!(matches!(
+                    result,
+                    Err(BallError::ResourceLimitExceeded { .. })
+                ));
+            }
+        }
+    }
+    // No midpoint shortcut may hide the out-of-envelope upper endpoint.
+    for source in [
+        rectangle(-1, 100_001, 0, 0),
+        rectangle(-100_001, 1, 0, 0),
+    ] {
+        assert!(matches!(
+            source.exp(20),
+            Err(BallError::ArgumentOutsideDeclaredEnvelope(_))
+        ));
+    }
+    let imaginary = rectangle(0, 0, -1, 100_001);
+    assert!(matches!(
+        imaginary.sin(20),
+        Err(BallError::ArgumentOutsideDeclaredEnvelope(_))
+    ));
+    assert!(matches!(
+        imaginary.cos(20),
+        Err(BallError::ArgumentOutsideDeclaredEnvelope(_))
+    ));
+}
+
 #[test]
 fn imaginary_exponents_match_independent_exact_taylor_bounds() {
     let (pi_lower, pi_upper) = reference_pi();
