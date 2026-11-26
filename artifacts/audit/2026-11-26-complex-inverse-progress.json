@@ -1,0 +1,86 @@
+{
+  "schema": "frankensympy.implementation_progress.v1",
+  "date": "2026-11-26",
+  "scope": "Principal complex inverse circular and hyperbolic value enclosures and decimal evaluation",
+  "bead": "fra-a5x",
+  "native_commit": "3d330966740e1d61cf660d71d86f9f0f6e42928e",
+  "integration_commit": "containing commit",
+  "implemented": [
+    "ComplexBall asin, acos, atan, asinh, acosh and atanh over complete rational rectangles.",
+    "Pinned exact-axis branch conventions, finite branch-point value hulls, explicit pole and non-axis cut-contact refusals.",
+    "Shared expression dispatcher and both unmetered and caller-budgeted component decimal APIs.",
+    "Original-source definedness, closed function arity, cumulative accounting and terminal cancellation remain enforced."
+  ],
+  "mathematical_scope": {
+    "formulas": "Principal logarithm and square-root identities; exact-axis monotone real interval extensions.",
+    "evidence": "Value enclosures composed from existing exact rational interval kernels, not a new portable proof or analyticity certificate.",
+    "conservative_refusals": "Nested interval dependency or a rectangle touching a cut can refuse even when some points are evaluable.",
+    "precision": "Existing component precision and intrinsic work envelopes remain in force.",
+    "budgets": "The complete inverse composition is reserved before the kernel; a small caller budget may terminate before a mathematical-domain check."
+  },
+  "authored_regressions": {
+    "native_primitive_test_functions": 9,
+    "native_decimal_integration_test_functions": 6,
+    "python_new_test_functions": 8,
+    "python_new_parameterized_cases": 75,
+    "coverage": [
+      "Exact positive and negative cut values and opposite-side approaches.",
+      "Independent real-modulus/angle identities and convergent complex power-series references.",
+      "Complete interval variation, finite branch endpoints, exact zero components and pole contact.",
+      "Malformed arity, oversized inputs, original poles hidden by zero factors, and real-only consumer domains.",
+      "Cumulative caller ledgers, cancellation before publication, retained-source mutation and custom-function exclusion."
+    ]
+  },
+  "completed_validation": [
+    {
+      "kind": "independent_source_review",
+      "scope": "Two independent reviews of native mathematical branches, Rust API/ownership, source admission and public fixtures.",
+      "execution": false
+    },
+    {
+      "kind": "python_ast_and_compile",
+      "runtime": "CPython 3.12.14",
+      "result": "passed with zero warnings",
+      "source": "python/tests/test_complex_decimal_evalf.py",
+      "blob": "202930e05be1a7864f5265c252168f5445f338da",
+      "sha256": "79b016e4537b10d1fa7a528d957fedb3ba85142c9d919b6fb04eeee0e67ce7fd"
+    },
+    {
+      "kind": "isolated_oracle_fixture_validation",
+      "oracle": "SymPy 1.14.0",
+      "cases": 48,
+      "result": "passed",
+      "breakdown": {
+        "quadrants": 24,
+        "exact_cuts": 12,
+        "near_cut_sides": 12
+      },
+      "candidate_execution": false
+    },
+    {
+      "kind": "remote_commit_readback",
+      "commit": "3d330966740e1d61cf660d71d86f9f0f6e42928e",
+      "result": "message and all three expected changed paths verified"
+    }
+  ],
+  "blocked_validation": {
+    "rust_compilation": "Not executed: execution host disconnected, briefly returned during exact donor/toolchain preparation, and disconnected again before compilation.",
+    "rustfmt": "Not executed successfully; checksum-verified pinned formatter was extracted before the second host outage.",
+    "clippy": "Not executed.",
+    "native_tests": "Not executed on the changed candidate source.",
+    "public_candidate_tests": "Not executed against the changed FrankenSymPy extension.",
+    "workspace_gates": "Not executed on the changed candidate source.",
+    "environment": "Workspace exhaustion interrupted donor checkout and a local public-test write. Complete reviewed changes are stored in GitHub blobs; publication uses the complete Python blob above, never the partial local file."
+  },
+  "hosted_validation": {
+    "workflow": "CI Gate Topology",
+    "native_commit_run": 45867711435,
+    "url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/45867711435",
+    "observed_at_utc": "2026-11-26 17:36:29 UTC",
+    "observed_status": "queued; G0 planning integrity has not started",
+    "existing_selection": "G3 already selects the affected native integration binaries and public test module. No workflow gate was changed."
+  },
+  "claim_effects": "No claim tier, compatibility profile, workstream gate, bead status, priority or dependency edge is promoted or closed.",
+  "integration_base_commit": "c5e4aa62fb4754518100bace3676df7ae83657be",
+  "concurrent_changes": "Applied the dispatcher delta to current main, preserving the concurrently added real reciprocal inverse handlers and existing Python printer regressions."
+}

@@ -480,12 +480,6 @@ impl<M: BudgetMeter> BallWork for Work<'_, M> {
         self.elementary(&[&argument], digits, 12)?;
         let arg = argument.real();
         let value = match name.as_str() {
-            "asin" => arg.asin(digits)?,
-            "acos" => arg.acos(digits)?,
-            "atan" => arg.atan(digits)?,
-            "asinh" => arg.asinh(digits)?,
-            "acosh" => arg.acosh(digits)?,
-            "atanh" => arg.atanh(digits)?,
             "acot" => arg.acot(digits)?,
             "acoth" => arg.acoth(digits)?,
             "asec" => arg.asec(digits)?,
@@ -670,6 +664,21 @@ fn evaluate_mode<W: BallWork>(
                         "sqrt" => arg.sqrt(digits)?,
                         "sin" => arg.sin(digits)?,
                         _ => arg.cos(digits)?,
+                    }
+                }
+                "asin" | "acos" | "atan" | "asinh" | "acosh" | "atanh" => {
+                    // Reserve the complete logarithm/root/angle composition
+                    // on the same caller ledger before entering the kernel.
+                    // Every original child was evaluated above, including
+                    // undefined children hidden by a zero factor.
+                    work.elementary(&[&arg], digits, 32)?;
+                    match name.as_str() {
+                        "asin" => arg.asin(digits)?,
+                        "acos" => arg.acos(digits)?,
+                        "atan" => arg.atan(digits)?,
+                        "asinh" => arg.asinh(digits)?,
+                        "acosh" => arg.acosh(digits)?,
+                        _ => arg.atanh(digits)?,
                     }
                 }
                 "tan" => {

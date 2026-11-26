@@ -254,9 +254,10 @@ def test_native_unsupported_syntax_is_distinct_from_an_admitted_domain_error():
         s.N(x+s.I, 30)
 
 
-def test_existing_real_inverse_function_lane_remains_available():
+def test_real_inverse_function_digits_survive_complex_lane_admission():
     source = s.asin(s.Rational(1, 2), evaluate=False)
-    assert _certified_complex_float(source, 40) is None
+    admitted = _certified_complex_float(source, 40)
+    assert admitted is not None
     with localcontext() as context:
         context.prec = 80
         expected = PI/6
@@ -398,3 +399,209 @@ def test_source_depth_limit_precedes_recursive_component_evaluation():
 def test_native_precision_envelope_is_explicit(digits):
     with pytest.raises(ValueError, match="precision"):
         _native.evalf_complex_decimal_native(_native_expr(s.I), digits)
+
+
+
+_INVERSE_FUNCTIONS = (s.asin, s.acos, s.atan, s.asinh, s.acosh, s.atanh)
+
+
+def _inverse_series_reference(name, real_sign, imaginary_sign, digits):
+    """Independent convergent power series in the disk |z| < 0.4.
+
+    The native implementation uses complex enclosures; this reference sums
+    scalar Decimal coefficient recurrences. With |z|**2 = 34/225 < 0.16,
+    the first omitted term after 240 terms is below 10**-190. The real
+    component formulas for acos/acosh fix their principal branches.
+    """
+    with localcontext() as context:
+        context.prec = digits + 45
+        real = Decimal(real_sign) / 3
+        imaginary = Decimal(imaginary_sign) / 5
+        square = real*real - imaginary*imaginary, 2*real*imaginary
+        series = "asin" if name in ("acos", "acosh") else name
+        term_real = total_real = real
+        term_imaginary = total_imaginary = imaginary
+        for k in range(1, 240):
+            if series in ("asin", "asinh"):
+                factor = Decimal((2*k - 1)**2) / ((2*k)*(2*k + 1))
+            else:
+                factor = Decimal(2*k - 1) / (2*k + 1)
+            if series in ("atan", "asinh"):
+                factor = -factor
+            next_real = (term_real*square[0] - term_imaginary*square[1])*factor
+            term_imaginary = (term_real*square[1] + term_imaginary*square[0])*factor
+            term_real = next_real
+            total_real += term_real
+            total_imaginary += term_imaginary
+        if name in ("acos", "acosh"):
+            total_real, total_imaginary = PI/2 - total_real, -total_imaginary
+        if name == "acosh":
+            total_real, total_imaginary = (
+                -imaginary_sign*total_imaginary,
+                imaginary_sign*total_real,
+            )
+        return rounded(total_real, digits), rounded(total_imaginary, digits)
+
+
+@pytest.mark.parametrize("function", _INVERSE_FUNCTIONS)
+@pytest.mark.parametrize("real_sign, imaginary_sign", [(1, 1), (-1, 1), (1, -1), (-1, -1)])
+def test_complex_inverse_functions_have_fifty_justified_digits_in_every_quadrant(
+    function, real_sign, imaginary_sign,
+):
+    argument = s.Add(s.Rational(real_sign, 3), s.Rational(imaginary_sign, 5)*s.I, evaluate=False)
+    source = function(argument, evaluate=False)
+    expected = _inverse_series_reference(function.__name__, real_sign, imaginary_sign, 50)
+    arguments, native = source.args, _native_expr(source)
+    for result in (s.N(source, 50), source.evalf(50), source.n(50)):
+        assert components(result) == expected
+        assert all(type(part) is _ExactDecimalFloat and part.dps == 50
+                   for part in result.as_real_imag())
+    assert source.args is arguments
+    assert _native_expr(source) == native
+
+
+def _inverse_cut_reference(name, sign):
+    # Exact-axis conventions from the pinned SymPy 1.14.0 elementary
+    # function tests and principal logarithmic definitions. No signed-zero
+    # convention from the platform's binary64 complex functions is used.
+    with localcontext() as context:
+        context.prec = 100
+        acosh_two = (Decimal(2) + Decimal(3).sqrt()).ln()
+        half_log_three = Decimal(3).ln()/2
+        if name == "asin":
+            value = sign*PI/2, -sign*acosh_two
+        elif name == "acos":
+            value = Decimal(0) if sign > 0 else PI, sign*acosh_two
+        elif name == "atan":
+            value = sign*PI/2, sign*half_log_three
+        elif name == "asinh":
+            value = sign*acosh_two, sign*PI/2
+        elif name == "acosh":
+            value = acosh_two, Decimal(0) if sign > 0 else PI
+        else:
+            assert name == "atanh"
+            value = sign*half_log_three, -sign*PI/2
+        return tuple(rounded(component, 50) for component in value)
+
+
+@pytest.mark.parametrize("function", _INVERSE_FUNCTIONS)
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_complex_inverse_functions_use_the_pinned_exact_cut_values(function, sign):
+    argument = 2*sign*s.I if function in (s.atan, s.asinh) else s.Integer(2*sign)
+    source = function(argument, evaluate=False)
+    assert components(s.N(source, 50)) == _inverse_cut_reference(function.__name__, sign)
+
+
+@pytest.mark.parametrize("function", _INVERSE_FUNCTIONS)
+@pytest.mark.parametrize("side", [-1, 1])
+def test_complex_inverse_cut_sides_remain_distinct(function, side):
+    epsilon = s.Rational(side, 10**24)
+    if function in (s.atan, s.asinh):
+        argument = s.Add(epsilon, 2*s.I, evaluate=False)
+    elif function is s.acosh:
+        argument = s.Add(-2, epsilon*s.I, evaluate=False)
+    else:
+        argument = s.Add(2, epsilon*s.I, evaluate=False)
+    with localcontext() as context:
+        context.prec = 100
+        acosh_two = (Decimal(2) + Decimal(3).sqrt()).ln()
+        half_log_three = Decimal(3).ln()/2
+        if function is s.asin:
+            limit = PI/2, side*acosh_two
+        elif function is s.acos:
+            limit = Decimal(0), -side*acosh_two
+        elif function is s.atan:
+            limit = side*PI/2, half_log_three
+        elif function is s.asinh:
+            limit = side*acosh_two, PI/2
+        elif function is s.acosh:
+            limit = acosh_two, side*PI
+        else:
+            limit = half_log_three, side*PI/2
+    actual = components(s.N(function(argument, evaluate=False), 50))
+    assert all(abs(value - expected) < Decimal("1e-20")
+               for value, expected in zip(actual, limit))
+
+
+@pytest.mark.parametrize("function", _INVERSE_FUNCTIONS)
+def test_complex_inverse_functions_preserve_the_callers_cumulative_ledger(function):
+    argument = s.Add(s.Rational(1, 3), s.I/5, evaluate=False)
+    source = function(argument, evaluate=False)
+    expected = _inverse_series_reference(function.__name__, 1, 1, 50)
+    budget = s.EvaluationBudget(
+        max_steps=1 << 45, max_memory_bytes=1 << 40, max_allocations=1 << 30,
+    )
+    for operation in (
+        lambda: s.N(source, 50, budget=budget),
+        lambda: source.evalf(50, budget=budget),
+        lambda: source.n(50, budget=budget),
+    ):
+        before = budget.remaining_steps
+        assert components(operation()) == expected
+        assert budget.remaining_steps < before
+    budget.cancel()
+    before = budget.remaining_steps
+    with pytest.raises(s.EvaluationCancelled):
+        source.evalf(50, budget=budget)
+    assert budget.remaining_steps == before
+
+
+@pytest.mark.parametrize("function, argument", [
+    (s.atan, s.I), (s.atan, -s.I),
+    (s.atanh, s.S.One), (s.atanh, s.S.NegativeOne),
+])
+@pytest.mark.parametrize("masked", [False, True])
+def test_complex_inverse_poles_never_publish_even_under_a_held_zero(function, argument, masked):
+    source = function(argument, evaluate=False)
+    if masked:
+        source = s.Mul(0, source, evaluate=False)
+    sufficient = s.EvaluationBudget(
+        max_steps=1 << 45, max_memory_bytes=1 << 40, max_allocations=1 << 30,
+    )
+    for budget in (None, sufficient):
+        with pytest.raises(ValueError):
+            s.N(source, 40, budget=budget)
+
+
+@pytest.mark.parametrize("function", _INVERSE_FUNCTIONS)
+def test_complex_inverse_input_definedness_precedes_cancellation_identities(function):
+    invalid = s.Pow(0, -1, evaluate=False)
+    argument = s.Add(1, s.I, s.Mul(0, invalid, evaluate=False), evaluate=False)
+    source = function(argument, evaluate=False)
+    with pytest.raises(ValueError):
+        s.N(source, 50)
+    with pytest.raises(ValueError):
+        s.N(source, 50, budget=s.EvaluationBudget(
+            max_steps=1 << 45, max_memory_bytes=1 << 40, max_allocations=1 << 30,
+        ))
+
+
+@pytest.mark.parametrize("function", _INVERSE_FUNCTIONS)
+def test_complex_inverse_sources_are_rechecked_after_native_return(function, monkeypatch):
+    source = function(1+s.I, evaluate=False)
+    original = _native.evalf_complex_decimal_native
+
+    def mutate(*args, **kwargs):
+        result = original(*args, **kwargs)
+        source._args = (s.Integer(2),)
+        return result
+
+    monkeypatch.setattr(_native, "evalf_complex_decimal_native", mutate)
+    with pytest.raises(RuntimeError, match="source mutated"):
+        s.N(source, 40)
+
+
+def test_custom_inverse_function_name_does_not_grant_native_evaluation():
+    calls = []
+
+    class asin(s.Function):
+        def __str__(self):
+            calls.append("printer")
+            return "0"
+
+    source = asin(1+s.I, evaluate=False)
+    assert _certified_complex_float(source, 50) is None
+    assert calls == []
+    with pytest.raises(NotImplementedError):
+        s.N(source, 50, budget=s.EvaluationBudget())
+    assert calls == []

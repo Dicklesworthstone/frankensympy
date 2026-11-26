@@ -137,7 +137,8 @@ fn preflight(source: &Expr) -> Result<(), ComplexDecimalError> {
                     let admitted = match name.as_str() {
                         "atan2" => children.len() == 2,
                         "exp" | "log" | "ln" | "sqrt" | "sin" | "cos" | "tan" | "sinh" | "cosh"
-                        | "tanh" | "abs" | "Abs" | "re" | "im" | "conjugate" => children.len() == 1,
+                        | "tanh" | "abs" | "Abs" | "re" | "im" | "conjugate" | "asin" | "acos"
+                        | "atan" | "asinh" | "acosh" | "atanh" => children.len() == 1,
                         _ => false,
                     };
                     if !admitted {

@@ -195,7 +195,7 @@ fn unsupported_grammar_stays_distinct_from_domain_and_resource_failures() {
         Expr::symbol("x"),
         Expr::Const(Constant::Infinity),
         function("unknown", q(1, 1)),
-        function("asin", q(1, 2)),
+        function("erf", q(1, 2)),
         Expr::Function("sin".into(), vec![q(1, 1), q(2, 1)]),
     ] {
         assert!(matches!(

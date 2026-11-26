@@ -417,3 +417,163 @@ fn default_certification_sized_budget_admits_one_hundred_digit_complex_values() 
     assert!(budget.remaining(Dimension::MemoryBytes) < 512 * 1024 * 1024);
     assert!(budget.remaining(Dimension::AllocationCount) < 512 * 1024 * 1024);
 }
+
+#[test]
+fn inverse_cut_decimals_keep_exact_axis_branches_in_both_entry_points() {
+    // Independent branch identities use pi/2, acosh(2)=ln(2+sqrt(3))
+    // and ln(3)/2. The digits agree with the isolated SymPy 1.14 oracle.
+    let half_pi = "1.57079632679489661923132169164e0";
+    let a = "1.31695789692481670862504634731e0";
+    let l = "5.49306144334054845697622618461e-1";
+    let pi = "3.14159265358979323846264338328e0";
+    let negative_half_pi = format!("-{half_pi}");
+    let negative_a = format!("-{a}");
+    let negative_l = format!("-{l}");
+    for (name, x, y, real, imag) in [
+        ("asin", 2, 0, half_pi, negative_a.as_str()),
+        ("asin", -2, 0, negative_half_pi.as_str(), a),
+        ("acos", 2, 0, "0", a),
+        ("acos", -2, 0, pi, negative_a.as_str()),
+        ("atan", 0, 2, half_pi, l),
+        ("atan", 0, -2, negative_half_pi.as_str(), negative_l.as_str()),
+        ("asinh", 0, 2, a, half_pi),
+        ("asinh", 0, -2, negative_a.as_str(), negative_half_pi.as_str()),
+        ("acosh", 2, 0, a, "0"),
+        ("acosh", -2, 0, a, pi),
+        ("atanh", 2, 0, l, negative_half_pi.as_str()),
+        ("atanh", -2, 0, negative_l.as_str(), half_pi),
+    ] {
+        let source = function(name, complex(q(x, 1), q(y, 1)));
+        let expected = (real.to_string(), imag.to_string());
+        assert_eq!(decimal(&source, 30), expected, "{source}");
+        assert_eq!(
+            source.evalf_complex_decimal(30).unwrap(),
+            expected,
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn inverse_zero_components_are_exact_without_a_numerical_chop() {
+    for (name, argument) in [
+        ("asin", 0),
+        ("acos", 1),
+        ("atan", 0),
+        ("asinh", 0),
+        ("acosh", 1),
+        ("atanh", 0),
+    ] {
+        let source = function(name, Expr::from_i64(argument));
+        assert_eq!(decimal(&source, 80), ("0".into(), "0".into()));
+        assert_eq!(
+            source.evalf_complex_decimal(80).unwrap(),
+            ("0".into(), "0".into())
+        );
+    }
+    let source = function("asin", Expr::Const(Constant::I));
+    let expected = ("0".into(), "8.81373587019543025232609324980e-1".into());
+    assert_eq!(decimal(&source, 30), expected);
+    assert_eq!(source.evalf_complex_decimal(30).unwrap(), expected);
+}
+
+#[test]
+fn inverse_poles_and_original_undefined_children_remain_terminal() {
+    for (name, argument) in [
+        ("atan", complex(q(0, 1), q(1, 1))),
+        ("atan", complex(q(0, 1), q(-1, 1))),
+        ("atanh", q(1, 1)),
+        ("atanh", q(-1, 1)),
+    ] {
+        let pole = function(name, argument);
+        for source in [pole.clone(), Expr::Mul(vec![q(0, 1), pole])] {
+            assert!(matches!(
+                source.evalf_complex_decimal_metered(30, &mut Unbounded),
+                Err(MeteredComplexDecimalError::Ball(_))
+            ));
+            assert!(source.evalf_complex_decimal(30).is_err());
+        }
+    }
+    for name in ["asin", "acos", "atan", "asinh", "acosh", "atanh"] {
+        let argument = Expr::Add(vec![
+            q(1, 1),
+            Expr::Const(Constant::I),
+            Expr::Mul(vec![q(0, 1), power(q(0, 1), q(-1, 1))]),
+        ]);
+        let source = function(name, argument);
+        assert!(matches!(
+            source.evalf_complex_decimal_metered(30, &mut Unbounded),
+            Err(MeteredComplexDecimalError::Ball(_))
+        ));
+        assert!(source.evalf_complex_decimal(30).is_err());
+    }
+}
+
+#[test]
+fn complex_inverse_admission_does_not_relax_real_only_source_domains() {
+    for (name, argument) in [("asin", 2), ("acos", 2), ("acosh", -2), ("atanh", 2)] {
+        let source = function(name, Expr::from_i64(argument));
+        assert!(source.eval_real_ball(30).is_err());
+        assert!(source.eval_complex_ball(30).is_ok());
+    }
+    // LambertW remains a real-only kernel. A complex child cannot disappear
+    // under zero multiplication before that real source domain is checked.
+    let source = function(
+        "LambertW",
+        Expr::Mul(vec![q(0, 1), function("asin", q(2, 1))]),
+    );
+    assert!(
+        source
+            .evalf_complex_decimal_metered(30, &mut Unbounded)
+            .is_err()
+    );
+}
+
+#[test]
+fn inverse_evaluation_uses_one_cumulative_cancellable_ledger() {
+    for name in ["asin", "acos", "atan", "asinh", "acosh", "atanh"] {
+        let source = function(name, complex(q(1, 3), q(1, 5)));
+        let mut baseline = ObservedMeter::new(None);
+        let expected = source
+            .evalf_complex_decimal_metered(30, &mut baseline)
+            .unwrap();
+        let checkpoints = baseline.checkpoints;
+        let before = baseline.budget.remaining(Dimension::ComputeSteps);
+        assert_eq!(
+            source
+                .evalf_complex_decimal_metered(30, &mut baseline)
+                .unwrap(),
+            expected
+        );
+        assert!(baseline.budget.remaining(Dimension::ComputeSteps) < before);
+        for stop in [1, checkpoints / 2, checkpoints] {
+            let mut meter = ObservedMeter::new(Some(stop));
+            assert_eq!(
+                source.evalf_complex_decimal_metered(30, &mut meter),
+                Err(MeteredComplexDecimalError::Meter(MeterError::Cancelled))
+            );
+        }
+        let mut insufficient = Budget::new(BudgetLimits::uniform(64, 0));
+        assert!(matches!(
+            source.evalf_complex_decimal_metered(30, &mut insufficient),
+            Err(MeteredComplexDecimalError::Meter(MeterError::Budget(_)))
+        ));
+    }
+}
+
+#[test]
+fn inverse_function_arity_remains_closed_in_both_decimal_interfaces() {
+    for name in ["asin", "acos", "atan", "asinh", "acosh", "atanh"] {
+        for arity in [0, 2] {
+            let source = Expr::Function(name.into(), vec![q(1, 1); arity]);
+            assert!(matches!(
+                source.evalf_complex_decimal_metered(30, &mut Unbounded),
+                Err(MeteredComplexDecimalError::Unsupported(_))
+            ));
+            assert!(matches!(
+                source.evalf_complex_decimal(30),
+                Err(fsym_core::ComplexDecimalError::UnsupportedSource(_))
+            ));
+        }
+    }
+}
