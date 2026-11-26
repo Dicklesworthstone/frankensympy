@@ -139,6 +139,69 @@ def test_custom_numeric_subclass_conversion_does_not_call_user_hooks():
         s.Float(ForeignInteger(7), 30)
 
 
+@pytest.mark.parametrize("text", ["1.000000000000000000000000000001", "-0.125",
+                                   "1e-400", "-1e400"])
+def test_rational_uses_the_stored_decimal_as_an_exact_ratio(text):
+    original = s.Float(text, 50)
+    p, q = Decimal(text).as_integer_ratio()
+    assert s.Rational(original) == s.Rational(p, q)
+
+
+def test_rational_of_rounded_float_does_not_recover_the_original_constant():
+    original = s.Float(s.Rational(1, 3), 30)
+    expected = s.Rational(10**30 // 3, 10**30)
+    assert s.Rational(original) == expected
+    assert expected != s.Rational(1, 3)
+
+
+def test_retained_numerator_and_denominator_share_exact_reduction():
+    high, low = s.Float("3e-400", 50), s.Float("6e-400", 50)
+    assert s.Rational(high, low) is s.S.Half
+    assert s.Rational(low, high) == 2
+    assert s.Rational(high, s.Rational(3, 7)) == s.Rational(7, 10**400)
+    assert s.Rational("9/2", high) == s.Integer(15 * 10**399)
+    assert s.Rational(high, -high) is s.S.NegativeOne
+    zero = s.Float("0", 50)
+    assert s.Rational(zero, high) is s.S.Zero
+    assert s.Rational(high, zero) is s.zoo
+    assert s.Rational(zero, zero) is s.nan
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("-9999999999999999999.9", -9999999999999999999), ("1e400", 10**400),
+    ("0.999999999999999999999", 0), ("-1.99999999999999999999", -1),
+    ("1.000000000000000000001", 1),
+])
+def test_integer_constructor_truncates_retained_owner_once(text, expected, monkeypatch):
+    from sympy.core import _decimal_arithmetic
+    source = s.Float(text, 40)
+    calls = []
+    truncate = _decimal_arithmetic.truncate
+    def count(value):
+        calls.append(value)
+        return truncate(value)
+    monkeypatch.setattr(_decimal_arithmetic, "truncate", count)
+    result = s.Integer(source)
+    assert result == s.Integer(expected)
+    if expected in (-1, 0, 1):
+        assert result is s.Integer(expected)
+    assert len(calls) == 1 and calls[0] is source
+
+
+def test_retained_exact_conversion_refuses_without_preview_fallback(monkeypatch):
+    from sympy.core import _decimal_arithmetic
+    source = s.Float("1e-400", 40)
+    with pytest.raises(ValueError, match="exponent"):
+        s.Rational(source, "1e99999999")
+    def refuse(*args, **kwargs):
+        raise RuntimeError("exact capture refused")
+    monkeypatch.setattr(_decimal_arithmetic, "_capture", refuse)
+    with pytest.raises(RuntimeError, match="exact capture refused"):
+        s.Integer(source)
+    with pytest.raises(RuntimeError, match="exact capture refused"):
+        s.Rational(1, source)
+
+
 def retained(text, digits=50):
     return _ExactDecimalFloat(text, digits)
 

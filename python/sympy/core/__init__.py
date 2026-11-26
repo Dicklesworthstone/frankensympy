@@ -1086,6 +1086,10 @@ def _exact_integer_argument(value: Any) -> int:
         return int(value)
     if type(value) is Float:
         return int(value._as_python_float())
+    if type(value) is globals().get("_ExactDecimalFloat"):
+        from ._decimal_arithmetic import truncate
+
+        return truncate(value)
     raise TypeError("admitted built-in number or Integer required")
 
 
@@ -3819,6 +3823,11 @@ class Rational(Number):
             # fra-shell-number-canonical-construction-qf6): zero q
             # is nan for 0/0, otherwise zoo; exact integers promote to Integer
             # (routing the 0/1/-1 singletons); everything else normalizes sign.
+            retained = globals().get("_ExactDecimalFloat")
+            if type(p) is retained or type(q) is retained:
+                from ._decimal_arithmetic import exact_rational
+
+                return exact_rational(p, 1 if q is None else q)
             if q is None:
                 numerator_p, numerator_q = _exact_rational_argument(p)
                 denominator_p, denominator_q = 1, 1
@@ -3940,10 +3949,10 @@ class Integer(Rational):
     __slots__ = ()
 
     def __new__(cls, i: int):
+        v = _exact_integer_argument(i)
         if cls is Integer:
             # Construction routing to the SymPy 1.14.0 integer singletons
             # (bead fra-shell-number-canonical-construction-qf6).
-            v = _exact_integer_argument(i)
             if v == 0:
                 return _ZERO
             if v == 1:
@@ -3951,7 +3960,7 @@ class Integer(Rational):
             if v == -1:
                 return _NEGATIVE_ONE
         obj = object.__new__(cls)
-        obj._value = _native.py_integer(_exact_integer_argument(i))
+        obj._value = _native.py_integer(v)
         return obj
 
     def __init__(self, *args: Any, **kwargs: Any):

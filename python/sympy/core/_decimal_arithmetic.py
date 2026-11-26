@@ -10,6 +10,7 @@ precision, and float-bearing expression identity preserves actual children;
 those shared rules keep equality and hashing coherent across both owners.
 """
 
+from decimal import Decimal, InvalidOperation
 from fractions import Fraction
 import math
 
@@ -209,6 +210,57 @@ def from_exact_source(value, digits):
     if imaginary != "0":
         raise RuntimeError("real Float input produced a non-real value")
     result = _ExactDecimalFloat(_format_decimal(real, digits), digits)
+    return _finish(capture, result)
+
+
+def _rational_operand(value, preflight):
+    if type(value) is bool:
+        return int(value)
+    if type(value) is str:
+        # The ordinary Rational parser admits a ratio of two decimal strings.
+        # Bound both exponents before that parser can materialize powers of ten.
+        if len(value) > 4096:
+            raise ValueError("Rational decimal literal exceeds its size limit")
+        parts = value.replace(" ", "").split("/")
+        if len(parts) > 2:
+            raise TypeError("invalid Rational decimal literal")
+        for part in parts:
+            try:
+                parsed = Decimal(part)
+            except InvalidOperation as error:
+                raise TypeError("invalid Rational decimal literal") from error
+            if not parsed.is_finite() or abs(parsed.as_tuple().exponent) > 4096:
+                raise ValueError("Rational decimal exponent exceeds its limit")
+            size = len(part) + abs(parsed.as_tuple().exponent) + 1
+            preflight.charge(size * size, 32 * size + 256, 8)
+        return Rational(value)
+    if not _is_exact(value, (*_NUMBERS, int, float)):
+        raise TypeError("exact built-in number, Integer, or Rational required")
+    return value
+
+
+def exact_rational(numerator, denominator):
+    """Recover both exact operand ratios on one ledger and publish the reduced quotient."""
+    budget = _budget()
+    preflight = _EvalfSource(budget=budget)
+    operands = tuple(_rational_operand(value, preflight) for value in (numerator, denominator))
+    capture, lowered, _values = _capture(operands, budget)
+    if lowered is None:
+        raise ValueError("Rational conversion requires finite numerical atoms")
+    ratios = []
+    bits = 1
+    for native in lowered:
+        capture.copy(native, 2)
+        p, q = native.exact_numerator(), native.exact_denominator()
+        width = max(p.bit_length(), q.bit_length())
+        if width > 16384:
+            raise ValueError("Rational input exceeds its bit limit")
+        bits += width
+        ratios.append((p, q))
+    # Reserve the two products, normalization and final native construction.
+    capture.charge(bits * bits + 1, 32 * bits + 512, 16)
+    (p, q), (r, s) = ratios
+    result = Rational(p * s, q * r)
     return _finish(capture, result)
 
 
