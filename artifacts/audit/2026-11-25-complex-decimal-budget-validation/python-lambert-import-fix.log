@@ -1,0 +1,13 @@
+{"shell": "/workspace/scratch/76118f3f5149/frankensympy/python/sympy/__init__.py", "native": "/home/agent/fsym-complex-target/debug/libfsym_python.so", "native_sha256": "d96d67ac22c6f6815248d54978cb9ef4c0a2ec35912e6fd4273cb4d5d1087fa0", "scope": "Supplementary mathematical PyO3 component; six documented async helpers absent", "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]"}
+============================= test session starts ==============================
+platform linux -- Python 3.12.14, pytest-8.4.2, pluggy-1.7.0 -- /home/agent/fsym-complex-pytest/bin/python
+rootdir: /workspace/scratch/76118f3f5149/frankensympy
+configfile: pyproject.toml
+collecting ... collected 3 items
+
+python/tests/test_lambert_real_evalf.py::test_complete_real_solver_roots_are_usable_by_evalf_and_float[positive] PASSED [ 33%]
+python/tests/test_lambert_real_evalf.py::test_complete_real_solver_roots_are_usable_by_evalf_and_float[negative] PASSED [ 66%]
+python/tests/test_lambert_real_evalf.py::test_complete_real_solver_roots_are_usable_by_evalf_and_float[affine] PASSED [100%]
+
+============================== 3 passed in 59.11s ==============================
+{"target": "Lambert complete real roots after direct import fix", "exit_code": 0, "elapsed_seconds": 59.205829}

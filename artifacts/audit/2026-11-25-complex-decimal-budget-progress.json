@@ -16,7 +16,9 @@
     "python": "An explicit native-bridge budget selects the metered lane with terminal typed failures. The no-budget Option/None contract and real-function selection remain unchanged.",
     "decimal_owners": "Negation, absolute value, multiplication printing and reevaluation retain decimal text. Reevaluation propagates refusals and rechecks source after the terminal charge.",
     "admission": "Bounded hook discovery reads retained storage; unknown opaque owners do not reach public getters in the real fallback. Float precision metadata must be a positive exact integer.",
-    "compatibility": "Preserves concurrent held-source reconstruction, exact zero, Decimal-based predicates and very small/large components. General Float arithmetic/comparison retains existing binary64 limits."
+    "compatibility": "Preserves concurrent held-source reconstruction, exact zero, Decimal-based predicates and very small/large components. General Float arithmetic/comparison retains existing binary64 limits.",
+    "lambert_solver": "Corrects the pre-existing LambertW import from a module that does not export it to the defining elementary.exponential module; complete positive, negative and affine real solver roots now reach evalf and float.",
+    "ci": "The complex-decimal suites and neighboring float cases are selected against the built production extension. The complete Lambert suite retains its existing later selection, avoiding a duplicate full run."
   },
   "bounds": {
     "requested_digits": [
@@ -78,6 +80,40 @@
     {
       "check": "Whitespace and identity",
       "result": "git diff --check passes; final staged blob identities match local sources; concurrent public test module retained byte-for-byte."
+    },
+    {
+      "check": "Supplementary mathematical PyO3 component build",
+      "command": "cargo build --locked --offline --features extension-module -j1",
+      "result": "passed, 89 seconds",
+      "scope": "All changed mathematical code and the complete complex decimal bridge/error mapper are retained. Six async simplify/expand helpers are absent, with no function replacements. This does not validate the full production extension or asynchronous runtime.",
+      "binary_sha256": "d96d67ac22c6f6815248d54978cb9ef4c0a2ec35912e6fd4273cb4d5d1087fa0",
+      "evidence": "artifacts/audit/2026-11-25-complex-decimal-budget-validation/scope.json"
+    },
+    {
+      "check": "Python regression execution against the genuine mathematical component",
+      "source_commit": "761c513bdbdaca5f7e24f13900989d274d7d9da9",
+      "selection": [
+        "test_complex_decimal_evalf.py",
+        "test_complex_decimal_metered_evalf.py",
+        "test_precision_honesty.py",
+        "test_complex_float_conversion.py",
+        "test_algebraic_expression_evalf.py",
+        "test_lambert_real_evalf.py",
+        "test_float_conversion_termination.py"
+      ],
+      "result": "223 passed, 3 failed in 627.32 seconds",
+      "new_complex_cases": "All 76 new metering/retained-precision cases and all 40 preserved complex decimal cases passed.",
+      "failure": "All three complete real solver consumer cases failed before solving at the pre-existing invalid LambertW import. The failure log is retained.",
+      "evidence": "artifacts/audit/2026-11-25-complex-decimal-budget-validation/python-tests-before-import-fix.log"
+    },
+    {
+      "check": "Complete real solver consumer cases after the import fix",
+      "selection": "test_lambert_real_evalf.py::test_complete_real_solver_roots_are_usable_by_evalf_and_float (positive, negative, affine)",
+      "source_base": "761c513bdbdaca5f7e24f13900989d274d7d9da9",
+      "code_change": "python/sympy/solvers/_lambert_real.py imports LambertW directly from functions.elementary.exponential.",
+      "result": "3 passed, 0 failed in 59.11 seconds",
+      "evidence": "artifacts/audit/2026-11-25-complex-decimal-budget-validation/python-lambert-import-fix.log",
+      "interpretation": "All 226 selected cases have passing execution evidence across the initial run and the targeted fix rerun. The full selection was not rerun after this one-line import fix."
     }
   ],
   "uncompleted_validation": [
@@ -94,10 +130,6 @@
     {
       "check": "Full production Python runtime tests, whole-workspace Clippy and tests",
       "result": "No pass claimed; production dependency compilation remains blocked."
-    },
-    {
-      "check": "Supplementary mathematical PyO3 component",
-      "result": "Pending at this checkpoint. Earlier faf28b4 component results are separate evidence and do not validate these new Python changes."
     }
   ],
   "authored_regressions": {
@@ -115,7 +147,8 @@
       "franken_numpy": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
       "frankenscipy": "213a417c739025ed865a3875c89a7d86726ecb5a"
     },
-    "production_graph_modified": false
+    "production_graph_modified": false,
+    "pytest": "8.4.2"
   },
   "claims": {
     "rounded_values_are_certificates": false,
@@ -125,5 +158,5 @@
     "bead_status_priority_dependencies_changed": false,
     "claim_tiers_changed": false
   },
-  "recorded_at": "2026-11-26T05:50:25Z"
+  "recorded_at": "2026-11-26T06:11:37.147695+00:00"
 }

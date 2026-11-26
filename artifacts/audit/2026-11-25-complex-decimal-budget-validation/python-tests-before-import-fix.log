@@ -1,0 +1,179 @@
+{"shell": "/workspace/scratch/76118f3f5149/frankensympy/python/sympy/__init__.py", "native": "/home/agent/fsym-complex-target/debug/libfsym_python.so", "native_sha256": "d96d67ac22c6f6815248d54978cb9ef4c0a2ec35912e6fd4273cb4d5d1087fa0", "scope": "Supplementary mathematical PyO3 component; six documented async helpers absent", "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]"}
+........................................................................ [ 31%]
+........................................................................ [ 63%]
+........................................................FFF............. [ 95%]
+..........                                                               [100%]
+=================================== FAILURES ===================================
+___ test_complete_real_solver_roots_are_usable_by_evalf_and_float[positive] ____
+
+equation = 'positive'
+
+    @NATIVE_ONLY
+    @pytest.mark.parametrize("equation", ["positive", "negative", "affine"])
+    def test_complete_real_solver_roots_are_usable_by_evalf_and_float(equation):
+        x = s.Symbol("lambert_numeric_solution")
+        if equation == "positive":
+            source = x*s.exp(x) - 1
+            expected_roots = (s.LambertW(1),)
+            expected_decimals = (CASES[0][4],)
+            residual = lambda value: value*math.exp(value) - 1
+        elif equation == "negative":
+            source = x*s.exp(x) + s.Rational(1, 4)
+            expected_roots = (s.LambertW(-s.Rational(1, 4)),
+                              s.LambertW(-s.Rational(1, 4), -1))
+            expected_decimals = (CASES[1][4], CASES[2][4])
+            residual = lambda value: value*math.exp(value) + 0.25
+        else:
+            source = s.exp(2*x + 3) - 3*(2*x + 3)
+            expected_roots = tuple(
+                (-s.LambertW(-s.Rational(1, 3), branch) - 3)/2
+                for branch in (0, -1)
+            )
+            expected_decimals = (
+                "-1.190469356632027443923836502989538883349",
+                "-0.7439327241710787630516301609639806476982",
+            )
+            residual = lambda value: math.exp(2*value + 3) - 3*(2*value + 3)
+>       result = s.solveset(source, x, s.S.Reals)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_lambert_real_evalf.py:178:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+python/sympy/__init__.py:810: in solveset
+    from .solvers._lambert_real import solve_lambert_real
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    """Complete bounded real roots of mixed affine/exponential equations.
+
+    The independent native verifier binds the entire original expression to
+    A*x+B+(C*x+D)*exp(E*x+F), with rational coefficients and one nonzero A/C.
+    It decides every real Lambert-W branch with exact or certified comparisons.
+    This boundary retains the original shell owners through result publication.
+    """
+
+    from ..core import (
+        Dummy, Eq, Integer, Symbol, _active_callback_session,
+        _charge_nested_if_active, _lift_native_result, _native, _native_expr,
+        _require_closed_function_class, _symbol_binding,
+    )
+>   from ..functions import LambertW
+E   ImportError: cannot import name 'LambertW' from 'sympy.functions' (/workspace/scratch/76118f3f5149/frankensympy/python/sympy/functions/__init__.py)
+
+python/sympy/solvers/_lambert_real.py:14: ImportError
+___ test_complete_real_solver_roots_are_usable_by_evalf_and_float[negative] ____
+
+equation = 'negative'
+
+    @NATIVE_ONLY
+    @pytest.mark.parametrize("equation", ["positive", "negative", "affine"])
+    def test_complete_real_solver_roots_are_usable_by_evalf_and_float(equation):
+        x = s.Symbol("lambert_numeric_solution")
+        if equation == "positive":
+            source = x*s.exp(x) - 1
+            expected_roots = (s.LambertW(1),)
+            expected_decimals = (CASES[0][4],)
+            residual = lambda value: value*math.exp(value) - 1
+        elif equation == "negative":
+            source = x*s.exp(x) + s.Rational(1, 4)
+            expected_roots = (s.LambertW(-s.Rational(1, 4)),
+                              s.LambertW(-s.Rational(1, 4), -1))
+            expected_decimals = (CASES[1][4], CASES[2][4])
+            residual = lambda value: value*math.exp(value) + 0.25
+        else:
+            source = s.exp(2*x + 3) - 3*(2*x + 3)
+            expected_roots = tuple(
+                (-s.LambertW(-s.Rational(1, 3), branch) - 3)/2
+                for branch in (0, -1)
+            )
+            expected_decimals = (
+                "-1.190469356632027443923836502989538883349",
+                "-0.7439327241710787630516301609639806476982",
+            )
+            residual = lambda value: math.exp(2*value + 3) - 3*(2*value + 3)
+>       result = s.solveset(source, x, s.S.Reals)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_lambert_real_evalf.py:178:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+python/sympy/__init__.py:810: in solveset
+    from .solvers._lambert_real import solve_lambert_real
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    """Complete bounded real roots of mixed affine/exponential equations.
+
+    The independent native verifier binds the entire original expression to
+    A*x+B+(C*x+D)*exp(E*x+F), with rational coefficients and one nonzero A/C.
+    It decides every real Lambert-W branch with exact or certified comparisons.
+    This boundary retains the original shell owners through result publication.
+    """
+
+    from ..core import (
+        Dummy, Eq, Integer, Symbol, _active_callback_session,
+        _charge_nested_if_active, _lift_native_result, _native, _native_expr,
+        _require_closed_function_class, _symbol_binding,
+    )
+>   from ..functions import LambertW
+E   ImportError: cannot import name 'LambertW' from 'sympy.functions' (/workspace/scratch/76118f3f5149/frankensympy/python/sympy/functions/__init__.py)
+
+python/sympy/solvers/_lambert_real.py:14: ImportError
+____ test_complete_real_solver_roots_are_usable_by_evalf_and_float[affine] _____
+
+equation = 'affine'
+
+    @NATIVE_ONLY
+    @pytest.mark.parametrize("equation", ["positive", "negative", "affine"])
+    def test_complete_real_solver_roots_are_usable_by_evalf_and_float(equation):
+        x = s.Symbol("lambert_numeric_solution")
+        if equation == "positive":
+            source = x*s.exp(x) - 1
+            expected_roots = (s.LambertW(1),)
+            expected_decimals = (CASES[0][4],)
+            residual = lambda value: value*math.exp(value) - 1
+        elif equation == "negative":
+            source = x*s.exp(x) + s.Rational(1, 4)
+            expected_roots = (s.LambertW(-s.Rational(1, 4)),
+                              s.LambertW(-s.Rational(1, 4), -1))
+            expected_decimals = (CASES[1][4], CASES[2][4])
+            residual = lambda value: value*math.exp(value) + 0.25
+        else:
+            source = s.exp(2*x + 3) - 3*(2*x + 3)
+            expected_roots = tuple(
+                (-s.LambertW(-s.Rational(1, 3), branch) - 3)/2
+                for branch in (0, -1)
+            )
+            expected_decimals = (
+                "-1.190469356632027443923836502989538883349",
+                "-0.7439327241710787630516301609639806476982",
+            )
+            residual = lambda value: math.exp(2*value + 3) - 3*(2*value + 3)
+>       result = s.solveset(source, x, s.S.Reals)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+python/tests/test_lambert_real_evalf.py:178:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+python/sympy/__init__.py:810: in solveset
+    from .solvers._lambert_real import solve_lambert_real
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    """Complete bounded real roots of mixed affine/exponential equations.
+
+    The independent native verifier binds the entire original expression to
+    A*x+B+(C*x+D)*exp(E*x+F), with rational coefficients and one nonzero A/C.
+    It decides every real Lambert-W branch with exact or certified comparisons.
+    This boundary retains the original shell owners through result publication.
+    """
+
+    from ..core import (
+        Dummy, Eq, Integer, Symbol, _active_callback_session,
+        _charge_nested_if_active, _lift_native_result, _native, _native_expr,
+        _require_closed_function_class, _symbol_binding,
+    )
+>   from ..functions import LambertW
+E   ImportError: cannot import name 'LambertW' from 'sympy.functions' (/workspace/scratch/76118f3f5149/frankensympy/python/sympy/functions/__init__.py)
+
+python/sympy/solvers/_lambert_real.py:14: ImportError
+=========================== short test summary info ============================
+FAILED python/tests/test_lambert_real_evalf.py::test_complete_real_solver_roots_are_usable_by_evalf_and_float[positive]
+FAILED python/tests/test_lambert_real_evalf.py::test_complete_real_solver_roots_are_usable_by_evalf_and_float[negative]
+FAILED python/tests/test_lambert_real_evalf.py::test_complete_real_solver_roots_are_usable_by_evalf_and_float[affine]
+3 failed, 223 passed in 627.32s (0:10:27)

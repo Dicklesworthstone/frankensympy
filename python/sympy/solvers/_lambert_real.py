@@ -11,7 +11,7 @@ from ..core import (
     _charge_nested_if_active, _lift_native_result, _native, _native_expr,
     _require_closed_function_class, _symbol_binding,
 )
-from ..functions import LambertW
+from ..functions.elementary.exponential import LambertW
 from ..sets import FiniteSet, Intersection, Reals, Union
 from ._elementary_real import _ElementaryCapture
 from ._real_domain import _Domain, _SET_TYPES, _is_exact
