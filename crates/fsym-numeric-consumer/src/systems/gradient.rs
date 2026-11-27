@@ -131,24 +131,52 @@ pub(super) fn cost_and_gradient<M: BudgetMeter>(
         }
     }
     let cost = squares.rounded(true, "least-squares squared residual cost")?;
-    let mut sums = buffer(columns, meter)?;
-    charge(meter, (WORDS * columns) as u64, 0, 0)?;
-    sums.resize_with(columns, || ProductSum { digits: [0; WORDS] });
-    for (coordinates, values) in pattern.chunks(256).zip(jacobian.chunks(256)) {
-        charge(meter, (64 * coordinates.len()) as u64, 0, 0)?;
-        for (&(row, column), &value) in coordinates.iter().zip(values) {
-            let (Some(sum), Some(&residual)) = (sums.get_mut(column), residuals.get(row)) else {
+    // Index each sparse column with one link per stored derivative. Only one
+    // wide accumulator is live at a time, regardless of the number of axes.
+    let end = pattern.len();
+    let mut heads = buffer(columns, meter)?;
+    charge(meter, columns as u64, 0, 0)?;
+    heads.resize(columns, end);
+    let mut next = buffer(end, meter)?;
+    for chunk in pattern.chunks(256) {
+        charge(meter, (4 * chunk.len()) as u64, 0, 0)?;
+        for &(row, col) in chunk {
+            if row >= residuals.len() || col >= columns {
                 return Err(SystemConsumerError::ConsumerContract(
                     "least-squares Jacobian coordinate",
                 ));
-            };
-            sum.add(value, residual);
+            }
+            let index = next.len();
+            next.push(heads[col]);
+            heads[col] = index;
         }
     }
     let mut result = buffer(columns, meter)?;
-    for sum in sums {
-        charge(meter, (8 * WORDS) as u64, 0, 0)?;
-        result.push(sum.rounded(false, "least-squares gradient sum")?);
+    for mut index in heads {
+        charge(meter, 4, 0, 0)?;
+        // One hardware multiply already rounds the exact single-term dot
+        // product once. Empty and diagonal columns need no wide arithmetic.
+        let value = if index == end {
+            0.0
+        } else if next[index] == end {
+            let a = jacobian[index];
+            let b = residuals[pattern[index].0];
+            let product = if a == 0.0 || b == 0.0 { 0.0 } else { a * b };
+            if !product.is_finite() {
+                return Err(SystemConsumerError::NonFinite("least-squares gradient sum"));
+            }
+            product
+        } else {
+            let mut sum = ProductSum { digits: [0; WORDS] };
+            charge(meter, (9 * WORDS) as u64, 0, 0)?;
+            while index != end {
+                charge(meter, 64, 0, 0)?;
+                sum.add(jacobian[index], residuals[pattern[index].0]);
+                index = next[index];
+            }
+            sum.rounded(false, "least-squares gradient sum")?
+        };
+        result.push(value);
     }
     Ok((cost, result))
 }
@@ -219,5 +247,20 @@ mod tests {
         assert_eq!(cost(&[small; 4]), Ok(0.0));
         assert_eq!(cost(&[small; 8]), Ok(f64::from_bits(1)));
         assert_eq!(cost(&[small; 12]), Ok(f64::from_bits(2)));
+    }
+
+    #[test]
+    fn sparse_columns_keep_independent_sums_and_empty_coordinates() {
+        let large = 2.0_f64.powi(53);
+        let (_, gradient) = cost_and_gradient(
+            &[(0, 1), (1, 0), (1, 1), (2, 1), (3, 3)],
+            &[1.0, 7.0, 1.0, 1.0, -0.0],
+            &[large, 1.0, -large, -2.0],
+            4,
+            &mut fsym_budget::Unbounded,
+        )
+        .unwrap();
+        assert_eq!(gradient, [7.0, 1.0, 0.0, 0.0]);
+        assert_eq!(gradient[3].to_bits(), 0);
     }
 }
