@@ -26,10 +26,7 @@ impl ComplexBall {
             return real_inverse_circular(self.real(), precision_digits, false);
         }
         if exact_zero(self.real()) {
-            return finish(
-                RealBall::from_i64(0),
-                self.imag().asinh(precision_digits)?,
-            );
+            return finish(RealBall::from_i64(0), self.imag().asinh(precision_digits)?);
         }
         reject_real_cuts(self, "inverse sine rectangle meets a branch cut")?;
         let square = self.pow(2)?;
@@ -80,7 +77,11 @@ impl ComplexBall {
     /// asinh(2i) has positive real part and imaginary part pi/2, while
     /// asinh(-2i) is its negative. Exact real intervals stay exactly real.
     pub fn asinh(&self, precision_digits: u32) -> Result<Self, BallError> {
-        preflight(self, precision_digits, "ComplexBall inverse hyperbolic sine")?;
+        preflight(
+            self,
+            precision_digits,
+            "ComplexBall inverse hyperbolic sine",
+        )?;
         if exact_zero(self.imag()) {
             return finish(self.real().asinh(precision_digits)?, RealBall::from_i64(0));
         }
@@ -97,7 +98,11 @@ impl ComplexBall {
     /// The two square roots below cannot be collapsed into sqrt(z^2-1):
     /// that would choose the wrong branch on the negative real axis.
     pub fn acosh(&self, precision_digits: u32) -> Result<Self, BallError> {
-        preflight(self, precision_digits, "ComplexBall inverse hyperbolic cosine")?;
+        preflight(
+            self,
+            precision_digits,
+            "ComplexBall inverse hyperbolic cosine",
+        )?;
         if exact_zero(self.imag()) {
             let lower = self.real().lower();
             let upper = self.real().upper();
@@ -115,7 +120,9 @@ impl ComplexBall {
             return finish(real, imag);
         }
         if self.imag().contains_zero() && self.real().lower() <= BigRational::one() {
-            return Err(outside("inverse hyperbolic cosine rectangle meets a branch cut"));
+            return Err(outside(
+                "inverse hyperbolic cosine rectangle meets a branch cut",
+            ));
         }
         let minus = self.checked_add(&Self::from_i64(-1))?;
         let plus = self.checked_add(&Self::from_i64(1))?;
@@ -134,12 +141,18 @@ impl ComplexBall {
     /// The difference of logarithms is never replaced by a single logarithm
     /// of their quotient, which would lose the declared branch.
     pub fn atanh(&self, precision_digits: u32) -> Result<Self, BallError> {
-        preflight(self, precision_digits, "ComplexBall inverse hyperbolic tangent")?;
+        preflight(
+            self,
+            precision_digits,
+            "ComplexBall inverse hyperbolic tangent",
+        )?;
         let one = BigRational::one();
         if self.imag().contains_zero()
             && (self.real().contains(&one) || self.real().contains(&-&one))
         {
-            return Err(outside("inverse hyperbolic tangent rectangle contains a pole"));
+            return Err(outside(
+                "inverse hyperbolic tangent rectangle contains a pole",
+            ));
         }
         if exact_zero(self.imag()) {
             if self.real().lower() > -&one && self.real().upper() < one {
@@ -159,7 +172,10 @@ impl ComplexBall {
         if exact_zero(self.real()) {
             return finish(RealBall::from_i64(0), self.imag().atan(precision_digits)?);
         }
-        reject_real_cuts(self, "inverse hyperbolic tangent rectangle meets a branch cut")?;
+        reject_real_cuts(
+            self,
+            "inverse hyperbolic tangent rectangle meets a branch cut",
+        )?;
         let plus = Self::from_i64(1).checked_add(self)?;
         let minus = Self::from_i64(1).checked_add(&self.neg())?;
         let first = plus.ln(precision_digits)?;

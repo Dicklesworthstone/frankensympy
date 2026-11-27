@@ -48,6 +48,72 @@ fn asin_series(point: &BigRational) -> (BigRational, BigRational) {
     (sum.clone(), sum + tail)
 }
 
+/// Integer bisection supplies a rational square-root bracket independent of
+/// the production ball square root. The fixtures below have 0 <= x <= 4.
+fn reference_sqrt(value: &BigRational) -> (BigRational, BigRational) {
+    assert!(value >= &q(0, 1) && value <= &q(4, 1));
+    let scale = BigInt::one() << 192u32;
+    let target = value.numer() * &scale * &scale;
+    let mut lower = BigInt::zero();
+    let mut upper = &scale * BigInt::from(2);
+    while &upper - &lower > BigInt::one() {
+        let middle = (&lower + &upper) / BigInt::from(2);
+        if &middle * &middle * value.denom() <= target {
+            lower = middle;
+        } else {
+            upper = middle;
+        }
+    }
+    (
+        BigRational::new(lower, scale.clone()),
+        BigRational::new(upper, scale),
+    )
+}
+
+/// For x >= 1, log(x) = 2 sum(t^(2k+1)/(2k+1)), t=(x-1)/(x+1).
+/// Directed fixed-point integer arithmetic bounds every retained term, and
+/// the geometric tail bounds all omitted terms. No production logarithm,
+/// inverse function, or floating approximation supplies these bounds.
+fn reference_log(value: &BigRational) -> (BigRational, BigRational) {
+    assert!(value >= &q(1, 1));
+    let scale = BigInt::one() << 192u32;
+    let ratio = (value - q(1, 1)) / (value + q(1, 1));
+    let ceil = |numerator: BigInt, denominator: &BigInt| {
+        (numerator + denominator - BigInt::one()) / denominator
+    };
+    let scaled = ratio.numer() * &scale;
+    let mut lower_power = &scaled / ratio.denom();
+    let mut upper_power = ceil(scaled, ratio.denom());
+    let lower_square = &lower_power * &lower_power / &scale;
+    let upper_square = ceil(&upper_power * &upper_power, &scale);
+    assert!(upper_square < scale);
+    let mut lower_sum = BigInt::zero();
+    let mut upper_sum = BigInt::zero();
+    for index in 0..128 {
+        let denominator = BigInt::from(2 * index + 1);
+        lower_sum += &lower_power / &denominator;
+        upper_sum += ceil(upper_power.clone(), &denominator);
+        lower_power = lower_power * &lower_square / &scale;
+        upper_power = ceil(upper_power * &upper_square, &scale);
+    }
+    upper_sum += ceil(
+        upper_power * &scale,
+        &(BigInt::from(257) * (&scale - upper_square)),
+    );
+    (
+        BigRational::new(BigInt::from(2) * lower_sum, scale.clone()),
+        BigRational::new(BigInt::from(2) * upper_sum, scale),
+    )
+}
+
+fn reference_acosh(value: &BigRational) -> (BigRational, BigRational) {
+    let (lower, upper) = reference_sqrt(&(value * value - q(1, 1)));
+    (
+        reference_log(&(value + lower)).0,
+        reference_log(&(value + upper)).1,
+    )
+}
+
 fn encloses(ball: &RealBall, lower: &BigRational, upper: &BigRational) {
     assert!(ball.lower() <= *lower && ball.upper() >= *upper, "{ball}");
 }
@@ -355,6 +421,15 @@ fn scalar_inverse_circular_endpoints_keep_original_domain_and_arity_refusals() {
         ] {
             let source = function(name, argument);
             assert!(source.evalf_ball(24).is_err(), "{source}");
+        }
+        // Principal complex inverses now admit finite nonreal results. They
+        // must still reject every original undefined or unbound source.
+        for argument in [
+            Expr::Const(Constant::Infinity),
+            Expr::Sym(Symbol::new("inverse_circular_unbound")),
+            Expr::Add(vec![Expr::from_i64(1), held_pole.clone()]),
+        ] {
+            let source = function(name, argument);
             assert!(source.eval_complex_ball(24).is_err(), "{source}");
         }
         for arguments in [vec![], vec![Expr::from_i64(0), Expr::from_i64(1)]] {
@@ -374,6 +449,62 @@ fn scalar_inverse_circular_endpoints_keep_original_domain_and_arity_refusals() {
             );
         }
     }
+}
+
+#[test]
+fn scalar_complex_inverse_branches_enclose_independent_values_without_chopping() {
+    let epsilon = BigRational::new(BigInt::one(), BigInt::one() << 120u32);
+    let near = q(1, 1) + epsilon;
+    let near_magnitude = reference_acosh(&near);
+    let far_magnitude = reference_acosh(&q(2, 1));
+    let pi = RealBall::pi(60).unwrap();
+    let half = pi.div(&RealBall::from_i64(2)).unwrap();
+    let zero = q(0, 1);
+
+    for name in ["asin", "acos"] {
+        for (point, (lower, upper)) in [(&near, &near_magnitude), (&q(2, 1), &far_magnitude)] {
+            for sign in [-1, 1] {
+                let argument = Expr::Rational(point * q(sign, 1));
+                let source = function(name, argument);
+                let value = source.eval_complex_ball(24).unwrap();
+                let real = match (name, sign) {
+                    ("asin", -1) => half.neg(),
+                    ("asin", _) => half.clone(),
+                    ("acos", -1) => pi.clone(),
+                    _ => RealBall::from_i64(0),
+                };
+                encloses(value.real(), &real.lower(), &real.upper());
+                let positive_imaginary = (name == "acos") == (sign == 1);
+                if positive_imaginary {
+                    encloses(value.imag(), lower, upper);
+                    assert!(value.imag().lower() > zero, "{source}");
+                } else {
+                    encloses(value.imag(), &(-upper), &(-lower));
+                    assert!(value.imag().upper() < zero, "{source}");
+                }
+                if name == "acos" && sign == 1 {
+                    assert_eq!(value.real(), &RealBall::from_i64(0));
+                }
+            }
+        }
+    }
+
+    // asin(i)=i log(1+sqrt(2)); acos(i)=pi/2-i log(1+sqrt(2)).
+    let (root_lower, root_upper) = reference_sqrt(&q(2, 1));
+    let lower = reference_log(&(q(1, 1) + root_lower)).0;
+    let upper = reference_log(&(q(1, 1) + root_upper)).1;
+    let sine = function("asin", Expr::Const(Constant::I))
+        .eval_complex_ball(24)
+        .unwrap();
+    assert_eq!(sine.real(), &RealBall::from_i64(0));
+    encloses(sine.imag(), &lower, &upper);
+    assert!(sine.imag().lower() > zero);
+    let cosine = function("acos", Expr::Const(Constant::I))
+        .eval_complex_ball(24)
+        .unwrap();
+    encloses(cosine.real(), &half.lower(), &half.upper());
+    encloses(cosine.imag(), &(-upper), &(-lower));
+    assert!(cosine.imag().upper() < zero);
 }
 
 #[test]

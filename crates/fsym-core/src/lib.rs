@@ -23,6 +23,7 @@ mod complex_decimal;
 pub mod dag;
 pub mod domain;
 pub mod elementary;
+mod evalf;
 pub mod lambert;
 mod parser;
 pub mod real_roots;
@@ -1027,6 +1028,12 @@ impl Expr {
     /// Fails on free symbols, non-real constants, and functions outside the
     /// supported single-argument set (`sin`, `cos`, `tan`, `exp`, `log`,
     /// `ln`, `sqrt`).
+    ///
+    /// Exact literals and bounded rational sources retain their signs and
+    /// integer exponent parity before conversion. Compound classification is
+    /// bounded to 1024 nodes, depth 64 and 4096-bit coefficients; exhaustion
+    /// and unclassified negative-base exponents refuse. Other transcendental
+    /// evaluations remain approximate, without a certified domain enclosure.
     pub fn evalf(&self) -> Result<f64, CoreError> {
         match self {
             Expr::Integer(n) => n.to_f64().ok_or_else(|| {
@@ -1061,35 +1068,30 @@ impl Expr {
                 }
                 Ok(acc)
             }
-            Expr::Pow(b, e) => {
-                let base = b.evalf()?;
-                let exponent = e.evalf()?;
-                if base < 0.0 && exponent.is_finite() && exponent.fract() != 0.0 {
-                    Err(CoreError::InvalidOperation(
-                        "a negative base to a noninteger power is not real-valued".to_string(),
-                    ))
-                } else {
-                    Ok(base.powf(exponent))
-                }
-            }
+            Expr::Pow(b, e) => evalf::power(b, e),
             Expr::Function(name, args) => {
                 let x = match args.as_slice() {
-                    [arg] => Some(arg.evalf()?),
+                    [arg] => Some(evalf::input(arg)?),
                     _ => None,
                 };
+                if matches!(name.as_str(), "log" | "ln" | "sqrt")
+                    && let Some(input) = &x
+                {
+                    input.require_sign()?;
+                }
                 match (name.as_str(), x) {
-                    ("sin", Some(x)) => Ok(x.sin()),
-                    ("cos", Some(x)) => Ok(x.cos()),
-                    ("tan", Some(x)) => Ok(x.tan()),
-                    ("exp", Some(x)) => Ok(x.exp()),
-                    ("log" | "ln", Some(x)) if x < 0.0 => Err(CoreError::InvalidOperation(
+                    ("sin", Some(x)) => Ok(x.value.sin()),
+                    ("cos", Some(x)) => Ok(x.value.cos()),
+                    ("tan", Some(x)) => Ok(x.value.tan()),
+                    ("exp", Some(x)) => Ok(x.value.exp()),
+                    ("log" | "ln", Some(x)) if x.is_negative() => Err(CoreError::InvalidOperation(
                         "logarithm of a negative argument is not real-valued".to_string(),
                     )),
-                    ("log" | "ln", Some(x)) => Ok(x.ln()),
-                    ("sqrt", Some(x)) if x < 0.0 => Err(CoreError::InvalidOperation(
+                    ("log" | "ln", Some(x)) => Ok(x.value.ln()),
+                    ("sqrt", Some(x)) if x.is_negative() => Err(CoreError::InvalidOperation(
                         "square root of a negative argument is not real-valued".to_string(),
                     )),
-                    ("sqrt", Some(x)) => Ok(x.sqrt()),
+                    ("sqrt", Some(x)) => Ok(x.value.sqrt()),
                     _ => Err(CoreError::InvalidOperation(format!(
                         "cannot evaluate function `{name}` numerically"
                     ))),
