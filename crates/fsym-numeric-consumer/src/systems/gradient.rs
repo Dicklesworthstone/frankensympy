@@ -1,4 +1,4 @@
-//! Round each component of J-transpose-r once, after all binary64 products.
+//! Round the least-squares cost and each gradient component once, after all products.
 //! Rounding each multiply and add separately can turn a nonzero gradient into
 //! an apparent stationary point. A verified sparse column has at most 4096
 //! distinct rows. Its exact signed dot product therefore fits in 4208 bits
@@ -57,7 +57,10 @@ impl ProductSum {
         }
     }
 
-    fn rounded(mut self) -> Result<f64, SystemConsumerError> {
+    // Dividing the exact sum by two raises its discard thresholds by one bit.
+    fn rounded(mut self, halve: bool, label: &'static str) -> Result<f64, SystemConsumerError> {
+        let min_discard = MIN_DISCARD + usize::from(halve);
+        let max_discard = MAX_DISCARD + usize::from(halve);
         self.carry();
         let negative = self.digits[WORDS - 1] < 0;
         if negative {
@@ -72,9 +75,9 @@ impl ProductSum {
         let top = 32 * last + (31 - (self.digits[last] as u32).leading_zeros()) as usize;
         // Discard enough low bits to fit a 53-bit significand, or to reach
         // the least subnormal quantum. Use guard, sticky and parity for ties.
-        let mut discard = top.saturating_sub(52).max(MIN_DISCARD);
-        let overflow = SystemConsumerError::NonFinite("least-squares gradient sum");
-        if discard > MAX_DISCARD {
+        let mut discard = top.saturating_sub(52).max(min_discard);
+        let overflow = SystemConsumerError::NonFinite(label);
+        if discard > max_discard {
             return Err(overflow);
         }
         let word = discard / 32;
@@ -93,13 +96,13 @@ impl ProductSum {
             significand >>= 1;
             discard += 1;
         }
-        if discard > MAX_DISCARD {
+        if discard > max_discard {
             return Err(overflow);
         }
         let magnitude = if significand < HIDDEN {
             significand
         } else {
-            (((discard - MIN_DISCARD + 1) as u64) << 52) | (significand - HIDDEN)
+            (((discard - min_discard + 1) as u64) << 52) | (significand - HIDDEN)
         };
         Ok(f64::from_bits((u64::from(negative) << 63) | magnitude))
     }
@@ -107,18 +110,27 @@ impl ProductSum {
 
 /// Inputs have passed the original-source finite checks. Charge each fixed
 /// accumulator, sparse pass and bounded carry/rounding pass to the caller.
-pub(super) fn transpose_times_residuals<M: BudgetMeter>(
+pub(super) fn cost_and_gradient<M: BudgetMeter>(
     pattern: &[(usize, usize)],
     jacobian: &[f64],
     residuals: &[f64],
     columns: usize,
     meter: &mut M,
-) -> Result<Vec<f64>, SystemConsumerError> {
+) -> Result<(f64, Vec<f64>), SystemConsumerError> {
     if pattern.len() != jacobian.len() {
         return Err(SystemConsumerError::ConsumerContract(
             "least-squares Jacobian value count",
         ));
     }
+    let mut squares = ProductSum { digits: [0; WORDS] };
+    charge(meter, (9 * WORDS) as u64, 0, 0)?;
+    for chunk in residuals.chunks(256) {
+        charge(meter, (64 * chunk.len()) as u64, 0, 0)?;
+        for &residual in chunk {
+            squares.add(residual, residual);
+        }
+    }
+    let cost = squares.rounded(true, "least-squares squared residual cost")?;
     let mut sums = buffer(columns, meter)?;
     charge(meter, (WORDS * columns) as u64, 0, 0)?;
     sums.resize_with(columns, || ProductSum { digits: [0; WORDS] });
@@ -136,9 +148,9 @@ pub(super) fn transpose_times_residuals<M: BudgetMeter>(
     let mut result = buffer(columns, meter)?;
     for sum in sums {
         charge(meter, (8 * WORDS) as u64, 0, 0)?;
-        result.push(sum.rounded()?);
+        result.push(sum.rounded(false, "least-squares gradient sum")?);
     }
-    Ok(result)
+    Ok((cost, result))
 }
 
 #[cfg(test)]
@@ -150,7 +162,7 @@ mod tests {
         for &(a, b) in pairs {
             acc.add(a, b);
         }
-        acc.rounded()
+        acc.rounded(false, "test dot product")
     }
 
     #[test]
@@ -189,5 +201,23 @@ mod tests {
             Ok(f64::MAX)
         );
         assert!(sum(&[(f64::MAX, 1.0), (2.0_f64.powi(970), 1.0)]).is_err());
+    }
+
+    #[test]
+    fn half_squared_norm_rounds_in_the_range_of_the_final_cost() {
+        let cost = |values: &[f64]| {
+            let mut squares = ProductSum { digits: [0; WORDS] };
+            for &value in values {
+                squares.add(value, value);
+            }
+            squares.rounded(true, "test cost")
+        };
+        let large = 2.0_f64.powi(512);
+        assert_eq!(cost(&[large]), Ok(2.0_f64.powi(1023)));
+        assert!(cost(&[large, large]).is_err());
+        let small = 2.0_f64.powi(-538);
+        assert_eq!(cost(&[small; 4]), Ok(0.0));
+        assert_eq!(cost(&[small; 8]), Ok(f64::from_bits(1)));
+        assert_eq!(cost(&[small; 12]), Ok(f64::from_bits(2)));
     }
 }

@@ -172,13 +172,29 @@ def test_derivative_domain_is_checked_before_a_zero_residual_can_finish():
         program.solve_least_squares(0)
 
 
-@pytest.mark.parametrize("source", ["10**308", "10**154"])
-def test_finite_residuals_do_not_authorize_an_overflowing_cost(source):
+@pytest.mark.parametrize("backend", ["dense", "sparse", "bounded"])
+def test_cost_rounds_half_the_squared_norm_only_after_all_rows(backend):
     x = s.Symbol("least_squares_cost")
-    constant = s.Integer(10)**(308 if source == "10**308" else 154)
-    program = s.compile_residual_system([constant, constant], x)
-    with pytest.raises(ValueError, match="squared residual cost"):
-        program.solve_least_squares(0)
+
+    def solve(rows):
+        program = s.compile_residual_system(rows, x)
+        if backend == "bounded":
+            return program.solve_bounded_least_squares(0, [(None, None)], maxiter=0)
+        return program.solve_least_squares(0, backend=backend, maxiter=0)
+
+    # Two individually rounded decimal residuals have representable cost even
+    # when their unhalved sum of squares overflows.
+    large = s.Integer(10)**154
+    assert solve([large, large]).cost == float(10**154) * float(10**154)
+    # Even an individual square can overflow before division by two.
+    power = s.Integer(2)**512
+    assert solve([power]).cost == 2.0**1023
+    # All eight individual squares round to zero in binary64.
+    tiny = s.Rational(1, 2**538)
+    assert solve([tiny]*8).cost == math.ulp(0.0)
+    for rows in ([power, power], [s.Integer(10)**308, s.Integer(10)**308]):
+        with pytest.raises(ValueError, match="squared residual cost"):
+            solve(rows)
 
 
 def test_original_matrix_source_nested_layout_and_transport_stay_bound():

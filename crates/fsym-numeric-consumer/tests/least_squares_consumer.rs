@@ -279,7 +279,7 @@ fn trailing_original_holes_and_derivative_domains_are_never_discarded() {
 fn finite_components_cannot_hide_nonfinite_cost_or_gradient_arithmetic() {
     for source in [
         system(&["10^308"], &["x"]),
-        system(&["10^154", "10^154"], &["x"]),
+        system(&["2^512", "2^512"], &["x"]),
         system(&["10^308*x+10"], &["x"]),
     ] {
         assert!(matches!(

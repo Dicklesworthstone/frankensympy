@@ -23,7 +23,7 @@
 //! errors remain terminal. Each sparse product, vector stage, allocation,
 //! rejected trial and publication uses the same cumulative caller meter.
 
-use super::gradient::transpose_times_residuals;
+use super::gradient::cost_and_gradient;
 use super::sparse_linear::{
     DAMPING_ATTEMPTS, LinearModel, column_scales, dot, finite_scalar, lsqr_direction,
     trial_domain_failure,
@@ -294,20 +294,13 @@ fn evaluate<M: BudgetMeter>(
             "sparse least-squares evaluation dimensions",
         ));
     }
-    charge(meter, (5 * pattern.len() + 3 * m + 1) as u64, 0, 0)?;
-    let mut sum_squared = 0.0;
-    for residual in &values.residuals {
-        let square = finite_scalar(residual * residual, "sparse least-squares squared residual")?;
-        sum_squared = finite_scalar(sum_squared + square, "sparse least-squares cost sum")?;
-    }
-    let gradient =
-        transpose_times_residuals(pattern, &values.jacobian, &values.residuals, n, meter)?;
+    let (cost, gradient) = cost_and_gradient(pattern, &values.jacobian, &values.residuals, n, meter)?;
     let gradient_norm = infinity_norm(&gradient, meter)?;
     Ok(Evaluation {
         residuals: values.residuals,
         jacobian: values.jacobian,
         gradient,
-        cost: 0.5 * sum_squared,
+        cost,
         gradient_norm,
     })
 }

@@ -14,7 +14,7 @@
 //! Cancellation is checked around the synchronous donor call and each bounded native stage;
 //! it does not interrupt a donor kernel or promise a wall-time bound.
 
-use super::gradient::transpose_times_residuals;
+use super::gradient::cost_and_gradient;
 use super::{
     MAX_CONSUMER_NEWTON_ITERATIONS, MAX_CONSUMER_VARIABLES, SystemConsumerError, charge,
     copy_values, finite, infinity_norm, point_dimension, publication_checkpoint, zeros,
@@ -287,14 +287,8 @@ fn evaluate<M: BudgetMeter>(
     finite(&values.residuals, "least-squares residuals", meter)?;
     finite(&values.jacobian, "least-squares Jacobian", meter)?;
     let mut jacobian = zeros(m * n, meter)?;
-    charge(meter, (5 * pattern.len() + 3 * m + 1) as u64, 0, 0)?;
-    let mut sum_squared = 0.0;
-    for residual in &values.residuals {
-        let square = checked_finite(residual * residual, "least-squares squared residual cost")?;
-        sum_squared = checked_finite(sum_squared + square, "least-squares squared residual cost")?;
-    }
-    let gradient =
-        transpose_times_residuals(pattern, &values.jacobian, &values.residuals, n, meter)?;
+    let (cost, gradient) = cost_and_gradient(pattern, &values.jacobian, &values.residuals, n, meter)?;
+    charge(meter, pattern.len() as u64, 0, 0)?;
     for (&(row, column), &value) in pattern.iter().zip(&values.jacobian) {
         jacobian[row * n + column] = value;
     }
@@ -303,7 +297,7 @@ fn evaluate<M: BudgetMeter>(
         residuals: values.residuals,
         jacobian,
         gradient,
-        cost: 0.5 * sum_squared,
+        cost,
         gradient_norm,
     })
 }
