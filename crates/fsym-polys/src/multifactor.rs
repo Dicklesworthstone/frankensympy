@@ -131,6 +131,11 @@ fn factor_univariate(
 ) -> Result<Vec<(MultivariatePoly, usize)>, PolyError> {
     let sym = p.generators[var].clone();
     let deg = p.degree_in(var) as usize;
+    if deg > crate::factorization::MAX_FACTOR_DEGREE {
+        return Err(PolyError::General(format!(
+            "refused: univariate factor degree {deg} exceeds the complete-factorization bound"
+        )));
+    }
     let mut coeffs = vec![BigRational::zero(); deg + 1];
     for (e, c) in &p.terms {
         coeffs[e[var] as usize] += c.clone();
@@ -227,12 +232,18 @@ fn factor_kronecker(
             .checked_mul(*r)
             .ok_or_else(|| PolyError::General("refused: Kronecker weight overflow".to_string()))?;
     }
-    let image_degree: u64 = present
-        .iter()
-        .zip(&weights)
-        .map(|(&v, &wt)| u64::from(p.degree_in(v)) * wt)
-        .sum();
-    if image_degree as usize > crate::factorization::MAX_FACTOR_DEGREE {
+    // Only occupied monomials enter the dense image. The corner of the
+    // enclosing degree box need not be present, especially for sparse sums.
+    // The checked product of radices above bounds every encoded exponent.
+    let encode = |powers: &[u32]| -> u64 {
+        present
+            .iter()
+            .zip(&weights)
+            .map(|(&v, &wt)| u64::from(powers[v]) * wt)
+            .sum()
+    };
+    let image_degree = p.terms.keys().map(|e| encode(e)).max().unwrap_or(0);
+    if image_degree > crate::factorization::MAX_FACTOR_DEGREE as u64 {
         return Err(PolyError::General(format!(
             "refused: Kronecker image degree {image_degree} exceeds the complete-factorization bound"
         )));
@@ -240,12 +251,7 @@ fn factor_kronecker(
     let t = Symbol::new("t_kronecker");
     let mut coeffs = vec![BigRational::zero(); image_degree as usize + 1];
     for (e, c) in &p.terms {
-        let k: u64 = present
-            .iter()
-            .zip(&weights)
-            .map(|(&v, &wt)| u64::from(e[v]) * wt)
-            .sum();
-        coeffs[k as usize] += c.clone();
+        coeffs[encode(e) as usize] = c.clone();
     }
     let image = UnivariatePoly::new(t, coeffs);
     let cf = complete_factorization(&image)?;
@@ -260,7 +266,10 @@ fn factor_kronecker(
     let mut out: Vec<(MultivariatePoly, usize)> = Vec::new();
     let mut tried = 0usize;
     let mut size = 1usize;
-    while size <= pieces.len() && !is_constant(&remaining) {
+    // In every proper factorization one side uses at most half the remaining
+    // univariate factors (with multiplicity). Its mixed-radix decoding is
+    // unique since a true divisor cannot exceed the source degree in any axis.
+    while size <= pieces.len() / 2 && !is_constant(&remaining) {
         let mut hit: Option<(Vec<usize>, MultivariatePoly, usize)> = None;
         let mut idx: Vec<usize> = (0..size).collect();
         loop {
@@ -294,18 +303,8 @@ fn factor_kronecker(
                     break;
                 }
             }
-            // Next combination of `size` indices.
-            let n = pieces.len();
-            let mut j = size;
-            while j > 0 && idx[j - 1] == n - size + j - 1 {
-                j -= 1;
-            }
-            if j == 0 {
+            if !advance_distinct_subset(&mut idx, &pieces) {
                 break;
-            }
-            idx[j - 1] += 1;
-            for k in j..size {
-                idx[k] = idx[k - 1] + 1;
             }
         }
         match hit {
@@ -333,8 +332,26 @@ fn factor_kronecker(
     Ok(out)
 }
 
+/// Advance a combination of indices to the next distinct multiset. Equal
+/// factors occupy consecutive positions, including after accepted factors
+/// are removed. Exchanging two copies gives exactly the same candidate.
+fn advance_distinct_subset(indices: &mut [usize], pieces: &[UnivariatePoly]) -> bool {
+    for pivot in (0..indices.len()).rev() {
+        let last = pieces.len() - (indices.len() - pivot);
+        let previous = indices[pivot];
+        if let Some(next) = (previous + 1..=last).find(|&i| pieces[i] != pieces[previous]) {
+            for (offset, index) in indices[pivot..].iter_mut().enumerate() {
+                *index = next + offset;
+            }
+            return true;
+        }
+    }
+    false
+}
+
 /// Complete factorization of a multivariate polynomial over QQ.
 pub fn factor_multivariate(p: &MultivariatePoly) -> Result<MultivariateFactorization, PolyError> {
+    p.validate_shape()?;
     if p.is_zero() {
         return Ok(MultivariateFactorization {
             scale: BigRational::zero(),
@@ -484,6 +501,75 @@ mod tests {
         assert_eq!(s, "1");
         assert_eq!(f.len(), 2);
         assert!(f.iter().all(|(_, m)| *m == 1));
+    }
+
+    #[test]
+    fn sparse_image_and_repeated_image_factors_preserve_multivariate_factors() {
+        // The degree-box corner has image degree 65; the actual image is
+        // t^31 (1+t^2) (1+t). Choosing copies of t by position would also
+        // exhaust the recombination budget before admitting the remainder.
+        let gens = ["x", "unused", "y"];
+        let input = poly("(x + 1)*(x**31 + y)", &gens);
+        let found = factor_multivariate(&input).expect("sparse image factors");
+        assert_eq!(found.scale, BigRational::one());
+        assert_eq!(found.factors.len(), 2);
+        for expected in ["x + 1", "x**31 + y"] {
+            assert!(found.factors.contains(&(poly(expected, &gens), 1)));
+        }
+        verify_multivariate_factorization(&input, &found).expect("product verifies");
+    }
+
+    #[test]
+    fn unique_subsets_match_expanded_enumeration() {
+        use std::collections::BTreeSet;
+        let factors: Vec<_> = [1, 1, 1, 2, 2, 3, 4, 4]
+            .map(|c| {
+                UnivariatePoly::new(Symbol::new("x"), vec![BigRational::from_integer(c.into())])
+            })
+            .into();
+        for size in 1..=factors.len() {
+            let mut indices: Vec<_> = (0..size).collect();
+            let mut seen = BTreeSet::new();
+            loop {
+                let subset: Vec<_> = indices
+                    .iter()
+                    .map(|&i| factors[i].coeffs[0].clone())
+                    .collect();
+                assert!(seen.insert(subset));
+                if !advance_distinct_subset(&mut indices, &factors) {
+                    break;
+                }
+            }
+            let expected = (0..1usize << factors.len())
+                .filter(|mask| mask.count_ones() as usize == size)
+                .map(|mask| {
+                    factors
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| mask & (1 << i) != 0)
+                        .map(|(_, f)| f.coeffs[0].clone())
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+            assert_eq!(seen, expected);
+        }
+    }
+
+    #[test]
+    fn genuine_image_and_univariate_degree_limits_still_refuse() {
+        let gens = ["x", "y"];
+        let oversized = poly("x**32*y + x + 1", &gens);
+        assert!(factor_kronecker(&oversized, &[0, 1]).is_err());
+        let enormous = MultivariatePoly::new(
+            vec![Symbol::new("x")],
+            [
+                (vec![u32::MAX], BigRational::one()),
+                (vec![0], BigRational::one()),
+            ]
+            .into(),
+        )
+        .unwrap();
+        assert!(factor_multivariate(&enormous).is_err());
     }
 
     #[test]
