@@ -732,6 +732,8 @@ model = compile_residual_system([x - 2], x)
 fit = model.solve_bounded_least_squares(0, [(0, 1)])
 assert fit.point == (1.0,)
 assert fit.bounds == ((0.0, 1.0),)
+assert fit.gradient == (-1.0,)
+assert fit.projected_gradient == (0.0,)
 assert fit.gradient_norm == 1.0
 assert fit.projected_gradient_norm == 0.0
 assert fit.termination == "projected_gradient_tolerance"
@@ -746,12 +748,14 @@ including rank-deficient systems. It uses masked LSQR directions, projected
 Armijo trials and a projected-gradient direction when the linear models cannot
 produce an accepted step, without constructing a dense Jacobian or normal matrix.
 
-Success requires a freshly evaluated constrained-stationarity residual: fixed
-coordinates and outward gradients at exact active endpoints are suppressed,
-while interior gradients remain unchanged. The original full gradient norm
-is reported separately. This is an approximate candidate, not a minimum or
-root certificate. All original residual and derivative domains remain active,
-even on fixed coordinates. One supplied `EvaluationBudget`, or one private
+Before returning an approximate candidate, the solver reevaluates the original
+residuals and their derivatives, including derivatives along fixed coordinates.
+The candidate exposes the full cost gradient `J.transpose() * residuals` and the
+bound-projected gradient as immutable tuples in the declared variable order.
+The projection sets a component to zero if its coordinate is fixed or its
+descent direction points outside the box at an active bound. Both vectors have
+infinity norms, and the projected norm controls termination.
+One supplied `EvaluationBudget`, or one private
 bounded ledger when omitted, covers preparation, rejected trials and publication.
 
 ### Certified objectives for nonlinear fits

@@ -31,6 +31,32 @@ def test_boundary_stationarity_reports_the_full_and_projected_gradients_separate
     assert result.evaluations >= result.iterations + 2
 
 
+@pytest.mark.parametrize("upper,gtol,expected", [
+    (1, 0.0, (0.0, 0.0, 0.0)),
+    (4, 2.0, (0.0, -2.0, 0.0)),
+])
+def test_final_gradient_tuples_follow_declared_axes_and_respect_bounds(upper, gtol, expected):
+    x, y, z = s.symbols("bounded_axis_x bounded_axis_y bounded_axis_z")
+    program = s.compile_residual_system([x - 3, y + 4, z - 8, 2], (z, x, y))
+    result = program.solve_bounded_least_squares(
+        [2, 1, -1], [(2, 2), (None, upper), (-1, None)], gtol=gtol, maxiter=0,
+    )
+    assert result.variables == (z, x, y)
+    assert result.residuals == (-2.0, 3.0, -6.0, 2.0)
+    assert result.gradient == (-6.0, -2.0, 3.0)
+    assert result.projected_gradient == expected
+    assert result.gradient_norm == max(map(abs, result.gradient))
+    assert result.projected_gradient_norm == max(map(abs, expected))
+    for vector in (result.gradient, result.projected_gradient):
+        assert type(vector) is tuple
+        with pytest.raises(TypeError):
+            vector[0] = 25
+    with pytest.raises(AttributeError):
+        result.gradient = ()
+    with pytest.raises(AttributeError):
+        result.projected_gradient = ()
+
+
 @pytest.mark.parametrize("second,expected", [
     (-1, (0.0, -0.2)),
     (1, (1.0, -1.0)),
@@ -181,6 +207,7 @@ def test_malformed_box_shape_refuses(bounds):
 @pytest.mark.parametrize("bounds", [
     [(2, 1)], [(math.nan, 1)], [(0, math.nan)], [(math.inf, math.inf)],
     [(-math.inf, -math.inf)], [(s.oo, s.oo)], [(0, -s.oo)],
+    [(s.Symbol("-oo"), 1)], [(0, s.Expr("pi"))],
     [("0", 1)], [(0, "1")], [(1j, 2)],
 ])
 def test_invalid_endpoint_values_refuse(bounds):
@@ -202,6 +229,9 @@ def test_closed_numeric_conversion_never_calls_custom_input_or_container_hooks()
     class Number:
         def __float__(self):
             raise AssertionError("custom number conversion ran")
+
+        def __eq__(self, other):
+            raise AssertionError("custom endpoint comparison ran")
 
     class Container(list):
         def __len__(self):

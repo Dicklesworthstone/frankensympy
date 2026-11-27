@@ -2,8 +2,12 @@
 
 import math
 
-from ..core import S, _native, _native_expr, _require_symbol
+from ..core import Expr, S, _native, _native_expr, _require_symbol
 from .lambdify import _surface_binding_key
+
+
+_NEGATIVE_INFINITY = _native_expr(S.NegativeInfinity)
+_POSITIVE_INFINITY = _native_expr(S.Infinity)
 
 
 class NumericBoundedLeastSquaresCandidate:
@@ -12,7 +16,8 @@ class NumericBoundedLeastSquaresCandidate:
     The box and numerical values use the actual binary64 inputs. A small
     projected gradient supplies no minimum, root, uniqueness, rounding-error
     or declared-assumption certificate. The full gradient can be nonzero at
-    a constrained stationary point, so both norms remain separately visible.
+    a constrained stationary point. Both vectors follow the original variable
+    order and have separately reported infinity norms.
     """
 
     __slots__ = ("_proposal", "_native_system", "_variables")
@@ -74,13 +79,23 @@ class NumericBoundedLeastSquaresCandidate:
         return self._proposal.cost
 
     @property
+    def gradient(self):
+        """The full cost gradient Jᵀr as a tuple in the original variable order."""
+        return self._proposal.gradient
+
+    @property
+    def projected_gradient(self):
+        """The gradient with zeroes where a bound blocks the descent direction."""
+        return self._proposal.projected_gradient
+
+    @property
     def gradient_norm(self):
         """Infinity norm of the original full J-transpose-r gradient."""
         return self._proposal.gradient_norm
 
     @property
     def projected_gradient_norm(self):
-        """Gradient norm after suppressing fixed/outward active components."""
+        """Infinity norm of the bound-projected gradient."""
         return self._proposal.projected_gradient_norm
 
     @property
@@ -116,10 +131,16 @@ def _endpoint(value, lower):
         return -math.inf if lower else math.inf
     if type(value) is bool:
         raise TypeError("coordinate bounds must be real numbers, not Boolean values")
-    if value is S.NegativeInfinity:
-        number = -math.inf
-    elif value is S.Infinity:
-        number = math.inf
+    if type(value) is Expr:
+        # Each symbolic infinity may have a fresh Python wrapper. Compare the
+        # closed native atoms after admitting the exact built-in shell class.
+        native = _native_expr(value)
+        if native == _NEGATIVE_INFINITY:
+            number = -math.inf
+        elif native == _POSITIVE_INFINITY:
+            number = math.inf
+        else:
+            raise TypeError("symbolic coordinate bounds require an infinity atom")
     elif type(value) is float and math.isinf(value):
         number = value
     else:

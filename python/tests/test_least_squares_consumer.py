@@ -1,6 +1,7 @@
 """Actual-extension regressions for the checked rectangular fitting consumer."""
 
 import math
+from fractions import Fraction
 
 import pytest
 import sympy as s
@@ -55,8 +56,11 @@ def test_invalid_trials_backtrack_without_dropping_original_rows_or_derivatives(
     values, jacobian = program.evaluate(*result.point)
     assert result.residuals == tuple(values)
     assert result.cost == 0.5 * sum(value*value for value in values)
-    gradient = sum(row[0] * value for row, value in zip(jacobian, values))
-    assert result.gradient_norm == abs(gradient)
+    # The native multi-term dot rounds once, after multiplying and summing
+    # the exact binary64 inputs. Python float products would round each term.
+    gradient = sum(Fraction.from_float(row[0]) * Fraction.from_float(value)
+                   for row, value in zip(jacobian, values))
+    assert result.gradient_norm == abs(float(gradient))
     assert result.evidence == "approximate" and not hasattr(result, "certificate")
 
 

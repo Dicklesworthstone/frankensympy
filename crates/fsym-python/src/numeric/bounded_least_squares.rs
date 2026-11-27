@@ -60,6 +60,16 @@ impl PyNumericBoundedLeastSquaresProposal {
     }
 
     #[getter]
+    fn gradient<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+        PyTuple::new(py, self.proposal.gradient.iter().copied())
+    }
+
+    #[getter]
+    fn projected_gradient<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+        PyTuple::new(py, self.proposal.projected_gradient.iter().copied())
+    }
+
+    #[getter]
     fn gradient_norm(&self) -> f64 {
         self.proposal.gradient_norm
     }
