@@ -46,8 +46,10 @@ impl Expr {
     /// Cancellation, a small midpoint, or a requested display precision never
     /// supplies an exact-zero assertion.
     ///
-    /// Arithmetic and the existing principal complex elementary functions are
-    /// admitted without rewriting the original source. Unknown functions,
+    /// Arithmetic and the existing principal complex elementary functions,
+    /// including cot/sec/csc and coth/sech/csch, are admitted without rewriting
+    /// the original source. Reciprocal functions require the complete
+    /// denominator enclosure to exclude zero. Unknown functions,
     /// free symbols, nonfinite constants and real-only function kernels remain
     /// outside this lane. Undefined original children cannot be hidden by a
     /// zero factor or exponent. Precision increases deterministically up to
@@ -137,8 +139,9 @@ fn preflight(source: &Expr) -> Result<(), ComplexDecimalError> {
                     let admitted = match name.as_str() {
                         "atan2" => children.len() == 2,
                         "exp" | "log" | "ln" | "sqrt" | "sin" | "cos" | "tan" | "sinh" | "cosh"
-                        | "tanh" | "abs" | "Abs" | "re" | "im" | "conjugate" | "asin" | "acos"
-                        | "atan" | "asinh" | "acosh" | "atanh" => children.len() == 1,
+                        | "tanh" | "cot" | "sec" | "csc" | "coth" | "sech" | "csch" | "abs"
+                        | "Abs" | "re" | "im" | "conjugate" | "asin" | "acos" | "atan"
+                        | "asinh" | "acosh" | "atanh" => children.len() == 1,
                         _ => false,
                     };
                     if !admitted {
