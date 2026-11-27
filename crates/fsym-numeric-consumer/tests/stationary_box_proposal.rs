@@ -197,3 +197,42 @@ fn every_proposal_safe_point_propagates_cancellation_without_a_candidate() {
         assert_eq!(meter.budget.verifier_remaining(), protected);
     }
 }
+
+#[test]
+fn widely_scaled_hessian_yields_independently_classified_extrema_and_saddles() {
+    for (formula, kind, sign) in [
+        (
+            "2^59*(x-1)^2 + (y+1)^2/2",
+            StationaryPointKind::StrictMinimum,
+            1,
+        ),
+        ("2^59*(x-1)^2 - (y+1)^2/2", StationaryPointKind::Saddle, -1),
+    ] {
+        let objective = objective(formula, &["x", "y"]);
+        let mut budget = budget();
+        let protected = budget.verifier_remaining();
+        let witness = propose_stationary_box_with_meter(
+            &objective,
+            &[1.0, -1.0],
+            &[q(1, 8), q(1, 8)],
+            24,
+            &mut budget,
+        )
+        .unwrap();
+        assert_eq!(
+            witness.preconditioner,
+            [vec![q(1, 1_i64 << 60), q(0, 1)], vec![q(0, 1), q(sign, 1)],]
+        );
+        assert_eq!(budget.verifier_remaining(), protected);
+        let lease = budget.verifier_lease().unwrap();
+        let checked = fsym_core::verify_stationary_point(
+            objective.objective(),
+            objective.variables(),
+            &witness,
+            &mut budget.verifier_meter(&lease).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(checked.kind(), kind);
+        assert!(budget.verifier_remaining() < protected);
+    }
+}

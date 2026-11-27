@@ -36,7 +36,7 @@ fn shift_exact(value: f64, power: i32) -> Option<f64> {
     (scaled.is_finite() && shift(scaled, -power) == value).then_some(scaled)
 }
 
-pub(super) fn retry<M: BudgetMeter>(
+pub(super) fn retry<M: BudgetMeter + ?Sized>(
     matrix: &[f64],
     rhs: &[f64],
     n: usize,

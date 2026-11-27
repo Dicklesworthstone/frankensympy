@@ -365,19 +365,21 @@ pub fn propose_stationary_box_with_meter<M: BudgetMeter + ?Sized>(
     finite(approximation, "stationary point", meter)?;
     let state = evaluate(objective, approximation, meter)?;
     let hessian = dense_hessian(objective, &state.values, meter)?;
-    let mut inverse = zeros(n * n, meter)?;
-    let mut unit = zeros(n, meter)?;
-    for column in 0..n {
-        charge(meter, (2 * n + 1) as u64, 0, 0)?;
-        unit.fill(0.0);
-        unit[column] = 1.0;
-        let solution = linear_solve(&hessian, &unit, n, meter)?.ok_or_else(|| {
-            ObjectiveConsumerError::LinearSolve("stationary Hessian is singular".into())
-        })?;
-        for row in 0..n {
-            inverse[row * n + column] = solution[row];
+    let inverse = super::systems::inverse_proposal(&hessian, n, meter).map_err(|error| {
+        // Retain the objective API's typed operational and arithmetic errors.
+        // The inverse kernel only constructs these dense-solve error variants.
+        use super::systems::SystemConsumerError as E;
+        match error {
+            E::Meter(error) => ObjectiveConsumerError::Meter(error),
+            E::Evaluation(error) => ObjectiveConsumerError::Arithmetic(error),
+            E::LinearSolve(reason) => ObjectiveConsumerError::LinearSolve(reason),
+            E::NonFinite(label) => ObjectiveConsumerError::NonFinite(label),
+            E::Dimension { .. } => {
+                ObjectiveConsumerError::ConsumerContract("linear solver result dimensions")
+            }
+            _ => ObjectiveConsumerError::ConsumerContract("unexpected dense inverse refusal"),
         }
-    }
+    })?;
     let mut center = buffer(n, meter)?;
     let mut domain = buffer(n, meter)?;
     let mut preconditioner = buffer(n, meter)?;

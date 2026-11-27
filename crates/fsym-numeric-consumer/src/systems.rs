@@ -908,7 +908,7 @@ fn linear_solve<M: BudgetMeter>(
 
 // The entire identity is one row-major multi-RHS problem. All inverse
 // columns therefore share one donor LU and pivot permutation.
-fn inverse_proposal<M: BudgetMeter>(
+pub(super) fn inverse_proposal<M: BudgetMeter + ?Sized>(
     matrix: &[f64],
     n: usize,
     meter: &mut M,
@@ -921,7 +921,7 @@ fn inverse_proposal<M: BudgetMeter>(
     solve_rhs(matrix, &identity, n, n, meter)
 }
 
-fn solve_rhs<M: BudgetMeter>(
+fn solve_rhs<M: BudgetMeter + ?Sized>(
     matrix: &[f64],
     rhs: &[f64],
     n: usize,
@@ -941,7 +941,7 @@ fn solve_rhs<M: BudgetMeter>(
 }
 
 // Keep mathematical donor refusals distinct from terminal meter failures.
-fn donor_solve<M: BudgetMeter>(
+fn donor_solve<M: BudgetMeter + ?Sized>(
     matrix: &[f64],
     rhs: &[f64],
     n: usize,
@@ -990,7 +990,7 @@ fn exact_coordinate<M: BudgetMeter>(
     exact_binary64_rational(value).ok_or(SystemConsumerError::NonFinite("root-box proposal"))
 }
 
-fn finite<M: BudgetMeter>(
+fn finite<M: BudgetMeter + ?Sized>(
     values: &[f64],
     label: &'static str,
     meter: &mut M,
@@ -1012,7 +1012,10 @@ fn infinity_norm<M: BudgetMeter>(
         .fold(0.0_f64, |norm, value| norm.max(value.abs())))
 }
 
-fn buffer<T, M: BudgetMeter>(count: usize, meter: &mut M) -> Result<Vec<T>, SystemConsumerError> {
+fn buffer<T, M: BudgetMeter + ?Sized>(
+    count: usize,
+    meter: &mut M,
+) -> Result<Vec<T>, SystemConsumerError> {
     let bytes = count
         .checked_mul(size_of::<T>())
         .ok_or(EvalError::DimensionOverflow)?;
@@ -1024,7 +1027,10 @@ fn buffer<T, M: BudgetMeter>(count: usize, meter: &mut M) -> Result<Vec<T>, Syst
     Ok(result)
 }
 
-fn zeros<M: BudgetMeter>(count: usize, meter: &mut M) -> Result<Vec<f64>, SystemConsumerError> {
+fn zeros<M: BudgetMeter + ?Sized>(
+    count: usize,
+    meter: &mut M,
+) -> Result<Vec<f64>, SystemConsumerError> {
     let mut values = buffer(count, meter)?;
     charge(meter, count as u64, 0, 0)?;
     values.resize(count, 0.0);
@@ -1050,7 +1056,7 @@ fn publication_checkpoint<M: BudgetMeter>(
     Ok(())
 }
 
-fn charge<M: BudgetMeter>(
+fn charge<M: BudgetMeter + ?Sized>(
     meter: &mut M,
     steps: u64,
     bytes: u64,
