@@ -423,3 +423,31 @@ fn cancellation_in_either_phase_stays_an_operational_refusal() {
             .map(|_| ())
     });
 }
+
+#[test]
+fn centered_c1_exclusion_proves_a_dependency_limited_cell_and_rejects_a_boundary_root() {
+    // x - 2*x + 3 = 3 - x is positive on [0,2]. Natural interval evaluation
+    // gives [-1,5], while its derivative over the entire box is exactly -1.
+    let system = problem(&["x-2*x+3"], &["x"]);
+    let domain = [interval(0, 2)];
+    let natural = system
+        .enclose(&domain, options().precision_digits, &mut Unbounded)
+        .unwrap();
+    assert!(natural.residual_values()[0].contains_zero());
+    let one_leaf = RootIsolationOptions {
+        max_leaves: 1,
+        ..options()
+    };
+    let receipt = system
+        .isolate_roots(&domain, one_leaf, &mut Unbounded, &mut Unbounded)
+        .unwrap();
+    assert!(receipt.is_root_free());
+    assert_eq!(receipt.witness().partition, [RootIsolationStep::Exclude]);
+
+    let boundary = problem(&["x-2*x+2"], &["x"]);
+    assert!(
+        boundary
+            .verify_isolation(&domain, receipt.witness(), &mut Unbounded)
+            .is_err()
+    );
+}

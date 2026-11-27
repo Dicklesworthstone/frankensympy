@@ -285,6 +285,54 @@ impl<'a, M: BudgetMeter> RootIsolationWorkspace<'a, M> {
         })
     }
 
+    /// Exclude the zero residual vector, or supply the midpoint jet for a
+    /// possible local Newton proposal. All rows must be C1 on the whole cell.
+    /// The mean-value bound uses the whole-cell Jacobian on every segment
+    /// from the midpoint, including segments ending on the closed boundary.
+    pub fn midpoint_unless_excluded(
+        &mut self,
+        domain: &[RealBall],
+    ) -> Result<Option<RootCellEnclosure>> {
+        let whole = self.enclose_cell(domain)?;
+        for value in whole.residual_values() {
+            self.work.arithmetic(&[value], &[])?;
+            if !value.contains_zero() {
+                return Ok(None);
+            }
+        }
+
+        let n = domain.len();
+        self.work
+            .charge(1, (2 * n * size_of::<RealBall>()) as u64, 2)?;
+        let mut center = Vec::with_capacity(n);
+        let mut displacements = Vec::with_capacity(n);
+        for axis in domain {
+            self.work.arithmetic(&[axis], &[])?;
+            center.push(RealBall::exact(axis.midpoint().clone()));
+            displacements.push(
+                RealBall::new(BigRational::zero(), axis.radius().clone())
+                    .map_err(RootBoxError::from)?,
+            );
+        }
+        let midpoint = self.enclose_cell(&center)?;
+        for (value, row) in midpoint.residual_values().iter().zip(whole.jacobian()) {
+            self.work.arithmetic(&[value], &[])?;
+            if value.contains_zero() {
+                continue;
+            }
+            let mut range = value.clone();
+            for (derivative, displacement) in row.iter().zip(&displacements) {
+                let delta = self.work.mul(derivative, displacement)?;
+                range = self.work.add(&range, &delta)?;
+            }
+            self.work.arithmetic(&[&range], &[])?;
+            if !range.contains_zero() {
+                return Ok(None);
+            }
+        }
+        Ok(Some(midpoint))
+    }
+
     /// Reuse the existing local Krawczyk checker without rebuilding Work.
     /// Only a local root claim is issued here; the complete-cover verifier
     /// separately checks containment, separation and all excluded regions.
@@ -459,14 +507,7 @@ impl<'a, M: BudgetMeter> RootIsolationWorkspace<'a, M> {
                     leaf_count += 1;
                 }
                 RootIsolationStep::Exclude => {
-                    let enclosure = self.enclose_cell(&cell)?;
-                    let mut excluded = false;
-                    for value in enclosure.residual_values() {
-                        self.work.arithmetic(&[value], &[])?;
-                        excluded |= value.lower() > BigRational::zero()
-                            || value.upper() < BigRational::zero();
-                    }
-                    if !excluded {
+                    if self.midpoint_unless_excluded(&cell)?.is_some() {
                         return Err(RootIsolationError::Incomplete(
                             "checkpoint exclusion still admits a zero residual vector",
                         ));
@@ -817,16 +858,7 @@ pub fn verify_root_isolation(
                 pending.push((left, depth + 1));
             }
             RootIsolationStep::Exclude => {
-                // This evaluates the entire source forest before inspecting
-                // any nonzero row, preserving every original C1 obligation.
-                let enclosure = workspace.enclose_cell(&cell)?;
-                let mut excluded = false;
-                for value in enclosure.residual_values() {
-                    workspace.work.arithmetic(&[value], &[])?;
-                    excluded |=
-                        value.lower() > BigRational::zero() || value.upper() < BigRational::zero();
-                }
-                if !excluded {
+                if workspace.midpoint_unless_excluded(&cell)?.is_some() {
                     return Err(RootIsolationError::Incomplete(
                         "an exclusion leaf still admits a zero residual vector",
                     ));

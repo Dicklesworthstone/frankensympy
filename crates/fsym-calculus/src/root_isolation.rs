@@ -160,14 +160,13 @@ impl SearchFrontier {
         if let Some(index) = covered_by(workspace, &cell.domain, &self.witness.roots)? {
             return Ok(CellAction::Covered { index });
         }
-        let domain_failure = match workspace.enclose_cell(&cell.domain) {
-            Ok(enclosure) => {
-                if excluded(workspace, enclosure.residual_values())? {
-                    return Ok(CellAction::Excluded);
-                }
+        let domain_failure = match workspace.midpoint_unless_excluded(&cell.domain) {
+            Ok(None) => return Ok(CellAction::Excluded),
+            Ok(Some(midpoint)) => {
                 if let Some(witness) = candidate_root(
                     workspace,
                     &cell.domain,
+                    midpoint.jacobian(),
                     &self.witness.roots,
                     options.precision_digits,
                 )? {
@@ -586,23 +585,6 @@ fn covered_by(
     Ok(None)
 }
 
-fn excluded(
-    workspace: &mut RootIsolationWorkspace<'_, impl BudgetMeter>,
-    residuals: &[RealBall],
-) -> Result<bool> {
-    // The workspace already evaluated every original residual. A nonzero
-    // first residual must never bypass a later residual's domain obligations.
-    let zero = BigRational::zero();
-    for value in residuals {
-        let lower = endpoint(workspace, value, false)?;
-        let upper = endpoint(workspace, value, true)?;
-        if workspace.compare(&lower, &zero)?.is_gt() || workspace.compare(&upper, &zero)?.is_lt() {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
 fn widest_axis(
     workspace: &mut RootIsolationWorkspace<'_, impl BudgetMeter>,
     domain: &[RealBall],
@@ -708,25 +690,16 @@ fn inverse_midpoint(
 fn candidate_root(
     workspace: &mut RootIsolationWorkspace<'_, impl BudgetMeter>,
     domain: &[RealBall],
+    midpoint_jacobian: &[Vec<RealBall>],
     roots: &[RootBoxWitness],
     precision_digits: u32,
 ) -> Result<Option<RootBoxWitness>> {
-    workspace.account(domain.len() as u64 + 1, (domain.len() * 256) as u64, 2)?;
+    workspace.account(domain.len() as u64 + 1, (domain.len() * 128) as u64, 1)?;
     let mut center = reserve(domain.len(), "root-isolation center allocation")?;
-    let mut point = reserve(domain.len(), "root-isolation point box allocation")?;
     for coordinate in domain {
         center.push(copy_rational(workspace, coordinate.midpoint())?);
-        point.push(RealBall::exact(copy_rational(
-            workspace,
-            coordinate.midpoint(),
-        )?));
     }
-    let enclosure = match workspace.enclose_cell(&point) {
-        Ok(value) => value,
-        Err(error) if subdivision_can_resolve(&error) => return Ok(None),
-        Err(error) => return Err(error),
-    };
-    let Some(preconditioner) = inverse_midpoint(workspace, enclosure.jacobian())? else {
+    let Some(preconditioner) = inverse_midpoint(workspace, midpoint_jacobian)? else {
         return Ok(None);
     };
     let mut witness = RootBoxWitness {
