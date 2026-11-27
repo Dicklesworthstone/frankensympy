@@ -375,7 +375,9 @@ fn unused_coordinates_are_checked_once_for_a_nonempty_batch() {
         let mut budget = Budget::new(BudgetLimits::uniform(100_000, 13));
         let before = budget.remaining(Dimension::ComputeSteps);
         assert_eq!(
-            batch.try_eval_finite_with_meter(point, &mut budget).unwrap(),
+            batch
+                .try_eval_finite_with_meter(point, &mut budget)
+                .unwrap(),
             vec![7.0; 16]
         );
         before - budget.remaining(Dimension::ComputeSteps)
@@ -384,7 +386,13 @@ fn unused_coordinates_are_checked_once_for_a_nonempty_batch() {
     for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
         let mut point = [0.0; 256];
         point[255] = invalid;
-        assert_eq!(constant.try_eval_finite(&point), Err(EvalError::NonFiniteValue));
-        assert_eq!(batch.try_eval_finite(&point), Err(EvalError::NonFiniteValue));
+        assert_eq!(
+            constant.try_eval_finite(&point),
+            Err(EvalError::NonFiniteValue)
+        );
+        assert_eq!(
+            batch.try_eval_finite(&point),
+            Err(EvalError::NonFiniteValue)
+        );
     }
 }

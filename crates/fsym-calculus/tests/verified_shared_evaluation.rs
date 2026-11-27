@@ -319,7 +319,9 @@ fn sparse_diagonal_evaluation_cost_scales_with_coordinates_and_nonzeros() {
         let point: Vec<_> = (0..size).map(|i| i as f64).collect();
         let mut budget = Budget::new(BudgetLimits::uniform(1_000_000, 17));
         let initial = budget.remaining(Dimension::ComputeSteps);
-        let result = system.evaluate_sparse_with_meter(&point, &mut budget).unwrap();
+        let result = system
+            .evaluate_sparse_with_meter(&point, &mut budget)
+            .unwrap();
         assert_eq!(result.residuals, point);
         assert_eq!(result.jacobian, vec![1.0; size]);
         initial - budget.remaining(Dimension::ComputeSteps)

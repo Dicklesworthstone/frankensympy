@@ -282,32 +282,49 @@ fn valid_empty_and_constant_systems_remain_usable() {
 fn diagnostics_bind_every_original_source_even_for_an_empty_derivative_row() {
     let x = Symbol::new("x");
     let log = Expr::Function("log".into(), vec![Expr::Sym(x.clone())]);
-    let variable = SparseJacobian::try_build(std::slice::from_ref(&log), std::slice::from_ref(&x))
-        .unwrap();
-    assert_eq!(variable.entries[0].compiled_deriv.try_eval_finite(&[-1.0]), Ok(-1.0));
+    let variable =
+        SparseJacobian::try_build(std::slice::from_ref(&log), std::slice::from_ref(&x)).unwrap();
+    assert_eq!(
+        variable.entries[0].compiled_deriv.try_eval_finite(&[-1.0]),
+        Ok(-1.0)
+    );
     assert!(matches!(
         verify_sparse_jacobian_certificate(&variable, &[vec![-1.0]]),
-        Err(JacobianVerificationError::NonFiniteResidual { point_idx: 0, row: 0 })
+        Err(JacobianVerificationError::NonFiniteResidual {
+            point_idx: 0,
+            row: 0
+        })
     ));
     let erased = SparseJacobian::try_build(
         &[Expr::Mul(vec![Expr::from_i64(0), log])],
         std::slice::from_ref(&x),
-    ).unwrap();
+    )
+    .unwrap();
     assert!(erased.entries.is_empty());
     for system in [&variable, &erased] {
         let receipt = verify_sparse_jacobian_certificate(system, &[vec![1.0], vec![2.0]]).unwrap();
         assert_eq!(receipt.test_points_evaluated, 2);
         assert!(matches!(
             verify_sparse_jacobian_certificate(system, &[vec![1.0], vec![-1.0]]),
-            Err(JacobianVerificationError::NonFiniteResidual { point_idx: 1, row: 0 })
+            Err(JacobianVerificationError::NonFiniteResidual {
+                point_idx: 1,
+                row: 0
+            })
         ));
     }
 
     let unbound = SparseJacobian::try_build(&[Expr::symbol("parameter")], &[x]).unwrap();
-    assert_eq!(verify_sparse_jacobian_certificate(&unbound, &[]).unwrap().nnz, 0);
+    assert_eq!(
+        verify_sparse_jacobian_certificate(&unbound, &[])
+            .unwrap()
+            .nnz,
+        0
+    );
     assert!(matches!(
         verify_sparse_jacobian_certificate(&unbound, &[vec![1.0]]),
-        Err(JacobianVerificationError::Compile(fsym_calculus::CompileError::UnmappedVariable(_)))
+        Err(JacobianVerificationError::Compile(
+            fsym_calculus::CompileError::UnmappedVariable(_)
+        ))
     ));
 }
 

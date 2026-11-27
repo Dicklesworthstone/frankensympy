@@ -1479,7 +1479,10 @@ impl CompiledExpr {
         self.try_eval_with_reuse(point.0, true, true, None, meter)
     }
 
-    fn check_evaluation_size<M: BudgetMeter + ?Sized>(&self, meter: &mut M) -> Result<(), EvalError> {
+    fn check_evaluation_size<M: BudgetMeter + ?Sized>(
+        &self,
+        meter: &mut M,
+    ) -> Result<(), EvalError> {
         meter.checkpoint()?;
         if self.ops.len() > MAX_COMPILE_OPS {
             return Err(EvalError::OpLimitExceeded {

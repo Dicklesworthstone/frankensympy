@@ -409,8 +409,17 @@ fn binary32_cell(value: &BigRational, nearest: u32, lower: u32, upper: u32) {
 #[test]
 fn binary32_encloses_exact_dyadics_and_rounds_interpolated_cells_directly() {
     for lo in [
-        0u32, 1, 2, 0x007f_fffe, 0x007f_ffff, 0x0080_0000, 0x3f7f_ffff, 0x3f80_0000,
-        0x3f80_0001, 0x3fff_ffff, 0x7f7f_fffe,
+        0u32,
+        1,
+        2,
+        0x007f_fffe,
+        0x007f_ffff,
+        0x0080_0000,
+        0x3f7f_ffff,
+        0x3f80_0000,
+        0x3f80_0001,
+        0x3fff_ffff,
+        0x7f7f_fffe,
     ] {
         let hi = lo + 1;
         let left = exact_finite_float(f64::from(f32::from_bits(lo)).to_bits());
@@ -424,7 +433,10 @@ fn binary32_encloses_exact_dyadics_and_rounds_interpolated_cells_directly() {
 
     let zero = rational(0, 1);
     assert_eq!(
-        zero.metered_to_f32(&mut Unbounded).unwrap().unwrap().to_bits(),
+        zero.metered_to_f32(&mut Unbounded)
+            .unwrap()
+            .unwrap()
+            .to_bits(),
         0
     );
     let (lo, hi) = zero.to_f32_bounds().unwrap();

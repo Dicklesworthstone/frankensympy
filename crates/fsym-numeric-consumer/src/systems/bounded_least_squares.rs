@@ -361,7 +361,8 @@ fn evaluate<M: BudgetMeter>(
     }
     finite(&values.residuals, "bounded least-squares residuals", meter)?;
     finite(&values.jacobian, "bounded least-squares Jacobian", meter)?;
-    let (cost, gradient) = cost_and_gradient(pattern, &values.jacobian, &values.residuals, n, meter)?;
+    let (cost, gradient) =
+        cost_and_gradient(pattern, &values.jacobian, &values.residuals, n, meter)?;
     let gradient_norm = infinity_norm(&gradient, meter)?;
     let mut projected_gradient = copy_values(&gradient, meter)?;
     charge(meter, (8 * n + 1) as u64, 0, 0)?;

@@ -287,7 +287,8 @@ fn evaluate<M: BudgetMeter>(
     finite(&values.residuals, "least-squares residuals", meter)?;
     finite(&values.jacobian, "least-squares Jacobian", meter)?;
     let mut jacobian = zeros(m * n, meter)?;
-    let (cost, gradient) = cost_and_gradient(pattern, &values.jacobian, &values.residuals, n, meter)?;
+    let (cost, gradient) =
+        cost_and_gradient(pattern, &values.jacobian, &values.residuals, n, meter)?;
     charge(meter, pattern.len() as u64, 0, 0)?;
     for (&(row, column), &value) in pattern.iter().zip(&values.jacobian) {
         jacobian[row * n + column] = value;

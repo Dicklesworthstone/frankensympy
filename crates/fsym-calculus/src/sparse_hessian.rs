@@ -14,8 +14,8 @@
 #![forbid(unsafe_code)]
 
 use crate::compile::{
-    CompileError, CompiledExpr, CompiledOp, EvalError, EvaluationMemo, FinitePoint, MAX_COMPILE_OPS,
-    SharedEvaluationPlan, charge_compilation_work, charge_evaluation_allocation,
+    CompileError, CompiledExpr, CompiledOp, EvalError, EvaluationMemo, FinitePoint,
+    MAX_COMPILE_OPS, SharedEvaluationPlan, charge_compilation_work, charge_evaluation_allocation,
     charge_evaluation_steps,
 };
 use crate::sparse_jacobian::{
@@ -874,12 +874,10 @@ impl VerifiedObjective {
             .map_err(|_| EvalError::AllocationFailure)?;
         for (index, entry) in self.compiled_gradient.iter().enumerate() {
             charge_evaluation_steps(meter, 1)?;
-            gradient.push(self.shared_evaluation.evaluate(
-                1 + index,
-                entry,
-                &mut memo,
-                meter,
-            )?);
+            gradient.push(
+                self.shared_evaluation
+                    .evaluate(1 + index, entry, &mut memo, meter)?,
+            );
         }
         Ok((value, gradient, memo))
     }

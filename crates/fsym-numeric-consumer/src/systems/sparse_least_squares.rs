@@ -294,7 +294,8 @@ fn evaluate<M: BudgetMeter>(
             "sparse least-squares evaluation dimensions",
         ));
     }
-    let (cost, gradient) = cost_and_gradient(pattern, &values.jacobian, &values.residuals, n, meter)?;
+    let (cost, gradient) =
+        cost_and_gradient(pattern, &values.jacobian, &values.residuals, n, meter)?;
     let gradient_norm = infinity_norm(&gradient, meter)?;
     Ok(Evaluation {
         residuals: values.residuals,

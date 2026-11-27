@@ -3,8 +3,8 @@
 #![forbid(unsafe_code)]
 
 use crate::compile::{
-    CompileError, CompiledExpr, CompiledOp, EvalError, FinitePoint, MAX_COMPILE_DEPTH, MAX_COMPILE_OPS,
-    admit_compilation_name, charge_compilation_work, charge_evaluation_allocation,
+    CompileError, CompiledExpr, CompiledOp, EvalError, FinitePoint, MAX_COMPILE_DEPTH,
+    MAX_COMPILE_OPS, admit_compilation_name, charge_compilation_work, charge_evaluation_allocation,
     charge_evaluation_steps, compilation_diagnostic, compilation_finish,
 };
 use crate::proof::{
@@ -1365,20 +1365,27 @@ fn check_diagnostic_points<M: BudgetMeter + ?Sized>(
             other => JacobianVerificationError::Eval(other),
         })?;
         for entry in &system.entries {
-            entry.compiled_deriv.try_eval_smooth_at(&point, meter).map_err(|error| match error {
-                EvalError::NonFiniteValue => JacobianVerificationError::NonFiniteEvaluation {
-                    point_idx,
-                    row: entry.row,
-                    col: entry.col,
-                },
-                other => JacobianVerificationError::Eval(other),
-            })?;
+            entry
+                .compiled_deriv
+                .try_eval_smooth_at(&point, meter)
+                .map_err(|error| match error {
+                    EvalError::NonFiniteValue => JacobianVerificationError::NonFiniteEvaluation {
+                        point_idx,
+                        row: entry.row,
+                        col: entry.col,
+                    },
+                    other => JacobianVerificationError::Eval(other),
+                })?;
         }
         for (row, source) in residuals.iter().enumerate() {
-            source.try_eval_smooth_at(&point, meter).map_err(|error| match error {
-                EvalError::NonFiniteValue => JacobianVerificationError::NonFiniteResidual { point_idx, row },
-                other => JacobianVerificationError::Eval(other),
-            })?;
+            source
+                .try_eval_smooth_at(&point, meter)
+                .map_err(|error| match error {
+                    EvalError::NonFiniteValue => {
+                        JacobianVerificationError::NonFiniteResidual { point_idx, row }
+                    }
+                    other => JacobianVerificationError::Eval(other),
+                })?;
         }
     }
     Ok(())

@@ -9,8 +9,7 @@
 
 use crate::compile::{
     CompileError, CompiledExpr, CompiledOp, CompiledResidualSystem, EvalError, FinitePoint,
-    MAX_COMPILE_OPS,
-    SharedEvaluationPlan, charge_compilation_work, charge_evaluation_allocation,
+    MAX_COMPILE_OPS, SharedEvaluationPlan, charge_compilation_work, charge_evaluation_allocation,
     charge_evaluation_steps,
 };
 use crate::sparse_jacobian::{

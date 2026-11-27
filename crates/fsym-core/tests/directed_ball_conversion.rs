@@ -305,7 +305,10 @@ fn binary32_exports_the_complete_exact_interval_across_cancellation_and_overflow
     let tiny = BigRational::new(1i64.into(), power_of_two(300));
     let around_zero = RealBall::new(rational(0, 1), tiny.clone()).unwrap();
     assert_eq!(binary32(&around_zero), (0x8000_0001, 1));
-    assert_eq!(binary32(&RealBall::exact(-tiny)), (0x8000_0001, 0x8000_0000));
+    assert_eq!(
+        binary32(&RealBall::exact(-tiny)),
+        (0x8000_0001, 0x8000_0000)
+    );
     assert_eq!(binary32(&RealBall::from_i64(0)), (0, 0));
 }
 

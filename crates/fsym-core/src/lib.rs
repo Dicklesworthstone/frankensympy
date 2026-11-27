@@ -1032,8 +1032,12 @@ impl Expr {
     /// Exact literals and bounded rational sources retain their signs and
     /// integer exponent parity before conversion. Compound classification is
     /// bounded to 1024 nodes, depth 64 and 4096-bit coefficients; exhaustion
-    /// and unclassified negative-base exponents refuse. Other transcendental
-    /// evaluations remain approximate, without a certified domain enclosure.
+    /// and unclassified negative-base exponents refuse. Logarithms, square
+    /// roots and rational powers recover bounded exact magnitudes that would
+    /// otherwise convert to zero or infinity before evaluation. Recovery
+    /// requires rational sources within the same envelope. Ordinary finite
+    /// magnitudes and other transcendental evaluations remain approximate,
+    /// without a certified domain enclosure.
     pub fn evalf(&self) -> Result<f64, CoreError> {
         match self {
             Expr::Integer(n) => n.to_f64().ok_or_else(|| {
@@ -1087,11 +1091,11 @@ impl Expr {
                     ("log" | "ln", Some(x)) if x.is_negative() => Err(CoreError::InvalidOperation(
                         "logarithm of a negative argument is not real-valued".to_string(),
                     )),
-                    ("log" | "ln", Some(x)) => Ok(x.value.ln()),
+                    ("log" | "ln", Some(x)) => evalf::logarithm(&args[0], &x),
                     ("sqrt", Some(x)) if x.is_negative() => Err(CoreError::InvalidOperation(
                         "square root of a negative argument is not real-valued".to_string(),
                     )),
-                    ("sqrt", Some(x)) => Ok(x.value.sqrt()),
+                    ("sqrt", Some(x)) => evalf::square_root(&args[0], &x),
                     _ => Err(CoreError::InvalidOperation(format!(
                         "cannot evaluate function `{name}` numerically"
                     ))),
