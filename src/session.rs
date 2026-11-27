@@ -18,7 +18,7 @@ use crate::certification_session::{
     RootIsolationSearchId, ScalarRootBracketId, StationaryPointId,
 };
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
-use fsym_budget::{Budget, BudgetLimits, Dimension, VerifierLease};
+use fsym_budget::{Budget, BudgetLimits, Dimension, MeterError, VerifierLease};
 use fsym_core::{Expr, Symbol};
 use fsym_polys::{MultivariatePoly, factor_multivariate, verify_multivariate_factorization};
 use fsym_proof_kernel::{CertificatePayload, Claim, DerivationTree, ProofKernel, StepId};
@@ -155,6 +155,17 @@ impl Default for SessionBudgets {
             verify_step_budget: 256,
         }
     }
+}
+
+fn envelope_checkpoint_error(error: MeterError, id: Option<serde_json::Value>) -> String {
+    let error = CertificationSessionError::Meter(error);
+    let mut response = serde_json::json!({
+        "status": "error", "code": error.code(), "error": error.to_string(),
+    });
+    if let Some(id) = id {
+        response["id"] = id;
+    }
+    response.to_string()
 }
 
 fn parse_claim_sides(source: &str) -> Result<(Expr, Option<Expr>), SessionError> {
@@ -1144,6 +1155,54 @@ impl Session {
     /// request against this session. The response is one JSON line; the id
     /// is echoed verbatim and repeated ids are processed independently.
     pub fn handle_envelope(&mut self, line: &str) -> String {
+        self.handle_envelope_inner(line, None)
+    }
+
+    /// Handles one certification envelope with the host's cooperative check.
+    ///
+    /// The bounded envelope is checked before decoding and admission. The
+    /// same request-local, latched policy then reaches the real generator,
+    /// protected verifier, and final publication boundary through
+    /// [`Self::certification_request_with_checkpoint`]. Cancelled work retains
+    /// its charges on this session's cumulative ledger. A later envelope is a
+    /// fresh request and can resume an incremental search without a refund.
+    ///
+    /// Only [`CertificationRequest`] operations are supported here. Legacy
+    /// [`fsym_runtime::protocol::AgentRequest`] and [`ClaimRequest`] operations
+    /// return `unsupported_operation` without execution because their kernels
+    /// do not yet share this host policy. [`Self::handle_envelope`] retains the
+    /// ordinary interface for those operations.
+    ///
+    /// This synchronous method does not spawn work or implement an asynchronous
+    /// cancellation command. The host should supply an inexpensive, nonblocking
+    /// check, such as its owning asupersync context. JSON decoding is bounded by
+    /// [`MAX_ENVELOPE_BYTES`] and observes checks at its boundaries. The final
+    /// check occurs inside publication admission, never after state has already
+    /// committed. If cancellation precedes metadata decoding, no request id is
+    /// echoed; subsequent errors echo the same validated id as ordinary requests.
+    pub fn handle_envelope_with_checkpoint<F>(&mut self, line: &str, mut checkpoint: F) -> String
+    where
+        F: FnMut() -> Result<(), MeterError>,
+    {
+        let mut stopped = None;
+        let mut latched = || {
+            if let Some(error) = stopped {
+                return Err(error);
+            }
+            let result = checkpoint();
+            if let Err(error) = result {
+                stopped = Some(error);
+            }
+            result
+        };
+        self.handle_envelope_inner(line, Some(&mut latched))
+    }
+
+    fn handle_envelope_inner(
+        &mut self,
+        line: &str,
+        mut checkpoint: Option<&mut dyn FnMut() -> Result<(), MeterError>>,
+    ) -> String {
         if line.len() > MAX_ENVELOPE_BYTES {
             return serde_json::json!({
                 "status": "error",
@@ -1151,6 +1210,11 @@ impl Session {
                 "error": "request exceeds the session envelope limit",
             })
             .to_string();
+        }
+        if let Some(check) = checkpoint.as_deref_mut()
+            && let Err(error) = check()
+        {
+            return envelope_checkpoint_error(error, None);
         }
         let parsed: Result<serde_json::Value, _> = serde_json::from_str(line);
         let mut value = match parsed {
@@ -1166,7 +1230,7 @@ impl Session {
         };
         let id = value.get("id").cloned();
         let _ = value.as_object_mut().map(|map| map.remove("id"));
-        if matches!(
+        let certification = matches!(
             value.get("type").and_then(serde_json::Value::as_str),
             Some(
                 "RegisterResidualSystem"
@@ -1258,7 +1322,8 @@ impl Session {
                     | "ReplayBoxOptimization"
                     | "ReplayBoxOptimizationFromArtifact"
             )
-        ) {
+        );
+        if certification || checkpoint.is_some() {
             // Bound envelope metadata before the request can publish anything.
             // The certification response reserves 4096 bytes for this wrapper.
             let valid_id = id.as_ref().is_none_or(|id| match id {
@@ -1272,6 +1337,13 @@ impl Session {
                     "error": "certification id must be a string of at most 256 bytes or an unsigned integer",
                 }).to_string();
             }
+            if let Some(check) = checkpoint.as_deref_mut()
+                && let Err(error) = check()
+            {
+                return envelope_checkpoint_error(error, id);
+            }
+        }
+        if certification {
             if self
                 .budget
                 .try_charge_batch(&[
@@ -1293,14 +1365,35 @@ impl Session {
                 }
                 return response.to_string();
             }
-            let result = crate::certification_session::decode_request(line)
-                .and_then(|request| self.certification_request(request));
+            if let Some(check) = checkpoint.as_deref_mut()
+                && let Err(error) = check()
+            {
+                return envelope_checkpoint_error(error, id);
+            }
+            let result = crate::certification_session::decode_request(line).and_then(|request| {
+                if let Some(check) = checkpoint.as_deref_mut() {
+                    check()?;
+                    self.certification_request_with_checkpoint(request, check)
+                } else {
+                    self.certification_request(request)
+                }
+            });
             let mut response = match result {
                 Ok(result) => serde_json::json!({ "status": "success", "result": result }),
                 Err(error) => serde_json::json!({
                     "status": "error", "code": error.code(), "error": error.to_string(),
                 }),
             };
+            if let Some(id) = id {
+                response["id"] = id;
+            }
+            return response.to_string();
+        }
+        if checkpoint.is_some() {
+            let mut response = serde_json::json!({
+                "status": "error", "code": "unsupported_operation",
+                "error": "host-supervised envelopes require a certification operation",
+            });
             if let Some(id) = id {
                 response["id"] = id;
             }
