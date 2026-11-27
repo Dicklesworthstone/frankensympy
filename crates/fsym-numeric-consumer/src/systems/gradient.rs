@@ -263,4 +263,34 @@ mod tests {
         assert_eq!(gradient, [7.0, 1.0, 0.0, 0.0]);
         assert_eq!(gradient[3].to_bits(), 0);
     }
+
+    #[test]
+    fn cancelled_large_products_preserve_single_rounding_across_binary64() {
+        // The two extreme products cancel exactly. A single hardware
+        // multiplication independently supplies the required rounded result.
+        let mut state = 0x6a09_e667_f3bc_c909_u64;
+        let mut sample = || {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            // Keep the sign and significand; fold the nonfinite exponent to
+            // the largest finite exponent without narrowing the other cases.
+            let bits = if state & f64::INFINITY.to_bits() == f64::INFINITY.to_bits() {
+                state ^ (1_u64 << 52)
+            } else {
+                state
+            };
+            f64::from_bits(bits)
+        };
+        for _ in 0..1024 {
+            let a = sample();
+            let b = sample();
+            let expected = a * b;
+            let found = sum(&[(f64::MAX, f64::MAX), (a, b), (-f64::MAX, f64::MAX)]);
+            if expected.is_finite() {
+                let expected = if a == 0.0 || b == 0.0 { 0.0 } else { expected };
+                assert_eq!(found.unwrap().to_bits(), expected.to_bits());
+            } else {
+                assert!(found.is_err());
+            }
+        }
+    }
 }
