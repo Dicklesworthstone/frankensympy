@@ -14,8 +14,8 @@
 //!    polynomial to a univariate one; its irreducible factors are
 //!    recombined and every candidate is mapped back and accepted only after
 //!    exact multivariate division of the remaining polynomial. If the
-//!    mixed-radix image exceeds the degree limit, independent coordinate
-//!    factors can instead be identified exactly on the sparse coefficients.
+//!    mixed-radix image exceeds the degree limit, independent groups of coordinates
+//!    can instead be identified exactly on the sparse coefficients.
 //!
 //! Every accepted factor is therefore an exact divisor, and the product of
 //! the result is re-checked against the input before returning. Inputs
@@ -34,6 +34,11 @@ use std::collections::BTreeMap;
 
 /// Recombination budget: the number of candidate subsets examined.
 const MAX_RECOMBINATIONS: usize = 1 << 14;
+/// Non-singleton partitions are tried in rings with four to eight active variables.
+const MAX_PARTITION_AXES: usize = 8;
+/// Shared by all recursive branches. Each candidate prepays one support scan
+/// and at most one exact coefficient-table check per source term.
+const MAX_PARTITION_TERM_VISITS: usize = 262_144;
 
 /// `scale * prod(factor ^ multiplicity)`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -173,7 +178,10 @@ fn factor_univariate_in_ring(
 }
 
 /// Factors of a primitive polynomial without monomial content.
-fn factor_core(p: &MultivariatePoly) -> Result<Vec<(MultivariatePoly, usize)>, PolyError> {
+fn factor_core(
+    p: &MultivariatePoly,
+    partition_work: &mut usize,
+) -> Result<Vec<(MultivariatePoly, usize)>, PolyError> {
     let present = present_vars(p);
     match present.len() {
         0 => return Ok(Vec::new()),
@@ -207,9 +215,13 @@ fn factor_core(p: &MultivariatePoly) -> Result<Vec<(MultivariatePoly, usize)>, P
         }
     }
     if is_homogeneous(p) {
-        return factor_homogeneous(p, *present.last().expect("two or more variables"));
+        return factor_homogeneous(
+            p,
+            *present.last().expect("two or more variables"),
+            partition_work,
+        );
     }
-    factor_kronecker(p, &present)
+    factor_kronecker(p, &present, partition_work)
 }
 
 /// In QQ[u][v], the only factors of a*v+b independent of v divide both
@@ -262,6 +274,7 @@ fn factor_bivariate_affine(
 fn factor_homogeneous(
     p: &MultivariatePoly,
     v: usize,
+    partition_work: &mut usize,
 ) -> Result<Vec<(MultivariatePoly, usize)>, PolyError> {
     let mut terms = BTreeMap::new();
     for (e, c) in &p.terms {
@@ -272,7 +285,7 @@ fn factor_homogeneous(
     let dehom = MultivariatePoly::new(p.generators.clone(), terms)?;
     let (_, dehom) = primitive(&dehom)?;
     let mut out = Vec::new();
-    for (f, m) in factor_core(&dehom)? {
+    for (f, m) in factor_core(&dehom, partition_work)? {
         let d = f
             .terms
             .keys()
@@ -304,13 +317,72 @@ fn decode(mut k: u64, present: &[usize], radix: &[u64], width: usize) -> Vec<u32
     e
 }
 
-/// Split p(u, v...) = g(u) * h(v...) up to a rational unit. The
-/// coefficient array across this partition must have rank one, including
-/// every implicit zero. Check both the entire rectangular support and all
-/// cross products against a nonzero pivot before recursing on either side.
-fn factor_separated_coordinate(
+type CoefficientFiber<'a> = Vec<(&'a Vec<u32>, &'a BigRational)>;
+
+/// Confirm rank one for the proposed partition, including every implicit
+/// zero. The pivot row and column have unique projections. Their Cartesian
+/// size must equal the support size, and every crossed entry must exist
+/// with p[i,j]*p[pivot] == p[i,pivot]*p[pivot,j].
+fn split_fibers(
+    p: &MultivariatePoly,
+    axes: &[usize],
+    pivot_value: &BigRational,
+    row: CoefficientFiber<'_>,
+    column: CoefficientFiber<'_>,
+) -> Result<Option<(MultivariatePoly, MultivariatePoly)>, PolyError> {
+    if row.len() < 2
+        || column.len() < 2
+        || row.len().checked_mul(column.len()) != Some(p.terms.len())
+    {
+        return Ok(None);
+    }
+    for &(other, b) in &column {
+        let mut exponent = other.clone();
+        for &(entry, a) in &row {
+            for &axis in axes {
+                exponent[axis] = entry[axis];
+            }
+            if !p
+                .terms
+                .get(&exponent)
+                .is_some_and(|value| value * pivot_value == a * b)
+            {
+                return Ok(None);
+            }
+        }
+    }
+    let left = row
+        .into_iter()
+        .map(|(e, c)| {
+            let mut powers = vec![0; p.generators.len()];
+            for &axis in axes {
+                powers[axis] = e[axis];
+            }
+            (powers, c.clone())
+        })
+        .collect();
+    let right = column
+        .into_iter()
+        .map(|(e, c)| {
+            let mut powers = e.clone();
+            for &axis in axes {
+                powers[axis] = 0;
+            }
+            (powers, c.clone())
+        })
+        .collect();
+    let (_, left) = primitive(&MultivariatePoly::new(p.generators.clone(), left)?)?;
+    let (_, right) = primitive(&MultivariatePoly::new(p.generators.clone(), right)?)?;
+    Ok(Some((left, right)))
+}
+
+/// Extract independent QQ factors on disjoint coordinates. The singleton lane
+/// keeps its original selection order and bounds for every ring size. Only
+/// when it cannot split an oversized image do we search non-singleton groups.
+fn factor_separated_coordinates(
     p: &MultivariatePoly,
     present: &[usize],
+    partition_work: &mut usize,
 ) -> Result<Option<Vec<(MultivariatePoly, usize)>>, PolyError> {
     if p.terms
         .values()
@@ -325,58 +397,64 @@ fn factor_separated_coordinate(
         if p.degree_in(axis) > crate::factorization::MAX_FACTOR_DEGREE as u32 {
             continue;
         }
-        let row: Vec<_> = p
+        let row = p
             .terms
             .iter()
             .filter(|(e, _)| e[..axis] == pivot[..axis] && e[axis + 1..] == pivot[axis + 1..])
             .collect();
-        let column: Vec<_> = p
+        let column = p
             .terms
             .iter()
             .filter(|(e, _)| e[axis] == pivot[axis])
             .collect();
-        if row.len() < 2 || column.len() < 2 || row.len() * column.len() != p.terms.len() {
+        if let Some((coordinate, complement)) = split_fibers(p, &[axis], pivot_value, row, column)?
+        {
+            let mut factors = factor_univariate(&coordinate, axis)?;
+            factors.extend(factor_core(&complement, partition_work)?);
+            return Ok(Some(factors));
+        }
+    }
+    if !(4..=MAX_PARTITION_AXES).contains(&present.len()) {
+        return Ok(None);
+    }
+    // Keep the first active coordinate on the left so a partition and its
+    // complement are examined exactly once, regardless of ambient order.
+    for mask in (1usize..(1 << present.len())).step_by(2) {
+        let count = mask.count_ones() as usize;
+        if count < 2 || present.len() - count < 2 {
             continue;
         }
-        let separates = column.iter().all(|&(other, b)| {
-            let mut exponent = other.clone();
-            row.iter().all(|&(entry, a)| {
-                exponent[axis] = entry[axis];
-                p.terms
-                    .get(&exponent)
-                    .is_some_and(|value| value * pivot_value == a * b)
-            })
-        });
-        if !separates {
-            continue;
+        *partition_work = partition_work
+            .checked_sub(2 * p.terms.len())
+            .ok_or_else(|| {
+                PolyError::General(
+                    "refused: coordinate partition term-work budget exhausted".into(),
+                )
+            })?;
+        let mut left_axes = Vec::with_capacity(count);
+        let mut right_axes = Vec::with_capacity(present.len() - count);
+        for (bit, &axis) in present.iter().enumerate() {
+            if mask & (1 << bit) == 0 {
+                right_axes.push(axis);
+            } else {
+                left_axes.push(axis);
+            }
         }
-        let coordinate_terms = row
-            .into_iter()
-            .map(|(e, c)| {
-                let mut powers = vec![0; p.generators.len()];
-                powers[axis] = e[axis];
-                (powers, c.clone())
-            })
-            .collect();
-        let complement_terms = column
-            .into_iter()
-            .map(|(e, c)| {
-                let mut powers = e.clone();
-                powers[axis] = 0;
-                (powers, c.clone())
-            })
-            .collect();
-        let (_, coordinate) = primitive(&MultivariatePoly::new(
-            p.generators.clone(),
-            coordinate_terms,
-        )?)?;
-        let (_, complement) = primitive(&MultivariatePoly::new(
-            p.generators.clone(),
-            complement_terms,
-        )?)?;
-        let mut factors = factor_univariate(&coordinate, axis)?;
-        factors.extend(factor_core(&complement)?);
-        return Ok(Some(factors));
+        let mut row = Vec::new();
+        let mut column = Vec::new();
+        for (e, c) in &p.terms {
+            if right_axes.iter().all(|&i| e[i] == pivot[i]) {
+                row.push((e, c));
+            }
+            if left_axes.iter().all(|&i| e[i] == pivot[i]) {
+                column.push((e, c));
+            }
+        }
+        if let Some((left, right)) = split_fibers(p, &left_axes, pivot_value, row, column)? {
+            let mut factors = factor_core(&left, partition_work)?;
+            factors.extend(factor_core(&right, partition_work)?);
+            return Ok(Some(factors));
+        }
     }
     Ok(None)
 }
@@ -384,6 +462,7 @@ fn factor_separated_coordinate(
 fn factor_kronecker(
     p: &MultivariatePoly,
     present: &[usize],
+    partition_work: &mut usize,
 ) -> Result<Vec<(MultivariatePoly, usize)>, PolyError> {
     let width = p.generators.len();
     let radix: Vec<u64> = present
@@ -395,7 +474,7 @@ fn factor_kronecker(
     for r in &radix {
         weights.push(w);
         let Some(next) = w.checked_mul(*r) else {
-            return factor_separated_coordinate(p, present)?.ok_or_else(|| {
+            return factor_separated_coordinates(p, present, partition_work)?.ok_or_else(|| {
                 PolyError::General("refused: Kronecker weight overflow".to_string())
             });
         };
@@ -413,7 +492,7 @@ fn factor_kronecker(
     };
     let image_degree = p.terms.keys().map(|e| encode(e)).max().unwrap_or(0);
     if image_degree > crate::factorization::MAX_FACTOR_DEGREE as u64 {
-        return factor_separated_coordinate(p, present)?.ok_or_else(|| PolyError::General(format!(
+        return factor_separated_coordinates(p, present, partition_work)?.ok_or_else(|| PolyError::General(format!(
             "refused: Kronecker image degree {image_degree} exceeds the complete-factorization bound"
         )));
     }
@@ -547,7 +626,8 @@ pub fn factor_multivariate(p: &MultivariatePoly) -> Result<MultivariateFactoriza
             factors.push((variable(p, i)?, m as usize));
         }
     }
-    for (f, m) in factor_core(&rest)? {
+    let mut partition_work = MAX_PARTITION_TERM_VISITS;
+    for (f, m) in factor_core(&rest, &mut partition_work)? {
         if let Some(existing) = factors.iter_mut().find(|(g, _)| *g == f) {
             existing.1 += m;
         } else {
@@ -679,9 +759,10 @@ mod tests {
         // exhaust the recombination budget before admitting the remainder.
         let gens = ["x", "unused", "y"];
         let input = poly("(x + 1)*(x**31 + y)", &gens);
+        let mut work = MAX_PARTITION_TERM_VISITS;
         let found = MultivariateFactorization {
             scale: BigRational::one(),
-            factors: factor_kronecker(&input, &[0, 2]).expect("sparse image factors"),
+            factors: factor_kronecker(&input, &[0, 2], &mut work).expect("sparse image factors"),
         };
         assert_eq!(found.scale, BigRational::one());
         assert_eq!(found.factors.len(), 2);
@@ -731,7 +812,8 @@ mod tests {
     fn genuine_image_and_univariate_degree_limits_still_refuse() {
         let gens = ["x", "y"];
         let oversized = poly("x**32*y + x + 1", &gens);
-        assert!(factor_kronecker(&oversized, &[0, 1]).is_err());
+        let mut work = MAX_PARTITION_TERM_VISITS;
+        assert!(factor_kronecker(&oversized, &[0, 1], &mut work).is_err());
         let enormous = MultivariatePoly::new(
             vec![Symbol::new("x")],
             [
@@ -787,6 +869,76 @@ mod tests {
     }
 
     #[test]
+    fn factors_disjoint_multivariate_blocks_in_interleaved_ambient_axes() {
+        for gens in [
+            ["x", "z", "y", "unused", "w"],
+            ["w", "x", "unused", "y", "z"],
+        ] {
+            let p = poly("(1+x**2*y**2)*(1+z**2*w**2)", &gens);
+            let found = factor_multivariate(&p).unwrap();
+            assert_eq!(found.scale, BigRational::one());
+            assert_eq!(found.factors.len(), 2);
+            for factor in ["1+x**2*y**2", "1+z**2*w**2"] {
+                assert!(found.factors.contains(&(poly(factor, &gens), 1)));
+            }
+            verify_multivariate_factorization(&p, &found).unwrap();
+        }
+    }
+
+    #[test]
+    fn grouped_factors_keep_rational_scale_multiplicity_and_nested_splits() {
+        let gens = ["z", "y", "w", "x", "v", "u"];
+        let p = poly("(-5/7)*(1+x*y)**3*(1+z*w)**2*(1+u**2*v**2)", &gens);
+        let found = factor_multivariate(&p).unwrap();
+        assert_eq!(found.scale, BigRational::new((-5).into(), 7.into()));
+        assert_eq!(found.factors.len(), 3);
+        for (expr, m) in [("1+x*y", 3), ("1+z*w", 2), ("1+u**2*v**2", 1)] {
+            assert!(found.factors.contains(&(poly(expr, &gens), m)));
+        }
+        verify_multivariate_factorization(&p, &found).unwrap();
+    }
+
+    #[test]
+    fn grouped_split_checks_missing_support_and_coefficients_outside_pivot() {
+        let gens = ["x", "z", "y", "w"];
+        for src in [
+            "1+x**2*y**2+x**2*y**2*z**2*w**2",
+            "1+x**2*y**2+z**2*w**2+2*x**2*y**2*z**2*w**2",
+        ] {
+            let p = poly(src, &gens);
+            let mut work = MAX_PARTITION_TERM_VISITS;
+            assert!(
+                factor_separated_coordinates(&p, &[0, 1, 2, 3], &mut work)
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(factor_multivariate(&p).is_err());
+        }
+    }
+
+    #[test]
+    fn grouped_partition_allowance_is_shared_and_refuses_before_publication() {
+        let gens = ["x", "z", "u", "y", "w", "v"];
+        let p = poly("(1+x**2*y**2)*(1+z**2*w**2)*(1+u**2*v**2)", &gens);
+        let mut full = MAX_PARTITION_TERM_VISITS;
+        let expected = factor_core(&p, &mut full).unwrap();
+        let cost = MAX_PARTITION_TERM_VISITS - full;
+        assert!(cost > 2 * p.terms.len());
+        let mut exact = cost;
+        assert_eq!(factor_core(&p, &mut exact).unwrap(), expected);
+        assert_eq!(exact, 0);
+        let mut short = cost - 1;
+        let err = factor_core(&p, &mut short).unwrap_err();
+        assert!(err.to_string().contains("partition term-work"));
+        let mut singleton_work = 0;
+        let singleton = poly("(1+x**2)*(1+y**2)*(1+z**2)*(1+w**2)", &gens);
+        assert_eq!(
+            factor_core(&singleton, &mut singleton_work).unwrap().len(),
+            4
+        );
+    }
+
+    #[test]
     fn sparse_separation_checks_nonpivot_coefficients_and_missing_monomials() {
         let gens = ["x", "y"];
         for source in [
@@ -795,7 +947,12 @@ mod tests {
             "x**20*y**20+x**20+y**20",
         ] {
             let p = poly(source, &gens);
-            assert!(factor_separated_coordinate(&p, &[0, 1]).unwrap().is_none());
+            let mut work = MAX_PARTITION_TERM_VISITS;
+            assert!(
+                factor_separated_coordinates(&p, &[0, 1], &mut work)
+                    .unwrap()
+                    .is_none()
+            );
             assert!(factor_multivariate(&p).is_err());
         }
     }
