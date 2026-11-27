@@ -105,6 +105,83 @@ impl ComplexBall {
         finish(real, if cosine { imag.neg() } else { imag })
     }
 
+    /// Enclose cot(z) = cos(z) / sin(z) over the complete rectangle.
+    ///
+    /// A sine enclosure containing zero refuses, including possible poles.
+    /// Input variation is retained; precision and intrinsic arithmetic bounds
+    /// match [Self::exp]. This is a value enclosure, not a pole-isolation proof.
+    pub fn cot(&self, precision_digits: u32) -> Result<Self, BallError> {
+        preflight(self, precision_digits, "ComplexBall cotangent composition")?;
+        let sine = self.sin(precision_digits)?;
+        let cosine = self.cos(precision_digits)?;
+        reciprocal_quotient(&cosine, &sine)
+    }
+
+    /// Enclose sec(z) = 1 / cos(z) over the complete rectangle.
+    ///
+    /// The cosine enclosure must exclude zero. Bounds and precision match
+    /// [Self::cot]; no midpoint selects a side of a possible pole.
+    pub fn sec(&self, precision_digits: u32) -> Result<Self, BallError> {
+        preflight(self, precision_digits, "ComplexBall secant composition")?;
+        let cosine = self.cos(precision_digits)?;
+        reciprocal_quotient(&Self::from_i64(1), &cosine)
+    }
+
+    /// Enclose csc(z) = 1 / sin(z) over the complete rectangle.
+    ///
+    /// The sine enclosure must exclude zero. Bounds and precision match
+    /// [Self::cot], including exact-zero and uncertain-denominator refusals.
+    pub fn csc(&self, precision_digits: u32) -> Result<Self, BallError> {
+        preflight(self, precision_digits, "ComplexBall cosecant composition")?;
+        let sine = self.sin(precision_digits)?;
+        reciprocal_quotient(&Self::from_i64(1), &sine)
+    }
+
+    /// Enclose coth(z) = i * cot(i*z) over the complete rectangle.
+    ///
+    /// Exact quarter turns preserve real and imaginary axes structurally;
+    /// no cancellation of separately enclosed exponentials establishes zero.
+    /// Possible denominator zeros refuse under the bounds of [Self::cot].
+    pub fn coth(&self, precision_digits: u32) -> Result<Self, BallError> {
+        preflight(
+            self,
+            precision_digits,
+            "ComplexBall hyperbolic cotangent composition",
+        )?;
+        let rotated = Self::new(self.imag().neg(), self.real().clone());
+        let value = rotated.cot(precision_digits)?;
+        finish(value.imag.neg(), value.real)
+    }
+
+    /// Enclose sech(z) = sec(i*z) over the complete rectangle.
+    ///
+    /// Exact axis components remain exact. A cosine enclosure containing
+    /// zero refuses; precision and intrinsic bounds match [Self::sec].
+    pub fn sech(&self, precision_digits: u32) -> Result<Self, BallError> {
+        preflight(
+            self,
+            precision_digits,
+            "ComplexBall hyperbolic secant composition",
+        )?;
+        let rotated = Self::new(self.imag().neg(), self.real().clone());
+        rotated.sec(precision_digits)
+    }
+
+    /// Enclose csch(z) = i * csc(i*z) over the complete rectangle.
+    ///
+    /// Exact quarter turns retain the complete input and preserve zero axis
+    /// components without chopping. Possible poles refuse as in [Self::csc].
+    pub fn csch(&self, precision_digits: u32) -> Result<Self, BallError> {
+        preflight(
+            self,
+            precision_digits,
+            "ComplexBall hyperbolic cosecant composition",
+        )?;
+        let rotated = Self::new(self.imag().neg(), self.real().clone());
+        let value = rotated.csc(precision_digits)?;
+        finish(value.imag.neg(), value.real)
+    }
+
     /// Enclose the principal power `z^w = exp(w * Log(z))` over both complete
     /// input rectangles, using the logarithm branch with argument in (-pi, pi].
     ///
@@ -262,6 +339,42 @@ impl ComplexBall {
         };
         finish(real, imag)
     }
+}
+
+/// Use exact axis algebra before introducing squared-modulus denominators.
+/// The zero component must be a singleton, never merely contain zero. These
+/// two component products need no complex squared modulus or its larger
+/// denominator products; their reciprocal/endpoint/radius work is preflighted
+/// before construction. A zero denominator still reaches the real pole check.
+fn reciprocal_quotient(
+    numerator: &ComplexBall,
+    denominator: &ComplexBall,
+) -> Result<ComplexBall, BallError> {
+    let exact_zero = |value: &RealBall| value.midpoint().is_zero() && value.radius().is_zero();
+    if exact_zero(denominator.imag()) || exact_zero(denominator.real()) {
+        checked_work_bits(
+            "ComplexBall axis reciprocal",
+            [numerator
+                .power_height()
+                .saturating_add(denominator.power_height())
+                .saturating_add(2)
+                .saturating_mul(64)],
+        )?;
+        if exact_zero(denominator.imag()) {
+            let inverse = denominator.real().inv()?;
+            return finish(
+                numerator.real().mul(&inverse),
+                numerator.imag().mul(&inverse),
+            );
+        }
+        let inverse = denominator.imag().inv()?;
+        return finish(
+            numerator.imag().mul(&inverse),
+            numerator.real().mul(&inverse).neg(),
+        );
+    }
+    let value = numerator.checked_div(denominator)?;
+    finish(value.real, value.imag)
 }
 
 /// RealBall::exp retains its absolute output-radius contract. Its monotone
