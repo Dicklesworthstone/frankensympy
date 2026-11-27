@@ -315,7 +315,9 @@ impl BigRational {
         &self,
         meter: &mut M,
     ) -> Result<Option<f64>, MeterError> {
-        metered_rational_to_f64(self, &mut FloatConversionMeter(meter))
+        let bits =
+            metered_rational_to_bits(self, BinaryFormat::F64, &mut FloatConversionMeter(meter))?;
+        Ok(bits.map(f64::from_bits))
     }
 
     /// Returns the tightest pair of binary64 endpoints enclosing this exact rational.
@@ -347,12 +349,49 @@ impl BigRational {
         &self,
         meter: &mut M,
     ) -> Result<Option<(f64, f64)>, MeterError> {
-        metered_rational_to_f64_bounds(self, &mut FloatConversionMeter(meter))
+        let bounds =
+            metered_rational_to_bounds(self, BinaryFormat::F64, &mut FloatConversionMeter(meter))?;
+        Ok(bounds.map(|(lo, hi)| (f64::from_bits(lo), f64::from_bits(hi))))
     }
 
     /// Converts this rational to binary32 with round-to-nearest, ties-to-even.
     pub fn to_f32(&self) -> Option<f32> {
         rational_to_f32(self)
+    }
+
+    /// Round directly to binary32 (nearest, ties to even) under one cumulative meter.
+    ///
+    /// The quotient and remainder are formed at binary32 precision. This avoids
+    /// double rounding at a binary32 midpoint, including the underflow boundary.
+    /// Representation refusal, cancellation and exhaustion match [`Self::metered_to_f64`].
+    pub fn metered_to_f32<M: BudgetMeter + ?Sized>(
+        &self,
+        meter: &mut M,
+    ) -> Result<Option<f32>, MeterError> {
+        let bits =
+            metered_rational_to_bits(self, BinaryFormat::F32, &mut FloatConversionMeter(meter))?;
+        Ok(bits.map(|bits| f32::from_bits(bits as u32)))
+    }
+
+    /// Return the tightest binary32 enclosure, using an unbounded meter.
+    pub fn to_f32_bounds(&self) -> Option<(f32, f32)> {
+        self.metered_to_f32_bounds(&mut Unbounded)
+            .expect("an unbounded meter cannot refuse or cancel")
+    }
+
+    /// Return the tightest binary32 enclosure under the caller's cumulative meter.
+    ///
+    /// A finite representable rational yields equal endpoints. Every other result
+    /// consists of neighboring binary32 values. Overflow brackets with infinity and
+    /// underflow brackets with the source's signed zero. Exact zero is positive.
+    /// Both endpoints share the final cancellation checkpoint.
+    pub fn metered_to_f32_bounds<M: BudgetMeter + ?Sized>(
+        &self,
+        meter: &mut M,
+    ) -> Result<Option<(f32, f32)>, MeterError> {
+        let bounds =
+            metered_rational_to_bounds(self, BinaryFormat::F32, &mut FloatConversionMeter(meter))?;
+        Ok(bounds.map(|(lo, hi)| (f32::from_bits(lo as u32), f32::from_bits(hi as u32))))
     }
 
     /// If this rational is non-negative and both its numerator and denominator are perfect squares,
@@ -1417,37 +1456,64 @@ fn metered_rounded_binary_quotient<M: BudgetMeter>(
     float_conversion_finish(result, meter)
 }
 
-fn metered_rational_to_f64<M: BudgetMeter>(
+// The sign, exponent and fraction are kept in a u64 for both IEEE formats.
+// All operations on binary32 bit patterns remain within its low 32 bits.
+#[derive(Clone, Copy)]
+struct BinaryFormat {
+    fraction_bits: u32,
+    exponent_bits: u32,
+}
+
+impl BinaryFormat {
+    const F32: Self = Self {
+        fraction_bits: 23,
+        exponent_bits: 8,
+    };
+    const F64: Self = Self {
+        fraction_bits: 52,
+        exponent_bits: 11,
+    };
+
+    fn sign_bit(self) -> u64 {
+        1 << (self.fraction_bits + self.exponent_bits)
+    }
+
+    fn infinity(self) -> u64 {
+        ((1u64 << self.exponent_bits) - 1) << self.fraction_bits
+    }
+
+    fn bias(self) -> i32 {
+        (1 << (self.exponent_bits - 1)) - 1
+    }
+}
+
+fn metered_rational_to_bits<M: BudgetMeter>(
     value: &BigRational,
+    format: BinaryFormat,
     meter: &mut M,
-) -> Result<Option<f64>, MeterError> {
-    const FRACTION_BITS: u64 = 52;
-    const SIGNIFICAND_FLOOR: u64 = 1u64 << FRACTION_BITS;
-    const SIGNIFICAND_CARRY: u64 = SIGNIFICAND_FLOOR << 1;
-    const MAX_NORMAL_EXPONENT: i128 = 1023;
-    const MIN_NORMAL_EXPONENT: i128 = -1022;
-    const HALF_MIN_SUBNORMAL_EXPONENT: i128 = -1075;
-    const EXPONENT_BIAS: i128 = 1023;
-    const SIGN_BIT: u64 = 1u64 << 63;
-    const INFINITY_BITS: u64 = 0x7ff0_0000_0000_0000;
+) -> Result<Option<u64>, MeterError> {
+    let significand_floor = 1u64 << format.fraction_bits;
+    let significand_carry = significand_floor << 1;
+    let bias = format.bias();
+    let subnormal_shift = bias - 1 + format.fraction_bits as i32;
 
     meter.checkpoint()?;
     meter.charge(Dimension::ComputeSteps, 1)?;
     let sign = if value.numer().is_negative() {
-        SIGN_BIT
+        format.sign_bit()
     } else {
         0
     };
     if value.numer().is_zero() {
-        return float_conversion_finish(Some(0.0), meter);
+        return float_conversion_finish(Some(0), meter);
     }
     let denominator = value.denom();
     let mut exponent = i128::from(value.numer().bits()) - i128::from(denominator.bits());
-    if exponent > MAX_NORMAL_EXPONENT + 1 {
-        return float_conversion_finish(Some(f64::from_bits(INFINITY_BITS | sign)), meter);
+    if exponent > i128::from(bias) + 1 {
+        return float_conversion_finish(Some(format.infinity() | sign), meter);
     }
-    if exponent < HALF_MIN_SUBNORMAL_EXPONENT {
-        return float_conversion_finish(Some(f64::from_bits(sign)), meter);
+    if exponent < i128::from(-subnormal_shift - 1) {
+        return float_conversion_finish(Some(sign), meter);
     }
 
     let magnitude_storage;
@@ -1480,22 +1546,22 @@ fn metered_rational_to_f64<M: BudgetMeter>(
         exponent -= 1;
     }
 
-    let magnitude_bits = if exponent > MAX_NORMAL_EXPONENT {
-        INFINITY_BITS
-    } else if exponent < HALF_MIN_SUBNORMAL_EXPONENT {
+    let magnitude_bits = if exponent > i128::from(bias) {
+        format.infinity()
+    } else if exponent < i128::from(-subnormal_shift - 1) {
         0
-    } else if exponent < MIN_NORMAL_EXPONENT {
+    } else if exponent < i128::from(1 - bias) {
         let Some(significand) =
-            metered_rounded_binary_quotient(numerator, denominator, 1074, meter)?
+            metered_rounded_binary_quotient(numerator, denominator, subnormal_shift, meter)?
         else {
             return float_conversion_finish(None, meter);
         };
-        if significand > SIGNIFICAND_FLOOR {
+        if significand > significand_floor {
             return float_conversion_finish(None, meter);
         }
         significand
     } else {
-        let Ok(binary_shift) = i32::try_from(i128::from(FRACTION_BITS) - exponent) else {
+        let Ok(binary_shift) = i32::try_from(i128::from(format.fraction_bits) - exponent) else {
             return float_conversion_finish(None, meter);
         };
         let Some(mut significand) =
@@ -1503,75 +1569,77 @@ fn metered_rational_to_f64<M: BudgetMeter>(
         else {
             return float_conversion_finish(None, meter);
         };
-        if significand == SIGNIFICAND_CARRY {
-            significand = SIGNIFICAND_FLOOR;
+        if significand == significand_carry {
+            significand = significand_floor;
             exponent += 1;
         }
-        if exponent > MAX_NORMAL_EXPONENT {
-            INFINITY_BITS
+        if exponent > i128::from(bias) {
+            format.infinity()
         } else {
-            if !(SIGNIFICAND_FLOOR..SIGNIFICAND_CARRY).contains(&significand) {
+            if !(significand_floor..significand_carry).contains(&significand) {
                 return float_conversion_finish(None, meter);
             }
-            let Ok(biased_exponent) = u64::try_from(exponent + EXPONENT_BIAS) else {
+            let Ok(biased_exponent) = u64::try_from(exponent + i128::from(bias)) else {
                 return float_conversion_finish(None, meter);
             };
-            (biased_exponent << FRACTION_BITS) | (significand - SIGNIFICAND_FLOOR)
+            (biased_exponent << format.fraction_bits) | (significand - significand_floor)
         }
     };
-    float_conversion_finish(Some(f64::from_bits(magnitude_bits | sign)), meter)
+    float_conversion_finish(Some(magnitude_bits | sign), meter)
 }
 
-fn metered_rational_to_f64_bounds<M: BudgetMeter>(
+fn metered_rational_to_bounds<M: BudgetMeter>(
     value: &BigRational,
+    format: BinaryFormat,
     meter: &mut M,
-) -> Result<Option<(f64, f64)>, MeterError> {
-    let Some(nearest) = metered_rational_to_f64(value, meter)? else {
+) -> Result<Option<(u64, u64)>, MeterError> {
+    let Some(bits) = metered_rational_to_bits(value, format, meter)? else {
         return float_conversion_finish(None, meter);
     };
     meter.checkpoint()?;
     meter.charge(Dimension::ComputeSteps, 1)?;
 
-    let bounds = if nearest.is_nan() {
-        // Canonical rational conversion cannot produce NaN. Retain a fail-closed boundary if
-        // that invariant is ever broken instead of publishing an unordered interval.
+    let sign = bits & format.sign_bit();
+    let magnitude = bits ^ sign;
+    let infinity = format.infinity();
+    // Construct adjacent magnitude encodings first. Reversing the pair for
+    // negative inputs handles both zero signs and infinities without integer
+    // underflow at zero or overflowing a signed float encoding.
+    let (low, high) = if magnitude > infinity {
         return float_conversion_finish(None, meter);
-    } else if nearest.is_infinite() {
-        if nearest.is_sign_negative() {
-            (f64::NEG_INFINITY, -f64::MAX)
-        } else {
-            (f64::MAX, f64::INFINITY)
-        }
-    } else if nearest == 0.0 {
-        // These height-classified terminal cases need no coefficient copy or dyadic expansion.
-        // A rational has no signed zero, but a nonzero underflow retains the input sign.
-        if value.numer().is_zero() {
-            (0.0, 0.0)
-        } else if value.numer().is_negative() {
-            (-f64::from_bits(1), -0.0)
-        } else {
-            (0.0, f64::from_bits(1))
-        }
+    } else if magnitude == infinity {
+        (infinity - 1, infinity)
+    } else if magnitude == 0 {
+        (0, u64::from(!value.numer().is_zero()))
     } else {
-        let Some(ordering) = metered_compare_rational_to_finite_float(value, nearest, meter)?
+        let Some(ordering) = metered_compare_rational_to_finite_float(value, bits, format, meter)?
         else {
             return float_conversion_finish(None, meter);
         };
-        match ordering {
-            Ordering::Less => (nearest.next_down(), nearest),
-            Ordering::Equal => (nearest, nearest),
-            Ordering::Greater => (nearest, nearest.next_up()),
+        let magnitude_order = if sign != 0 {
+            ordering.reverse()
+        } else {
+            ordering
+        };
+        match magnitude_order {
+            Ordering::Less => (magnitude - 1, magnitude),
+            Ordering::Equal => (magnitude, magnitude),
+            Ordering::Greater => (magnitude, magnitude + 1),
         }
+    };
+    let bounds = if sign != 0 {
+        (sign | high, sign | low)
+    } else {
+        (low, high)
     };
     float_conversion_finish(Some(bounds), meter)
 }
 
-/// Compares n/d with the exact dyadic significand * 2^exponent of a finite, nonzero float.
-/// The caller has already excluded zeros and infinities; both integer coefficients retain
-/// their signs, so the same cross-product comparison handles positive and negative values.
+/// Compares n/d with the exact signed dyadic represented by finite, nonzero bits.
 fn metered_compare_rational_to_finite_float<M: BudgetMeter>(
     value: &BigRational,
-    float: f64,
+    bits: u64,
+    format: BinaryFormat,
     meter: &mut M,
 ) -> Result<Option<Ordering>, MeterError> {
     meter.checkpoint()?;
@@ -1580,16 +1648,17 @@ fn metered_compare_rational_to_finite_float<M: BudgetMeter>(
         (Dimension::MemoryBytes, 8),
         (Dimension::AllocationCount, 1),
     ])?;
-    let bits = float.to_bits();
-    let fraction = bits & ((1u64 << 52) - 1);
-    let biased_exponent = ((bits >> 52) & 0x7ff) as i32;
-    let (significand, exponent) = if biased_exponent == 0 {
-        (fraction, -1074)
+    let implicit_bit = 1u64 << format.fraction_bits;
+    let fraction = bits & (implicit_bit - 1);
+    let biased_exponent = ((bits & format.infinity()) >> format.fraction_bits) as i32;
+    let significand = if biased_exponent == 0 {
+        fraction
     } else {
-        (fraction | (1u64 << 52), biased_exponent - 1075)
+        fraction | implicit_bit
     };
-    // A binary64 significand has at most 53 bits and therefore fits a signed i64 exactly.
-    let signed_significand = if float.is_sign_negative() {
+    let exponent = biased_exponent.max(1) - format.bias() - format.fraction_bits as i32;
+    // Both admitted IEEE formats have at most 53 significand bits.
+    let signed_significand = if bits & format.sign_bit() != 0 {
         -(significand as i64)
     } else {
         significand as i64

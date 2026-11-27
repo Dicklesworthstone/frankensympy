@@ -1,4 +1,4 @@
-//! Tight IEEE binary64 enclosures of exact rationals, including operational refusal.
+//! Tight IEEE binary64 and binary32 enclosures of exact rationals, including operational refusal.
 //!
 //! Expected intervals come from exact dyadic endpoints and rational interpolation. The oracle
 //! neither calls a float conversion to construct an expected endpoint nor samples an epsilon.
@@ -389,4 +389,100 @@ fn height_only_terminal_cases_allocate_nothing_and_still_check_publication() {
             );
         }
     }
+}
+
+// Binary32 endpoints widen exactly to binary64. Decode those known endpoints
+// as dyadics; neither rational conversion supplies the reference result.
+fn binary32_cell(value: &BigRational, nearest: u32, lower: u32, upper: u32) {
+    let sign = 1u32 << 31;
+    for (source, n, lo, hi) in [
+        (value.clone(), nearest, lower, upper),
+        (-value, sign | nearest, sign | upper, sign | lower),
+    ] {
+        let rounded = source.metered_to_f32(&mut Unbounded).unwrap().unwrap();
+        let (a, b) = source.to_f32_bounds().unwrap();
+        assert_eq!(rounded.to_bits(), n);
+        assert_eq!((a.to_bits(), b.to_bits()), (lo, hi));
+    }
+}
+
+#[test]
+fn binary32_encloses_exact_dyadics_and_rounds_interpolated_cells_directly() {
+    for lo in [
+        0u32, 1, 2, 0x007f_fffe, 0x007f_ffff, 0x0080_0000, 0x3f7f_ffff, 0x3f80_0000,
+        0x3f80_0001, 0x3fff_ffff, 0x7f7f_fffe,
+    ] {
+        let hi = lo + 1;
+        let left = exact_finite_float(f64::from(f32::from_bits(lo)).to_bits());
+        let right = exact_finite_float(f64::from(f32::from_bits(hi)).to_bits());
+        binary32_cell(&right, hi, hi, hi);
+        for (weight, nearest) in [(1, lo), (2, lo + (lo & 1)), (3, hi)] {
+            let value = &left + (&right - &left) * rational(weight, 4);
+            binary32_cell(&value, nearest, lo, hi);
+        }
+    }
+
+    let zero = rational(0, 1);
+    assert_eq!(
+        zero.metered_to_f32(&mut Unbounded).unwrap().unwrap().to_bits(),
+        0
+    );
+    let (lo, hi) = zero.to_f32_bounds().unwrap();
+    assert_eq!((lo.to_bits(), hi.to_bits()), (0, 0));
+}
+
+#[test]
+fn binary32_avoids_double_rounding_and_distinguishes_signed_overflow_cells() {
+    // The exact value is just above an even-lower binary32 midpoint but
+    // binary64 rounds it back to that midpoint, changing the binary32 result.
+    let one = 1.0f32.to_bits();
+    let midpoint = BigRational::new(power_of_two(24) + 1i64, power_of_two(24));
+    let epsilon = BigRational::new(1i64.into(), power_of_two(2000));
+    binary32_cell(&(&midpoint + &epsilon), one + 1, one, one + 1);
+
+    let maximum = (power_of_two(24) - 1i64) << 104u32;
+    let threshold = (power_of_two(25) - 1i64) << 103u32;
+    let finite = f32::MAX.to_bits();
+    let inf = f32::INFINITY.to_bits();
+    binary32_cell(
+        &BigRational::from_integer(maximum.clone()),
+        finite,
+        finite,
+        finite,
+    );
+    for (integer, nearest) in [
+        (maximum + 1i64, finite),
+        (&threshold - 1i64, finite),
+        (threshold, inf),
+        (power_of_two(500), inf),
+    ] {
+        binary32_cell(&BigRational::from_integer(integer), nearest, finite, inf);
+    }
+    binary32_cell(&epsilon, 0, 0, 1);
+}
+
+#[test]
+fn binary32_refuses_at_every_checkpoint_and_shares_the_callers_budget() {
+    let value = rational(-7, 3);
+    let mut baseline = ObservedMeter::unlimited(None);
+    let expected = value.metered_to_f32_bounds(&mut baseline).unwrap().unwrap();
+    for checkpoint in 1..=baseline.checkpoints {
+        let mut meter = ObservedMeter::unlimited(Some(checkpoint));
+        assert_eq!(
+            value.metered_to_f32_bounds(&mut meter),
+            Err(MeterError::Cancelled)
+        );
+        assert_eq!(meter.checkpoints, checkpoint);
+    }
+    let mut budget = Budget::new(BudgetLimits {
+        dimensions: baseline.spent(),
+        verifier_pool: 37,
+    });
+    let meter: &mut dyn BudgetMeter = &mut budget;
+    assert_eq!(value.metered_to_f32_bounds(meter), Ok(Some(expected)));
+    assert!(matches!(
+        value.metered_to_f32(meter),
+        Err(MeterError::Budget(_))
+    ));
+    assert_eq!(budget.verifier_remaining(), 37);
 }
