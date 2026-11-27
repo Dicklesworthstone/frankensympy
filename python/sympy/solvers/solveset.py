@@ -20,6 +20,8 @@ remain a ``ConditionSet``; unsupported shapes raise ``NotImplementedError``.
 
 from __future__ import annotations
 
+from ._linear_eq_to_matrix import NonlinearError, linear_eq_to_matrix
+
 from fractions import Fraction
 from typing import Any
 
@@ -482,4 +484,4 @@ def solve_periodic(f: Any, x: Any, domain: Any) -> Any:
     return res
 
 
-__all__ = ["is_periodic_in", "solve_periodic"]
+__all__ = ["linear_eq_to_matrix", "NonlinearError", "is_periodic_in", "solve_periodic"]

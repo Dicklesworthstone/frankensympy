@@ -454,6 +454,8 @@ class _AffineEquationSource:
     generic lane; it can never be published by the exact rational lane.
     """
 
+    functions_allowed = _EQUATION_ENTIRE
+
     def __init__(self, equations, coordinates):
         self.equations = equations
         self.original = tuple(equations)
@@ -529,9 +531,12 @@ class _AffineEquationSource:
         if key in self.columns:
             column = self.columns[key]
             return Fraction(0), {column: Fraction(1)}, frozenset((column,))
+        return self.symbolic_scalar(native)
+
+    def symbolic_scalar(self, node):
         return None, {}, frozenset()
 
-    def combine(self, kind, values):
+    def combine(self, kind, values, node=None):
         self.charge(sum(len(value[1]) + 1 for value in values))
         if kind == "add":
             constant = Fraction(0)
@@ -616,7 +621,7 @@ class _AffineEquationSource:
             if any(_REDUCTION_NATIVE_EQUAL(node, value) is True for value in _EQUATION_NONFINITE_CONSTANTS):
                 raise ValueError("linear equations require finite original sources")
             if any(_REDUCTION_NATIVE_EQUAL(node, value) is True for value in _EQUATION_FINITE_CONSTANTS):
-                return None, {}, frozenset()
+                return self.symbolic_scalar(node)
             name = _EXPR_MEMBERS["func_name"].__get__(node, _REDUCTION_NATIVE_EXPR)
             if name == "Constant":
                 # All other native constants are nonfinite, including -oo.
@@ -631,8 +636,8 @@ class _AffineEquationSource:
                     raise ValueError("linear equation Float has malformed native storage")
                 if (bits >> 52) & 0x7ff == 0x7ff:
                     raise ValueError("linear equations require finite original sources")
-                return None, {}, frozenset()
-            if name not in _EQUATION_ENTIRE:
+                return self.symbolic_scalar(node)
+            if name not in self.functions_allowed:
                 raise NotImplementedError("linear equation function requires an original domain proof")
             cls = _lookup_known_function(name)
             if cls is None or not _is_closed_function_class(cls):
@@ -644,7 +649,7 @@ class _AffineEquationSource:
             raise ValueError("linear equation source exceeds its child limit")
         if kind == "coefficient" and len(children) != 1:
             raise ValueError("linear equation built-in function requires one original argument")
-        return self.combine(kind, [self.native(child, depth + 1) for child in children])
+        return self.combine(kind, [self.native(child, depth + 1) for child in children], node)
 
     def surface(self, node, depth=0, equation=False):
         self.charge(depth=depth)
@@ -668,7 +673,7 @@ class _AffineEquationSource:
                 raise ValueError("linear equations require finite original sources")
             # Float coefficients retain their existing generic semantics;
             # they never become exact rational admission by conversion.
-            return None, {}, frozenset()
+            return self.symbolic_scalar(node)
         builtin = any(kind is owner for owner in _EQUATION_CLASSES)
         function = not builtin and _is_closed_function_class(kind)
         if not builtin and not function:
@@ -737,7 +742,7 @@ class _AffineEquationSource:
                         raise ValueError("linear equation native and retained equation sides differ")
                 elif function:
                     name = _EXPR_MEMBERS["func_name"].__get__(native, _REDUCTION_NATIVE_EXPR)
-                    if name not in _EQUATION_ENTIRE:
+                    if name not in self.functions_allowed:
                         raise NotImplementedError("linear equation function requires an original domain proof")
                     if _lookup_known_function(name) is not kind:
                         raise ValueError("linear equation native and retained function owners differ")
@@ -754,7 +759,7 @@ class _AffineEquationSource:
                     negated = self.combine("mul", [self.constant(Fraction(-1)), values[1]])
                     result = self.combine("add", [values[0], negated])
                 else:
-                    result = self.combine(operator or "coefficient", values)
+                    result = self.combine(operator or "coefficient", values, node)
         else:
             if groups:
                 raise ValueError("linear equation atom has non-atomic retained storage")

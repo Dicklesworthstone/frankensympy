@@ -240,28 +240,12 @@ def linsolve(system: Any, *symbols: Any) -> Set:
             checked = _checked_linear_equations(system, sym_list)
             if checked is not _LINEAR_UNSUPPORTED:
                 return checked
-            if len(set(sym_list)) != len(sym_list):
-                raise ValueError("duplicate symbols given")
-            eq_list = []
-            for item in system:
-                if type(item) is Eq:
-                    item = item.lhs - item.rhs
-                eq_list.append(_wrap(_native_expr(item)))
+            # Structural extraction preserves admitted symbolic coefficients
+            # without expanding the source or probing it at zero and one.
+            from ._linear_eq_to_matrix import linear_eq_to_matrix
+            coefficients, rhs = linear_eq_to_matrix(system, sym_list)
+            M = coefficients.row_join(rhs)
 
-            n = len(sym_list)
-            rows = []
-            for eq in eq_list:
-                res = _extract_linear_coeffs(eq, sym_list)
-                if res is None:
-                    raise ValueError(f"Equation {eq} is not linear in symbols {sym_list}")
-                coeffs, const = res
-                # eq = sum(coeffs * syms) + const = 0 => sum(coeffs * syms) = -const
-                row = coeffs + [-const]
-                rows.append(row)
-
-            if not rows:
-                return FiniteSet(tuple(sym_list))
-            M = Matrix(rows)
     else:
         raise TypeError(f"Invalid system type: {type(system)}")
 
