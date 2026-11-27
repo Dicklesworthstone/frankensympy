@@ -387,6 +387,26 @@ pub(crate) fn charge_evaluation_allocation<M: BudgetMeter + ?Sized>(
     Ok(())
 }
 
+/// Coordinates admitted once for a finite-real evaluation. A shared program
+/// memo borrows this immutable point for its whole lifetime.
+pub(crate) struct FinitePoint<'a>(&'a [f64]);
+
+impl<'a> FinitePoint<'a> {
+    pub(crate) fn check<M: BudgetMeter + ?Sized>(
+        values: &'a [f64],
+        meter: &mut M,
+    ) -> Result<Self, EvalError> {
+        meter.checkpoint()?;
+        for value in values {
+            charge_evaluation_steps(meter, 1)?;
+            if !value.is_finite() {
+                return Err(EvalError::NonFiniteValue);
+            }
+        }
+        Ok(Self(values))
+    }
+}
+
 /// Fast compiled expression evaluator targeting numerical arrays.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum CompiledOp {
@@ -1427,7 +1447,7 @@ impl CompiledExpr {
         vars: &[f64],
         meter: &mut M,
     ) -> Result<f64, EvalError> {
-        self.try_eval_with_policy(vars, false, meter)
+        self.try_eval_with_reuse(vars, false, false, None, meter)
     }
 
     /// Evaluate in the finite real binary64 lane, rejecting every non-finite
@@ -1444,26 +1464,12 @@ impl CompiledExpr {
         vars: &[f64],
         meter: &mut M,
     ) -> Result<f64, EvalError> {
-        self.try_eval_with_policy(vars, true, meter)
+        self.check_evaluation_size(meter)?;
+        let point = FinitePoint::check(vars, meter)?;
+        self.try_eval_with_reuse(point.0, true, false, None, meter)
     }
 
-    fn try_eval_with_policy<M: BudgetMeter + ?Sized>(
-        &self,
-        vars: &[f64],
-        finite_only: bool,
-        meter: &mut M,
-    ) -> Result<f64, EvalError> {
-        self.try_eval_with_reuse(vars, finite_only, false, None, meter)
-    }
-
-    fn try_eval_with_reuse<M: BudgetMeter + ?Sized>(
-        &self,
-        vars: &[f64],
-        finite_only: bool,
-        smooth_only: bool,
-        mut reuse: Option<(&shared::ProgramReusePlan, &mut shared::EvaluationMemo)>,
-        meter: &mut M,
-    ) -> Result<f64, EvalError> {
+    fn check_evaluation_size<M: BudgetMeter + ?Sized>(&self, meter: &mut M) -> Result<(), EvalError> {
         meter.checkpoint()?;
         if self.ops.len() > MAX_COMPILE_OPS {
             return Err(EvalError::OpLimitExceeded {
@@ -1471,14 +1477,18 @@ impl CompiledExpr {
                 max: MAX_COMPILE_OPS,
             });
         }
-        if finite_only {
-            for value in vars {
-                charge_evaluation_steps(meter, 1)?;
-                if !value.is_finite() {
-                    return Err(EvalError::NonFiniteValue);
-                }
-            }
-        }
+        Ok(())
+    }
+
+    fn try_eval_with_reuse<M: BudgetMeter + ?Sized>(
+        &self,
+        vars: &[f64],
+        finite_only: bool,
+        smooth_only: bool,
+        mut reuse: Option<(&shared::ProgramReusePlan, &mut shared::EvaluationMemo<'_>)>,
+        meter: &mut M,
+    ) -> Result<f64, EvalError> {
+        self.check_evaluation_size(meter)?;
         charge_evaluation_allocation(meter, self.ops.len())?;
         let mut stack = Vec::new();
         stack
@@ -2374,6 +2384,20 @@ mod tests {
     use std::cell::Cell;
     use std::rc::Rc;
     use std::sync::Arc;
+
+    #[test]
+    fn oversized_finite_program_refuses_before_scanning_inputs() {
+        let oversized = CompiledExpr {
+            ops: vec![CompiledOp::LoadConst(1.0); MAX_COMPILE_OPS + 1],
+        };
+        assert_eq!(
+            oversized.try_eval_finite(&[f64::NAN]),
+            Err(EvalError::OpLimitExceeded {
+                ops: MAX_COMPILE_OPS + 1,
+                max: MAX_COMPILE_OPS,
+            })
+        );
+    }
 
     struct HintCompiledOpSeq {
         remaining: usize,

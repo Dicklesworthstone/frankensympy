@@ -305,3 +305,27 @@ fn json_rebuilds_the_plan_after_source_admission_and_rejects_mutated_programs() 
     ));
     assert_eq!(restored.to_json_bytes().unwrap(), bytes);
 }
+
+#[test]
+fn sparse_diagonal_evaluation_cost_scales_with_coordinates_and_nonzeros() {
+    use fsym_budget::{Budget, BudgetLimits, Dimension};
+
+    fn steps(size: usize) -> u64 {
+        let vars: Vec<_> = (0..size)
+            .map(|index| Symbol::new(format!("x{index}")))
+            .collect();
+        let sources: Vec<_> = vars.iter().cloned().map(Expr::Sym).collect();
+        let system = VerifiedResidualSystem::try_compile(&sources, &vars).unwrap();
+        let point: Vec<_> = (0..size).map(|i| i as f64).collect();
+        let mut budget = Budget::new(BudgetLimits::uniform(1_000_000, 17));
+        let initial = budget.remaining(Dimension::ComputeSteps);
+        let result = system.evaluate_sparse_with_meter(&point, &mut budget).unwrap();
+        assert_eq!(result.residuals, point);
+        assert_eq!(result.jacobian, vec![1.0; size]);
+        initial - budget.remaining(Dimension::ComputeSteps)
+    }
+
+    // Both axes and the nonzero count double. Scanning every coordinate
+    // for each scalar residual/derivative would make fuel grow quadratically.
+    assert!(steps(32) <= 2 * steps(16));
+}

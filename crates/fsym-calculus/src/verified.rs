@@ -8,7 +8,8 @@
 #![forbid(unsafe_code)]
 
 use crate::compile::{
-    CompileError, CompiledExpr, CompiledOp, CompiledResidualSystem, EvalError, MAX_COMPILE_OPS,
+    CompileError, CompiledExpr, CompiledOp, CompiledResidualSystem, EvalError, FinitePoint,
+    MAX_COMPILE_OPS,
     SharedEvaluationPlan, charge_compilation_work, charge_evaluation_allocation,
     charge_evaluation_steps,
 };
@@ -823,12 +824,12 @@ impl VerifiedResidualSystem {
         &self.sparse_jacobian.pattern.nonzeros
     }
 
-    fn input_with_meter<M: BudgetMeter + ?Sized>(
-        values: &[f64],
+    fn input_with_meter<'a, M: BudgetMeter + ?Sized>(
+        values: &'a [f64],
         expected: usize,
         lane: &'static str,
         meter: &mut M,
-    ) -> Result<(), ResidualEvaluationError> {
+    ) -> Result<FinitePoint<'a>, ResidualEvaluationError> {
         charge_evaluation_steps(meter, 1)?;
         if values.len() != expected {
             return Err(ResidualEvaluationError::Dimension {
@@ -837,13 +838,7 @@ impl VerifiedResidualSystem {
                 actual: values.len(),
             });
         }
-        for value in values {
-            charge_evaluation_steps(meter, 1)?;
-            if !value.is_finite() {
-                return Err(EvalError::NonFiniteValue.into());
-            }
-        }
-        Ok(())
+        Ok(FinitePoint::check(values, meter)?)
     }
 
     fn evaluation_buffer<M: BudgetMeter + ?Sized>(
@@ -889,14 +884,14 @@ impl VerifiedResidualSystem {
         meter: &mut M,
     ) -> Result<ResidualEvaluation, ResidualEvaluationError> {
         let dense_len = self.dense_evaluation_len()?;
-        Self::input_with_meter(point, self.num_vars(), "point", meter)?;
-        let mut memo = self.shared_evaluation.begin(meter)?;
+        let point = Self::input_with_meter(point, self.num_vars(), "point", meter)?;
+        let mut memo = self.shared_evaluation.begin(point, meter)?;
         let mut residuals = Self::evaluation_buffer(self.num_residuals(), meter)?;
         for (index, program) in self.residual_programs().iter().enumerate() {
             charge_evaluation_steps(meter, 1)?;
             residuals.push(
                 self.shared_evaluation
-                    .evaluate(index, program, point, &mut memo, meter)?,
+                    .evaluate(index, program, &mut memo, meter)?,
             );
         }
         let mut jacobian = Self::evaluation_buffer(dense_len, meter)?;
@@ -906,7 +901,6 @@ impl VerifiedResidualSystem {
             let value = self.shared_evaluation.evaluate(
                 self.num_residuals() + index,
                 &entry.compiled_deriv,
-                point,
                 &mut memo,
                 meter,
             )?;
@@ -986,14 +980,14 @@ impl VerifiedResidualSystem {
         point: &[f64],
         meter: &mut M,
     ) -> Result<SparseResidualEvaluation, ResidualEvaluationError> {
-        Self::input_with_meter(point, self.num_vars(), "point", meter)?;
-        let mut memo = self.shared_evaluation.begin(meter)?;
+        let point = Self::input_with_meter(point, self.num_vars(), "point", meter)?;
+        let mut memo = self.shared_evaluation.begin(point, meter)?;
         let mut residuals = Self::evaluation_buffer(self.num_residuals(), meter)?;
         for (index, program) in self.residual_programs().iter().enumerate() {
             charge_evaluation_steps(meter, 1)?;
             residuals.push(
                 self.shared_evaluation
-                    .evaluate(index, program, point, &mut memo, meter)?,
+                    .evaluate(index, program, &mut memo, meter)?,
             );
         }
         let mut jacobian = Self::evaluation_buffer(self.sparse_jacobian.entries.len(), meter)?;
@@ -1002,7 +996,6 @@ impl VerifiedResidualSystem {
             jacobian.push(self.shared_evaluation.evaluate(
                 self.num_residuals() + index,
                 &entry.compiled_deriv,
-                point,
                 &mut memo,
                 meter,
             )?);
@@ -1114,14 +1107,14 @@ impl VerifiedResidualSystem {
             (self.num_vars(), self.num_residuals(), "direction")
         };
         Self::input_with_meter(vector, input_length, lane, meter)?;
-        Self::input_with_meter(point, self.num_vars(), "point", meter)?;
-        let mut memo = self.shared_evaluation.begin(meter)?;
+        let point = Self::input_with_meter(point, self.num_vars(), "point", meter)?;
+        let mut memo = self.shared_evaluation.begin(point, meter)?;
         // A derivative can erase an original source domain. Do not infer
         // eligibility from a zero vector or from the sparsity pattern alone.
         for (index, program) in self.residual_programs().iter().enumerate() {
             charge_evaluation_steps(meter, 1)?;
             self.shared_evaluation
-                .evaluate(index, program, point, &mut memo, meter)?;
+                .evaluate(index, program, &mut memo, meter)?;
         }
 
         let mut result = Self::evaluation_buffer(output_length, meter)?;
@@ -1131,7 +1124,6 @@ impl VerifiedResidualSystem {
             let derivative = self.shared_evaluation.evaluate(
                 self.num_residuals() + index,
                 &entry.compiled_deriv,
-                point,
                 &mut memo,
                 meter,
             )?;

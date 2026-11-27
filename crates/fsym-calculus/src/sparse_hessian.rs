@@ -14,7 +14,7 @@
 #![forbid(unsafe_code)]
 
 use crate::compile::{
-    CompileError, CompiledExpr, CompiledOp, EvalError, EvaluationMemo, MAX_COMPILE_OPS,
+    CompileError, CompiledExpr, CompiledOp, EvalError, EvaluationMemo, FinitePoint, MAX_COMPILE_OPS,
     SharedEvaluationPlan, charge_compilation_work, charge_evaluation_allocation,
     charge_evaluation_steps,
 };
@@ -834,12 +834,12 @@ impl VerifiedObjective {
         self.shared_evaluation.slot_count()
     }
 
-    fn input_with_meter<M: BudgetMeter + ?Sized>(
+    fn input_with_meter<'a, M: BudgetMeter + ?Sized>(
         &self,
-        values: &[f64],
+        values: &'a [f64],
         lane: &'static str,
         meter: &mut M,
-    ) -> Result<(), ObjectiveEvaluationError> {
+    ) -> Result<FinitePoint<'a>, ObjectiveEvaluationError> {
         charge_evaluation_steps(meter, 1)?;
         if values.len() != self.variables().len() {
             return Err(ObjectiveEvaluationError::Dimension {
@@ -848,26 +848,22 @@ impl VerifiedObjective {
                 actual: values.len(),
             });
         }
-        for value in values {
-            charge_evaluation_steps(meter, 1)?;
-            if !value.is_finite() {
-                return Err(ObjectiveEvaluationError::NonFinite);
-            }
-        }
-        Ok(())
+        FinitePoint::check(values, meter).map_err(|error| match error {
+            EvalError::NonFiniteValue => ObjectiveEvaluationError::NonFinite,
+            other => ObjectiveEvaluationError::Evaluation(other),
+        })
     }
 
-    fn first_order_with_meter<M: BudgetMeter + ?Sized>(
+    fn first_order_with_meter<'a, M: BudgetMeter + ?Sized>(
         &self,
-        point: &[f64],
+        point: &'a [f64],
         meter: &mut M,
-    ) -> Result<(f64, Vec<f64>, EvaluationMemo), ObjectiveEvaluationError> {
-        self.input_with_meter(point, "point", meter)?;
-        let mut memo = self.shared_evaluation.begin(meter)?;
+    ) -> Result<(f64, Vec<f64>, EvaluationMemo<'a>), ObjectiveEvaluationError> {
+        let point = self.input_with_meter(point, "point", meter)?;
+        let mut memo = self.shared_evaluation.begin(point, meter)?;
         let value = self.shared_evaluation.evaluate(
             0,
             &self.candidate.compiled_objective,
-            point,
             &mut memo,
             meter,
         )?;
@@ -881,7 +877,6 @@ impl VerifiedObjective {
             gradient.push(self.shared_evaluation.evaluate(
                 1 + index,
                 entry,
-                point,
                 &mut memo,
                 meter,
             )?);
@@ -916,7 +911,6 @@ impl VerifiedObjective {
             hessian.push(self.shared_evaluation.evaluate(
                 1 + self.compiled_gradient.len() + index,
                 &entry.compiled_deriv,
-                point,
                 &mut memo,
                 meter,
             )?);
@@ -1012,7 +1006,6 @@ impl VerifiedObjective {
             let value = self.shared_evaluation.evaluate(
                 1 + self.compiled_gradient.len() + index,
                 &entry.compiled_deriv,
-                point,
                 &mut memo,
                 meter,
             )?;

@@ -319,6 +319,7 @@ fn planning_and_memo_storage_obey_cumulative_budget_without_verifier_borrowing()
 fn empty_batch_and_bytecode_round_trip_keep_reference_behavior() {
     let empty = CompiledBatch::try_from_programs(vec![]).unwrap();
     assert_eq!(empty.try_eval_finite(&[]).unwrap(), Vec::<f64>::new());
+    assert_reference(&empty, &[vec![f64::NAN]]);
     let scalar = guarded_log(true);
     let encoded = serde_json::to_vec(&scalar).unwrap();
     let decoded: CompiledExpr = serde_json::from_slice(&encoded).unwrap();
@@ -364,4 +365,26 @@ fn partial_batch_caches_never_hide_missing_inputs_or_undefined_selected_branches
         Err(EvalError::NoMatchingPiecewiseBranch)
     );
     assert_reference(&batch, &[vec![-1.0], vec![0.0], vec![1.0]]);
+}
+
+#[test]
+fn unused_coordinates_are_checked_once_for_a_nonempty_batch() {
+    let constant = program(vec![CompiledOp::LoadConst(7.0)]);
+    let batch = CompiledBatch::try_from_programs(vec![constant.clone(); 16]).unwrap();
+    let fuel = |point: &[f64]| {
+        let mut budget = Budget::new(BudgetLimits::uniform(100_000, 13));
+        let before = budget.remaining(Dimension::ComputeSteps);
+        assert_eq!(
+            batch.try_eval_finite_with_meter(point, &mut budget).unwrap(),
+            vec![7.0; 16]
+        );
+        before - budget.remaining(Dimension::ComputeSteps)
+    };
+    assert_eq!(fuel(&[0.0; 256]) - fuel(&[]), 256);
+    for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let mut point = [0.0; 256];
+        point[255] = invalid;
+        assert_eq!(constant.try_eval_finite(&point), Err(EvalError::NonFiniteValue));
+        assert_eq!(batch.try_eval_finite(&point), Err(EvalError::NonFiniteValue));
+    }
 }

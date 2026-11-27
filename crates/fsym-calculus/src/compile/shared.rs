@@ -7,7 +7,7 @@
 //! is no reassociation, branch hoisting, persisted cache, or new numeric claim.
 
 use super::{
-    CompileError, CompiledExpr, CompiledOp, EvalError, charge_compilation_work,
+    CompileError, CompiledExpr, CompiledOp, EvalError, FinitePoint, charge_compilation_work,
     charge_evaluation_allocation, charge_evaluation_steps,
 };
 use fsym_budget::{BudgetMeter, Dimension, Unbounded};
@@ -63,7 +63,8 @@ pub(crate) struct SharedEvaluationPlan {
     smooth_only: bool,
 }
 
-pub(crate) struct EvaluationMemo {
+pub(crate) struct EvaluationMemo<'a> {
+    point: FinitePoint<'a>,
     values: Vec<Option<f64>>,
 }
 
@@ -438,10 +439,11 @@ impl SharedEvaluationPlan {
         self
     }
 
-    pub(crate) fn begin<M: BudgetMeter + ?Sized>(
+    pub(crate) fn begin<'a, M: BudgetMeter + ?Sized>(
         &self,
+        point: FinitePoint<'a>,
         meter: &mut M,
-    ) -> Result<EvaluationMemo, EvalError> {
+    ) -> Result<EvaluationMemo<'a>, EvalError> {
         charge_evaluation_steps(meter, self.slots)?;
         if self.slots != 0 {
             meter.charge_batch(&[
@@ -458,7 +460,7 @@ impl SharedEvaluationPlan {
             .map_err(|_| EvalError::AllocationFailure)?;
         values.resize(self.slots, None);
         meter.checkpoint()?;
-        Ok(EvaluationMemo { values })
+        Ok(EvaluationMemo { point, values })
     }
 
     // Crate-private: callers retain the exact immutable programs, in the same
@@ -467,10 +469,10 @@ impl SharedEvaluationPlan {
         &self,
         index: usize,
         program: &CompiledExpr,
-        point: &[f64],
-        memo: &mut EvaluationMemo,
+        memo: &mut EvaluationMemo<'_>,
         meter: &mut M,
     ) -> Result<f64, EvalError> {
+        let point = memo.point.0;
         let plan = &self.programs[index];
         let reuse = (!plan.starts.is_empty()).then_some((plan, memo));
         program.try_eval_with_reuse(point, true, self.smooth_only, reuse, meter)
@@ -485,7 +487,7 @@ impl ProgramReusePlan {
     pub(super) fn load<M: BudgetMeter + ?Sized>(
         &self,
         instruction: usize,
-        memo: &EvaluationMemo,
+        memo: &EvaluationMemo<'_>,
         meter: &mut M,
     ) -> Result<Option<(f64, usize)>, EvalError> {
         charge_evaluation_steps(meter, 1)?;
@@ -497,7 +499,7 @@ impl ProgramReusePlan {
         &self,
         instruction: usize,
         value: Option<f64>,
-        memo: &mut EvaluationMemo,
+        memo: &mut EvaluationMemo<'_>,
         meter: &mut M,
     ) -> Result<(), EvalError> {
         if let Some(slot) = self.stores[instruction] {
@@ -549,17 +551,21 @@ impl CompiledBatch {
         point: &[f64],
         meter: &mut M,
     ) -> Result<Vec<f64>, EvalError> {
-        let mut memo = self.reuse.begin(meter)?;
+        // With no programs there are no coordinates to evaluate. Keep the
+        // empty scalar-reference result and its cancellation boundary.
+        if self.programs.is_empty() {
+            meter.checkpoint()?;
+            return Ok(Vec::new());
+        }
+        let point = FinitePoint::check(point, meter)?;
+        let mut memo = self.reuse.begin(point, meter)?;
         charge_evaluation_allocation(meter, self.programs.len())?;
         let mut output = Vec::new();
         output
             .try_reserve_exact(self.programs.len())
             .map_err(|_| EvalError::AllocationFailure)?;
         for (index, program) in self.programs.iter().enumerate() {
-            output.push(
-                self.reuse
-                    .evaluate(index, program, point, &mut memo, meter)?,
-            );
+            output.push(self.reuse.evaluate(index, program, &mut memo, meter)?);
         }
         meter.checkpoint()?;
         Ok(output)
