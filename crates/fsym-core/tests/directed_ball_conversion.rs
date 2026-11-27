@@ -286,3 +286,51 @@ fn every_safe_point_including_final_publication_can_cancel_the_complete_interval
         assert_eq!(meter.budget.verifier_remaining(), 37);
     }
 }
+
+fn binary32(ball: &RealBall) -> (u32, u32) {
+    let (lower, upper) = ball.metered_to_f32_bounds(&mut Unbounded).unwrap().unwrap();
+    (lower.to_bits(), upper.to_bits())
+}
+
+#[test]
+fn binary32_exports_the_complete_exact_interval_across_cancellation_and_overflow() {
+    let huge = BigRational::from_integer(power_of_two(500));
+    let ball = RealBall::new(huge.clone(), huge - rational(1, 10)).unwrap();
+    // The lower endpoint is exactly 1/10 before binary32 rounding.
+    assert_eq!(binary32(&ball), (0x3dcc_cccc, f32::INFINITY.to_bits()));
+    assert_eq!(
+        binary32(&ball.neg()),
+        (f32::NEG_INFINITY.to_bits(), 0xbdcc_cccc)
+    );
+    let tiny = BigRational::new(1i64.into(), power_of_two(300));
+    let around_zero = RealBall::new(rational(0, 1), tiny.clone()).unwrap();
+    assert_eq!(binary32(&around_zero), (0x8000_0001, 1));
+    assert_eq!(binary32(&RealBall::exact(-tiny)), (0x8000_0001, 0x8000_0000));
+    assert_eq!(binary32(&RealBall::from_i64(0)), (0, 0));
+}
+
+#[test]
+fn binary32_does_not_shrink_an_interval_inside_one_binary64_rounding_cell() {
+    let one = 1.0f32.to_bits();
+    let radius = BigRational::new(1i64.into(), power_of_two(100));
+    let ball = RealBall::new(rational(1, 1), radius).unwrap();
+    // Both endpoints round to 1.0 in binary64 nearest; neither may be
+    // collapsed to that point before directed binary32 export.
+    assert_eq!(binary32(&ball), (one - 1, one + 1));
+}
+
+#[test]
+fn binary32_checks_cancellation_through_the_last_endpoint() {
+    let ball = RealBall::new(rational(-7, 3), rational(1, 2)).unwrap();
+    let mut baseline = ObservedMeter::unlimited(None);
+    assert!(ball.metered_to_f32_bounds(&mut baseline).unwrap().is_some());
+    assert!(baseline.checkpoints > 1);
+    for checkpoint in 1..=baseline.checkpoints {
+        let mut meter = ObservedMeter::unlimited(Some(checkpoint));
+        assert_eq!(
+            ball.metered_to_f32_bounds(&mut meter),
+            Err(RationalArithmeticError::Meter(MeterError::Cancelled))
+        );
+        assert_eq!(meter.checkpoints, checkpoint);
+    }
+}

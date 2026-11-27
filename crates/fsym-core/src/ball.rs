@@ -132,14 +132,33 @@ impl RealBall {
         &self,
         meter: &mut M,
     ) -> Result<Option<(f64, f64)>, RationalArithmeticError> {
+        self.metered_float_bounds(meter, BigRational::metered_to_f64_bounds)
+    }
+
+    /// Enclose the entire ball in binary32. The exact rational endpoints
+    /// are formed first and rounded outward in the target format, including
+    /// signed underflow and infinite bounds. Both endpoint operations use
+    /// the same ledger and cancellation barrier as [`Self::metered_to_f64_bounds`].
+    pub fn metered_to_f32_bounds<M: BudgetMeter>(
+        &self,
+        meter: &mut M,
+    ) -> Result<Option<(f32, f32)>, RationalArithmeticError> {
+        self.metered_float_bounds(meter, BigRational::metered_to_f32_bounds)
+    }
+
+    fn metered_float_bounds<M: BudgetMeter, F>(
+        &self,
+        meter: &mut M,
+        convert: impl Fn(&BigRational, &mut M) -> Result<Option<(F, F)>, fsym_budget::MeterError>,
+    ) -> Result<Option<(F, F)>, RationalArithmeticError> {
         meter.checkpoint()?;
         let lower = self.midpoint.metered_sub(&self.radius, meter)?;
         let upper = self.midpoint.metered_add(&self.radius, meter)?;
-        let Some((lower, _)) = lower.metered_to_f64_bounds(meter)? else {
+        let Some((lower, _)) = convert(&lower, meter)? else {
             meter.checkpoint()?;
             return Ok(None);
         };
-        let Some((_, upper)) = upper.metered_to_f64_bounds(meter)? else {
+        let Some((_, upper)) = convert(&upper, meter)? else {
             meter.checkpoint()?;
             return Ok(None);
         };
