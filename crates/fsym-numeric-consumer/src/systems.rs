@@ -19,6 +19,7 @@
 
 mod bounded_least_squares;
 pub use bounded_least_squares::*;
+mod equilibration;
 mod gradient;
 mod least_squares;
 pub use least_squares::*;
@@ -927,6 +928,26 @@ fn solve_rhs<M: BudgetMeter>(
     columns: usize,
     meter: &mut M,
 ) -> Result<Vec<f64>, SystemConsumerError> {
+    let solution = match donor_solve(matrix, rhs, n, columns, meter)? {
+        Ok(solution) => solution,
+        Err(fnp_linalg::LinAlgError::SolverSingularity) => {
+            equilibration::retry(matrix, rhs, n, columns, meter)?
+        }
+        Err(error) => return Err(SystemConsumerError::LinearSolve(error.to_string())),
+    };
+    point_dimension(&solution, rhs.len(), "linear solver result")?;
+    finite(&solution, "linear solver result", meter)?;
+    Ok(solution)
+}
+
+// Keep mathematical donor refusals distinct from terminal meter failures.
+fn donor_solve<M: BudgetMeter>(
+    matrix: &[f64],
+    rhs: &[f64],
+    n: usize,
+    columns: usize,
+    meter: &mut M,
+) -> Result<Result<Vec<f64>, fnp_linalg::LinAlgError>, SystemConsumerError> {
     // n<=16 stays below the donor's blocked/parallel LU and TRSM paths.
     // Precharge one LU, one permutation, and all forward/back substitutions.
     let rhs_cells = n * columns;
@@ -942,10 +963,7 @@ fn solve_rhs<M: BudgetMeter>(
         fnp_linalg::solve_nxn_multi(matrix, rhs, n, columns)
     };
     meter.checkpoint()?;
-    let solution = result.map_err(|error| SystemConsumerError::LinearSolve(error.to_string()))?;
-    point_dimension(&solution, rhs_cells, "linear solver result")?;
-    finite(&solution, "linear solver result", meter)?;
-    Ok(solution)
+    Ok(result)
 }
 
 fn scipy_interval<M: BudgetMeter>(n: usize, meter: &mut M) -> Result<(), SystemConsumerError> {
