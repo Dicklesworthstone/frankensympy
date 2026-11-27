@@ -2574,6 +2574,114 @@ def jacobian(exprs, vars):
     return exprs.jacobian(vars)
 
 
+# Hold the original implementation so a replaced diff descriptor takes the
+# supervised Python path, even when the replacement is on Expr itself.
+_HESSIAN_EXPR_DIFF = Expr.diff
+
+
+def hessian(f, varlist, constraints=()):
+    """Return the symbolic Hessian, optionally bordered by constraint gradients.
+
+    Variables may be a sequence or a row or column matrix. With m constraints
+    and n variables, the result is a mutable (m+n)-square dense matrix. Its
+    leading m-square block is zero, the top-right block contains the constraint
+    gradients, and the bottom-right block differentiates f in coordinate order.
+    """
+    from inspect import getattr_static
+    from itertools import islice
+    from ..core import _active_callback_session, _expr_node_count, supervised_callback_session
+    from .exceptions import ShapeError
+    from .sparse import (
+        SparseMatrix, _ZERO, _capture_sources, _check_sources, _checked_entry,
+        _structural_sequence,
+    )
+
+    matrix_inputs = tuple(v for v in (varlist, constraints)
+                          if isinstance(v, (Matrix, SparseMatrix)))
+    sources = _capture_sources(*matrix_inputs)
+    if isinstance(varlist, (Matrix, SparseMatrix)):
+        if 1 not in varlist.shape:
+            raise ShapeError("varlist must be a column or row vector")
+    elif not _structural_sequence(varlist):
+        raise ValueError("Improper variable list in hessian function")
+
+    def size(v):
+        return v.rows * v.cols if isinstance(v, (Matrix, SparseMatrix)) else len(v)
+
+    n = size(varlist)
+    if n == 0:
+        raise ShapeError("len(varlist) must not be zero")
+    m = size(constraints)
+    side = m + n
+    _matrix_dimensions(side, side)
+    _check_sources(sources)
+
+    def cells(v, count):
+        if isinstance(v, SparseMatrix):
+            stored = v._operation_entries()
+            return tuple(stored.get(divmod(i, v.cols), _ZERO) for i in range(count))
+        if isinstance(v, Matrix):
+            if v._surface is not None:
+                return tuple(v._surface)
+            return tuple(_checked_entry(v._native_storage[i], sources) for i in range(count))
+        # Bound even a sequence with an inconsistent __len__ or __iter__.
+        values = tuple(islice(v, count + 1))
+        if len(values) != count:
+            raise ValueError("sequence changed size during Hessian construction")
+        return values
+
+    variables, equations = cells(varlist, n), cells(constraints, m)
+    _check_sources(sources)
+    flat = [_ZERO] * (side * side)
+    with supervised_callback_session(_active_callback_session()) as session:
+        def uses_builtin_diff(expr):
+            return (getattr_static(expr, "diff", None) is _HESSIAN_EXPR_DIFF
+                    and getattr_static(type(expr), "__getattribute__") is object.__getattribute__)
+
+        def require_diff(expr):
+            # The profile inspects the objective before invoking any constraint
+            # derivatives. Attribute lookup and truth testing can both be effects.
+            if not uses_builtin_diff(expr):
+                available = session.invoke_fresh(
+                    "hessian_diff_check", "scalar", _expr_node_count(expr),
+                    lambda: bool(expr.diff), (),
+                )
+                _check_sources(sources)
+                if not available:
+                    raise ValueError("Hessian input is not differentiable")
+
+        def partial(expr, variable):
+            # Ordinary scalar differentiation already supervises its inner hooks.
+            # An explicit Python diff method is a fresh occurrence.
+            if uses_builtin_diff(expr):
+                value = _HESSIAN_EXPR_DIFF(expr, variable)
+            else:
+                value = session.invoke_fresh(
+                    "hessian_diff", "scalar", _expr_node_count((expr, variable)),
+                    lambda: expr.diff(variable), (), _expr_node_count,
+                )
+            _check_sources(sources)
+            return value
+
+        def set_symmetric(row, col, value):
+            entry = _checked_entry(value, sources)
+            flat[row * side + col] = entry
+            flat[col * side + row] = entry
+
+        require_diff(f)
+        for k, equation in enumerate(equations):
+            require_diff(equation)
+            for i, variable in enumerate(variables):
+                set_symmetric(k, m + i, partial(equation, variable))
+        for i, variable in enumerate(variables):
+            for j in range(i, n):
+                first = partial(f, variable)
+                set_symmetric(m + i, m + j, partial(first, variables[j]))
+        result = Matrix(side, side, flat)
+        _check_sources(sources)
+        return result
+
+
 def wronskian(functions, var):
     """Compute the Wronskian determinant of functions with respect to var."""
     from ..core import diff

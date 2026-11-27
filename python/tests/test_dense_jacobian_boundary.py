@@ -180,3 +180,121 @@ def test_native_function_names_cannot_recover_opaque_python_classes():
     with pytest.raises(NotImplementedError, match="opaque Python function class"):
         source.jacobian([x])
     assert calls == []
+
+
+@pytest.mark.parametrize("coordinates", ["tuple", "sympy_tuple", "row", "column", "sparse"])
+def test_hessian_borders_objective_by_constraint_gradients(coordinates):
+    from sympy.matrices import hessian
+    from sympy.matrices.dense import hessian as dense_hessian
+
+    x, y = s.symbols("hessian_border_x hessian_border_y")
+    coords = {
+        "tuple": (y, x), "sympy_tuple": s.Tuple(y, x), "row": s.Matrix([[y, x]]),
+        "column": s.ImmutableMatrix([y, x]), "sparse": s.SparseMatrix([y, x]),
+    }[coordinates]
+    assert s.hessian is hessian is dense_hessian
+    result = hessian(x**3 + x*y**2, coords, s.Matrix([x*y, x - y]))
+    expected = s.Matrix([[0, 0, x, y], [0, 0, -1, 1],
+                         [x, -1, 2*x, 2*y], [y, 1, 2*y, 6*x]])
+    assert type(result) is type(expected)
+    assert result == expected
+
+
+def test_hessian_typed_and_repeated_coordinates_keep_their_positions():
+    plain = s.Symbol("hessian_same")
+    positive = s.Symbol("hessian_same", positive=True)
+    dummy = s.Dummy("hessian_same")
+    result = s.hessian(plain*positive + 3*dummy**2, [dummy, plain, positive, plain])
+    assert result == s.Matrix([[6, 0, 0, 0], [0, 0, 1, 0],
+                               [0, 1, 0, 1], [0, 0, 1, 0]])
+    assert s.hessian(s.Integer(3), [plain, positive]) == s.zeros(2)
+
+
+def test_hessian_rejects_empty_nonvector_and_scalar_coordinates():
+    from sympy.matrices.exceptions import ShapeError
+
+    x = s.Symbol("hessian_shape")
+    for axes in ([], s.Matrix(0, 1, []), s.Matrix(2, 2, [x]*4)):
+        with pytest.raises(ShapeError):
+            s.hessian(x, axes)
+    with pytest.raises(ValueError):
+        s.hessian(x, x)
+    with pytest.raises(AttributeError):
+        s.hessian(1, [x])
+
+
+def test_hessian_uses_ordered_upper_triangle_for_custom_derivatives():
+    x, y = s.symbols("hessian_order_x hessian_order_y")
+    seen = []
+
+    class FirstPartial:
+        def __init__(self, first):
+            self.first = first
+
+        def diff(self, second):
+            seen.append((self.first, second))
+            return s.Integer(7 if self.first == x else 11)
+
+    class Objective:
+        def diff(self, first):
+            return FirstPartial(first)
+
+    assert s.hessian(Objective(), [x, y]) == s.Matrix([[7, 7], [7, 11]])
+    assert seen == [(x, x), (x, y), (y, y)]
+
+
+def test_hessian_agrees_with_checked_compiled_objective_at_an_exact_point():
+    x, y = s.symbols("hessian_compiled_x hessian_compiled_y")
+    f = x**3 + x*y**2
+    coordinates = (x, y)
+    numeric = s.compile_objective(f, coordinates)
+    _, _, h = numeric.evaluate(2, 3)
+    assert h == [[12.0, 6.0], [6.0, 4.0]]
+    symbolic = s.hessian(f, coordinates)
+    assert symbolic.subs({x: 2, y: 3}) == s.Matrix([[12, 6], [6, 4]])
+
+
+@pytest.mark.parametrize("changed", ["axes", "constraints"])
+def test_hessian_catches_mutation_between_derivative_callbacks(changed):
+    x = s.Symbol("hessian_snapshot")
+    axes = s.Matrix([x])
+    constraints = s.SparseMatrix([x])
+    calls = []
+
+    class Mutating(s.Function):
+        def fdiff(self, argindex=1):
+            calls.append(argindex)
+            target = axes if changed == "axes" else constraints
+            target[0, 0] = 2*x
+            return x
+
+    with pytest.raises(RuntimeError, match="Matrix mutated"):
+        s.hessian(Mutating(x), axes, constraints)
+    assert calls == [1]
+
+
+def test_hessian_preflights_full_bordered_shape_before_effects(monkeypatch):
+    x = s.Symbol("hessian_preflight")
+    huge = s.SparseMatrix(1_000_000, 1, {(0, 0): x})
+    monkeypatch.setattr(s.SparseMatrix, "_operation_entries",
+                        lambda self: pytest.fail("inspected entries before preflight"))
+    with pytest.raises(ValueError, match="exceeding the limit"):
+        s.hessian(x, (x,), huge)
+
+
+@pytest.mark.parametrize("missing", [True, False])
+def test_hessian_checks_objective_before_any_constraint_derivative(missing):
+    x = s.Symbol("hessian_invalid_objective")
+    calls = []
+
+    class Objective:
+        diff = None
+
+    class Constraint:
+        def diff(self, coordinate):
+            calls.append(coordinate)
+            return s.Integer(0)
+
+    with pytest.raises(AttributeError if missing else ValueError):
+        s.hessian(object() if missing else Objective(), [x], [Constraint()])
+    assert calls == []
