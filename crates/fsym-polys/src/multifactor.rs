@@ -4,7 +4,9 @@
 //! lex-leading coefficient is positive. The pipeline:
 //!
 //! 1. numeric content and monomial content come out first;
-//! 2. a univariate remainder goes to [`complete_factorization`];
+//! 2. a univariate remainder goes to [`complete_factorization`]; a
+//!    bivariate affine remainder splits into coefficient content and a
+//!    primitive affine factor over the other coordinate;
 //! 3. a homogeneous remainder is dehomogenized in its last variable,
 //!    factored, and every factor rehomogenized (a bijection on factors once
 //!    the monomial content is gone);
@@ -140,8 +142,17 @@ fn factor_univariate(
     for (e, c) in &p.terms {
         coeffs[e[var] as usize] += c.clone();
     }
-    let up = UnivariatePoly::new(sym, coeffs);
-    let cf = complete_factorization(&up)?;
+    factor_univariate_in_ring(p, var, &UnivariatePoly::new(sym, coeffs))
+}
+
+/// Factor a coefficient polynomial and lift each factor into the original
+/// ordered ambient ring, preserving its exact coordinate and multiplicity.
+fn factor_univariate_in_ring(
+    p: &MultivariatePoly,
+    var: usize,
+    polynomial: &UnivariatePoly,
+) -> Result<Vec<(MultivariatePoly, usize)>, PolyError> {
+    let cf = complete_factorization(polynomial)?;
     let mut out = Vec::new();
     for term in cf.factors {
         let mut terms = BTreeMap::new();
@@ -167,10 +178,83 @@ fn factor_core(p: &MultivariatePoly) -> Result<Vec<(MultivariatePoly, usize)>, P
         1 => return factor_univariate(p, present[0]),
         _ => {}
     }
+    for &axis in &present {
+        if p.degree_in(axis) != 1 {
+            continue;
+        }
+        // In R[v], a*v+b with a unit coefficient is primitive. Since its
+        // degree over Frac(R) is one, Gauss's lemma makes it irreducible.
+        // Here R=QQ[other coordinates] and its units are nonzero scalars.
+        if (0..=1).any(|power| {
+            let mut row = p.terms.keys().filter(|e| e[axis] == power);
+            row.next()
+                .is_some_and(|e| e.iter().enumerate().all(|(i, &k)| i == axis || k == 0))
+                && row.next().is_none()
+        }) {
+            return Ok(vec![(p.clone(), 1)]);
+        }
+        if let [i, j] = present.as_slice() {
+            let other = if *i == axis { *j } else { *i };
+            if p.degree_in(other) <= crate::factorization::MAX_FACTOR_DEGREE as u32
+                && p.terms
+                    .values()
+                    .all(|c| c.numer().bits() <= crate::factorization::MAX_FACTOR_COEFF_BITS as u64)
+            {
+                return factor_bivariate_affine(p, axis, other);
+            }
+        }
+    }
     if is_homogeneous(p) {
         return factor_homogeneous(p, *present.last().expect("two or more variables"));
     }
     factor_kronecker(p, &present)
+}
+
+/// In QQ[u][v], the only factors of a*v+b independent of v divide both
+/// coefficient polynomials. Extract their monic GCD; the primitive quotient
+/// has degree one over QQ(u) and hence cannot split further in QQ[u,v].
+fn factor_bivariate_affine(
+    p: &MultivariatePoly,
+    axis: usize,
+    other: usize,
+) -> Result<Vec<(MultivariatePoly, usize)>, PolyError> {
+    let width = p.degree_in(other) as usize + 1;
+    let symbol = &p.generators[other];
+    let mut rows = [
+        vec![BigRational::zero(); width],
+        vec![BigRational::zero(); width],
+    ];
+    for (e, c) in &p.terms {
+        rows[e[axis] as usize][e[other] as usize] = c.clone();
+    }
+    let [constant, linear] = rows.map(|row| UnivariatePoly::new(symbol.clone(), row));
+    let certificate = constant.extended_gcd(&linear)?;
+    crate::gcd::verify_bezout_certificate(&constant, &linear, &certificate)?;
+    let content = certificate.gcd;
+    if content.is_one() {
+        return Ok(vec![(p.clone(), 1)]);
+    }
+    let mut affine = BTreeMap::new();
+    for (power, row) in [constant, linear].iter().enumerate() {
+        let (quotient, remainder) = row.div_rem(&content)?;
+        if !remainder.is_zero() {
+            return Err(PolyError::IdentityCheckFailed(
+                "affine coefficient GCD does not divide the source rows".to_string(),
+            ));
+        }
+        for (degree, c) in quotient.coeffs.into_iter().enumerate() {
+            if !c.is_zero() {
+                let mut e = vec![0; p.generators.len()];
+                e[axis] = power as u32;
+                e[other] = degree as u32;
+                affine.insert(e, c);
+            }
+        }
+    }
+    let (_, affine) = primitive(&MultivariatePoly::new(p.generators.clone(), affine)?)?;
+    let mut factors = factor_univariate_in_ring(p, other, &content)?;
+    factors.push((affine, 1));
+    Ok(factors)
 }
 
 fn factor_homogeneous(
@@ -190,13 +274,16 @@ fn factor_homogeneous(
         let d = f
             .terms
             .keys()
-            .map(|e| e.iter().sum::<u32>())
+            .map(|e| e.iter().map(|&k| u64::from(k)).sum::<u64>())
             .max()
             .unwrap_or(0);
         let mut terms = BTreeMap::new();
         for (e, c) in &f.terms {
             let mut e2 = e.clone();
-            e2[v] = d - e.iter().sum::<u32>();
+            let degree: u64 = e.iter().map(|&k| u64::from(k)).sum();
+            e2[v] = u32::try_from(d - degree).map_err(|_| {
+                PolyError::General("refused: rehomogenized exponent exceeds u32".to_string())
+            })?;
             terms.insert(e2, c.clone());
         }
         let (_, f) = primitive(&MultivariatePoly::new(p.generators.clone(), terms)?)?;
@@ -510,7 +597,10 @@ mod tests {
         // exhaust the recombination budget before admitting the remainder.
         let gens = ["x", "unused", "y"];
         let input = poly("(x + 1)*(x**31 + y)", &gens);
-        let found = factor_multivariate(&input).expect("sparse image factors");
+        let found = MultivariateFactorization {
+            scale: BigRational::one(),
+            factors: factor_kronecker(&input, &[0, 2]).expect("sparse image factors"),
+        };
         assert_eq!(found.scale, BigRational::one());
         assert_eq!(found.factors.len(), 2);
         for expected in ["x + 1", "x**31 + y"] {
@@ -570,6 +660,52 @@ mod tests {
         )
         .unwrap();
         assert!(factor_multivariate(&enormous).is_err());
+    }
+
+    #[test]
+    fn affine_coefficient_content_reaches_factors_beyond_the_image_limit() {
+        for gens in [["x", "unused", "y"], ["y", "unused", "x"]] {
+            let input = poly("-3/2*(2*x+1)**3*(x-2)*(x**38*y+x+1)", &gens);
+            let found = factor_multivariate(&input).expect("affine content factors");
+            assert_eq!(found.scale, BigRational::new((-3).into(), 2.into()));
+            assert_eq!(found.factors.len(), 3);
+            for (factor, multiplicity) in [("2*x+1", 3), ("x-2", 1), ("x**38*y+x+1", 1)] {
+                assert!(found.factors.contains(&(poly(factor, &gens), multiplicity)));
+            }
+            verify_multivariate_factorization(&input, &found).expect("independent product");
+        }
+    }
+
+    #[test]
+    fn coprime_affine_rows_and_scalar_coefficients_remain_whole() {
+        for (src, gens) in [
+            ("(x**48+1)*y+(x**48+2)", vec!["x", "y"]),
+            ("x*y**90*z**91+3", vec!["z", "y", "x"]),
+            ("7*x+y**90*z**91-1", vec!["z", "y", "x"]),
+        ] {
+            let input = poly(src, &gens);
+            let found = factor_multivariate(&input).unwrap();
+            assert_eq!(found.scale, BigRational::one());
+            assert_eq!(found.factors, vec![(input.clone(), 1)]);
+            verify_multivariate_factorization(&input, &found).unwrap();
+        }
+    }
+
+    #[test]
+    fn affine_content_matches_constructed_coprime_rows() {
+        let gens = ["x", "y"];
+        // A and k*A+1 are coprime for every k, independently of the GCD algorithm.
+        for degree in [2, 7, 18, 33] {
+            for k in [-3, 1, 4] {
+                let residual = format!("(x**{degree}+2)*y+({k})*(x**{degree}+2)+1");
+                let input = poly(&format!("(x-1)**2*({residual})"), &gens);
+                let found = factor_multivariate(&input).unwrap();
+                assert_eq!(found.factors.len(), 2);
+                assert!(found.factors.contains(&(poly("x-1", &gens), 2)));
+                assert!(found.factors.contains(&(poly(&residual, &gens), 1)));
+                verify_multivariate_factorization(&input, &found).unwrap();
+            }
+        }
     }
 
     #[test]
