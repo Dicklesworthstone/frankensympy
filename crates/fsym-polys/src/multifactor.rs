@@ -13,7 +13,9 @@
 //! 4. otherwise Kronecker substitution `x_{i+1} -> t^(B_i)` maps the
 //!    polynomial to a univariate one; its irreducible factors are
 //!    recombined and every candidate is mapped back and accepted only after
-//!    exact multivariate division of the remaining polynomial.
+//!    exact multivariate division of the remaining polynomial. If the
+//!    mixed-radix image exceeds the degree limit, independent coordinate
+//!    factors can instead be identified exactly on the sparse coefficients.
 //!
 //! Every accepted factor is therefore an exact divisor, and the product of
 //! the result is re-checked against the input before returning. Inputs
@@ -302,6 +304,83 @@ fn decode(mut k: u64, present: &[usize], radix: &[u64], width: usize) -> Vec<u32
     e
 }
 
+/// Split p(u, v...) = g(u) * h(v...) up to a rational unit. The
+/// coefficient array across this partition must have rank one, including
+/// every implicit zero. Check both the entire rectangular support and all
+/// cross products against a nonzero pivot before recursing on either side.
+fn factor_separated_coordinate(
+    p: &MultivariatePoly,
+    present: &[usize],
+) -> Result<Option<Vec<(MultivariatePoly, usize)>>, PolyError> {
+    if p.terms
+        .values()
+        .any(|c| c.numer().bits() > crate::factorization::MAX_FACTOR_COEFF_BITS as u64)
+    {
+        return Ok(None);
+    }
+    let Some((pivot, pivot_value)) = p.terms.first_key_value() else {
+        return Ok(None);
+    };
+    for &axis in present {
+        if p.degree_in(axis) > crate::factorization::MAX_FACTOR_DEGREE as u32 {
+            continue;
+        }
+        let row: Vec<_> = p
+            .terms
+            .iter()
+            .filter(|(e, _)| e[..axis] == pivot[..axis] && e[axis + 1..] == pivot[axis + 1..])
+            .collect();
+        let column: Vec<_> = p
+            .terms
+            .iter()
+            .filter(|(e, _)| e[axis] == pivot[axis])
+            .collect();
+        if row.len() < 2 || column.len() < 2 || row.len() * column.len() != p.terms.len() {
+            continue;
+        }
+        let separates = column.iter().all(|&(other, b)| {
+            let mut exponent = other.clone();
+            row.iter().all(|&(entry, a)| {
+                exponent[axis] = entry[axis];
+                p.terms
+                    .get(&exponent)
+                    .is_some_and(|value| value * pivot_value == a * b)
+            })
+        });
+        if !separates {
+            continue;
+        }
+        let coordinate_terms = row
+            .into_iter()
+            .map(|(e, c)| {
+                let mut powers = vec![0; p.generators.len()];
+                powers[axis] = e[axis];
+                (powers, c.clone())
+            })
+            .collect();
+        let complement_terms = column
+            .into_iter()
+            .map(|(e, c)| {
+                let mut powers = e.clone();
+                powers[axis] = 0;
+                (powers, c.clone())
+            })
+            .collect();
+        let (_, coordinate) = primitive(&MultivariatePoly::new(
+            p.generators.clone(),
+            coordinate_terms,
+        )?)?;
+        let (_, complement) = primitive(&MultivariatePoly::new(
+            p.generators.clone(),
+            complement_terms,
+        )?)?;
+        let mut factors = factor_univariate(&coordinate, axis)?;
+        factors.extend(factor_core(&complement)?);
+        return Ok(Some(factors));
+    }
+    Ok(None)
+}
+
 fn factor_kronecker(
     p: &MultivariatePoly,
     present: &[usize],
@@ -315,9 +394,12 @@ fn factor_kronecker(
     let mut w = 1u64;
     for r in &radix {
         weights.push(w);
-        w = w
-            .checked_mul(*r)
-            .ok_or_else(|| PolyError::General("refused: Kronecker weight overflow".to_string()))?;
+        let Some(next) = w.checked_mul(*r) else {
+            return factor_separated_coordinate(p, present)?.ok_or_else(|| {
+                PolyError::General("refused: Kronecker weight overflow".to_string())
+            });
+        };
+        w = next;
     }
     // Only occupied monomials enter the dense image. The corner of the
     // enclosing degree box need not be present, especially for sparse sums.
@@ -331,7 +413,7 @@ fn factor_kronecker(
     };
     let image_degree = p.terms.keys().map(|e| encode(e)).max().unwrap_or(0);
     if image_degree > crate::factorization::MAX_FACTOR_DEGREE as u64 {
-        return Err(PolyError::General(format!(
+        return factor_separated_coordinate(p, present)?.ok_or_else(|| PolyError::General(format!(
             "refused: Kronecker image degree {image_degree} exceeds the complete-factorization bound"
         )));
     }
@@ -688,6 +770,33 @@ mod tests {
             assert_eq!(found.scale, BigRational::one());
             assert_eq!(found.factors, vec![(input.clone(), 1)]);
             verify_multivariate_factorization(&input, &found).unwrap();
+        }
+    }
+
+    #[test]
+    fn independent_parameter_blocks_factor_when_the_dense_image_exceeds_its_limit() {
+        let gens = ["w", "x", "y", "z", "unused"];
+        let input = poly("(-7/3)*(w+1)**2*(x**2+1)*(y**2+2)*(z**2+z+1)", &gens);
+        let found = factor_multivariate(&input).unwrap();
+        assert_eq!(found.scale, BigRational::new((-7).into(), 3.into()));
+        for (factor, multiplicity) in [("w+1", 2), ("x**2+1", 1), ("y**2+2", 1), ("z**2+z+1", 1)] {
+            assert!(found.factors.contains(&(poly(factor, &gens), multiplicity)));
+        }
+        assert_eq!(found.factors.len(), 4);
+        verify_multivariate_factorization(&input, &found).unwrap();
+    }
+
+    #[test]
+    fn sparse_separation_checks_nonpivot_coefficients_and_missing_monomials() {
+        let gens = ["x", "y"];
+        for source in [
+            "(x**20+1)*(y**20+1)+x**2*y**2",
+            "x**20*y**20+x**20+y**20+2",
+            "x**20*y**20+x**20+y**20",
+        ] {
+            let p = poly(source, &gens);
+            assert!(factor_separated_coordinate(&p, &[0, 1]).unwrap().is_none());
+            assert!(factor_multivariate(&p).is_err());
         }
     }
 
