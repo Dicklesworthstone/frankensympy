@@ -489,25 +489,6 @@ impl<M: BudgetMeter> BallWork for Work<'_, M> {
             "erf" => arg.erf(digits)?,
             "erfc" => arg.erfc(digits)?,
             "sinc" => arg.sinc(digits)?,
-            "cot" | "sec" | "csc" => {
-                let sine = arg.sin(digits + 4)?;
-                let cosine = arg.cos(digits + 4)?;
-                match name.as_str() {
-                    "cot" => cosine.div(&sine)?,
-                    "sec" => cosine.inv()?,
-                    _ => sine.inv()?,
-                }
-            }
-            "coth" | "sech" | "csch" => {
-                let plus = arg.exp(digits + 4)?;
-                let minus = arg.neg().exp(digits + 4)?;
-                let two = RealBall::from_i64(2);
-                match name.as_str() {
-                    "coth" => plus.add(&minus).div(&plus.sub(&minus))?,
-                    "sech" => two.div(&plus.add(&minus))?,
-                    _ => two.div(&plus.sub(&minus))?,
-                }
-            }
             _ => {
                 return Err(MeteredComplexDecimalError::Unsupported(
                     "real unary function",
@@ -687,6 +668,20 @@ fn evaluate_mode<W: BallWork>(
                     let cosine = arg.cos(extra)?;
                     work.arithmetic(&[&sine, &cosine])?;
                     sine.checked_div(&cosine)?
+                }
+                "cot" | "sec" | "csc" | "coth" | "sech" | "csch" => {
+                    // Reserve the complete circular/reciprocal composition on
+                    // the caller ledger. The shared kernels retain both source
+                    // components and reject every possible denominator zero.
+                    work.elementary(&[&arg], digits, 12)?;
+                    match name.as_str() {
+                        "cot" => arg.cot(digits)?,
+                        "sec" => arg.sec(digits)?,
+                        "csc" => arg.csc(digits)?,
+                        "coth" => arg.coth(digits)?,
+                        "sech" => arg.sech(digits)?,
+                        _ => arg.csch(digits)?,
+                    }
                 }
                 "sinh" | "cosh" | "tanh" => {
                     work.elementary(&[&arg], extra, 8)?;
