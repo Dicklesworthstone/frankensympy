@@ -3,7 +3,7 @@
 #![forbid(unsafe_code)]
 
 use crate::compile::{
-    CompileError, CompiledExpr, CompiledOp, EvalError, MAX_COMPILE_DEPTH, MAX_COMPILE_OPS,
+    CompileError, CompiledExpr, CompiledOp, EvalError, FinitePoint, MAX_COMPILE_DEPTH, MAX_COMPILE_OPS,
     admit_compilation_name, charge_compilation_work, charge_evaluation_allocation,
     charge_evaluation_steps, compilation_diagnostic, compilation_finish,
 };
@@ -526,6 +526,8 @@ pub enum JacobianVerificationError {
     CompiledProvenanceMismatch { row: usize, col: usize },
     #[error("Diagnostic point {point_idx} must contain exactly {expected} finite coordinates")]
     InvalidTestPoint { point_idx: usize, expected: usize },
+    #[error("Original residual {row} is not finite at diagnostic point {point_idx}")]
+    NonFiniteResidual { point_idx: usize, row: usize },
     #[error("Diagnostic evaluation is not finite at point {point_idx}, entry ({row}, {col})")]
     NonFiniteEvaluation {
         point_idx: usize,
@@ -1099,9 +1101,10 @@ fn verifier_dependencies<M: BudgetMeter + ?Sized>(
 /// Checks derivative proofs, complete sparsity, coloring, and compiled provenance.
 ///
 /// Proof and bytecode acceptance are independent of `test_points`: an empty
-/// diagnostic set cannot bypass either check. Optional numerical samples only
-/// establish that the accepted program evaluates to finite values at those
-/// points; they are not evidence for an identity or a domain-wide error bound.
+/// diagnostic set cannot bypass either check. At each optional sample, the
+/// original residuals and retained derivatives must execute in the finite,
+/// smooth-source lane. Every source symbol must then be bound to a coordinate.
+/// Samples provide no evidence for an identity or a domain-wide error bound.
 pub fn verify_sparse_jacobian_certificate(
     system: &SparseJacobian,
     test_points: &[Vec<f64>],
@@ -1311,27 +1314,8 @@ pub fn verify_sparse_jacobian_certificate_with_meter<M: BudgetMeter + ?Sized>(
         }
     }
 
-    for (point_idx, point) in test_points.iter().enumerate() {
-        charge_compilation_work(meter, point.len() + 1, 0, 0)?;
-        if point.len() != n || point.iter().any(|value| !value.is_finite()) {
-            return Err(JacobianVerificationError::InvalidTestPoint {
-                point_idx,
-                expected: n,
-            });
-        }
-        for entry in &system.entries {
-            if !entry
-                .compiled_deriv
-                .try_eval_with_meter(point, meter)?
-                .is_finite()
-            {
-                return Err(JacobianVerificationError::NonFiniteEvaluation {
-                    point_idx,
-                    row: entry.row,
-                    col: entry.col,
-                });
-            }
-        }
+    if !test_points.is_empty() {
+        check_diagnostic_points(system, &var_map, test_points, meter)?;
     }
 
     charge_compilation_work(meter, 1, std::mem::size_of::<SparseJacobianReceipt>(), 0)?;
@@ -1344,6 +1328,60 @@ pub fn verify_sparse_jacobian_certificate_with_meter<M: BudgetMeter + ?Sized>(
         proofs_verified: system.entries.len(),
         test_points_evaluated: test_points.len(),
     })
+}
+
+/// Compile each original source once, on the verifier ledger. A zero row
+/// and a simplified derivative can both erase a residual's domain restriction.
+fn check_diagnostic_points<M: BudgetMeter + ?Sized>(
+    system: &SparseJacobian,
+    variables: &HashMap<Symbol, usize>,
+    test_points: &[Vec<f64>],
+    meter: &mut M,
+) -> Result<(), JacobianVerificationError> {
+    let mut residuals = Vec::new();
+    charge_sparse_buffer::<CompiledExpr, _>(system.residuals.len(), meter)?;
+    residuals
+        .try_reserve_exact(system.residuals.len())
+        .map_err(|_| CompileError::AllocationFailure)?;
+    let mut source_ops = 0usize;
+    for source in &system.residuals {
+        let program = CompiledExpr::try_compile_checked_with_meter(source, variables, meter)?;
+        source_ops = source_ops.saturating_add(program.ops().len());
+        sparse_limit(source_ops, MAX_SPARSE_SOURCE_WORK)?;
+        residuals.push(program);
+    }
+
+    for (point_idx, values) in test_points.iter().enumerate() {
+        charge_evaluation_steps(meter, 1)?;
+        let invalid_point = JacobianVerificationError::InvalidTestPoint {
+            point_idx,
+            expected: system.vars.len(),
+        };
+        if values.len() != system.vars.len() {
+            return Err(invalid_point);
+        }
+        let point = FinitePoint::check(values, meter).map_err(|error| match error {
+            EvalError::NonFiniteValue => invalid_point,
+            other => JacobianVerificationError::Eval(other),
+        })?;
+        for entry in &system.entries {
+            entry.compiled_deriv.try_eval_smooth_at(&point, meter).map_err(|error| match error {
+                EvalError::NonFiniteValue => JacobianVerificationError::NonFiniteEvaluation {
+                    point_idx,
+                    row: entry.row,
+                    col: entry.col,
+                },
+                other => JacobianVerificationError::Eval(other),
+            })?;
+        }
+        for (row, source) in residuals.iter().enumerate() {
+            source.try_eval_smooth_at(&point, meter).map_err(|error| match error {
+                EvalError::NonFiniteValue => JacobianVerificationError::NonFiniteResidual { point_idx, row },
+                other => JacobianVerificationError::Eval(other),
+            })?;
+        }
+    }
+    Ok(())
 }
 
 /// Bound recursive reference work before traversing untrusted symbolic inputs.

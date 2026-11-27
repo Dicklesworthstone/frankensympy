@@ -1469,6 +1469,16 @@ impl CompiledExpr {
         self.try_eval_with_reuse(point.0, true, false, None, meter)
     }
 
+    /// Run a checked program under the same smooth, finite-real policy as
+    /// verified derivative consumers, without rescanning the borrowed point.
+    pub(crate) fn try_eval_smooth_at<M: BudgetMeter + ?Sized>(
+        &self,
+        point: &FinitePoint<'_>,
+        meter: &mut M,
+    ) -> Result<f64, EvalError> {
+        self.try_eval_with_reuse(point.0, true, true, None, meter)
+    }
+
     fn check_evaluation_size<M: BudgetMeter + ?Sized>(&self, meter: &mut M) -> Result<(), EvalError> {
         meter.checkpoint()?;
         if self.ops.len() > MAX_COMPILE_OPS {
