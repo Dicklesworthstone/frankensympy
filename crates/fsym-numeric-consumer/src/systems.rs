@@ -655,17 +655,7 @@ pub fn propose_root_box_with_meter<M: BudgetMeter>(
     let mut values = zeros(n, meter)?;
     let mut jacobian = zeros(n * n, meter)?;
     evaluate_system(system, approximation, &mut values, &mut jacobian, meter)?;
-    let mut inverse = zeros(n * n, meter)?;
-    let mut unit = zeros(n, meter)?;
-    for column in 0..n {
-        charge(meter, (2 * n + 1) as u64, 0, 0)?;
-        unit.fill(0.0);
-        unit[column] = 1.0;
-        let solution = linear_solve(&jacobian, &unit, n, meter)?;
-        for row in 0..n {
-            inverse[row * n + column] = solution[row];
-        }
-    }
+    let inverse = inverse_proposal(&jacobian, n, meter)?;
     let mut center = buffer(n, meter)?;
     let mut domain = buffer(n, meter)?;
     let mut preconditioner = buffer(n, meter)?;
@@ -912,18 +902,48 @@ fn linear_solve<M: BudgetMeter>(
     n: usize,
     meter: &mut M,
 ) -> Result<Vec<f64>, SystemConsumerError> {
-    // n<=16 stays below the pinned donor's blocked/parallel LU threshold (512).
-    // Its finite-input path allocates LU, permutation, and solution vectors.
+    solve_rhs(matrix, rhs, n, 1, meter)
+}
+
+// The entire identity is one row-major multi-RHS problem. All inverse
+// columns therefore share one donor LU and pivot permutation.
+fn inverse_proposal<M: BudgetMeter>(
+    matrix: &[f64],
+    n: usize,
+    meter: &mut M,
+) -> Result<Vec<f64>, SystemConsumerError> {
+    let mut identity = zeros(n * n, meter)?;
+    charge(meter, n as u64, 0, 0)?;
+    for row in 0..n {
+        identity[row * n + row] = 1.0;
+    }
+    solve_rhs(matrix, &identity, n, n, meter)
+}
+
+fn solve_rhs<M: BudgetMeter>(
+    matrix: &[f64],
+    rhs: &[f64],
+    n: usize,
+    columns: usize,
+    meter: &mut M,
+) -> Result<Vec<f64>, SystemConsumerError> {
+    // n<=16 stays below the donor's blocked/parallel LU and TRSM paths.
+    // Precharge one LU, one permutation, and all forward/back substitutions.
+    let rhs_cells = n * columns;
     charge(
         meter,
-        (4 * n * n * n + 16 * n * n + 8 * n + 32) as u64,
-        ((n * n + n) * size_of::<f64>() + n * size_of::<usize>() + 256) as u64,
+        (4 * n * n * n + 4 * n * n * columns + 12 * n * n + 8 * rhs_cells + 32) as u64,
+        ((n * n + rhs_cells) * size_of::<f64>() + n * size_of::<usize>() + 256) as u64,
         4,
     )?;
-    let solution = fnp_linalg::solve_nxn(matrix, rhs, n)
-        .map_err(|error| SystemConsumerError::LinearSolve(error.to_string()))?;
+    let result = if columns == 1 {
+        fnp_linalg::solve_nxn(matrix, rhs, n)
+    } else {
+        fnp_linalg::solve_nxn_multi(matrix, rhs, n, columns)
+    };
     meter.checkpoint()?;
-    point_dimension(&solution, n, "linear solver result")?;
+    let solution = result.map_err(|error| SystemConsumerError::LinearSolve(error.to_string()))?;
+    point_dimension(&solution, rhs_cells, "linear solver result")?;
     finite(&solution, "linear solver result", meter)?;
     Ok(solution)
 }

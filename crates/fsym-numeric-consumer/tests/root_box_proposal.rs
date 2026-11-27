@@ -136,3 +136,37 @@ fn invalid_exact_radii_refuse_without_consuming_the_protected_pool() {
         assert_eq!(budget.verifier_remaining(), 137);
     }
 }
+
+#[test]
+fn one_pivoted_factorization_preserves_every_inverse_column_in_source_order() {
+    let vars = [Symbol::new("x"), Symbol::new("y"), Symbol::new("z")];
+    let x = Expr::Sym(vars[0].clone());
+    let y = Expr::Sym(vars[1].clone());
+    let z = Expr::Sym(vars[2].clone());
+    let system = VerifiedResidualSystem::try_compile(
+        &[
+            Expr::from_i64(2) * y.clone(),
+            Expr::from_i64(4) * z.clone(),
+            x + y + z,
+        ],
+        &vars,
+    )
+    .unwrap();
+    let witness = propose_root_box_with_meter(
+        &system,
+        &[0.0; 3],
+        &[q(1, 8), q(1, 8), q(1, 8)],
+        24,
+        &mut fsym_budget::Unbounded,
+    )
+    .unwrap();
+    assert_eq!(
+        witness.preconditioner,
+        [
+            vec![q(-1, 2), q(-1, 4), q(1, 1)],
+            vec![q(1, 2), q(0, 1), q(0, 1)],
+            vec![q(0, 1), q(1, 4), q(0, 1)],
+        ]
+    );
+    fsym_core::certify_root_box(system.residuals(), system.vars(), &witness).unwrap();
+}

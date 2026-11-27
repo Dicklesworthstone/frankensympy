@@ -13,8 +13,8 @@
 
 use super::{
     MAX_CONSUMER_VARIABLES, NewtonGuards, RootProposal, SystemConsumerError, buffer, charge,
-    evaluate_system, exact_coordinate, finite, infinity_norm, linear_solve, point_dimension,
-    publication_checkpoint, validate_guards, zeros,
+    evaluate_system, exact_coordinate, finite, infinity_norm, inverse_proposal, linear_solve,
+    point_dimension, publication_checkpoint, validate_guards, zeros,
 };
 use fsym_budget::{BudgetMeter, Unbounded};
 use fsym_calculus::VerifiedResidualSystem;
@@ -237,17 +237,7 @@ pub fn propose_parametric_root_box_with_meter<M: BudgetMeter>(
         &mut unknown_jacobian,
         meter,
     )?;
-    let mut inverse = zeros(unknowns * unknowns, meter)?;
-    let mut unit = zeros(unknowns, meter)?;
-    for column in 0..unknowns {
-        charge(meter, (2 * unknowns + 1) as u64, 0, 0)?;
-        unit.fill(0.0);
-        unit[column] = 1.0;
-        let solution = linear_solve(&unknown_jacobian, &unit, unknowns, meter)?;
-        for row in 0..unknowns {
-            inverse[row * unknowns + column] = solution[row];
-        }
-    }
+    let inverse = inverse_proposal(&unknown_jacobian, unknowns, meter)?;
 
     let mut center = buffer(unknowns, meter)?;
     let mut unknown_domain = buffer(unknowns, meter)?;
