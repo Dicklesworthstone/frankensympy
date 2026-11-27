@@ -2084,3 +2084,19 @@ restore}`; restore returns the candidate search and `RootSearchRepairReport`.
 Filesystem and codec calls are synchronous. Work is bounded and prepaid, with
 cooperative cancellation between operations. This feature does not add a
 background scheduler, automatic repair daemon, or a whole-session snapshot.
+
+### Exporting certified residual and Jacobian bounds to IEEE formats
+
+`EncloseResidualJacobianIeee` takes the same registered system, exact `domain`,
+and `precision_digits` as `EncloseResidualJacobian`, plus `format` set to
+`binary32` or `binary64`. Its response preserves the exact input domain.
+The arrays `domain_bits`, `residual_bits`, and `jacobian_bits` follow the
+original variable, residual, and matrix row/column order. Each interval is a
+pair of lowercase hexadecimal strings in lower/upper order, with 8 or 16 digits
+per endpoint. This representation preserves signed zero and infinity in JSON.
+
+For a point input of `1/10` and residual `x`, binary32 returns
+`["3dcccccc","3dcccccd"]` for the residual. The bounds enclose the original
+mathematical function and its derivatives over the exact input box. The
+rounded domain endpoints are for interchange. Evaluating on the larger box
+formed by those endpoints requires a new enclosure request on that box.

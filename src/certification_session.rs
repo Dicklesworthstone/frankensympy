@@ -56,7 +56,9 @@ use thiserror::Error;
 mod compiled;
 mod compiled_objective;
 mod compiled_solvers;
+mod ieee_enclosures;
 mod least_squares_objective;
+pub use ieee_enclosures::{IeeeEnclosureBounds, IeeeFormat};
 mod parametric;
 mod polynomial_solver;
 mod real_solver;
@@ -830,6 +832,14 @@ pub enum CertificationRequest {
         domain: Vec<ExactInterval>,
         precision_digits: u32,
     },
+    /// Export outward-rounded IEEE endpoints over the exact requested domain.
+    EncloseResidualJacobianIeee {
+        schema_version: u32,
+        system: ResidualSystemId,
+        domain: Vec<ExactInterval>,
+        precision_digits: u32,
+        format: IeeeFormat,
+    },
     CertifyRootBox {
         schema_version: u32,
         system: ResidualSystemId,
@@ -1102,6 +1112,7 @@ impl CertificationRequest {
             | Self::SolveRealInequality { schema_version, .. }
             | Self::SolveRealConstraints { schema_version, .. }
             | Self::EncloseResidualJacobian { schema_version, .. }
+            | Self::EncloseResidualJacobianIeee { schema_version, .. }
             | Self::CertifyRootBox { schema_version, .. }
             | Self::IsolateRealRootsInBox { schema_version, .. }
             | Self::BeginRootIsolationSearch { schema_version, .. }
@@ -1581,6 +1592,18 @@ pub enum CertificationResponse {
         precision_digits: u32,
         context_digest: [u8; 32],
     },
+    ResidualJacobianIeeeEnclosed {
+        schema_version: u32,
+        system: ResidualSystemId,
+        evidence: &'static str,
+        claim: &'static str,
+        domain: Vec<ExactInterval>,
+        format: IeeeFormat,
+        #[serde(flatten)]
+        bounds: IeeeEnclosureBounds,
+        precision_digits: u32,
+        context_digest: [u8; 32],
+    },
     RootBoxCertified {
         schema_version: u32,
         system: ResidualSystemId,
@@ -1746,6 +1769,9 @@ pub enum CertificationResponse {
 
 #[derive(Debug, Error)]
 pub enum CertificationSessionError {
+    #[error(transparent)]
+    FloatingEnclosure(#[from] fsym_core::FloatingEnclosureError),
+
     #[error("unsupported certification request schema {0}")]
     UnsupportedVersion(u32),
     #[error("object label must have its typed kind prefix and a bounded identifier")]
@@ -1909,6 +1935,15 @@ impl CertificationSessionError {
             Self::Compilation(error) => compiled::compilation_error_code(error),
             Self::RealSolver(error) => real_solver::error_code(error),
             Self::PolynomialSolver(_) | Self::RationalSystemSolver(_) => "refused",
+            Self::FloatingEnclosure(error) => match error {
+                fsym_core::FloatingEnclosureError::Meter(MeterError::Cancelled) => "cancelled",
+                fsym_core::FloatingEnclosureError::Meter(MeterError::Budget(_)) => {
+                    "budget_exhausted"
+                }
+                fsym_core::FloatingEnclosureError::Allocation => "resource_limit_exceeded",
+                fsym_core::FloatingEnclosureError::Arithmetic(_)
+                | fsym_core::FloatingEnclosureError::Representation => "refused",
+            },
             Self::Evaluation(error) => compiled::evaluation_error_code(error),
             Self::ObjectiveCompilation(error) => compiled_objective::compilation_error_code(error),
             Self::ObjectiveEvaluation(error) => compiled_objective::evaluation_error_code(error),
@@ -4225,37 +4260,30 @@ impl CertificationState {
                 domain,
                 precision_digits,
                 ..
-            } => {
-                let problem = self
-                    .systems
-                    .get(&system)
-                    .ok_or(CertificationSessionError::UnknownSystem)?;
-                let domain = parse_domain(&domain, problem.variables().len(), budget)?;
-                let lease =
-                    lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
-                let receipt = problem.enclose(
-                    &domain,
-                    precision_digits,
-                    &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
-                )?;
-                let response = CertificationResponse::ResidualJacobianEnclosed {
-                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
-                    system,
-                    evidence: "certified_numeric",
-                    claim: "whole_box_c1_residual_jacobian_enclosure",
-                    domain: render_domain(receipt.domain(), budget)?,
-                    residuals: render_domain(receipt.residual_values(), budget)?,
-                    jacobian: receipt
-                        .jacobian()
-                        .iter()
-                        .map(|row| render_domain(row, budget))
-                        .collect::<Result<_, _>>()?,
-                    precision_digits: receipt.precision_digits(),
-                    context_digest,
-                };
-                admit_response(&response, budget)?;
-                Ok(response)
-            }
+            } => self.enclose_residuals(
+                system,
+                &domain,
+                precision_digits,
+                None,
+                context_digest,
+                budget,
+                lease,
+            ),
+            CertificationRequest::EncloseResidualJacobianIeee {
+                system,
+                domain,
+                precision_digits,
+                format,
+                ..
+            } => self.enclose_residuals(
+                system,
+                &domain,
+                precision_digits,
+                Some(format),
+                context_digest,
+                budget,
+                lease,
+            ),
             CertificationRequest::CertifyRootBox {
                 system,
                 certificate,

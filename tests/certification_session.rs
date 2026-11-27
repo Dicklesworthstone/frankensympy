@@ -463,3 +463,51 @@ fn cli_reports_invalid_budget_options_without_starting_a_session() {
             .contains("nonnegative integer")
     );
 }
+
+#[test]
+fn directed_ieee_enclosures_keep_the_exact_domain_and_all_jacobian_rows() {
+    let mut s = session();
+    register(&mut s, &["x", "-x", "0"], &["x"]);
+    for (format, positive, negative, one, minus_one, zero) in [
+        (
+            "binary32",
+            ["3dcccccc", "3dcccccd"],
+            ["bdcccccd", "bdcccccc"],
+            "3f800000",
+            "bf800000",
+            "00000000",
+        ),
+        (
+            "binary64",
+            ["3fb9999999999999", "3fb999999999999a"],
+            ["bfb999999999999a", "bfb9999999999999"],
+            "3ff0000000000000",
+            "bff0000000000000",
+            "0000000000000000",
+        ),
+    ] {
+        let request = serde_json::json!({"id":"bounds", "type":"EncloseResidualJacobianIeee", "payload":{
+            "schema_version":1, "system":system(), "domain":[{"lower":"1/10","upper":"1/10"}],
+            "precision_digits":24, "format":format
+        }});
+        let response: serde_json::Value =
+            serde_json::from_str(&s.handle_envelope(&request.to_string())).unwrap();
+        assert_eq!(response["status"], "success", "{response}");
+        let result = &response["result"];
+        assert_eq!(result["kind"], "residual_jacobian_ieee_enclosed");
+        assert_eq!(result["format"], format);
+        assert_eq!(
+            result["domain"],
+            serde_json::json!([{"lower":"1/10", "upper":"1/10"}])
+        );
+        assert_eq!(result["domain_bits"], serde_json::json!([positive]));
+        assert_eq!(
+            result["residual_bits"],
+            serde_json::json!([positive, negative, [zero, zero]])
+        );
+        assert_eq!(
+            result["jacobian_bits"],
+            serde_json::json!([[[one, one]], [[minus_one, minus_one]], [[zero, zero]]])
+        );
+    }
+}

@@ -1254,6 +1254,7 @@ impl Session {
                     | "SolveCompiledBoundedLeastSquares"
                     | "ReleaseCompiledResidualSystem"
                     | "EncloseResidualJacobian"
+                    | "EncloseResidualJacobianIeee"
                     | "CertifyRootBox"
                     | "IsolateRealRootsInBox"
                     | "BeginRootIsolationSearch"
