@@ -25,6 +25,9 @@ pub mod integral_artifact;
 pub mod isolation_artifact;
 pub mod scalar_bracket_artifact;
 
+mod floating_enclosure;
+pub use floating_enclosure::{FloatingEnclosureError, FloatingResidualJacobianEnclosure};
+
 mod quadrature;
 pub use quadrature::*;
 
