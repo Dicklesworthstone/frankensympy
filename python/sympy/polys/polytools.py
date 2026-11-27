@@ -3227,36 +3227,78 @@ def groebner(F: Sequence[Any], *gens: Any, order: str = "lex", **args: Any) -> A
     return GroebnerBasis(exprs, gens_t, domain, order)
 
 
-def _dmp_rep(expr: Any, gens: list) -> Any:
-    """Dense recursive coefficient list (upstream DMP ``rep``), used only
-    as the factor ordering key."""
-    from ..core import expand as _expand, sympify
-
-    if not gens:
-        v = sympify(expr)
-        return Fraction(int(v.p), int(v.q)) if isinstance(v, Rational) else 0
-    x, rest = gens[0], gens[1:]
-    e = _expand(expr)
-    coeffs: dict = {}
-    for t in (e.args if type(e).__name__ == "Add" else (e,)):
-        k = 0
-        others = []
-        for fct in (t.args if type(t).__name__ == "Mul" else (t,)):
-            if fct == x:
-                k += 1
-            elif type(fct).__name__ == "Pow" and fct.args[0] == x:
-                k += int(fct.args[1])
+def _factor_order_rows(factor: Any, positions: dict) -> list:
+    """Read the native factor's canonical sum of monomials in its typed ring."""
+    rows = []
+    for term in factor.args if factor.is_add else (factor,):
+        powers = [0] * len(positions)
+        coefficient = 1
+        for element in term.args if term.is_mul else (term,):
+            if element.is_integer:
+                coefficient = element.exact_numerator()
+            elif element.is_rational:
+                coefficient = Fraction(element.exact_numerator(), element.exact_denominator())
             else:
-                others.append(fct)
-        c = Integer(1)
-        for o in others:
-            c = c * o
-        coeffs[k] = coeffs.get(k, 0) + c
-    coeffs = {k: c for k, c in coeffs.items() if c != 0}
-    if not coeffs:
-        return []  # the zero polynomial (upstream DMP strips it to [])
-    deg = max(coeffs)
-    return [_dmp_rep(coeffs.get(k, 0), rest) for k in range(deg, -1, -1)]
+                if element.is_pow:
+                    symbol, exponent = element.args
+                    power = exponent.exact_numerator()
+                else:
+                    symbol, power = element, 1
+                powers[positions[symbol]] = power
+        rows.append((tuple(powers), coefficient))
+    rows.sort(key=lambda row: row[0], reverse=True)
+    return rows
+
+
+def _dmp_columns(rows: Sequence, axis: int) -> tuple[int, dict]:
+    # The dense list starts at this polynomial's own degree. Two coefficient
+    # polynomials of different degrees still compare their leading entries first.
+    degree = rows[0][0][axis]
+    if rows[-1][0][axis] == degree:
+        return degree, {0: rows}
+    columns: dict = {}
+    for row in rows:
+        columns.setdefault(degree - row[0][axis], []).append(row)
+    return degree, columns
+
+
+def _compare_dmp_rows(left: Sequence, right: Sequence, axis: int, width: int) -> int:
+    if axis == width:
+        a = left[0][1] if left else 0
+        b = right[0][1] if right else 0
+        return (a > b) - (a < b)
+    if not left or not right:
+        # A nested zero polynomial precedes every nonzero polynomial. Only
+        # scalar zero at the last axis compares numerically against a sign.
+        return bool(left) - bool(right)
+    left_degree, a = _dmp_columns(left, axis)
+    right_degree, b = _dmp_columns(right, axis)
+    common_degree = min(left_degree, right_degree)
+    for offset in sorted(a.keys() | b.keys()):
+        if offset > common_degree:
+            break
+        comparison = _compare_dmp_rows(a.get(offset, ()), b.get(offset, ()), axis + 1, width)
+        if comparison:
+            return comparison
+    # All entries in the shorter list match. Python list order breaks a
+    # prefix tie by length, including when its trailing entries are zero.
+    return (left_degree > right_degree) - (left_degree < right_degree)
+
+
+def _sort_native_factors(raw: list, gens: list) -> list:
+    from functools import cmp_to_key
+
+    if len(raw) < 2:
+        return raw
+    # Native Expr equality and hashing include the typed symbol identity.
+    positions = {_native_expr(g): index for index, g in enumerate(gens)}
+    compare = cmp_to_key(lambda a, b: _compare_dmp_rows(a, b, 0, len(gens)))
+
+    def key(pair: tuple) -> tuple:
+        rows = _factor_order_rows(pair[0], positions)
+        return rows[0][0][0], pair[1], compare(rows)
+
+    return sorted(raw, key=key)
 
 
 def _native_factor_multivariate(expr: Any, gens: list) -> Tuple[Any, List[Tuple[Any, int]]] | None:
@@ -3271,16 +3313,10 @@ def _native_factor_multivariate(expr: Any, gens: list) -> Tuple[Any, List[Tuple[
         )
     except Exception:
         return None
-    factors = [(_lift_native_result(f, expr, *gens), m) for f, m in raw]
-
-    def key(fm: Any) -> tuple:
-        rep = _dmp_rep(fm[0], list(gens))
-        return (len(rep), fm[1], rep)
-
-    try:
-        factors.sort(key=key)
-    except TypeError:
-        pass
+    factors = [
+        (_lift_native_result(f, expr, *gens), multiplicity)
+        for f, multiplicity in _sort_native_factors(raw, gens)
+    ]
     return _lift_native_result(scale_raw, expr, *gens), factors
 
 

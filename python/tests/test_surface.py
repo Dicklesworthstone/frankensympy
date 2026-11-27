@@ -2622,6 +2622,58 @@ print(json.dumps({
         self.assertEqual(sympy.solve(1 / y**2 - x, y), [-sympy.sqrt(1 / x), sympy.sqrt(1 / x)])
         self.assertEqual(sympy.solve((y**2 - 1) / (y - 1), y), [-1])
 
+    def test_multivariate_factor_order_preserves_recursive_dense_comparison(self):
+        # Frozen SymPy 1.14 factor_list order under every permutation.
+        x, y, z = sympy.symbols("x y z")
+        a = x*y*z + x*y - x + 2*y + 1
+        b = x*y*z - x*z + y*z + x + 1
+        for axes, order in [
+            ((x, y, z), [b, a]), ((x, z, y), [b, a]), ((y, x, z), [b, a]),
+            ((y, z, x), [a, b]), ((z, x, y), [b, a]), ((z, y, x), [a, b]),
+        ]:
+            with self.subTest(axes=axes):
+                self.assertEqual(sympy.factor_list(a*b, *axes), (1, [(f, 1) for f in order]))
+        for first, second, multiplicity in [
+            (x*y - x + 1, x*y**2 + x + 1, 1),
+            (x+y-2, x+y+1, 1),
+            (x+y, x-y, 2),
+        ]:
+            with self.subTest(first=first, second=second):
+                self.assertEqual(
+                    sympy.factor_list(first*second**multiplicity, x, y),
+                    (1, [(first, 1), (second, multiplicity)]),
+                )
+
+    def test_sparse_factor_order_at_billion_degree(self):
+        # An exact sparse-factorization case outside the upstream dense
+        # generator's regime. Bound any regression before it fills memory.
+        if not hasattr(sympy.core, "_native"):
+            self.skipTest("large sparse native factorization")
+        from unittest.mock import patch
+        from sympy.polys import polytools
+
+        def guarded_range(*args):
+            result = range(*args)
+            self.assertLessEqual(len(result), 4096, "attempted dense factor-order traversal")
+            return result
+
+        x, y, z, w, t = sympy.symbols("x y z w t")
+        a, b = y + z**1_000_000_000, x + w**1_000_000_000
+        axes = (t, z, w, y, x)
+        expected = [(a, 1), (b, 1)]
+        with patch.object(polytools, "range", guarded_range, create=True):
+            self.assertEqual(sympy.factor_list(a, z, y), (1, [(a, 1)]))
+            self.assertEqual(sympy.factor_list(a*b, *axes), (1, expected))
+            self.assertEqual(sympy.factor(a*b, *axes), a*b)
+            scale, factors = sympy.Poly(a*b, *axes).factor_list()
+            self.assertEqual(scale, 1)
+            self.assertEqual([(f.as_expr(), m) for f, m in factors], expected)
+
+    def test_factor_order_keeps_same_name_typed_axes(self):
+        x = sympy.Symbol("factor_order_x", positive=True)
+        y = sympy.Symbol("factor_order_x", negative=True)
+        self.assertEqual(sympy.factor_list((x+y)*(x-y), x, y), (1, [(x-y, 1), (x+y, 1)]))
+
     def test_multivariate_factor_gcd_and_parametric_linear(self):
         # Oracle-pinned (SymPy 1.14) multivariate factorization surface.
         x, y, z, a, b, c = sympy.symbols("x y z a b c")
