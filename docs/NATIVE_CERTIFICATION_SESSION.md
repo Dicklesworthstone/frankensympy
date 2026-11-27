@@ -821,6 +821,7 @@ the registered source, or select a replacement backend after a refusal.
 | `SolveCompiledResidualSystem` | `frankennumpy`, `frankenscipy`, `frankenscipy_analytic`, or `sparse` | A point meeting the residual tolerance in every row. Sparse accepts square, overdetermined and underdetermined systems with 1–256 variables and 1–4096 rows. The other backends require square systems |
 | `SolveCompiledParametricSystem` | Fixed `frankennumpy` | A root of the unknown prefix at the supplied fixed parameter suffix |
 | `SolveCompiledLeastSquares` | `dense` or `sparse` | A point meeting the tolerance for the gradient of `0.5 * sum(residuals^2)` |
+| `SolveCompiledBoundedLeastSquares` | Sparse | A feasible point meeting the projected-gradient tolerance on the supplied box |
 | `MinimizeCompiledObjective` | `dense` (default, 1–16 variables) or `sparse` (1–64 variables) | A point meeting the objective-gradient tolerance |
 
 For example, compile a square system and refine an initial point:
@@ -855,6 +856,25 @@ and `schema_version: 1`; its result has kind `compiled_least_squares_solved`,
 and backend fields. Dense least squares requires at least as many residuals as
 variables. Sparse least squares also supports underdetermined and rank-deficient
 systems; it does not claim a unique solution or a minimum-norm solution.
+
+Use `SolveCompiledBoundedLeastSquares` to fit inside coordinate bounds with the
+sparse backend. Supply one lower and one upper endpoint per ordered variable.
+A finite binary64 decimal string sets an endpoint and JSON `null` leaves that
+side unbounded. Equal finite endpoints fix a coordinate. The initial point
+must satisfy all bounds. The optional iteration, step, and gradient controls
+use the same fields as `SolveCompiledLeastSquares`.
+
+For example, after compiling the two residuals above as `program:fit`, this request limits
+`x` to 1 and returns `point: [1]`, `residuals: [0,-2]`, and `cost: 2`.
+
+```json
+{"id":"bounded-fit","type":"SolveCompiledBoundedLeastSquares","payload":{"schema_version":1,"program":"program:fit","initial":["0"],"lower":[null],"upper":["1"]}}
+```
+
+The full gradient norm is 2 at this upper bound. The projected gradient norm
+is zero because increasing `x` would leave the box. The response reports both
+norms and uses `termination: "projected_gradient_tolerance"` for approximate
+constrained stationarity.
 
 For an objective, use the compiled objective handle:
 

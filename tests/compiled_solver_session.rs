@@ -244,6 +244,77 @@ fn both_least_squares_backends_retain_every_inconsistent_residual_row() {
 }
 
 #[test]
+fn bounded_fit_distinguishes_projected_stationarity_from_a_zero_gradient() {
+    let (mut session, _) =
+        residual_session(limits(), &["x-3", "y+4", "z-8", "2"], &["x", "y", "z"]);
+    let verifier_pool = session.budget_snapshot().verifier_pool;
+    let result = success(call(
+        &mut session,
+        "SolveCompiledBoundedLeastSquares",
+        json!({
+            "program": PROGRAM, "initial":["0","0","2"],
+            "lower":[null,"-1","2"], "upper":["1",null,"2"]
+        }),
+    ));
+    approximate(&result);
+    assert_eq!(result["kind"], "compiled_bounded_least_squares_solved");
+    assert_eq!(result["backend"], "sparse");
+    assert_eq!(result["termination"], "projected_gradient_tolerance");
+    near_vector(&result["point"], &[1., -1., 2.], 0.);
+    near_vector(&result["residuals"], &[-2., 3., -6., 2.], 0.);
+    near(number(&result["cost"]), 26.5, 0.);
+    near(number(&result["gradient_norm"]), 6., 0.);
+    near(number(&result["projected_gradient_norm"]), 0., 0.);
+    assert_eq!(session.budget_snapshot().verifier_pool, verifier_pool);
+}
+
+#[test]
+fn bounded_fit_refuses_invalid_endpoints_infeasible_points_and_unfinished_iterations() {
+    let (mut session, _) = residual_session(limits(), &["x-2"], &["x"]);
+    for (lo, hi, point) in [
+        (json!([]), json!([null]), "0"),
+        (json!([null]), json!(["1", "2"]), "0"),
+        (json!(["NaN"]), json!([null]), "0"),
+        (json!([null]), json!(["inf"]), "0"),
+        (json!(["1e999"]), json!([null]), "0"),
+        (json!(["1"]), json!(["0"]), "0"),
+        (json!(["1"]), json!(["2"]), "0"),
+    ] {
+        refused(
+            call(
+                &mut session,
+                "SolveCompiledBoundedLeastSquares",
+                json!({
+                    "program":PROGRAM,"initial":[point],"lower":lo,"upper":hi
+                }),
+            ),
+            "invalid_input",
+        );
+    }
+    refused(
+        call(
+            &mut session,
+            "SolveCompiledBoundedLeastSquares",
+            json!({
+                "program":PROGRAM,"initial":["0"],"lower":[null],"upper":[null],
+                "options":{"max_iterations":0}
+            }),
+        ),
+        "numeric_no_convergence",
+    );
+    let result = success(call(
+        &mut session,
+        "SolveCompiledBoundedLeastSquares",
+        json!({
+            "program":PROGRAM,"initial":["2"],"lower":[null],"upper":[null],
+            "options":{"max_iterations":0}
+        }),
+    ));
+    near_vector(&result["point"], &[2.], 0.);
+    assert_eq!(result["iterations"], 0);
+}
+
+#[test]
 fn explicit_sparse_selection_supports_rank_deficiency_and_underdetermined_systems() {
     let (mut session, _) =
         residual_session(limits(), &["x+y-1", "2*x+2*y-2", "3*x+3*y-4"], &["x", "y"]);

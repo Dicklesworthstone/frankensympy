@@ -602,6 +602,17 @@ pub enum CertificationRequest {
         #[serde(default)]
         options: CompiledStationarityOptions,
     },
+    /// Fit the original residuals subject to coordinate bounds in variable order.
+    /// A null endpoint leaves that side open. Equal finite endpoints fix an axis.
+    SolveCompiledBoundedLeastSquares {
+        schema_version: u32,
+        program: CompiledResidualSystemId,
+        initial: Vec<String>,
+        lower: Vec<Option<String>>,
+        upper: Vec<Option<String>>,
+        #[serde(default)]
+        options: CompiledStationarityOptions,
+    },
     ReleaseCompiledResidualSystem {
         schema_version: u32,
         program: CompiledResidualSystemId,
@@ -1057,6 +1068,7 @@ impl CertificationRequest {
             | Self::SolveAndCertifyCompiledParametricSystem { schema_version, .. }
             | Self::SolveAndCertifyCompiledResidualSystem { schema_version, .. }
             | Self::SolveCompiledLeastSquares { schema_version, .. }
+            | Self::SolveCompiledBoundedLeastSquares { schema_version, .. }
             | Self::ReleaseCompiledResidualSystem { schema_version, .. }
             | Self::RegisterParametricProblem { schema_version, .. }
             | Self::CertifyParametricRoot { schema_version, .. }
@@ -1351,6 +1363,23 @@ pub enum CertificationResponse {
         residuals: Vec<f64>,
         cost: f64,
         gradient_norm: f64,
+        iterations: usize,
+        evaluations: usize,
+        termination: &'static str,
+        context_digest: [u8; 32],
+    },
+    CompiledBoundedLeastSquaresSolved {
+        schema_version: u32,
+        system: ResidualSystemId,
+        program: CompiledResidualSystemId,
+        backend: CompiledLeastSquaresBackend,
+        outcome: &'static str,
+        numeric_model: &'static str,
+        point: Vec<f64>,
+        residuals: Vec<f64>,
+        cost: f64,
+        gradient_norm: f64,
+        projected_gradient_norm: f64,
         iterations: usize,
         evaluations: usize,
         termination: &'static str,
@@ -3537,6 +3566,16 @@ impl CertificationState {
             } => self
                 .compiled
                 .least_squares(program, &initial, backend, &options, budget),
+            CertificationRequest::SolveCompiledBoundedLeastSquares {
+                program,
+                initial,
+                lower,
+                upper,
+                options,
+                ..
+            } => self
+                .compiled
+                .bounded_least_squares(program, &initial, &lower, &upper, &options, budget),
             CertificationRequest::EvaluateJacobianVectorProduct {
                 program,
                 point,

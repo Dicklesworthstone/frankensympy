@@ -178,6 +178,21 @@ fn default_cli_replays_then_solves_and_minimizes_after_the_sender_process_exits(
     near(&fitted["point"][0], 2.0_f64.sqrt(), 1e-9);
     near(&fitted["cost"], 0.0, 1e-18);
 
+    let bounded = success(receiver.send(
+        "SolveCompiledBoundedLeastSquares",
+        json!({"program":"program:received","initial":["1"],"lower":[null],"upper":["1"]}),
+        "fit-restored-with-upper-bound",
+    ));
+    approximate(&bounded);
+    assert_eq!(
+        bounded["context_digest"],
+        admitted_residual["context_digest"]
+    );
+    near(&bounded["point"][0], 1.0, 0.0);
+    near(&bounded["cost"], 0.5, 0.0);
+    near(&bounded["gradient_norm"], 2.0, 0.0);
+    near(&bounded["projected_gradient_norm"], 0.0, 0.0);
+
     let minimized = success(receiver.send(
         "MinimizeCompiledObjective",
         json!({"program":"objective_program:received", "backend":"sparse", "initial":["3"]}),

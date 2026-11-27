@@ -403,6 +403,24 @@ pub(super) fn solve_least_squares(
             }
         }
     }
+    let controls = least_squares_controls(options, budget)?;
+    let initial = numeric_values(initial, variables, "initial", budget)?;
+    let proposal = match backend {
+        CompiledLeastSquaresBackend::Dense => {
+            least_squares_with_meter(system, &initial, &controls, budget)
+        }
+        CompiledLeastSquaresBackend::Sparse => {
+            sparse_least_squares_with_meter(system, &initial, &controls, budget)
+        }
+    }?;
+    budget.checkpoint()?;
+    Ok(proposal)
+}
+
+pub(super) fn least_squares_controls(
+    options: &CompiledStationarityOptions,
+    budget: &mut RequestBudget<'_>,
+) -> Result<LeastSquaresOptions, CertificationSessionError> {
     let mut controls = LeastSquaresOptions::default();
     if let Some(iterations) = options.max_iterations {
         if iterations > MAX_CONSUMER_NEWTON_ITERATIONS {
@@ -437,17 +455,7 @@ pub(super) fn solve_least_squares(
         )
         .into());
     }
-    let initial = numeric_values(initial, variables, "initial", budget)?;
-    let proposal = match backend {
-        CompiledLeastSquaresBackend::Dense => {
-            least_squares_with_meter(system, &initial, &controls, budget)
-        }
-        CompiledLeastSquaresBackend::Sparse => {
-            sparse_least_squares_with_meter(system, &initial, &controls, budget)
-        }
-    }?;
-    budget.checkpoint()?;
-    Ok(proposal)
+    Ok(controls)
 }
 
 pub(super) fn minimize(

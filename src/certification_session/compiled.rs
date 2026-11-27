@@ -376,6 +376,67 @@ impl CompiledState {
         Ok(response)
     }
 
+    pub(super) fn bounded_least_squares(
+        &self,
+        id: CompiledResidualSystemId,
+        initial: &[String],
+        lower: &[Option<String>],
+        upper: &[Option<String>],
+        options: &CompiledStationarityOptions,
+        budget: &mut RequestBudget<'_>,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        budget.checkpoint()?;
+        let resident = self
+            .programs
+            .get(&id)
+            .ok_or(CertificationSessionError::UnknownCompiledSystem)?;
+        let axes = resident.program.num_vars();
+        let initial = numeric_values(initial, axes, "initial", budget)?;
+        let lower = numeric_coordinates(
+            lower.iter().map(Option::as_deref),
+            axes,
+            "lower",
+            Some(f64::NEG_INFINITY),
+            budget,
+        )?;
+        let upper = numeric_coordinates(
+            upper.iter().map(Option::as_deref),
+            axes,
+            "upper",
+            Some(f64::INFINITY),
+            budget,
+        )?;
+        let controls = super::compiled_solvers::least_squares_controls(options, budget)?;
+        let fit = fsym_numeric_consumer::sparse_bounded_least_squares_with_meter(
+            &resident.program,
+            &initial,
+            &lower,
+            &upper,
+            &controls,
+            budget,
+        )?;
+        charge(budget, 1, resident.source.as_str().len())?;
+        let response = CertificationResponse::CompiledBoundedLeastSquaresSolved {
+            schema_version: CERTIFICATION_REQUEST_SCHEMA,
+            system: resident.source.clone(),
+            program: id,
+            backend: CompiledLeastSquaresBackend::Sparse,
+            outcome: "approximate",
+            numeric_model: "binary64",
+            point: fit.point,
+            residuals: fit.residuals,
+            cost: fit.cost,
+            gradient_norm: fit.gradient_norm,
+            projected_gradient_norm: fit.projected_gradient_norm,
+            iterations: fit.iterations,
+            evaluations: fit.evaluations,
+            termination: "projected_gradient_tolerance",
+            context_digest: resident.context_digest,
+        };
+        admit_response(&response, budget)?;
+        Ok(response)
+    }
+
     pub(super) fn evaluate(
         &self,
         id: CompiledResidualSystemId,
@@ -500,6 +561,22 @@ pub(super) fn numeric_values(
     lane: &'static str,
     budget: &mut RequestBudget<'_>,
 ) -> Result<Vec<f64>, CertificationSessionError> {
+    numeric_coordinates(
+        values.iter().map(|s| Some(s.as_str())),
+        expected,
+        lane,
+        None,
+        budget,
+    )
+}
+
+fn numeric_coordinates<'a>(
+    values: impl ExactSizeIterator<Item = Option<&'a str>>,
+    expected: usize,
+    lane: &'static str,
+    missing: Option<f64>,
+    budget: &mut RequestBudget<'_>,
+) -> Result<Vec<f64>, CertificationSessionError> {
     charge(budget, 1, 0)?;
     if values.len() != expected {
         return Err(ResidualEvaluationError::Dimension {
@@ -515,6 +592,10 @@ pub(super) fn numeric_values(
         .try_reserve_exact(expected)
         .map_err(|_| ResidualEvaluationError::Evaluation(EvalError::AllocationFailure))?;
     for value in values {
+        let Some(value) = value else {
+            result.push(missing.ok_or(CertificationSessionError::InvalidNumericPoint)?);
+            continue;
+        };
         if value.is_empty() || value.len() > MAX_POINT_SCALAR_BYTES {
             return Err(CertificationSessionError::InvalidNumericPoint);
         }

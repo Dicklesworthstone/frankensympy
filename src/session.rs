@@ -1251,6 +1251,7 @@ impl Session {
                     | "SolveAndCertifyCompiledParametricSystem"
                     | "SolveAndCertifyCompiledResidualSystem"
                     | "SolveCompiledLeastSquares"
+                    | "SolveCompiledBoundedLeastSquares"
                     | "ReleaseCompiledResidualSystem"
                     | "EncloseResidualJacobian"
                     | "CertifyRootBox"
