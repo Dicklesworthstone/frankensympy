@@ -426,6 +426,8 @@ impl CompiledState {
             point: fit.point,
             residuals: fit.residuals,
             cost: fit.cost,
+            gradient: fit.gradient,
+            projected_gradient: fit.projected_gradient,
             gradient_norm: fit.gradient_norm,
             projected_gradient_norm: fit.projected_gradient_norm,
             iterations: fit.iterations,

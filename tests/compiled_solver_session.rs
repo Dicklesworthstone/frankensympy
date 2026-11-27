@@ -263,8 +263,22 @@ fn bounded_fit_distinguishes_projected_stationarity_from_a_zero_gradient() {
     near_vector(&result["point"], &[1., -1., 2.], 0.);
     near_vector(&result["residuals"], &[-2., 3., -6., 2.], 0.);
     near(number(&result["cost"]), 26.5, 0.);
+    near_vector(&result["gradient"], &[-2., 3., -6.], 0.);
+    near_vector(&result["projected_gradient"], &[0., 0., 0.], 0.);
     near(number(&result["gradient_norm"]), 6., 0.);
     near(number(&result["projected_gradient_norm"]), 0., 0.);
+    let interior = success(call(
+        &mut session,
+        "SolveCompiledBoundedLeastSquares",
+        json!({
+            "program": PROGRAM, "initial":["1","-0.5","2"],
+            "lower":[null,"-1","2"], "upper":["1",null,"2"],
+            "options":{"max_iterations":0,"gradient_tolerance":"4"}
+        }),
+    ));
+    near_vector(&interior["gradient"], &[-2., 3.5, -6.], 0.);
+    near_vector(&interior["projected_gradient"], &[0., 3.5, 0.], 0.);
+    near(number(&interior["projected_gradient_norm"]), 3.5, 0.);
     assert_eq!(session.budget_snapshot().verifier_pool, verifier_pool);
 }
 

@@ -1390,6 +1390,8 @@ pub enum CertificationResponse {
         residuals: Vec<f64>,
         cost: f64,
         gradient_norm: f64,
+        gradient: Vec<f64>,
+        projected_gradient: Vec<f64>,
         projected_gradient_norm: f64,
         iterations: usize,
         evaluations: usize,

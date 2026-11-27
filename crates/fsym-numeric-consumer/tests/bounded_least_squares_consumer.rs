@@ -666,3 +666,58 @@ fn all_budget_dimensions_accumulate_across_rejected_trials_and_repeat_calls() {
         assert_eq!(short.verifier_remaining(), 37);
     }
 }
+
+#[test]
+fn published_gradients_preserve_active_fixed_and_free_components_in_variable_order() {
+    let source = system(&["x-3", "y+4", "z-8", "2"], &["x", "y", "z"]);
+    let initial = [1.0, -1.0, 2.0];
+    let lower = [f64::NEG_INFINITY, -1.0, 2.0];
+    for (upper_x, tolerance, projected_x) in [(1.0, 0.0, 0.0), (4.0, 2.0, -2.0)] {
+        let controls = LeastSquaresOptions {
+            max_iterations: 0,
+            gradient_tolerance: tolerance,
+            ..LeastSquaresOptions::default()
+        };
+        let fit = sparse_bounded_least_squares(
+            &source,
+            &initial,
+            &lower,
+            &[upper_x, f64::INFINITY, 2.0],
+            &controls,
+        )
+        .unwrap();
+        assert_eq!(fit.point, initial);
+        assert_eq!(fit.residuals, [-2.0, 3.0, -6.0, 2.0]);
+        assert_eq!(fit.gradient, [-2.0, 3.0, -6.0]);
+        assert_eq!(fit.projected_gradient, [projected_x, 0.0, 0.0]);
+        assert_eq!(fit.gradient_norm, 6.0);
+        assert_eq!(fit.projected_gradient_norm, projected_x.abs());
+        assert_eq!(fit.iterations, 0);
+    }
+}
+
+#[test]
+fn fixed_zero_residuals_still_require_the_original_derivative_domain() {
+    for (formula, primitive) in [("x^(1/2)", "power"), ("abs(x)", "abs")] {
+        let source = system(&[formula], &["x"]);
+        assert_eq!(
+            source.residual_programs()[0]
+                .try_eval_finite(&[0.0])
+                .unwrap(),
+            0.0
+        );
+        let result = sparse_bounded_least_squares(
+            &source,
+            &[0.0],
+            &[0.0],
+            &[0.0],
+            &LeastSquaresOptions::default(),
+        );
+        assert!(
+            matches!(result, Err(SystemConsumerError::SparseEvaluation(
+            ResidualEvaluationError::Evaluation(EvalError::NonsmoothSource(name))
+        )) if name == primitive),
+            "{formula}: {result:?}"
+        );
+    }
+}

@@ -871,10 +871,13 @@ For example, after compiling the two residuals above as `program:fit`, this requ
 {"id":"bounded-fit","type":"SolveCompiledBoundedLeastSquares","payload":{"schema_version":1,"program":"program:fit","initial":["0"],"lower":[null],"upper":["1"]}}
 ```
 
-The full gradient norm is 2 at this upper bound. The projected gradient norm
-is zero because increasing `x` would leave the box. The response reports both
-norms and uses `termination: "projected_gradient_tolerance"` for approximate
-constrained stationarity.
+The response returns `gradient` and `projected_gradient` in the registered
+variable order, together with their infinity norms. Here `gradient` is
+`[-2]` and `projected_gradient` is `[0]` because increasing `x` would
+leave the box. A fixed coordinate also has a zero projected component.
+Interior components retain their original source gradients. The solver reports
+`projected_gradient_tolerance` when the projected norm meets the requested
+tolerance.
 
 For an objective, use the compiled objective handle:
 

@@ -133,7 +133,7 @@ fn derivative_domain_failure_wins_even_at_an_exact_initial_root() {
         assert!(matches!(
             frankenscipy_analytic_system(&system, &[0.0]),
             Err(SystemConsumerError::SparseEvaluation(
-                ResidualEvaluationError::Evaluation(EvalError::NonFiniteValue)
+                ResidualEvaluationError::Evaluation(EvalError::NonsmoothSource("power"))
             ))
         ));
     }

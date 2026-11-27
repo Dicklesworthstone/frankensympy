@@ -190,6 +190,8 @@ fn default_cli_replays_then_solves_and_minimizes_after_the_sender_process_exits(
     );
     near(&bounded["point"][0], 1.0, 0.0);
     near(&bounded["cost"], 0.5, 0.0);
+    assert_eq!(bounded["gradient"], json!([-2.0]));
+    assert_eq!(bounded["projected_gradient"], json!([0.0]));
     near(&bounded["gradient_norm"], 2.0, 0.0);
     near(&bounded["projected_gradient_norm"], 0.0, 0.0);
 

@@ -43,6 +43,10 @@ pub struct BoundedLeastSquaresProposal {
     pub residuals: Vec<f64>,
     /// One half the original sum of squared residuals.
     pub cost: f64,
+    /// Original, unscaled `J.transpose() * r` in source variable order.
+    pub gradient: Vec<f64>,
+    /// Original gradient with blocked components set to zero, in the same order.
+    pub projected_gradient: Vec<f64>,
     /// Infinity norm of the original full gradient `J.transpose() * r`.
     pub gradient_norm: f64,
     /// Infinity norm after suppressing fixed coordinates and outward gradients
@@ -169,11 +173,16 @@ pub fn sparse_bounded_least_squares_with_meter<M: BudgetMeter>(
                     "bounded least-squares final source gradient agreement",
                 ));
             }
-            publication_checkpoint(n + m, meter)?;
+            // Point and both gradient vectors have n entries; all four output
+            // vectors already own their metered buffers from the final evaluation
+            // or accepted iterate. Publish them together after the final check.
+            publication_checkpoint(3 * n + m, meter)?;
             return Ok(BoundedLeastSquaresProposal {
                 point,
                 residuals: checked.residuals,
                 cost: checked.cost,
+                gradient: checked.gradient,
+                projected_gradient: checked.projected_gradient,
                 gradient_norm: checked.gradient_norm,
                 projected_gradient_norm: checked.projected_gradient_norm,
                 iterations: iteration,
