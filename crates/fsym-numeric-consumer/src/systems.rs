@@ -19,6 +19,7 @@
 
 mod bounded_least_squares;
 pub use bounded_least_squares::*;
+mod gradient;
 mod least_squares;
 pub use least_squares::*;
 mod parametric;

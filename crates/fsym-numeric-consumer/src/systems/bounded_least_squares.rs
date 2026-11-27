@@ -19,6 +19,7 @@
 //! products, all trial directions, allocation, rejected trials and publication.
 //! No dense Jacobian or normal matrix is constructed.
 
+use super::gradient::transpose_times_residuals;
 use super::sparse_linear::{
     DAMPING_ATTEMPTS, LinearModel, column_scales, dot, finite_scalar, lsqr_direction,
     trial_domain_failure,
@@ -360,7 +361,6 @@ fn evaluate<M: BudgetMeter>(
     }
     finite(&values.residuals, "bounded least-squares residuals", meter)?;
     finite(&values.jacobian, "bounded least-squares Jacobian", meter)?;
-    let mut gradient = zeros(n, meter)?;
     charge(meter, (5 * pattern.len() + 3 * m + 1) as u64, 0, 0)?;
     let mut sum_squared = 0.0;
     for residual in &values.residuals {
@@ -370,15 +370,8 @@ fn evaluate<M: BudgetMeter>(
         )?;
         sum_squared = finite_scalar(sum_squared + square, "bounded least-squares cost sum")?;
     }
-    for (&(row, column), &value) in pattern.iter().zip(&values.jacobian) {
-        if row >= m || column >= n {
-            return Err(SystemConsumerError::ConsumerContract(
-                "bounded least-squares Jacobian coordinate",
-            ));
-        }
-        let product = finite_scalar(value * values.residuals[row], "bounded gradient product")?;
-        gradient[column] = finite_scalar(gradient[column] + product, "bounded gradient sum")?;
-    }
+    let gradient =
+        transpose_times_residuals(pattern, &values.jacobian, &values.residuals, n, meter)?;
     let gradient_norm = infinity_norm(&gradient, meter)?;
     let mut projected_gradient = copy_values(&gradient, meter)?;
     charge(meter, (8 * n + 1) as u64, 0, 0)?;

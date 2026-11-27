@@ -291,3 +291,21 @@ def test_unsupported_shapes_refuse_at_both_entrypoints(shape):
     for callable_ in (program, program.native_system):
         with pytest.raises(ValueError, match="least squares requires"):
             callable_.solve_least_squares(initial)
+
+
+@pytest.mark.parametrize("order", [(0, 1, 2), (0, 2, 1), (2, 1, 0)])
+def test_gradient_cancellation_cannot_publish_false_stationarity(order):
+    x = s.Symbol("cancellation_x")
+    large = 2**53
+    rows = (x + large, x + 1, x - large)
+    program = s.compile_residual_system([rows[i] for i in order], x)
+    for backend in ("dense", "sparse"):
+        with pytest.raises(ValueError, match="stationar"):
+            program.solve_least_squares(0, backend=backend, maxiter=0, gtol=0)
+    with pytest.raises(ValueError, match="stationar"):
+        program.solve_bounded_least_squares(0, [(None, None)], maxiter=0, gtol=0)
+    # A positive gradient at the lower bound really is constrained-stationary.
+    bounded = program.solve_bounded_least_squares(0, [(0, None)], maxiter=0, gtol=0)
+    assert bounded.point == (0.0,)
+    assert bounded.gradient_norm == 1.0
+    assert bounded.projected_gradient_norm == 0.0
