@@ -541,9 +541,9 @@ def _native_numeric_source(source, count, depth, *, inexact=None, opaque_tags=()
     def visit_condition(node, level):
         _charge(count, level)
         tag, operands = _piecewise_condition(node, _MAX_NODES)
-        require_unambiguous(tag)
         if tag in ("True", "False"):
             return _native.Expr(tag)
+        require_unambiguous(tag)
         if tag in ("And", "Or", "Not"):
             children = [visit_condition(child, level + 1) for child in operands]
         else:

@@ -12,9 +12,9 @@ import math
 import threading
 
 from ..core import (
-    Add, Basic, Float, Function, FunctionClass, Mul, Pow, SupervisedCallbackSession,
+    Add, Basic, Float, Function, FunctionClass, Mul, Pow, SupervisedCallbackSession, UndefinedFunction,
     _ExactDecimalFloat, _active_callback_session, _exact_surface_types, _known_functions,
-    _native, _symbol_binding, supervised_callback_session,
+    _native, _symbol_binding, _undefined_function_semantic_identity, supervised_callback_session,
 )
 from ._piecewise_numeric import (
     Piecewise as _Piecewise, branches as _piecewise_branches,
@@ -51,8 +51,16 @@ def _callback_bindings(callbacks, functions):
     if len(items) != count or len(callbacks) != count:
         raise ValueError("hybrid callback mapping changed during its snapshot")
     for cls, callback in items:
-        if type(cls) is not FunctionClass or not issubclass(cls, Function):
-            raise TypeError("callback keys must be exact FunctionClass classes deriving from Function")
+        # Genuine Function("f") declarations have a distinct built-in
+        # metaclass. Consult the identity-owned declaration record without
+        # comparing or hashing metadata; equality never transfers a callback.
+        factory = (type(cls) is UndefinedFunction
+                   and _undefined_function_semantic_identity(cls) is not None)
+        if not factory and (type(cls) is not FunctionClass or not issubclass(cls, Function)):
+            raise TypeError(
+                "callback keys must be Function classes with the exact FunctionClass "
+                "metaclass or classes from the Function factory"
+            )
         if (cls is Function or any(cls is builtin for builtin in functions)
                 or any(cls is builtin for builtin in _known_functions.values())):
             raise ValueError("callbacks cannot override registered built-in numerical classes")
@@ -563,10 +571,11 @@ class _HybridCallable:
 def compile_numeric_hybrid(args, expression, *, callbacks):
     """Compile finite-real native fragments around explicit Python callbacks.
 
-    ``callbacks`` is an exact dict mapping exact custom ``Function`` classes
-    to callables. Each occurrence receives the finite float values of its
-    arguments and must return an exact built-in int, float or bool that
-    converts to finite binary64. Class keys match by identity; built-in
+    ``callbacks`` is an exact dict mapping custom ``Function`` classes or
+    hashable declarations made by ``Function("f")`` to callables. Each
+    occurrence must match its registered class by identity. The callable
+    receives the finite float values of its arguments and must return an exact
+    built-in int, float or bool that converts to finite binary64. Built-in
     numerical classes cannot be overridden. The mapping and callable identities
     are captured at compilation. No ``_imp_`` or other ambient hook is selected.
 

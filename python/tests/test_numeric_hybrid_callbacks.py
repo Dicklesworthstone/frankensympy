@@ -762,6 +762,94 @@ def test_hybrid_lambert_branch_never_lowers_an_assertion_or_nonliteral(bad):
     assert effects == []
 
 
+def test_factory_functions_bind_distinct_same_named_residual_and_jacobian_callbacks():
+    x = s.Symbol("hybrid_factory_x")
+    residual = s.Function("HybridFactory", real=True)
+    slope = s.Function("HybridFactory", real=False)
+    events = []
+    callbacks = {
+        residual: lambda v: events.append(("residual", v)) or v**2-4,
+        slope: lambda v: events.append(("slope", v)) or 2*v,
+    }
+    system = s.compile_hybrid_residual_system(
+        residual(x), x, jacobian=[[slope(x)]], callbacks=callbacks,
+    )
+    callbacks.clear()
+    assert events == []
+    assert system.callback_slots[0][1] is residual and system.callback_slots[1][1] is slope
+    assert system.evaluate_sparse(3) == ([5], [6])
+    assert events == [("residual", 3), ("slope", 3)]
+    assert system.jacobian_evidence == "user_supplied"
+
+
+def test_factory_bindings_never_transfer_between_equal_but_distinct_declarations():
+    x = s.Symbol("hybrid_factory_stranger")
+    first = s.Function("HybridFactoryEquivalent", positive=True)
+    other = s.Function("HybridFactoryEquivalent", positive=True, real=True, finite=True)
+    assert first == other and first is not other
+    calls = []
+    callbacks = {first: lambda value: calls.append(value) or value}
+    with pytest.raises(NotImplementedError, match="explicit exact-class"):
+        s.compile_numeric_hybrid(x, other(x), callbacks=callbacks)
+    # The factory reuses a class for an identical declaration, so this one
+    # really is the bound class even though the caller reconstructs its key.
+    exact = s.Function("HybridFactoryEquivalent", positive=True)
+    assert exact is first
+    assert s.compile_numeric_hybrid(x, exact(x), callbacks=callbacks)(3) == 3
+    assert calls == [3]
+
+
+def test_factory_callback_named_like_an_intrinsic_requires_the_original_surface_class():
+    x = s.Symbol("hybrid_factory_named")
+    custom = s.Function("acos")
+    callbacks = {custom: lambda v: 10+v}
+    program = s.compile_numeric_hybrid(
+        x, [custom(x), s.acos(x, evaluate=False)], callbacks=callbacks,
+    )
+    assert program(0) == pytest.approx([10, math.pi/2])
+    with pytest.raises(NotImplementedError, match="retained exact Python class"):
+        s.compile_numeric_hybrid(x, _native.py_function("acos", _native.py_integer(0)),
+                                 callbacks=callbacks)
+
+
+def test_factory_names_cannot_shadow_reserved_native_boolean_atoms():
+    true_name, false_name = s.Function("True"), s.Function("False")
+    effects = []
+    callbacks = {true_name: lambda: effects.append(True), false_name: lambda: effects.append(False)}
+    source = _native.py_function("Piecewise",
+                                 _native.py_function("Tuple", _native.py_integer(1), _native.Expr("False")),
+                                 _native.py_function("Tuple", _native.py_integer(2), _native.Expr("True")))
+    assert s.compile_numeric_hybrid((), source, callbacks=callbacks)() == 2
+    assert effects == []
+
+
+def test_factory_callback_dispatch_does_not_hash_or_compare_classes_during_capture(monkeypatch):
+    x = s.Symbol("hybrid_factory_no_hooks")
+    factory = s.Function("HybridFactoryNoHooks")
+    source = factory(x)
+    callbacks = {factory: lambda v: v*3}
+    events = []
+
+    def forbidden(*args):
+        events.append(True)
+        raise AssertionError("callback dispatch consulted metaclass hash or equality")
+
+    monkeypatch.setattr(type(factory), "__hash__", forbidden)
+    monkeypatch.setattr(type(factory), "__eq__", forbidden)
+    program = s.compile_numeric_hybrid(x, source, callbacks=callbacks)
+    assert program(2) == 6 and events == []
+
+
+def test_factory_metaclass_alone_cannot_grant_an_unowned_class_a_callback_binding():
+    x = s.Symbol("hybrid_factory_impostor")
+
+    class FactorySubclass(s.Function("HybridFactoryBase")):
+        pass
+
+    with pytest.raises(TypeError, match="FunctionClass"):
+        s.compile_numeric_hybrid(x, x, callbacks={FactorySubclass: lambda v: v})
+
+
 def test_public_exports_refer_to_the_same_explicit_preview_api():
     module = importlib.import_module("sympy.utilities.hybrid")
     from sympy.utilities import compile_numeric_hybrid
