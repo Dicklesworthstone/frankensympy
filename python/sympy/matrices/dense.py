@@ -1465,20 +1465,12 @@ class Matrix(MatrixBase):
         source symbol. Consult the returned PurePoly.gen: the output variable
         may differ from the supplied Symbol or Dummy, as in SymPy 1.14.
         """
-        from ..core import Dummy, Symbol
+        from ..core import Symbol
+        from ._charpoly import characteristic_polynomial, generator_name
 
-        if x is None:
-            name = "lambda"
-        elif type(x) is str:
-            name = x
-        elif type(x) in (Symbol, Dummy):
-            # The public charpoly argument is a name hint, not a semantic
-            # axis: upstream also returns an ordinary unassumed Symbol for
-            # assumed Symbols and Dummies. Source coefficient identities are
-            # retained independently by the native coefficient list.
-            name = str(x)
-        else:
-            raise TypeError("characteristic polynomial generator must be a string, Symbol or Dummy")
+        if self.rows > 32:
+            return characteristic_polynomial(self, x, dense=True)
+        name = generator_name(x)
         coeffs = self._native.char_poly()
         source_names = {symbol.name for symbol in self.free_symbols}
         while name in source_names:
