@@ -3,7 +3,6 @@
 from ..core import Symbol, _native, _native_expr, _surface_binding_key, _wrap
 from ..polys.polytools import Poly
 from ..polys.rootoftools import CRootOf, _native_coefficients, real_roots
-from ..utilities.iterables import default_sort_key
 
 
 def _coordinate_roots(request, axis, pivot):
@@ -106,4 +105,4 @@ def algebraic_points(request, pivots, blocks):
         if not all(vanishes(equation, point) for equation in request.raw):
             raise ValueError("an algebraic triangular solution fails an original equation")
         result.append(tuple(root for root, _, _ in point))
-    return sorted(result, key=default_sort_key)
+    return result

@@ -99,3 +99,17 @@ def test_nonreal_projection_refuses_even_if_other_points_are_rational_or_real():
     x, y = symbols("x y")
     with pytest.raises(NotImplementedError, match="totally real"):
         solve_triangulated([x-y, (y-1)*(y**2+1)], x, y, extension=True)
+
+
+def test_variable_order_uses_existing_univariate_constraint_and_restores_caller_order():
+    x, y = symbols("x y")
+    f = [(3*y-1)*(y+3)*(y**2-2), (x-y**2)**2]
+    assert solve_triangulated(f, x, y) == [(Rational(1, 9), Rational(1, 3)), (9, -3)]
+    assert solve_triangulated(f[::-1], y, x) == [(-3, 9), (Rational(1, 3), Rational(1, 9))]
+
+
+def test_zero_leading_coefficient_in_a_source_fiber_cannot_remove_points():
+    x, y = symbols("x y")
+    f = [y*(y-1), y*x, x*(x-2)]
+    assert solve_triangulated(f, x, y) == [(0, 0), (0, 1), (2, 0)]
+    assert solve_triangulated(f, y, x) == [(0, 0), (0, 2), (1, 0)]

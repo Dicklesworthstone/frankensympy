@@ -1,14 +1,15 @@
 """Rational points of a finite rational ideal from its checked lex basis."""
 
-from fractions import Fraction
-
-from ..core import _active_callback_session, _exact_ratio, _native, _native_expr
+from ..core import (
+    _active_callback_session, _native, _native_expr, _surface_binding_key, _symbol_binding,
+)
 from ..polys import _coefficient_queries as queries
 from ..polys import _finitefield as retained
 from ..polys._ground_roots import rational_ground_roots
 from ..polys._root_analysis import _validate_atoms
 from ..polys.polyerrors import DomainError, GeneratorsNeeded, PolynomialError
 from ..polys.polytools import Poly, _rational_ideal_source
+from ..utilities.iterables import default_sort_key
 from .polysys import _polynomial_system_inputs
 
 
@@ -42,6 +43,28 @@ def _is_zero(value):
     return value.exact_numerator() == 0
 
 
+def _elimination_order(equations, axes):
+    """Put axes already constrained by univariate equations at the end of lex."""
+    keys = [_surface_binding_key(_symbol_binding(axis)) for axis in axes]
+    supports = [{_surface_binding_key(b) for b in _native_expr(eq).free_symbol_bindings}
+                for eq in equations]
+    remaining = list(range(len(axes)))
+    suffix = []
+    while remaining:
+        # After a suffix is fixed, an equation with one remaining axis is a
+        # possible fiber pivot. This chooses the order only. The full checked
+        # basis still establishes dimension, pivot validity and completeness.
+        eligible = {next(iter(support)) for support in supports if len(support) == 1}
+        selected = next((i for i in reversed(remaining) if keys[i] in eligible), None)
+        if selected is None:
+            break
+        remaining.remove(selected)
+        suffix.append(selected)
+        for support in supports:
+            support.discard(keys[selected])
+    return remaining + suffix[::-1]
+
+
 def solve_triangular(polys, gens, options):
     unknown = options.keys() - {"domain", "extension"}
     if unknown:
@@ -67,7 +90,17 @@ def solve_triangular(polys, gens, options):
     equations, axes = _polynomial_system_inputs(expressions, gens)
     if not axes or (not gens and len(axes) != 1):
         raise GeneratorsNeeded("specify the generators of the triangular system")
+    order = _elimination_order(equations, axes)
+    axes = [axes[index] for index in order]
     request = retained._Request(equations, axes, states)
+
+    def original_order(points):
+        positions = [order.index(i) for i in range(len(order))]
+        result = sorted((tuple(point[i] for i in positions) for point in points),
+                        key=default_sort_key)
+        request.unchanged()
+        return result
+
     queries._check_dummies(request)
     _validate_atoms(request.snapshot)
     bindings = request.bindings
@@ -83,9 +116,7 @@ def solve_triangular(polys, gens, options):
     if extension:
         from ._triangular_algebraic import algebraic_points
 
-        result = algebraic_points(request, pivots, blocks)
-        request.unchanged()
-        return result
+        return original_order(algebraic_points(request, pivots, blocks))
     evaluations = 0
 
     def evaluate(equation, assignments):
@@ -122,6 +153,4 @@ def solve_triangular(polys, gens, options):
         assignment = [_native_expr(value) for value in solution]
         if not all(_is_zero(evaluate(source, assignment)) for source in request.raw):
             raise ValueError("a triangular solution fails an original equation")
-    suffixes.sort(key=lambda solution: tuple(Fraction(*_exact_ratio(v)) for v in solution))
-    request.unchanged()
-    return suffixes
+    return original_order(suffixes)
