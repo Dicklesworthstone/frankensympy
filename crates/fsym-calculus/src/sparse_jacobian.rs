@@ -186,6 +186,24 @@ fn charge_sparse_buffer<T, M: BudgetMeter + ?Sized>(
     charge_compilation_work(meter, count, bytes, usize::from(count != 0))
 }
 
+/// Build the column map after structural admission has rejected duplicate axes.
+fn variable_positions<M: BudgetMeter + ?Sized>(
+    variables: &[Symbol],
+    meter: &mut M,
+) -> Result<HashMap<Symbol, usize>, CompileError> {
+    charge_sparse_buffer::<(Symbol, usize), _>(variables.len(), meter)?;
+    let mut positions = HashMap::new();
+    positions
+        .try_reserve(variables.len())
+        .map_err(|_| CompileError::AllocationFailure)?;
+    for (column, variable) in variables.iter().enumerate() {
+        admit_compilation_name(&variable.name, meter)?;
+        charge_compilation_work(meter, variable.name.len() + 1, variable.name.len(), 1)?;
+        positions.insert(variable.clone(), column);
+    }
+    Ok(positions)
+}
+
 /// Charge a bounded structural copy before cloning its typed tree. Numeric
 /// limbs and identifier bytes participate in storage accounting, not just nodes.
 pub(crate) fn charge_expression_copy<M: BudgetMeter + ?Sized>(
@@ -625,20 +643,22 @@ impl SparseJacobian {
         let plan = plan_sparse_sources_with_meter(residuals, vars, meter)?;
         charge_compilation_work(meter, plan.source_nodes, 0, 0)?;
         admit_derivative_growth(residuals, &plan.row_dependencies)?;
-        let mut var_map = HashMap::new();
-        charge_sparse_buffer::<(Symbol, usize), _>(vars.len(), meter)?;
-        var_map
-            .try_reserve(vars.len())
-            .map_err(|_| CompileError::AllocationFailure)?;
-        for (column, variable) in vars.iter().enumerate() {
-            charge_compilation_work(meter, variable.name.len() + 1, variable.name.len(), 1)?;
-            var_map.insert(variable.clone(), column);
-        }
+        let var_map = variable_positions(vars, meter)?;
         let num_residuals = residuals.len();
         let num_vars = vars.len();
         let mut entries = Vec::new();
         let mut nonzeros = Vec::new();
         for (row, columns) in plan.row_dependencies.iter().enumerate() {
+            // A held product with an exact zero factor is identically zero
+            // wherever its original factors are smooth. Keep the full source
+            // for domain checks; the verifier independently reconstructs every
+            // omitted partial on a declared axis occurring in that source.
+            if let Expr::Mul(factors) = &residuals[row] {
+                charge_compilation_work(meter, factors.len(), 0, 0)?;
+                if factors.iter().any(Expr::is_zero) {
+                    continue;
+                }
+            }
             for &col in columns {
                 let (symbolic_deriv, derivation) =
                     verified_numeric_diff_with_meter(&residuals[row], &vars[col], meter)?;
@@ -856,7 +876,8 @@ impl SparseJacobian {
         }
     }
 
-    /// Evaluates the sparse Jacobian non-zero entries into a contiguous values slice.
+    /// Evaluates finite stored entries on the smooth domain of every original
+    /// residual, including rows whose derivatives simplified to zero.
     /// A failure leaves the caller's buffer unchanged.
     pub fn try_eval_sparse(&self, x: &[f64], out_values: &mut [f64]) -> Result<(), EvalError> {
         self.try_eval_sparse_with_meter(x, out_values, &mut Unbounded)
@@ -980,9 +1001,7 @@ impl SparseJacobian {
     ) -> Result<(), EvalError> {
         self.validate_structure_with_meter(meter)
             .map_err(|error| match error {
-                // Meter refusals must remain typed outcomes, not malformed
-                // certificate messages that a caller might retry.
-                JacobianVerificationError::Eval(error @ EvalError::Meter(_)) => error,
+                JacobianVerificationError::Eval(error) => error,
                 error => EvalError::InvalidSparseJacobian(error.to_string()),
             })
     }
@@ -992,6 +1011,22 @@ impl SparseJacobian {
         x: &[f64],
         meter: &mut M,
     ) -> Result<Vec<f64>, EvalError> {
+        if x.len() != self.vars.len() {
+            return Err(EvalError::PointDimensionMismatch {
+                expected: self.vars.len(),
+                actual: x.len(),
+            });
+        }
+        let point = FinitePoint::check(x, meter)?;
+        // SparseJacobian is a mutable transport candidate. Reconstruct source
+        // programs from its current expressions. An admitted VerifiedResidualSystem
+        // can reuse its frozen programs for repeated point evaluations.
+        let positions = variable_positions(&self.vars, meter).map_err(source_evaluation_error)?;
+        let sources = compile_source_programs(&self.residuals, &positions, meter)
+            .map_err(source_evaluation_error)?;
+        for source in &sources {
+            source.try_eval_smooth_at(&point, meter)?;
+        }
         let mut evaluated = Vec::new();
         charge_evaluation_allocation(meter, self.entries.len())?;
         evaluated
@@ -999,9 +1034,19 @@ impl SparseJacobian {
             .map_err(|_| EvalError::AllocationFailure)?;
         for entry in &self.entries {
             charge_evaluation_steps(meter, 1)?;
-            evaluated.push(entry.compiled_deriv.try_eval_with_meter(x, meter)?);
+            evaluated.push(entry.compiled_deriv.try_eval_smooth_at(&point, meter)?);
         }
         Ok(evaluated)
+    }
+}
+
+fn source_evaluation_error(error: CompileError) -> EvalError {
+    match error {
+        CompileError::Meter(error) => EvalError::Meter(error),
+        CompileError::AllocationFailure => EvalError::AllocationFailure,
+        CompileError::DimensionOverflow => EvalError::DimensionOverflow,
+        CompileError::InvalidBytecode(error) => error,
+        error => EvalError::InvalidSparseJacobian(error.to_string()),
     }
 }
 
@@ -1128,16 +1173,7 @@ pub fn verify_sparse_jacobian_certificate_with_meter<M: BudgetMeter + ?Sized>(
     system.validate_structure_with_meter(meter)?;
     let m = system.pattern.num_rows;
     let n = system.pattern.num_cols;
-    let mut var_map = HashMap::new();
-    charge_sparse_buffer::<(Symbol, usize), _>(n, meter)?;
-    var_map
-        .try_reserve(n)
-        .map_err(|_| EvalError::AllocationFailure)?;
-    for (column, variable) in system.vars.iter().enumerate() {
-        admit_compilation_name(&variable.name, meter)?;
-        charge_compilation_work(meter, variable.name.len() + 1, variable.name.len(), 1)?;
-        var_map.insert(variable.clone(), column);
-    }
+    let var_map = variable_positions(&system.vars, meter)?;
     let dependencies = verifier_dependencies(system, &var_map, meter)?;
     let mut proof_units = 0u64;
     let mut operation_count = 0usize;
@@ -1330,27 +1366,34 @@ pub fn verify_sparse_jacobian_certificate_with_meter<M: BudgetMeter + ?Sized>(
     })
 }
 
-/// Compile each original source once, on the verifier ledger. A zero row
-/// and a simplified derivative can both erase a residual's domain restriction.
+/// Compile and bind all original rows, including those with an empty derivative.
+fn compile_source_programs<M: BudgetMeter + ?Sized>(
+    sources: &[Expr],
+    variables: &HashMap<Symbol, usize>,
+    meter: &mut M,
+) -> Result<Vec<CompiledExpr>, CompileError> {
+    let mut residuals = Vec::new();
+    charge_sparse_buffer::<CompiledExpr, _>(sources.len(), meter)?;
+    residuals
+        .try_reserve_exact(sources.len())
+        .map_err(|_| CompileError::AllocationFailure)?;
+    let mut source_ops = 0usize;
+    for source in sources {
+        let program = CompiledExpr::try_compile_checked_with_meter(source, variables, meter)?;
+        source_ops = source_ops.saturating_add(program.ops().len());
+        sparse_limit(source_ops, MAX_SPARSE_SOURCE_WORK)?;
+        residuals.push(program);
+    }
+    Ok(residuals)
+}
+
 fn check_diagnostic_points<M: BudgetMeter + ?Sized>(
     system: &SparseJacobian,
     variables: &HashMap<Symbol, usize>,
     test_points: &[Vec<f64>],
     meter: &mut M,
 ) -> Result<(), JacobianVerificationError> {
-    let mut residuals = Vec::new();
-    charge_sparse_buffer::<CompiledExpr, _>(system.residuals.len(), meter)?;
-    residuals
-        .try_reserve_exact(system.residuals.len())
-        .map_err(|_| CompileError::AllocationFailure)?;
-    let mut source_ops = 0usize;
-    for source in &system.residuals {
-        let program = CompiledExpr::try_compile_checked_with_meter(source, variables, meter)?;
-        source_ops = source_ops.saturating_add(program.ops().len());
-        sparse_limit(source_ops, MAX_SPARSE_SOURCE_WORK)?;
-        residuals.push(program);
-    }
-
+    let residuals = compile_source_programs(&system.residuals, variables, meter)?;
     for (point_idx, values) in test_points.iter().enumerate() {
         charge_evaluation_steps(meter, 1)?;
         let invalid_point = JacobianVerificationError::InvalidTestPoint {

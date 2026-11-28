@@ -328,6 +328,69 @@ fn diagnostics_bind_every_original_source_even_for_an_empty_derivative_row() {
     ));
 }
 
+fn check_layout_refusals(system: &SparseJacobian, point: &[f64], expected: EvalError) {
+    let mut sparse = vec![19.0; system.nnz()];
+    let mut dense = vec![23.0; system.residuals.len() * system.vars.len()];
+    let mut colored = vec![29.0; system.residuals.len() * system.num_colors];
+    for result in [
+        system.try_eval_sparse(point, &mut sparse),
+        system.try_eval_dense(point, &mut dense),
+        system.try_eval_compressed(point, &mut colored),
+    ] {
+        assert_eq!(result.as_ref().unwrap_err(), &expected);
+    }
+    assert!(sparse.iter().all(|x| *x == 19.0));
+    assert!(dense.iter().all(|x| *x == 23.0));
+    assert!(colored.iter().all(|x| *x == 29.0));
+}
+
+#[test]
+fn each_layout_admits_original_sources_including_zero_rows_before_publication() {
+    let x = Expr::symbol("x");
+    let log = Expr::Function("log".into(), vec![x.clone()]);
+    for (row, derivative_at_two) in [
+        (log.clone(), 0.5),
+        (Expr::Mul(vec![Expr::from_i64(0), log]), 0.0),
+    ] {
+        let system = SparseJacobian::try_build(&[x.clone(), row], &[Symbol::new("x")]).unwrap();
+        check_layout_refusals(&system, &[-1.0], EvalError::NonFiniteValue);
+        let mut dense = [19.0; 2];
+        system.try_eval_dense(&[2.0], &mut dense).unwrap();
+        assert_eq!(dense, [1.0, derivative_at_two]);
+    }
+    let cusp = Expr::Mul(vec![
+        Expr::from_i64(0),
+        Expr::Function("abs".into(), vec![x]),
+    ]);
+    let system = SparseJacobian::try_build(&[cusp], &[Symbol::new("x")]).unwrap();
+    assert_eq!(system.nnz(), 0);
+    check_layout_refusals(&system, &[0.0], EvalError::NonsmoothSource("abs"));
+}
+
+#[test]
+fn each_layout_checks_unused_coordinates_and_dimension_before_implicit_zeros() {
+    let system = SparseJacobian::try_build(&[Expr::from_i64(1)], &[Symbol::new("unused")]).unwrap();
+    check_layout_refusals(&system, &[f64::NAN], EvalError::NonFiniteValue);
+    for point in [vec![], vec![2.0, 3.0]] {
+        check_layout_refusals(
+            &system,
+            &point,
+            EvalError::PointDimensionMismatch {
+                expected: 1,
+                actual: point.len(),
+            },
+        );
+    }
+}
+
+#[test]
+fn finite_source_does_not_mask_a_nonfinite_stored_derivative() {
+    // The original logarithm is finite at a positive subnormal, but 1/x overflows.
+    let log = Expr::Function("log".into(), vec![Expr::symbol("x")]);
+    let system = SparseJacobian::try_build(&[log], &[Symbol::new("x")]).unwrap();
+    check_layout_refusals(&system, &[f64::from_bits(1)], EvalError::NonFiniteValue);
+}
+
 #[test]
 fn rational_power_derivative_and_serialized_provenance_round_trip() {
     let x = Symbol::new("x");

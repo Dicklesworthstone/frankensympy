@@ -200,6 +200,11 @@ pub(crate) fn compilation_finish<T, M: BudgetMeter + ?Sized>(
     result: Result<T, CompileError>,
     meter: &mut M,
 ) -> Result<T, CompileError> {
+    // Nested compiler/checker stages can already have observed cancellation
+    // or exhaustion. Such an outcome is terminal on the caller's ledger.
+    if matches!(result, Err(CompileError::Meter(_))) {
+        return result;
+    }
     meter.checkpoint()?;
     result
 }
@@ -298,6 +303,8 @@ pub enum EvalError {
     StackRemaining(usize),
     #[error("Variable index {index} out of bounds for input slice of length {slice_len}")]
     VariableOutOfBounds { index: usize, slice_len: usize },
+    #[error("Evaluation point length mismatch: expected {expected}, got {actual}")]
+    PointDimensionMismatch { expected: usize, actual: usize },
     #[error("Residual buffer length mismatch: expected {expected}, got {actual}")]
     ResidualBufferMismatch { expected: usize, actual: usize },
     #[error("Jacobian buffer length mismatch: expected {expected}, got {actual}")]
@@ -670,7 +677,9 @@ impl CompiledExpr {
         meter: &mut M,
     ) -> Result<Self, EvalError> {
         let result = Self::validate_ops_with_meter(&ops, meter).map(|()| Self { ops });
-        meter.checkpoint()?;
+        if !matches!(result, Err(EvalError::Meter(_))) {
+            meter.checkpoint()?;
+        }
         result
     }
 
