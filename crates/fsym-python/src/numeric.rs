@@ -185,7 +185,16 @@ pub(crate) fn exact_vector(
     expected: usize,
     budget: Option<&PyEvaluationBudget>,
 ) -> PyResult<Vec<BigRational>> {
-    if container_length(values, MAX_CERTIFIED_VARIABLES, "exact vector")? != expected {
+    exact_vector_bounded(values, expected, MAX_CERTIFIED_VARIABLES, budget)
+}
+
+fn exact_vector_bounded(
+    values: &Bound<'_, PyAny>,
+    expected: usize,
+    maximum: usize,
+    budget: Option<&PyEvaluationBudget>,
+) -> PyResult<Vec<BigRational>> {
+    if container_length(values, maximum, "exact vector")? != expected {
         return Err(PyValueError::new_err(
             "exact vector has the wrong dimension",
         ));
@@ -2241,14 +2250,28 @@ impl PyVerifiedResidualSystem {
     /// Compile the exact ordered objective 1/2 sum(residual**2), retaining every
     /// original residual domain. Independent derivative/source replay admits
     /// the result for the existing objective enclosure and stationary checkers.
-    #[pyo3(signature = (*, budget=None))]
+    #[pyo3(signature = (*, weights=None, budget=None))]
     fn least_squares_objective(
         &self,
         py: Python<'_>,
+        weights: Option<&Bound<'_, PyAny>>,
         budget: Option<PyRef<'_, PyEvaluationBudget>>,
     ) -> PyResult<crate::objective::PyVerifiedObjective> {
-        let objective = with_certification_meter(py, budget.as_deref(), |meter| {
-            self.system.least_squares_objective_with_meter(meter)
+        let weights = weights
+            .map(|values| {
+                exact_vector_bounded(
+                    values,
+                    self.system.residuals().len(),
+                    fsym_calculus::sparse_hessian::MAX_OBJECTIVE_SOURCE_NODES,
+                    budget.as_deref(),
+                )
+            })
+            .transpose()?;
+        let objective = with_certification_meter(py, budget.as_deref(), |meter| match &weights {
+            Some(weights) => self
+                .system
+                .weighted_least_squares_objective_with_meter(weights, meter),
+            None => self.system.least_squares_objective_with_meter(meter),
         })?;
         let result = crate::objective::PyVerifiedObjective::from_verified(objective);
         with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;

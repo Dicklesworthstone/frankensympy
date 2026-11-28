@@ -180,3 +180,38 @@ def test_composition_evaluation_and_certification_share_the_supplied_ledger():
     cancelled.cancel()
     with pytest.raises(s.EvaluationCancelled):
         program.least_squares_objective(budget=cancelled)
+
+
+def test_fractional_observation_weights_change_the_certified_fit():
+    from fractions import Fraction
+
+    x = s.Symbol("weighted_fit")
+    observations = s.compile_residual_system([x - 1, x - 4], x)
+    weights = [Fraction(1, 2), s.Rational(1, 4)]
+    objective = observations.least_squares_objective(weights=weights)
+    weights[:] = [0, 0]
+    assert objective.evaluate(2) == (0.75, [0.0], [[0.75]])
+    receipt = objective.minimize_certified(0)
+    assert receipt.kind == "strict_minimum"
+    lower, upper = receipt.stationary_enclosure[0]
+    assert lower <= 2 <= upper
+
+
+def test_zero_weight_keeps_singular_observations_in_the_source():
+    x = s.Symbol("weighted_domain")
+    observations = s.compile_residual_system([x, 1/x], x)
+    objective = observations.least_squares_objective(weights=(2, 0))
+    assert objective.evaluate(2) == (4.0, [4.0], [[2.0]])
+    with pytest.raises(ValueError):
+        objective.evaluate(0)
+
+
+@pytest.mark.parametrize("weights,error", [
+    ([1], TypeError), ((1, -1), ValueError), ((True, 0), TypeError),
+    ((0.5, 1), TypeError), ((s.Symbol("w"), 0), TypeError),
+])
+def test_weighted_fit_refuses_malformed_weights(weights, error):
+    x = s.Symbol("weighted_input")
+    observations = s.compile_residual_system([x, x-1], x)
+    with pytest.raises(error):
+        observations.least_squares_objective(weights=weights)

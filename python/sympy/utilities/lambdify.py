@@ -1500,8 +1500,12 @@ class _ResidualCallable:
             max_step_norm, precision, budget=budget,
         )
 
-    def least_squares_objective(self, *, budget=None):
-        """Compile the exact objective ``1/2 * sum(original_residual**2)``.
+    def least_squares_objective(self, *, weights=None, budget=None):
+        """Compile ``1/2 * sum(weight * original_residual**2)``.
+
+        Weights default to one per row. Pass an exact list or tuple of
+        nonnegative integers, rationals or fractions.Fraction in residual
+        order. A zero-weight observation keeps its original domain checks.
 
         Native composition retains every original row, including held domain
         obligations, and independently checks the objective's gradient and
@@ -1523,7 +1527,7 @@ class _ResidualCallable:
         publication. No numerical approximation or backend fallback is used.
         """
         from ._least_squares_objective import least_squares_objective
-        return least_squares_objective(self, budget=budget)
+        return least_squares_objective(self, weights=weights, budget=budget)
 
     def solve_bounded_least_squares(self, initial, bounds, *, gtol=None, maxiter=None,
                                    max_step_norm=None, budget=None):
