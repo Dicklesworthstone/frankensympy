@@ -141,7 +141,7 @@ pub fn verify_box_extremum(
     work.charge(1, (n * std::mem::size_of::<usize>()) as u64, 1)?;
     let movable: Vec<_> = (0..n).filter(|&i| !domain[i].radius().is_zero()).collect();
     let curvature = semidefinite_hessian(&whole.hessian, &movable, kind, &mut work);
-    let (axes, definite, strict_reduction) = match curvature {
+    let (mut axes, definite, strict_reduction) = match curvature {
         Ok(definite) => (movable, definite, true),
         Err(BoxExtremumError::CurvatureNotProved) => {
             // Each projection onto a sign-proved boundary face can only
@@ -206,7 +206,28 @@ pub fn verify_box_extremum(
         }
         strict_at[coordinate] = strict;
     }
-    let unique = strict_reduction && (definite || axes.iter().all(|&i| strict_at[i]));
+    // On the convex face, equality in the supporting-plane inequality forces
+    // every coordinate with a strict boundary derivative to stay at the
+    // candidate. Only the remaining directions need positive curvature.
+    let unique = if !strict_reduction {
+        false
+    } else if definite {
+        true
+    } else {
+        let count = axes.len();
+        axes.retain(|&i| !strict_at[i]);
+        if axes.is_empty() {
+            true
+        } else if axes.len() == count {
+            false
+        } else {
+            match semidefinite_hessian(&whole.hessian, &axes, kind, &mut work) {
+                Ok(definite) => definite,
+                Err(BoxExtremumError::CurvatureNotProved) => false,
+                Err(error) => return Err(error),
+            }
+        }
+    };
     let point_bytes = point
         .iter()
         .map(|q| 128 + 16 * rational_limbs(q))

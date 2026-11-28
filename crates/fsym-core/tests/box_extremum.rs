@@ -417,3 +417,35 @@ fn weak_monotonicity_can_prove_an_optimum_shared_by_entire_faces() {
     }
     assert!(minimum(&source, &vars, &domain, &[q(1, 2), q(1, 2)]).is_err());
 }
+
+#[test]
+fn strict_active_bounds_and_relative_curvature_jointly_prove_uniqueness() {
+    let vars = [Symbol::new("x"), Symbol::new("y"), Symbol::new("z")];
+    let domain = [bounds(0, 2), bounds(-2, 2), bounds(-2, 2)];
+    let point = [q(0, 1), q(0, 1), q(0, 1)];
+    // For an equal-cost point the supporting inequality forces x=0,
+    // and the coupled y,z quadratic is positive definite on that plane.
+    let source = fsym_core::parse("x+(y-z)^2+z^2").unwrap();
+    assert!(
+        minimum(&source, &vars, &domain, &point)
+            .unwrap()
+            .uniqueness_proved()
+    );
+    let maximum = certify_box_extremum(
+        &(-source),
+        &vars,
+        &domain,
+        &point,
+        BoxExtremumKind::Maximum,
+        24,
+    )
+    .unwrap();
+    assert!(maximum.uniqueness_proved());
+    // Dropping z^2 leaves all feasible (0,t,t) as minimizers.
+    let flat = fsym_core::parse("x+(y-z)^2").unwrap();
+    assert!(
+        !minimum(&flat, &vars, &domain, &point)
+            .unwrap()
+            .uniqueness_proved()
+    );
+}
