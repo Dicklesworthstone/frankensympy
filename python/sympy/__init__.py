@@ -3007,9 +3007,9 @@ from .functions.special import polynomials as _orthopoly  # noqa: E402
 
 __all__ += list(_orthopoly.__all__)
 
-from .solvers.recurr import rsolve  # noqa: E402
+from .solvers.recurr import rsolve, rsolve_poly  # noqa: E402
 
-__all__ += ["rsolve"]
+__all__ += ["rsolve", "rsolve_poly"]
 
 from .simplify.cse_main import cse, numbered_symbols  # noqa: E402
 
