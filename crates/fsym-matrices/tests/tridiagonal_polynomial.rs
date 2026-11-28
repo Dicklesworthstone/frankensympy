@@ -148,3 +148,61 @@ fn characteristic_polynomial_of_a_path_and_large_sparse_boundary() {
         Some(expected.to_expr())
     );
 }
+
+#[test]
+fn standard_sparse_determinant_charges_the_caller_through_reference_verification() {
+    use fsym_budget::{Budget, BudgetLimits, BudgetMeter, Dimension, MeterError};
+    let n = 12;
+    let x = Expr::symbol("x");
+    let cells = (0..n)
+        .map(|i| ((i, i), x.clone()))
+        .chain((1..n).flat_map(|i| {
+            [
+                ((i - 1, i), Expr::from_i64(1)),
+                ((i, i - 1), Expr::from_i64(1)),
+            ]
+        }))
+        .collect();
+    let matrix = SparseMatrix::new(n, n, cells).unwrap();
+    let answer = matrix.tridiagonal_polynomial_det().unwrap().unwrap();
+    assert_eq!(matrix.det().unwrap(), answer);
+    let limits = BudgetLimits::uniform(256 * 1024 * 1024, 0);
+    let mut measured = Budget::new(limits);
+    assert_eq!(matrix.metered_det(&mut measured).unwrap(), answer);
+    for dimension in [
+        Dimension::ComputeSteps,
+        Dimension::MemoryBytes,
+        Dimension::AllocationCount,
+    ] {
+        let spent = limits.dimensions[dimension.index()] - measured.remaining(dimension);
+        assert!(spent > 100);
+        let mut tight = limits;
+        tight.dimensions[dimension.index()] = spent - 1;
+        assert!(matches!(
+            matrix.metered_det(&mut Budget::new(tight)),
+            Err(MatrixError::ResourceLimit(_))
+        ));
+    }
+    struct CancelAfter(usize);
+    impl BudgetMeter for CancelAfter {
+        fn charge(&mut self, _: Dimension, _: u64) -> Result<(), MeterError> {
+            Ok(())
+        }
+        fn charge_batch(&mut self, _: &[(Dimension, u64)]) -> Result<(), MeterError> {
+            Ok(())
+        }
+        fn checkpoint(&mut self) -> Result<(), MeterError> {
+            if self.0 == 0 {
+                return Err(MeterError::Cancelled);
+            }
+            self.0 -= 1;
+            Ok(())
+        }
+    }
+    for stop in [0, 25, 200, 1000] {
+        assert!(matches!(
+            matrix.metered_det(&mut CancelAfter(stop)),
+            Err(MatrixError::Cancelled)
+        ));
+    }
+}

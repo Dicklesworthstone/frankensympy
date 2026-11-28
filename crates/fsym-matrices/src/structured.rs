@@ -94,7 +94,7 @@ fn rejected(message: &str) -> MatrixError {
 /// One aggregate counter covers generation, verification and result lifting.
 /// Container charges are conservative logical bounds, combined with the exact
 /// arithmetic substrate's own charges. They do not measure the process allocator.
-struct Work<'a, M> {
+pub(super) struct Work<'a, M> {
     meter: &'a mut M,
     steps: u64,
     max_steps: u64,
@@ -106,7 +106,7 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
         Self::with_step_limit(meter, MAX_WORK)
     }
 
-    fn with_step_limit(meter: &'a mut M, max_steps: u64) -> Self {
+    pub(super) fn with_step_limit(meter: &'a mut M, max_steps: u64) -> Self {
         Self {
             meter,
             steps: 0,
@@ -737,13 +737,34 @@ impl SparseMatrix {
         Ok(certificate)
     }
 
-    /// Exact rational determinant without dense materialization.
+    /// Exact rational determinant or checked tridiagonal polynomial determinant
+    /// without dense materialization.
     pub fn det(&self) -> Result<Expr, MatrixError> {
         self.metered_det(&mut Unbounded)
     }
 
     /// Metered determinant, including independent decomposition validation.
     pub fn metered_det<M: BudgetMeter>(&self, meter: &mut M) -> Result<Expr, MatrixError> {
+        meter.checkpoint().map_err(meter_error)?;
+        square(self)?;
+        for entry in self.entries().values() {
+            meter.checkpoint().map_err(meter_error)?;
+            meter
+                .charge(Dimension::ComputeSteps, 1)
+                .map_err(meter_error)?;
+            if !matches!(entry, Expr::Integer(_) | Expr::Rational(_)) {
+                return self
+                    .metered_tridiagonal_polynomial_det(meter)?
+                    .ok_or(MatrixError::UnsupportedCertificateDomain);
+            }
+        }
+        self.metered_rational_det(meter)
+    }
+
+    pub(crate) fn metered_rational_det<M: BudgetMeter>(
+        &self,
+        meter: &mut M,
+    ) -> Result<Expr, MatrixError> {
         let mut work = Work::new(meter);
         let factorization = generate_lu(self, &mut work)?;
         check_lu(self, &factorization, &mut work)?;

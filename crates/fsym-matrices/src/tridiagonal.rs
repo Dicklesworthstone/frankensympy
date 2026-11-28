@@ -2,8 +2,9 @@
 //! the original entries and checks pivoted rational LU at enough distinct
 //! points to prove the entire polynomial identity, including a zero result.
 
+use crate::structured::Work;
 use crate::{Matrix, MatrixError, SparseMatrix, from_rational, numeric_value};
-use fsym_budget::{Budget, BudgetLimits, Dimension};
+use fsym_budget::{BudgetMeter, Dimension, Unbounded};
 use fsym_core::{BigRational, Expr, Symbol};
 use fsym_polys::UnivariatePoly as Poly;
 
@@ -12,6 +13,25 @@ const MAX_DEGREE: usize = 64;
 const MAX_SOURCE_HEIGHT: u64 = 4096;
 const MAX_NODES: usize = 8192;
 const MAX_SAMPLE_ROWS: usize = 8192;
+
+// Bound the combined proposal and all reference LU samples.
+const MAX_WORK: u64 = 25_000_000;
+
+fn steps(meter: &mut impl BudgetMeter, amount: usize) -> Result<(), MatrixError> {
+    meter.checkpoint().map_err(crate::determinant_meter_error)?;
+    meter
+        .charge(Dimension::ComputeSteps, amount.max(1) as u64)
+        .map_err(crate::determinant_meter_error)
+}
+fn storage(meter: &mut impl BudgetMeter, bytes: usize) -> Result<(), MatrixError> {
+    meter.checkpoint().map_err(crate::determinant_meter_error)?;
+    meter
+        .charge_batch(&[
+            (Dimension::AllocationCount, 1),
+            (Dimension::MemoryBytes, bytes.max(1) as u64),
+        ])
+        .map_err(crate::determinant_meter_error)
+}
 
 fn limit() -> MatrixError {
     MatrixError::ResourceLimit("tridiagonal polynomial determinant source or work bound".into())
@@ -36,7 +56,13 @@ struct Source<'a> {
 }
 
 impl<'a> Source<'a> {
-    fn inspect(&mut self, expr: &'a Expr, depth: usize) -> Result<Option<Size>, MatrixError> {
+    fn inspect(
+        &mut self,
+        expr: &'a Expr,
+        depth: usize,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<Option<Size>, MatrixError> {
+        steps(meter, 1)?;
         self.nodes += 1;
         if self.nodes > MAX_NODES || depth > 32 {
             return Err(limit());
@@ -67,7 +93,7 @@ impl<'a> Source<'a> {
                 let add = matches!(expr, Expr::Add(_));
                 let mut total = Size::default();
                 for child in children {
-                    let Some(next) = self.inspect(child, depth + 1)? else {
+                    let Some(next) = self.inspect(child, depth + 1, meter)? else {
                         return Ok(None);
                     };
                     total.degree = if add {
@@ -96,7 +122,7 @@ impl<'a> Source<'a> {
                 if power > MAX_DEGREE {
                     return Err(limit());
                 }
-                let Some(base) = self.inspect(base, depth + 1)? else {
+                let Some(base) = self.inspect(base, depth + 1, meter)? else {
                     return Ok(None);
                 };
                 Size {
@@ -115,24 +141,31 @@ impl<'a> Source<'a> {
 
 // Evaluate the admitted source tree directly. This reference path never
 // lowers inputs using the producer's polynomial expansion or its row indexing.
-fn evaluate(expr: &Expr, point: &BigRational) -> Result<BigRational, MatrixError> {
+fn evaluate(
+    expr: &Expr,
+    point: &BigRational,
+    meter: &mut impl BudgetMeter,
+) -> Result<BigRational, MatrixError> {
+    steps(meter, 1)?;
     use num_traits::{One, Zero};
     match expr {
         Expr::Integer(n) => Ok(BigRational::from_integer(n.clone())),
         Expr::Rational(r) => Ok(r.clone()),
         Expr::Sym(_) => Ok(point.clone()),
-        Expr::Add(children) => children
-            .iter()
-            .try_fold(BigRational::zero(), |v, e| Ok(v + evaluate(e, point)?)),
-        Expr::Mul(children) => children
-            .iter()
-            .try_fold(BigRational::one(), |v, e| Ok(v * evaluate(e, point)?)),
+        Expr::Add(children) => children.iter().try_fold(BigRational::zero(), |v, e| {
+            Ok(v + evaluate(e, point, meter)?)
+        }),
+        Expr::Mul(children) => children.iter().try_fold(BigRational::one(), |v, e| {
+            Ok(v * evaluate(e, point, meter)?)
+        }),
         Expr::Pow(base, exp) => {
             if let Expr::Integer(n) = exp.as_ref()
                 && let Some(k) = n.to_i64()
                 && (1..=MAX_DEGREE as i64).contains(&k)
             {
-                return evaluate(base, point)?.pow(k as i32).map_err(|_| limit());
+                return evaluate(base, point, meter)?
+                    .pow(k as i32)
+                    .map_err(|_| limit());
             }
             Err(MatrixError::InvalidCertificate(
                 "nonpolynomial source power".into(),
@@ -142,6 +175,15 @@ fn evaluate(expr: &Expr, point: &BigRational) -> Result<BigRational, MatrixError
             "nonpolynomial source cell".into(),
         )),
     }
+}
+
+fn multiply(a: &Poly, b: &Poly, meter: &mut impl BudgetMeter) -> Result<Poly, MatrixError> {
+    steps(meter, a.coeffs.len() * b.coeffs.len())?;
+    storage(
+        meter,
+        (a.coeffs.len() + b.coeffs.len()) * std::mem::size_of::<BigRational>(),
+    )?;
+    a.mul(b).map_err(poly_error)
 }
 
 struct Band<'a> {
@@ -155,6 +197,7 @@ impl<'a> Band<'a> {
     fn read(
         n: usize,
         entries: impl Iterator<Item = (usize, usize, &'a Expr)>,
+        meter: &mut impl BudgetMeter,
     ) -> Result<Option<Self>, MatrixError> {
         if n > MAX_AXIS {
             return Err(limit());
@@ -163,17 +206,20 @@ impl<'a> Band<'a> {
             symbol: None,
             nodes: 0,
         };
+        storage(meter, n * std::mem::size_of::<usize>())?;
         let mut row_degrees = vec![0; n];
         let mut height = 0;
         let mut originals = Vec::new();
         for (r, c, entry) in entries {
+            steps(meter, 1)?;
             if entry.is_zero() {
                 continue;
             }
             if r.abs_diff(c) > 1 {
                 return Ok(None);
             }
-            let Some(size) = source.inspect(entry, 0)? else {
+            let prior_nodes = source.nodes;
+            let Some(size) = source.inspect(entry, 0, meter)? else {
                 return Ok(None);
             };
             row_degrees[r] = row_degrees[r].max(size.degree);
@@ -181,6 +227,17 @@ impl<'a> Band<'a> {
             if height > MAX_SOURCE_HEIGHT {
                 return Err(limit());
             }
+            // Bound every expansion in from_expr before entering that bounded call.
+            let nodes = source.nodes - prior_nodes;
+            let terms = size.degree + 1;
+            steps(
+                meter,
+                nodes * terms * terms * (1 + size.height.div_ceil(64) as usize),
+            )?;
+            storage(
+                meter,
+                nodes * terms * (96 + 2 * size.height.div_ceil(8) as usize),
+            )?;
             originals.push((r, c, entry));
         }
         let Some(symbol) = source.symbol else {
@@ -203,7 +260,8 @@ impl<'a> Band<'a> {
         }))
     }
 
-    fn continuant(&self) -> Result<Poly, MatrixError> {
+    fn continuant(&self, meter: &mut impl BudgetMeter) -> Result<Poly, MatrixError> {
+        storage(meter, self.n * std::mem::size_of::<[&Poly; 3]>())?;
         let zero = Poly::zero(self.symbol.clone());
         let mut rows = vec![[&zero; 3]; self.n];
         for (r, c, _, p) in &self.entries {
@@ -212,11 +270,11 @@ impl<'a> Band<'a> {
         let mut prior = zero.clone();
         let mut current = Poly::one(self.symbol.clone());
         for (r, &[lower, diagonal, _]) in rows.iter().enumerate() {
-            let mut next = diagonal.mul(&current).map_err(poly_error)?;
+            let mut next = multiply(diagonal, &current, meter)?;
             if r != 0 && !lower.is_zero() && !rows[r - 1][2].is_zero() {
-                let pair = lower.mul(rows[r - 1][2]).map_err(poly_error)?;
+                let pair = multiply(lower, rows[r - 1][2], meter)?;
                 next = next
-                    .sub(&pair.mul(&prior).map_err(poly_error)?)
+                    .sub(&multiply(&pair, &prior, meter)?)
                     .map_err(poly_error)?;
             }
             prior = current;
@@ -225,7 +283,8 @@ impl<'a> Band<'a> {
         Ok(current)
     }
 
-    fn verify(&self, candidate: &Poly) -> Result<(), MatrixError> {
+    fn verify(&self, candidate: &Poly, meter: &mut impl BudgetMeter) -> Result<(), MatrixError> {
+        steps(meter, self.degree_bound + 1)?;
         if candidate.coeffs.len() > self.degree_bound + 1
             || &candidate.gen_sym != self.symbol
             || candidate.validate_shape().is_err()
@@ -237,20 +296,18 @@ impl<'a> Band<'a> {
                 "tridiagonal determinant generator or degree".into(),
             ));
         }
-        let mut limits = BudgetLimits::uniform(256 * 1024 * 1024, 0);
-        limits.dimensions[Dimension::ComputeSteps.index()] = 25_000_000;
-        let mut meter = Budget::new(limits);
         for i in 0..=self.degree_bound {
             // Center the distinct integer evaluation points to keep heights small.
             let point =
                 BigRational::from_integer((i as i64 - (self.degree_bound / 2) as i64).into());
+            storage(meter, self.entries.len() * 128)?;
             let evaluated = self
                 .entries
                 .iter()
-                .map(|(r, c, e, _)| Ok(((*r, *c), from_rational(evaluate(e, &point)?))))
+                .map(|(r, c, e, _)| Ok(((*r, *c), from_rational(evaluate(e, &point, meter)?))))
                 .collect::<Result<_, MatrixError>>()?;
             let matrix = SparseMatrix::new(self.n, self.n, evaluated)?;
-            let reference = matrix.metered_det(&mut meter)?;
+            let reference = matrix.metered_rational_det(meter)?;
             if numeric_value(&reference).as_ref() != Some(&candidate.eval(&point)) {
                 return Err(MatrixError::InvalidCertificate(
                     "tridiagonal determinant specialization".into(),
@@ -264,13 +321,19 @@ impl<'a> Band<'a> {
 fn checked<'a>(
     n: usize,
     entries: impl Iterator<Item = (usize, usize, &'a Expr)>,
+    caller: &mut impl BudgetMeter,
 ) -> Result<Option<Expr>, MatrixError> {
-    let Some(band) = Band::read(n, entries)? else {
+    let mut meter = Work::with_step_limit(caller, MAX_WORK);
+    steps(&mut meter, 1)?;
+    let Some(band) = Band::read(n, entries, &mut meter)? else {
         return Ok(None);
     };
-    let candidate = band.continuant()?;
-    band.verify(&candidate)?;
-    Ok(Some(candidate.to_expr()))
+    let candidate = band.continuant(&mut meter)?;
+    band.verify(&candidate, &mut meter)?;
+    storage(&mut meter, candidate.coeffs.len() * 128)?;
+    let output = candidate.to_expr();
+    steps(&mut meter, 1)?;
+    Ok(Some(output))
 }
 
 impl Matrix {
@@ -279,6 +342,7 @@ impl Matrix {
         checked(
             n,
             self.data.iter().enumerate().map(|(i, e)| (i / n, i % n, e)),
+            &mut Unbounded,
         )
     }
 }
@@ -288,12 +352,21 @@ impl SparseMatrix {
     /// Unsupported structure or scalar syntax returns None. Resource failures
     /// are terminal. Only stored coordinates are inspected or materialized.
     pub fn tridiagonal_polynomial_det(&self) -> Result<Option<Expr>, MatrixError> {
+        self.metered_tridiagonal_polynomial_det(&mut Unbounded)
+    }
+
+    pub(crate) fn metered_tridiagonal_polynomial_det(
+        &self,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<Option<Expr>, MatrixError> {
+        meter.checkpoint().map_err(crate::determinant_meter_error)?;
         if self.rows() != self.cols() {
             return Err(MatrixError::NotSquare(self.rows(), self.cols()));
         }
         checked(
             self.rows(),
             self.entries().iter().map(|(&(r, c), e)| (r, c, e)),
+            meter,
         )
     }
 
@@ -306,15 +379,18 @@ impl SparseMatrix {
         if self.rows() != self.cols() {
             return Err(MatrixError::NotSquare(self.rows(), self.cols()));
         }
+        let mut caller = Unbounded;
+        let mut meter = Work::with_step_limit(&mut caller, MAX_WORK);
         let band = Band::read(
             self.rows(),
             self.entries().iter().map(|(&(r, c), e)| (r, c, e)),
+            &mut meter,
         )?
         .ok_or_else(|| {
             MatrixError::InvalidCertificate(
                 "expected a univariate polynomial tridiagonal source".into(),
             )
         })?;
-        band.verify(candidate)
+        band.verify(candidate, &mut meter)
     }
 }

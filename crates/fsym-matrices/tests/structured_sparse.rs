@@ -288,7 +288,15 @@ fn unsupported_original_entries_cannot_hide_behind_singular_or_zero_outputs() {
     let zero_times_undefined = Expr::Mul(vec![Expr::from_i64(0), undefined]);
     for entry in [Expr::symbol("x"), zero_times_undefined] {
         let matrix = changed(&SparseMatrix::zeros(2, 2), 0, 1, entry.clone());
-        assert_eq!(matrix.det(), Err(MatrixError::UnsupportedCertificateDomain));
+        if matches!(entry, Expr::Sym(_)) {
+            assert_eq!(matrix.det().unwrap(), Expr::from_i64(0));
+        } else {
+            assert_eq!(matrix.det(), Err(MatrixError::UnsupportedCertificateDomain));
+        }
+        assert!(matches!(
+            matrix.det_with_certificate(),
+            Err(MatrixError::UnsupportedCertificateDomain)
+        ));
         assert_eq!(
             matrix.solve(&SparseMatrix::zeros(2, 1)),
             Err(MatrixError::UnsupportedCertificateDomain)
