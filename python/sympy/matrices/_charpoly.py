@@ -164,11 +164,7 @@ def _capture(matrix, dense):
     rational = sparse._rational_source_snapshot(
         matrix, dense=dense, context="characteristic polynomial")
     entries = None
-    if rational is None:
-        if dense or rows > 32:
-            raise NotImplementedError(
-                "large characteristic polynomial requires literal rational coefficients")
-    else:
+    if rational is not None:
         native, retained = rational
         if dense:
             native = sparse._SOLVE_DENSE_MEMBERS["to_sparse"](native)
@@ -188,6 +184,9 @@ def characteristic_polynomial(matrix, x, *, dense):
     rows, entries, unchanged = _capture(matrix, dense)
     name = generator_name(x)
     if entries is None:
+        if dense or rows > 32:
+            raise NotImplementedError(
+                "large characteristic polynomial requires literal rational coefficients")
         # Preserve source coefficient identity and generator-name collision rules.
         result = matrix.to_dense().charpoly(x)
     else:
@@ -275,7 +274,17 @@ def eigenvalue_multiplicities(matrix, *, dense):
     """Compose complete diagonal-block spectra with algebraic multiplicities."""
     rows, entries, unchanged = _capture(matrix, dense)
     if entries is None:
-        result = matrix.to_dense().eigenvals()
+        from ._triangular_spectrum import symbolic_triangular_spectrum
+
+        if rows <= 32 and not dense:
+            # Keep the existing small symbolic solver, including nontriangular
+            # matrices and its established simplification of parametric roots.
+            result = matrix.to_dense().eigenvals()
+        else:
+            result = symbolic_triangular_spectrum(matrix, dense)
+            if result is None:
+                raise NotImplementedError(
+                    "large symbolic eigenvalues require upper or lower triangular structure")
     else:
         blocks, _ = _checked_blocks(rows, entries)
         result = {}
