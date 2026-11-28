@@ -28,6 +28,8 @@
 
 #![forbid(unsafe_code)]
 
+mod gaussian;
+
 use crate::gruntz::Direction;
 use fsym_core::elementary::{eval_function, eval_pow, rational_expr};
 use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
@@ -1698,6 +1700,9 @@ pub(crate) fn antiderivative_in_source_scope(
     x: &Symbol,
     conditional_source: bool,
 ) -> Option<Expr> {
+    if let Some(primitive) = gaussian::Primitive::from_source(f, x) {
+        return Some(primitive.expression());
+    }
     let mut it = Integrator {
         x: x.clone(),
         depth: 0,
@@ -2216,6 +2221,11 @@ pub fn definite(f: &Expr, x: &Symbol, a: &Expr, b: &Expr) -> Option<Expr> {
     }
     if has_interior_singularity(f, x, a, b, 0)? {
         return None;
+    }
+    if let Some(primitive) = gaussian::Primitive::from_source(f, x)
+        && let Some(value) = primitive.definite(a, b)
+    {
+        return Some(value);
     }
     let anti = antiderivative(f, x)?;
     let (upper_side, lower_side) = if reversed_real_interval(a, b) {
