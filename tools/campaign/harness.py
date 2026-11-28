@@ -33,6 +33,11 @@ import subprocess
 import sys
 import time
 
+if __package__:
+    from .numeric_case import CASE_ID as NUMERIC_CASE_ID, validate_numeric_case
+else:
+    from numeric_case import CASE_ID as NUMERIC_CASE_ID, validate_numeric_case
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 BUNDLE_DIR = ROOT / "artifacts" / "campaign" / "jacobian-v1"
 HERO_DIR = ROOT / "artifacts" / "campaign" / "hero-v1"
@@ -154,24 +159,10 @@ results.append({
     "assumptions_ simplification_witness": str(sp.simplify(sp.sqrt(x0**2))),
 })
 
-# Case 2: 2x2 transcendental system evaluated at [1, 1] with 30-digit certified ball enclosure
-f1 = sp.exp(x0 / 2) + x1 - sp.Integer(3)
-f2 = x0 + sp.sin(x1) - sp.Rational(6, 5)
-f1_at_1 = str(f1.subs({x0: 1, x1: 1}).evalf(30))
-f2_at_1 = str(f2.subs({x0: 1, x1: 1}).evalf(30))
-j00_at_1 = str(sp.diff(f1, x0).subs({x0: 1, x1: 1}).evalf(30))
-j11_at_1 = str(sp.diff(f2, x1).subs({x0: 1, x1: 1}).evalf(30))
-
-results.append({
-    "case_id": "hero_transcendental_2x2_enclosure",
-    "status": "completed",
-    "num_residuals": 2,
-    "num_vars": 2,
-    "f1_evalf_30": f1_at_1,
-    "f2_evalf_30": f2_at_1,
-    "j00_evalf_30": j00_at_1,
-    "j11_evalf_30": j11_at_1,
-})
+# Case 2: Compiled evaluations, both numerical consumers and exact enclosures
+# share one replayed program and its original residual/coordinate identities.
+from tools.campaign.numeric_case import run_numeric_case
+results.append(run_numeric_case(sp, x0, x1))
 
 # Case 3: Univariate ZZ polynomial factorization without rational roots
 poly_expanded = sp.expand((x0**2 + x0 + 1) * (x0**2 - x0 + 1) * (x0**2 + 2))
@@ -357,7 +348,7 @@ def run_property_4_factorization_portfolio():
     }
 
 
-def run_property_5_compiled_evaluators():
+def run_property_5_compiled_evaluators(numeric_case):
     """Property 5: Verified residual/Jacobian compilation through real FrankenNumPy and FrankenSciPy consumers."""
     consumer_res = run_cmd([
         "cargo", "test", "-p", "fsym-numeric-consumer", "--test", "campaign_newton", "--locked"
@@ -371,6 +362,9 @@ def run_property_5_compiled_evaluators():
         "property_id": 5,
         "name": "compiled_residual_jacobian_evaluators",
         "status": "passed",
+        "measured_from_case": numeric_case["case_id"],
+        "program_sha256": numeric_case["program_sha256"],
+        "consumer_results": numeric_case["consumers"],
         "diagnostic_tolerance": 1e-6,
         "finite_difference_agreement": True,
         "target_interfaces": ["fnp-linalg::solve_2x2", "fsci-opt::fsolve"],
@@ -386,7 +380,7 @@ def run_property_5_compiled_evaluators():
     }
 
 
-def run_property_6_numeric_enclosures():
+def run_property_6_numeric_enclosures(numeric_case):
     """Property 6: Certified numeric enclosures."""
     run_cmd([
         "cargo", "run", "-p", "xtask", "--bin", "xtask", "--",
@@ -399,6 +393,9 @@ def run_property_6_numeric_enclosures():
         "property_id": 6,
         "name": "certified_numeric_enclosures",
         "status": "passed",
+        "measured_from_case": numeric_case["case_id"],
+        "program_sha256": numeric_case["program_sha256"],
+        "box_enclosure": numeric_case["box_enclosure"],
         "substrate": "RealBall and ComplexBall interval arithmetic with directed rounding",
         "checks": receipt_data.get("checks", []),
         "checks_digest": receipt_data.get("checks_digest"),
@@ -629,6 +626,24 @@ def validate_campaign_bundle(run_manifest: dict) -> tuple[bool, str]:
     if "fnp-linalg::solve_2x2" not in interfaces or "fsci-opt::fsolve" not in interfaces:
         return False, "property 5 missing real fnp-linalg / fsci-opt consumer interfaces"
 
+    # The consumer roots and whole-box results must be from the same program
+    # as the corpus run, with digest-bound bytes and exact rational endpoints.
+    cases = run_manifest.get("hero_corpus", {}).get("cases", [])
+    numerical = [case for case in cases if case.get("case_id") == NUMERIC_CASE_ID]
+    if len(numerical) != 1:
+        return False, "expected one connected numerical case"
+    case = numerical[0]
+    try:
+        validate_numeric_case(case)
+    except (ValueError, TypeError, KeyError, OverflowError, ZeroDivisionError) as exc:
+        return False, f"invalid connected numerical case: {exc}"
+    p6 = props[5]
+    if any(prop.get("program_sha256") != case["program_sha256"] or
+           prop.get("measured_from_case") != NUMERIC_CASE_ID for prop in (p5, p6)):
+        return False, "numerical properties refer to a different case or program"
+    if p5.get("consumer_results") != case["consumers"] or p6.get("box_enclosure") != case["box_enclosure"]:
+        return False, "numerical property evidence differs from the executed case"
+
     # Check Property 7 measured orphan count
     p7 = props[6]
     if p7.get("controlled_orphan_work") != 0 or p7.get("cancellation_injection_tests_passed", 0) <= 0:
@@ -793,12 +808,13 @@ def main():
     properties.append(p4)
 
     print("[5/12] Verifying Property 5: Compiled Residual/Jacobian Evaluators (fnp-linalg + fsci-opt)...")
-    p5 = run_property_5_compiled_evaluators()
+    numeric_case = next(case for case in hero_corpus["cases"] if case["case_id"] == NUMERIC_CASE_ID)
+    p5 = run_property_5_compiled_evaluators(numeric_case)
     (BUNDLE_DIR / "property_05_compiled_evaluators.json").write_text(json.dumps(p5, indent=2), encoding="utf-8")
     properties.append(p5)
 
     print("[6/12] Verifying Property 6: Certified Numeric Enclosures...")
-    p6 = run_property_6_numeric_enclosures()
+    p6 = run_property_6_numeric_enclosures(numeric_case)
     (BUNDLE_DIR / "property_06_numeric_enclosure.json").write_text(json.dumps(p6, indent=2), encoding="utf-8")
     properties.append(p6)
 
