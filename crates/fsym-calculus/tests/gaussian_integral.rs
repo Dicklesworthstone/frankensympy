@@ -96,3 +96,49 @@ fn held_interior_pole_and_unproved_decay_cannot_gain_gaussian_mass() {
     assert!(integrate_definite(&source, &x, &lo, &hi).is_err());
     assert!(integrate_definite(&e("exp(a*x^2+2*x)"), &x, &lo, &hi).is_err());
 }
+
+#[test]
+fn growing_quadratic_has_exact_erfi_primitive_on_finite_intervals() {
+    let x = Symbol::new("x");
+    let f = e("(2*x+7)*exp(x^2-2*x+1)");
+    same(
+        integrate(&f, &x).unwrap(),
+        e("exp(x^2-2*x+1)+9*sqrt(pi)*erfi(x-1)/2"),
+    );
+    same(
+        integrate_definite(&e("exp(x^2)"), &x, &e("-1"), &e("1")).unwrap(),
+        e("sqrt(pi)*erfi(1)"),
+    );
+    let interval = integrate_definite(&f, &x, &e("1"), &e("3")).unwrap();
+    same(interval, e("exp(4)-1+9*sqrt(pi)*erfi(2)/2"));
+    same(
+        fsym_calculus::diff(&e("erfi(3*x+2)"), &x),
+        e("6*exp((3*x+2)^2)/sqrt(pi)"),
+    );
+}
+
+#[test]
+fn growing_gaussian_tails_keep_signed_divergence_and_refuse_principal_values() {
+    let x = Symbol::new("x");
+    let lo = Expr::Const(Constant::NegativeInfinity);
+    let hi = Expr::Const(Constant::Infinity);
+    for (p, left, right) in [
+        ("1", hi.clone(), hi.clone()),
+        ("-1", lo.clone(), lo.clone()),
+        ("x-3", lo.clone(), hi.clone()),
+        ("2-x^3", hi.clone(), lo.clone()),
+        ("3*x^4+x-2", hi.clone(), hi.clone()),
+    ] {
+        let f = e(&format!("({p})*exp(2*x^2-4*x+1)"));
+        assert_eq!(integrate_definite(&f, &x, &lo, &e("1")).unwrap(), left);
+        assert_eq!(integrate_definite(&f, &x, &e("1"), &hi).unwrap(), right);
+        if left == right {
+            assert_eq!(integrate_definite(&f, &x, &lo, &hi).unwrap(), left);
+            let reverse = if left == hi { lo.clone() } else { hi.clone() };
+            assert_eq!(integrate_definite(&f, &x, &hi, &lo).unwrap(), reverse);
+        } else {
+            assert!(integrate_definite(&f, &x, &lo, &hi).is_err());
+            assert!(integrate_definite(&f, &x, &hi, &lo).is_err());
+        }
+    }
+}

@@ -1,4 +1,4 @@
-//! Exact reduction of P(x) exp(q(x)) for rational P and a decaying quadratic q.
+//! Exact reduction of P(x) exp(q(x)) for rational P and a real quadratic q.
 
 use super::{func, number, pow, q, recip, rq};
 use fsym_core::{BigRational, Constant, Expr, Symbol};
@@ -94,7 +94,7 @@ impl Primitive {
         let mut nodes = 256;
         polynomial_shape(argument, x, 2, &mut nodes, 0)?;
         let exponent = UnivariatePoly::from_expr(argument, x).ok()?;
-        if exponent.degree() != Some(2) || !exponent.coeffs[2].is_negative() {
+        if exponent.degree() != Some(2) {
             return None;
         }
         let mut weight = UnivariatePoly::one(x.clone());
@@ -148,18 +148,26 @@ impl Primitive {
         })
     }
 
-    fn mass_and_argument(&self) -> (Expr, BigRational, Expr) {
-        // q(x) = height - a*(x-center)^2, with a strictly positive rational.
-        let a = -&self.exponent.coeffs[2];
-        let center = &self.exponent.coeffs[1] / (&a * BigRational::from(2));
+    fn error_function(&self) -> &'static str {
+        if self.exponent.coeffs[2].is_negative() {
+            "erf"
+        } else {
+            "erfi"
+        }
+    }
+
+    fn error_parameters(&self) -> (Expr, BigRational, Expr) {
+        // q(x) = height + a*(x-center)^2. Both real branches use sqrt(|a|).
+        let a = &self.exponent.coeffs[2];
+        let center = -&self.exponent.coeffs[1] / (a * BigRational::from(2));
         let height = self.exponent.eval(&center);
-        let root = pow(rq(a), q(1, 2));
-        let half_mass = rq(self.residual.clone())
+        let root = pow(rq(a.abs()), q(1, 2));
+        let scale = rq(self.residual.clone())
             * func("exp", rq(height))
             * pow(Expr::Const(Constant::Pi), q(1, 2))
             * q(1, 2)
             * recip(root.clone());
-        (half_mass, center, root)
+        (scale, center, root)
     }
 
     pub(super) fn expression(&self) -> Expr {
@@ -167,9 +175,9 @@ impl Primitive {
         if self.residual.is_zero() {
             return head;
         }
-        let (half_mass, center, root) = self.mass_and_argument();
+        let (scale, center, root) = self.error_parameters();
         let x = Expr::Sym(self.exponent.gen_sym.clone());
-        head + half_mass * func("erf", root * (x - rq(center)))
+        head + scale * func(self.error_function(), root * (x - rq(center)))
     }
 
     fn endpoint(&self, point: &Expr) -> Option<Expr> {
@@ -177,12 +185,30 @@ impl Primitive {
             point,
             Expr::Const(Constant::Infinity | Constant::NegativeInfinity)
         ) {
+            let negative_end = matches!(point, Expr::Const(Constant::NegativeInfinity));
+            if self.exponent.coeffs[2].is_positive() {
+                // H(x) exp(q(x)) dominates the erfi tail whenever H != 0:
+                // erfi(z) ~ exp(z^2)/(sqrt(pi)*z) on the real axis.
+                let negative = if let Some(degree) = self.polynomial.degree() {
+                    self.polynomial.leading_coeff().is_negative()
+                        ^ (negative_end && degree % 2 == 1)
+                } else if self.residual.is_zero() {
+                    return Some(Expr::from_i64(0));
+                } else {
+                    self.residual.is_negative() ^ negative_end
+                };
+                return Some(Expr::Const(if negative {
+                    Constant::NegativeInfinity
+                } else {
+                    Constant::Infinity
+                }));
+            }
             // Every polynomial times this decaying Gaussian tends to zero
             // at either end. The real erf limits are +1 and -1 respectively.
             if self.residual.is_zero() {
                 return Some(Expr::from_i64(0));
             }
-            let (half_mass, _, _) = self.mass_and_argument();
+            let (half_mass, _, _) = self.error_parameters();
             return Some(if matches!(point, Expr::Const(Constant::Infinity)) {
                 half_mass
             } else {
@@ -197,11 +223,43 @@ impl Primitive {
         if self.residual.is_zero() {
             return Some(head);
         }
-        let (half_mass, center, root) = self.mass_and_argument();
-        Some(head + half_mass * func("erf", root * rq(value - center)))
+        let (scale, center, root) = self.error_parameters();
+        let displacement = value - center;
+        // Both erf and erfi are odd. Orient exact endpoints explicitly so
+        // the two halves of a symmetric interval combine algebraically.
+        let tail = scale * func(self.error_function(), root * rq(displacement.abs()));
+        Some(if displacement.is_negative() {
+            head - tail
+        } else {
+            head + tail
+        })
+    }
+
+    pub(super) fn supports_endpoint(point: &Expr) -> bool {
+        match point {
+            Expr::Integer(n) => n.bits() <= MAX_SOURCE_BITS,
+            Expr::Rational(r) => r.numer().bits().max(r.denom().bits()) <= MAX_SOURCE_BITS,
+            Expr::Const(Constant::Infinity | Constant::NegativeInfinity) => true,
+            _ => false,
+        }
     }
 
     pub(super) fn definite(&self, lower: &Expr, upper: &Expr) -> Option<Expr> {
-        Some(self.endpoint(upper)? - self.endpoint(lower)?)
+        use Constant::{Infinity, NegativeInfinity};
+        let hi = self.endpoint(upper)?;
+        let lo = self.endpoint(lower)?;
+        match (&hi, &lo) {
+            // Oppositely divergent tails cannot be combined by subtracting
+            // equal infinities (or by taking a symmetric principal value).
+            (Expr::Const(Infinity), Expr::Const(Infinity))
+            | (Expr::Const(NegativeInfinity), Expr::Const(NegativeInfinity)) => None,
+            (Expr::Const(Infinity), _) | (_, Expr::Const(NegativeInfinity)) => {
+                Some(Expr::Const(Infinity))
+            }
+            (Expr::Const(NegativeInfinity), _) | (_, Expr::Const(Infinity)) => {
+                Some(Expr::Const(NegativeInfinity))
+            }
+            _ => Some(hi - lo),
+        }
     }
 }

@@ -2223,10 +2223,11 @@ pub fn definite(f: &Expr, x: &Symbol, a: &Expr, b: &Expr) -> Option<Expr> {
     if has_interior_singularity(f, x, a, b, 0)? {
         return None;
     }
-    if let Some(primitive) = gaussian::Primitive::from_source(f, x)
-        && let Some(value) = primitive.definite(a, b)
+    if gaussian::Primitive::supports_endpoint(a)
+        && gaussian::Primitive::supports_endpoint(b)
+        && let Some(primitive) = gaussian::Primitive::from_source(f, x)
     {
-        return Some(value);
+        return primitive.definite(a, b);
     }
     let anti = antiderivative(f, x)?;
     let (upper_side, lower_side) = if reversed_real_interval(a, b) {

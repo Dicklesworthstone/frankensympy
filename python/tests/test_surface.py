@@ -4975,10 +4975,13 @@ print(json.dumps({
         # Substituting bound variable should not alter integrand
         self.assertEqual(i_xy.subs(x, y), i_xy)
 
-        # Non-computable integration falls back to unevaluated Integral
-        i_exp = integrate(exp(x**2), x)
+        # Quadratic exponentials have an erfi primitive. A cubic exponent
+        # still exercises fallback to the original unevaluated integral.
+        from sympy import erfi, pi, sqrt
+        self.assertEqual(integrate(exp(x**2), x), sqrt(pi)*erfi(x)/2)
+        i_exp = integrate(exp(x**3), x)
         self.assertIsInstance(i_exp, Integral)
-        self.assertEqual(i_exp, Integral(exp(x**2), x))
+        self.assertEqual(i_exp, Integral(exp(x**3), x))
 
     def test_limit_subsystem(self):
         from sympy import Limit, Symbol

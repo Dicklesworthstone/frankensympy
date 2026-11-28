@@ -811,32 +811,21 @@ fn diff_unsimplified_using<E>(
                     Expr::Function("DiracDelta".to_string(), vec![u.clone()]),
                     du,
                 ])
-            } else if name == "erf" && args.len() == 1 {
+            } else if matches!(name.as_str(), "erf" | "erfc" | "erfi") && args.len() == 1 {
                 let u = &args[0];
                 let du = diff(u, var)?;
                 let pi = Expr::Const(Constant::Pi);
                 let half = Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)));
-                let sqrt_pi = Expr::pow(pi, half);
-                let inv_sqrt_pi = Expr::pow(sqrt_pi, Expr::from_i64(-1));
-                let neg_u_sq = Expr::Mul(vec![
-                    Expr::from_i64(-1),
-                    Expr::pow(u.clone(), Expr::from_i64(2)),
-                ]);
-                let exp_neg_u_sq = Expr::Function("exp".to_string(), vec![neg_u_sq]);
-                Expr::Mul(vec![Expr::from_i64(2), inv_sqrt_pi, exp_neg_u_sq, du])
-            } else if name == "erfc" && args.len() == 1 {
-                let u = &args[0];
-                let du = diff(u, var)?;
-                let pi = Expr::Const(Constant::Pi);
-                let half = Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)));
-                let sqrt_pi = Expr::pow(pi, half);
-                let inv_sqrt_pi = Expr::pow(sqrt_pi, Expr::from_i64(-1));
-                let neg_u_sq = Expr::Mul(vec![
-                    Expr::from_i64(-1),
-                    Expr::pow(u.clone(), Expr::from_i64(2)),
-                ]);
-                let exp_neg_u_sq = Expr::Function("exp".to_string(), vec![neg_u_sq]);
-                Expr::Mul(vec![Expr::from_i64(-2), inv_sqrt_pi, exp_neg_u_sq, du])
+                let inv_sqrt_pi = Expr::pow(Expr::pow(pi, half), Expr::from_i64(-1));
+                let square = Expr::pow(u.clone(), Expr::from_i64(2));
+                let exponent = if name == "erfi" { square } else { -square };
+                let scale = if name == "erfc" { -2 } else { 2 };
+                Expr::Mul(vec![
+                    Expr::from_i64(scale),
+                    inv_sqrt_pi,
+                    Expr::Function("exp".to_string(), vec![exponent]),
+                    du,
+                ])
             } else if stable_coth
                 && matches!(
                     name.as_str(),
@@ -2578,7 +2567,7 @@ mod tests {
                 Err(CalculusError::IntegrationFailed(_))
             ));
         };
-        // Non-elementary: sin(x**2) (Fresnel) and exp(x**2) (erfi).
+        // Fresnel and cubic-exponential primitives are outside this portfolio.
         refused(&Expr::Function(
             "sin".to_string(),
             vec![Expr::Pow(
@@ -2590,7 +2579,7 @@ mod tests {
             "exp".to_string(),
             vec![Expr::Pow(
                 Arc::new(Expr::symbol("x")),
-                Arc::new(Expr::from_i64(2)),
+                Arc::new(Expr::from_i64(3)),
             )],
         ));
         // Previously refused shapes now integrate exactly; the derivative

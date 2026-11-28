@@ -61,3 +61,35 @@ def test_original_excluded_point_survives_gaussian_factor_recognition():
     source = s.Mul(s.exp(-(x-1)**2), x-1, s.Pow(x-1, -1, evaluate=False), evaluate=False)
     held = s.Integral(source, (x, -s.oo, s.oo))
     assert held.doit() == held
+
+
+def test_growing_quadratic_erfi_primitive_and_ordinary_chain_rule():
+    x = s.Dummy("erfi_integral_x")
+    f = (2*x+7)*s.exp(x**2-2*x+1)
+    expected = s.exp(x**2-2*x+1) + 9*s.sqrt(s.pi)*s.erfi(x-1)/2
+    primitive = s.integrate(f, x)
+    assert primitive.free_symbols == {x}
+    equal(primitive, expected)
+    equal(s.Integral(f, (x, 3, 1)).doit(), 1-s.exp(4)-9*s.sqrt(s.pi)*s.erfi(2)/2)
+    equal(s.diff(s.erfi(3*x+2), x), 6*s.exp((3*x+2)**2)/s.sqrt(s.pi))
+    equal(s.diff(s.integrate(s.exp(x**2), x), x), s.exp(x**2))
+    equal(s.integrate(s.exp(x**2), (x, -1, 1)), s.sqrt(s.pi)*s.erfi(1))
+
+
+@pytest.mark.parametrize("degree,sign", [(0, -1), (0, 1), (1, 1), (3, -1), (4, 1)])
+def test_growing_quadratic_tails_are_oriented_separately(degree, sign):
+    x = s.Symbol("growing_quadratic_x")
+    weight = sign if degree == 0 else sign*x**degree + 2
+    f = weight*s.exp(2*x**2-4*x+1)
+    left = s.oo if sign*(-1)**degree > 0 else -s.oo
+    right = s.oo if sign > 0 else -s.oo
+    assert s.integrate(f, (x, -s.oo, 1)) == left
+    assert s.integrate(f, (x, 1, s.oo)) == right
+    if degree % 2:
+        for a, b in [(-s.oo, s.oo), (s.oo, -s.oo)]:
+            result = s.integrate(f, (x, a, b))
+            assert isinstance(result, s.Integral)
+            assert result.function is f
+    else:
+        assert s.integrate(f, (x, -s.oo, s.oo)) == right
+        assert s.integrate(f, (x, s.oo, -s.oo)) == -right
