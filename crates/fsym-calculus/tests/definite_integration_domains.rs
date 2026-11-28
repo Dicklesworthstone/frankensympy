@@ -234,3 +234,51 @@ fn indeterminate_improper_endpoint_differences_are_refused() {
         .is_err()
     );
 }
+
+#[test]
+fn original_rational_guards_survive_entire_outer_functions() {
+    let x = Symbol::new("x");
+    let base = Expr::Sym(x.clone()) - Expr::from_i64(1);
+    let held_pow = |base: Expr, k| Expr::Pow(base.into(), Expr::from_i64(k).into());
+    let inv = held_pow(base.clone(), -1);
+    for arg in [
+        Expr::Mul(vec![Expr::from_i64(0), inv.clone()]),
+        Expr::Mul(vec![base, inv.clone()]),
+        held_pow(inv.clone(), -1),
+        held_pow(inv, 0),
+    ] {
+        for name in ["exp", "sin", "cos", "cosh", "erf"] {
+            let f = function(name, arg.clone());
+            for (a, b) in [(0, 2), (2, 0)] {
+                assert!(
+                    integrate_definite(&f, &x, &Expr::from_i64(a), &Expr::from_i64(b)).is_err(),
+                    "accepted {f} over ({a}, {b})"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_held_hole_at_only_an_endpoint_uses_the_integrable_limit() {
+    let x = Symbol::new("x");
+    let inverse = Expr::Pow(
+        (Expr::Sym(x.clone()) - Expr::from_i64(1)).into(),
+        Expr::from_i64(-1).into(),
+    );
+    let f = function("exp", Expr::Mul(vec![Expr::from_i64(0), inverse]));
+    for (a, b, expected) in [(1, 2, 1), (2, 1, -1), (2, 3, 1), (1, 1, 0)] {
+        assert_eq!(
+            integrate_definite(&f, &x, &Expr::from_i64(a), &Expr::from_i64(b)).unwrap(),
+            Expr::from_i64(expected)
+        );
+    }
+}
+
+#[test]
+fn original_rational_guards_in_a_bound_precede_zero_width() {
+    let x = Symbol::new("x");
+    let inverse = Expr::Pow(Expr::from_i64(0).into(), Expr::from_i64(-1).into());
+    let bad_endpoint = function("exp", Expr::Mul(vec![Expr::from_i64(0), inverse]));
+    assert!(integrate_definite(&Expr::from_i64(1), &x, &bad_endpoint, &bad_endpoint).is_err());
+}

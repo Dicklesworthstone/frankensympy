@@ -358,3 +358,31 @@ def test_a_python_candidate_cannot_manufacture_an_accepted_receipt(monkeypatch):
                         lambda *args: {"value": 1, "verified": True})
     with pytest.raises(TypeError):
         s.exact_rational_integral(1 / (x*x + 1), (x, 0, 1))
+
+
+@pytest.mark.parametrize("kind", ["zero", "cancel", "inverse", "power_zero"])
+@pytest.mark.parametrize("outer", [s.exp, s.sin, s.cos, s.cosh, s.erf])
+def test_definite_integral_preserves_nested_rational_guards(kind, outer):
+    x = s.Dummy("nested_integral_guard")
+    pole = s.Pow(x-1, -1, evaluate=False)
+    argument = {
+        "zero": lambda: s.Mul(0, pole, evaluate=False),
+        "cancel": lambda: s.Mul(x-1, pole, evaluate=False),
+        "inverse": lambda: s.Pow(pole, -1, evaluate=False),
+        "power_zero": lambda: s.Pow(pole, 0, evaluate=False),
+    }[kind]()
+    source = outer(argument, evaluate=False)
+    for start, stop in [(0, 2), (2, 0), (-s.oo, s.oo)]:
+        for result in (s.integrate(source, (x, start, stop)),
+                       s.Integral(source, (x, start, stop)).doit(deep=False)):
+            assert isinstance(result, s.Integral)
+            assert result.function is source
+            assert result.limits == ((x, start, stop),)
+
+
+def test_nested_rational_holes_outside_open_interval_keep_endpoint_values():
+    x = s.Symbol("nested_endpoint_guard")
+    hole = s.Mul(0, s.Pow(x-1, -1, evaluate=False), evaluate=False)
+    f = s.exp(hole, evaluate=False)
+    for a, b, expected in [(1, 2, 1), (2, 1, -1), (2, 3, 1), (1, 1, 0)]:
+        assert s.Integral(f, (x, a, b)).doit() == expected

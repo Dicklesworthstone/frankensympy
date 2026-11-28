@@ -2053,9 +2053,10 @@ fn has_interior_singularity(
     if depth > MAX_DOMAIN_DEPTH {
         return None;
     }
-    if let Some((num, den)) = rational_parts(f, x) {
-        return rational_has_interior_pole(&num, &den, a, b);
-    }
+    // Every source child must be defined on the open interval. A reduced
+    // rational function has already lost holes under a zero product, a
+    // cancelling factor, or a nested inverse. Inspect the children first,
+    // then test zeros of the base when a particular power requires it.
     let child = |e: &Expr| has_interior_singularity(e, x, a, b, depth + 1);
     match f {
         Expr::Integer(_)
