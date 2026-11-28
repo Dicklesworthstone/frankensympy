@@ -50,7 +50,7 @@ DEFAULT_ORACLE_PY = (
     if os.path.exists("/home/ubuntu/.venvs/fsym-oracle-sympy-1.14.0/bin/python")
     else os.path.join(REPO, ".venv-conformance/bin/python3")
 )
-ORACLE_PY = os.environ.get("FSYM_ORACLE_PY", DEFAULT_ORACLE_PY)
+ORACLE_PY = os.environ.get("FSYM_ORACLE_PY") or os.environ.get("FSYM_ORACLE_PYTHON", DEFAULT_ORACLE_PY)
 SUBJECT_PY = os.environ.get("FSYM_SUBJECT_PY", sys.executable)
 
 # (name, code) — code must define run() -> symbolic/Python value. Identical text for both engines.
@@ -336,38 +336,41 @@ def attest_engine_isolated(engine: str) -> dict[str, Any]:
     return json.loads(proc.stdout.strip().splitlines()[-1])
 
 
-def case_worker(case_name: str) -> None:
+def case_worker(case_name: str, timed: bool = True) -> None:
     """Run ONE case (in this process); print a JSON line."""
     code = dict(CASES)[case_name]
     ns: dict[str, Any] = {}
     exec(code, ns)
-    t0 = time.perf_counter_ns()
+    elapsed = None
     try:
+        t0 = time.perf_counter_ns() if timed else None
         raw_out = ns["run"]()
+        if t0 is not None:
+            elapsed = (time.perf_counter_ns() - t0) / 1e6
         out = compute_structural_envelope(raw_out)
         err = None
     except Exception as exc:  # noqa: BLE001 — harness records all failures
         out, err = None, f"{type(exc).__name__}: {exc}"
-    dt_ms = (time.perf_counter_ns() - t0) / 1e6
     print(
         json.dumps(
             {
                 "case": case_name,
                 "result": out,
                 "error": err,
-                "ms": round(dt_ms, 4),
+                "ms": elapsed,
             }
         )
     )
 
 
-def run_case_isolated(engine: str, case_name: str, timeout_s: int = 120) -> dict[str, Any]:
+def run_case_isolated(engine: str, case_name: str, timeout_s: int = 120, *, timed: bool = True) -> dict[str, Any]:
     """Spawn one grandchild process for a single case; return its JSON dict."""
     py = SUBJECT_PY if engine == "subject" else ORACLE_PY
     env = SUBJECT_ENV if engine == "subject" else ORACLE_ENV
     try:
         proc = subprocess.run(
-            [py, os.path.abspath(__file__), "case", "--engine", engine, "--case", case_name],
+            [py, os.path.abspath(__file__), "case", "--engine", engine, "--case", case_name,
+             *([] if timed else ["--untimed"])],
             capture_output=True,
             text=True,
             env=env,
@@ -396,7 +399,7 @@ def worker(engine: str, rounds: int) -> None:
     """Admission pass, then `rounds` timed rounds — every case isolated."""
     results: dict[str, Any] = {"engine": engine, "admission": {}, "rounds": []}
     for name, _ in CASES:
-        r = run_case_isolated(engine, name)
+        r = run_case_isolated(engine, name, timed=False)
         results["admission"][name] = {
             "result": r["result"],
             "error": r["error"],
@@ -519,47 +522,60 @@ def run_aa_control(rounds: int = 5) -> dict[str, Any]:
     }
 
 
+def measure_pair(name: str, rounds: int) -> dict[str, Any]:
+    """Compare both engines before timing, then recheck every measured result."""
+    engines = ("subject", "oracle")
+    samples: dict[str, list[float]] = {engine: [] for engine in engines}
+    admitted_result = None
+    for stage in range(rounds + 1):
+        timed = stage > 0
+        order = reversed(engines) if timed and stage % 2 == 0 else engines
+        observations = {
+            engine: run_case_isolated(engine, name, timed=timed) for engine in order
+        }
+        errors = {}
+        for engine, observed in observations.items():
+            error = observed["error"]
+            if not error and timed and (observed["ms"] is None or observed["ms"] <= 0):
+                error = "timed invocation produced no positive elapsed time"
+            if error:
+                errors[engine] = error
+        if errors:
+            return {"case": name, "status": "error",
+                    "subject_error": errors.get("subject", "ok"),
+                    "oracle_error": errors.get("oracle", "ok")}
+        subject, oracle = (observations[engine]["result"] for engine in engines)
+        if subject != oracle:
+            return {"case": name, "status": "divergence",
+                    "subject_result": subject, "oracle_result": oracle}
+        if not timed:
+            admitted_result = subject
+            continue
+        if subject != admitted_result:
+            return {"case": name, "status": "error",
+                    "subject_error": "output changed after admission",
+                    "oracle_error": "output changed after admission"}
+        for engine in engines:
+            samples[engine].append(observations[engine]["ms"])
+
+    entry = {"case": name, "status": "admitted"}
+    for engine in engines:
+        dist = compute_distribution(samples[engine])
+        entry.update({f"{engine}_samples": samples[engine], f"{engine}_dist": dist,
+                      f"{engine}_ms_median": dist["median_ms"], f"{engine}_cv_pct": dist["cv_pct"]})
+    entry["ratio_oracle_over_subject"] = round(
+        statistics.median(samples["oracle"]) / statistics.median(samples["subject"]), 3)
+    return entry
+
+
 def run_all(out_path: str, rounds: int = 3) -> dict[str, Any]:
     """Verify engine attestation, alternate engine subprocesses, and compute paired stats."""
+    if not 2 <= rounds <= 1000:
+        raise ValueError("a paired run requires 2..1000 rounds")
     subj_attestation = attest_engine_isolated("subject")
     orac_attestation = attest_engine_isolated("oracle")
 
-    pairs: dict[str, dict[str, list[float]]] = {}
-    admitted: dict[str, dict[str, Any]] = {}
-    for r in range(rounds):
-        for engine in ("subject", "oracle"):
-            py = SUBJECT_PY if engine == "subject" else ORACLE_PY
-            env = SUBJECT_ENV if engine == "subject" else ORACLE_ENV
-            proc = subprocess.run(
-                [
-                    py,
-                    os.path.abspath(__file__),
-                    "worker",
-                    "--engine",
-                    engine,
-                    "--cases",
-                    "inline",
-                    "--rounds",
-                    "1",
-                ],
-                capture_output=True,
-                text=True,
-                env=env,
-                cwd=REPO,
-                timeout=600,
-                check=False,
-            )
-            if proc.returncode != 0:
-                raise RuntimeError(f"{engine} worker failed r{r}: {proc.stderr[-2000:]}")
-            data = json.loads(proc.stdout.strip().splitlines()[-1])
-            if r == 0:
-                admitted[engine] = data["admission"]
-            else:
-                for cname, adm_info in data["admission"].items():
-                    if adm_info.get("error") is not None:
-                        admitted[engine][cname]["error"] = adm_info["error"]
-            for case, ms in data["rounds"][0].items():
-                pairs.setdefault(case, {"subject": [], "oracle": []})[engine].append(float(ms))
+    cases = {name: measure_pair(name, rounds) for name, _ in CASES}
 
     # A/A control execution with exact same round count
     aa_ctrl = run_aa_control(rounds=rounds)
@@ -586,7 +602,7 @@ def run_all(out_path: str, rounds: int = 3) -> dict[str, Any]:
         "toolchains": get_toolchain_info(),
         "aa_control": aa_ctrl,
         "rounds": rounds,
-        "cases": {},
+        "cases": cases,
         "settings": {
             "structural_admission": True,
             "subject_settings": dict(shared_policy),
@@ -598,43 +614,8 @@ def run_all(out_path: str, rounds: int = 3) -> dict[str, Any]:
             "competitive_claim": "not_evaluated",
         },
     }
-    divergences: list[str] = []
-    errors: list[str] = []
-    for name, _ in CASES:
-        s_adm, o_adm = admitted["subject"][name], admitted["oracle"][name]
-        s_samples = pairs.get(name, {}).get("subject", [])
-        o_samples = pairs.get(name, {}).get("oracle", [])
-        entry: dict[str, Any] = {"case": name}
-        if s_adm["error"] or o_adm["error"] or len(s_samples) != rounds or len(o_samples) != rounds:
-            entry["status"] = "error"
-            entry["subject_error"] = str(s_adm["error"] or "ok")
-            entry["oracle_error"] = str(o_adm["error"] or "ok")
-            errors.append(name)
-        elif s_adm["result"] != o_adm["result"]:
-            entry["status"] = "divergence"
-            entry["subject_result"] = str(s_adm["result"])
-            entry["oracle_result"] = str(o_adm["result"])
-            divergences.append(name)
-        else:
-            s_dist = compute_distribution(s_samples)
-            o_dist = compute_distribution(o_samples)
-            s_med = s_dist["median_ms"]
-            o_med = o_dist["median_ms"]
-            entry.update(
-                {
-                    "status": "admitted",
-                    "subject_ms_median": s_med,
-                    "oracle_ms_median": o_med,
-                    "subject_cv_pct": s_dist["cv_pct"],
-                    "oracle_cv_pct": o_dist["cv_pct"],
-                    "subject_dist": s_dist,
-                    "oracle_dist": o_dist,
-                    "subject_samples": s_samples,
-                    "oracle_samples": o_samples,
-                    "ratio_oracle_over_subject": round(o_med / s_med, 3) if s_med else None,
-                }
-            )
-        report["cases"][name] = entry
+    divergences = [name for name, case in cases.items() if case["status"] == "divergence"]
+    errors = [name for name, case in cases.items() if case["status"] == "error"]
 
     admitted_cases = [e for e in report["cases"].values() if e["status"] == "admitted"]
     ratios = [
@@ -671,7 +652,7 @@ if __name__ == "__main__":
         eng = sys.argv[sys.argv.index("--engine") + 1]
         attest_engine_worker(eng)
     elif sys.argv[1] == "case":
-        case_worker(sys.argv[sys.argv.index("--case") + 1])
+        case_worker(sys.argv[sys.argv.index("--case") + 1], timed="--untimed" not in sys.argv)
     elif sys.argv[1] == "worker":
         eng = sys.argv[sys.argv.index("--engine") + 1]
         worker(eng, 1)
