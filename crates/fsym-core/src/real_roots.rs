@@ -807,7 +807,9 @@ pub fn real_root_decimal(
 
 /// Bind each accepted real root to a square-free factor and its increasing
 /// real-root index. The monic factor product, including all multiplicities,
-/// must equal the original polynomial; floating proximity is never used.
+/// must equal the original polynomial. Every factor is square-free and every
+/// pair is coprime over Q, including factors without real roots. Floating
+/// proximity is never used.
 /// This does not establish factor irreducibility.
 pub fn identify_real_root_factors(
     roots: &VerifiedRealRoots,
@@ -820,7 +822,7 @@ pub fn identify_real_root_factors(
     }
     let mut work = Work::new(meter)?;
     let mut product = vec![BigRational::one()];
-    let mut sequences = Vec::new();
+    let mut sequences: Vec<Vec<Poly>> = Vec::new();
     let mut degree = 0usize;
     for (factor, &multiplicity) in factors.iter().zip(multiplicities) {
         let p = work.input(factor)?;
@@ -841,6 +843,15 @@ pub fn identify_real_root_factors(
             return Err(RealRootError::InvalidCertificate(
                 "factor is not square-free",
             ));
+        }
+        // Real interval ownership alone cannot detect a common nonreal root.
+        // Check the full factors before permitting local root-index sets to
+        // stand for disjoint algebraic embeddings. Each first Sturm entry is
+        // the previous admitted factor, normalized by a nonzero scalar.
+        for previous in &sequences {
+            if work.gcd(&p, &previous[0])?.len() != 1 {
+                return Err(RealRootError::InvalidCertificate("non-coprime factor list"));
+            }
         }
         sequences.push(work.sturm(&p)?);
         for _ in 0..multiplicity {

@@ -232,6 +232,69 @@ fn factor_indices_are_exact_and_product_bound() {
 }
 
 #[test]
+fn factor_indices_reject_shared_nonreal_roots_even_without_real_overlap() {
+    let nonreal = poly(&[1, 0, 1]);
+    // Both copies are square-free, and their product is exactly the source.
+    // An empty real-root list must not let the duplicate complex indices pass.
+    let repeated = product(&nonreal, &nonreal);
+    let roots = isolate_real_roots(&repeated, &mut Unbounded, &mut Unbounded).unwrap();
+    assert!(roots.intervals().is_empty());
+    assert_eq!(
+        identify_real_root_factors(
+            &roots,
+            &[nonreal.clone(), nonreal.clone()],
+            &[1, 1],
+            &mut Unbounded,
+        ),
+        Err(RealRootError::InvalidCertificate("non-coprime factor list"))
+    );
+    // The correct multiplicity representation retains each distinct index once.
+    assert!(
+        identify_real_root_factors(&roots, std::slice::from_ref(&nonreal), &[2], &mut Unbounded)
+            .unwrap()
+            .is_empty()
+    );
+
+    // A genuine real root with an unambiguous owner does not reveal that the
+    // two factors share their other, nonreal roots.
+    let mixed = product(&poly(&[-2, 1]), &nonreal);
+    let source = product(&mixed, &nonreal);
+    let roots = isolate_real_roots(&source, &mut Unbounded, &mut Unbounded).unwrap();
+    assert_eq!(roots.count_with_multiplicity(), 1);
+    assert_eq!(
+        identify_real_root_factors(&roots, &[mixed, nonreal], &[1, 1], &mut Unbounded),
+        Err(RealRootError::InvalidCertificate("non-coprime factor list"))
+    );
+}
+
+#[test]
+fn factor_indices_accept_disjoint_nonreal_factors_and_charge_the_same_meter() {
+    let factors = vec![poly(&[1, 0, 1]), poly(&[2, 0, 1]), poly(&[-3, 1])];
+    let source = product(&product(&factors[0], &factors[1]), &factors[2]);
+    let roots = isolate_real_roots(&source, &mut Unbounded, &mut Unbounded).unwrap();
+    let mut meter = CancelMeter::default();
+    assert_eq!(
+        identify_real_root_factors(&roots, &factors, &[1, 1, 1], &mut meter).unwrap(),
+        vec![(2, 0)]
+    );
+    for at in [1, meter.count / 2, meter.count] {
+        let mut cancel = CancelMeter {
+            count: 0,
+            at: Some(at),
+        };
+        assert!(matches!(
+            identify_real_root_factors(&roots, &factors, &[1, 1, 1], &mut cancel),
+            Err(RealRootError::Meter(MeterError::Cancelled))
+        ));
+    }
+    let mut exhausted = Budget::new(BudgetLimits::uniform(1, 0));
+    assert!(matches!(
+        identify_real_root_factors(&roots, &factors, &[1, 1, 1], &mut exhausted),
+        Err(RealRootError::Meter(_))
+    ));
+}
+
+#[test]
 fn finite_input_and_precision_envelopes_refuse_without_partial_results() {
     assert!(
         isolate_real_roots(&poly(&[7]), &mut Unbounded, &mut Unbounded)
