@@ -50,3 +50,27 @@ def test_incomplete_nonreal_quintic_block_refuses_the_entire_spectrum():
     entries.update({(0, 4): -1, (1, 4): 1, (5, 5): 2})
     with pytest.raises(ValueError, match="unsupported|complete"):
         SparseMatrix(6, 6, entries).eigenvals()
+
+
+@pytest.mark.parametrize("n,scale", [(33, 1), (34, 2)])
+def test_sylvester_kac_matrix_has_its_complete_rational_spectrum(n, scale):
+    # In the degree n-1 homogeneous-polynomial basis, x*d/dy + y*d/dx
+    # is the Sylvester–Kac tridiagonal matrix. Changing variables to x+y
+    # and x-y gives the n eigenvalues n-1, n-3, ..., 1-n.
+    entries = {(i, i+1): Rational(i+1, scale) for i in range(n-1)}
+    entries.update({(i+1, i): Rational(n-1-i, scale) for i in range(n-1)})
+    expected = {Rational(k, scale): 1 for k in range(1-n, n, 2)}
+    assert SparseMatrix(n, n, entries).eigenvals() == expected
+
+
+def test_rational_deflation_preserves_the_unsolved_nonreal_polynomial():
+    if not hasattr(SparseMatrix, "_native_storage"):
+        pytest.skip("native source-bound rational factor extraction")
+    from sympy.matrices._charpoly import _bounded_rational_factors
+
+    matrix = SparseMatrix([[Rational(1, 2), 1, 0, 0], [0, Rational(1, 2), 0, 0],
+                           [0, 0, 0, -1], [0, 0, 1, 0]])
+    roots, residual = _bounded_rational_factors(
+        matrix.charpoly("x"), 4, matrix._native_storage.todok())
+    assert roots == [Rational(1, 2), Rational(1, 2)]
+    assert residual.all_coeffs() == [1, 0, 1]

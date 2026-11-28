@@ -1,7 +1,7 @@
 """Characteristic polynomial dispatch for bounded exact structured matrices."""
 
 from ..core import (
-    Add, Dummy, Mul, Symbol, _charge_nested_if_active, _native, _native_expr,
+    Add, Dummy, Mul, Rational, Symbol, _charge_nested_if_active, _native, _native_expr,
     _symbol_binding, _wrap,
 )
 from ..polys.polytools import PurePoly
@@ -197,6 +197,52 @@ def characteristic_polynomial(matrix, x, *, dense):
     return result
 
 
+def _bounded_rational_factors(poly, size, entries):
+    """Extract rational eigenvalues when the scaled matrix has a small row norm."""
+    from math import lcm
+
+    # D*A is integral, so every rational eigenvalue is k/D. The maximum
+    # absolute row sum of D*A bounds |k| even for nonsymmetric matrices.
+    denominator = 1
+    for v in entries.values():
+        denominator = lcm(denominator, v.exact_denominator())
+        if denominator > 4096:
+            return [], poly
+    row_sums = [0] * size
+    for (row, _), v in entries.items():
+        row_sums[row] += abs(v.exact_numerator()) * (denominator // v.exact_denominator())
+        if row_sums[row] > 512:
+            return [], poly
+    radius = max(row_sums)
+    coefficients = _native.poly_coeffs_native(_native_expr(poly.as_expr()), _symbol_binding(poly.gen))
+    zero = sparse._REDUCTION_NATIVE_ZERO
+    roots = []
+    for k in range(-radius, radius + 1):
+        root = Rational(k, denominator)
+        point = _native_expr(root)
+        while len(coefficients) > 1:
+            _charge_nested_if_active(1 + 4*len(coefficients))
+            # Synthetic division over QQ computes the candidate quotient.
+            quotient = [coefficients[0]]
+            for coefficient in coefficients[1:-1]:
+                quotient.append(coefficient + quotient[-1]*point)
+            if coefficients[-1] + point*quotient[-1] != zero:
+                break
+            # Multiplication in the opposite direction checks every original
+            # coefficient before counting this copy and deflating the source.
+            if (coefficients[0] != quotient[0] or coefficients[-1] != -point*quotient[-1]
+                    or any(coefficients[i] != quotient[i] - point*quotient[i-1]
+                           for i in range(1, len(quotient)))):
+                raise RuntimeError("invalid rational eigenvalue factor")
+            roots.append(root)
+            coefficients = quotient
+        if len(coefficients) == 1:
+            return roots, None
+    if roots:
+        return roots, PurePoly(_expression(coefficients, poly.gen), poly.gen)
+    return [], poly
+
+
 def _block_eigenvalues(size, entries):
     if size == 1:
         return [_wrap(entries.get((0, 0), sparse._REDUCTION_NATIVE_ZERO))]
@@ -209,14 +255,20 @@ def _block_eigenvalues(size, entries):
 
     gen = Symbol("lambda")
     poly = PurePoly(_block_factor(size, entries, gen), gen)
+    rational, poly = _bounded_rational_factors(poly, size, entries)
+    if poly is None:
+        return rational
     # Keep exactly expressible complex radicals. For an unresolved higher
     # degree factor only exact real isolation can supply indexed identities.
     radical = poly.roots()
-    if sum(radical.values()) == size:
-        return [root for root, multiplicity in radical.items() for _ in range(multiplicity)]
+    remaining = size - len(rational)
+    if any(type(m) is not int or not 1 <= m <= remaining for m in radical.values()):
+        raise RuntimeError("invalid radical eigenvalue multiplicity")
+    if sum(radical.values()) == remaining:
+        return rational + [root for root, m in radical.items() for _ in range(m)]
     from ..polys.rootoftools import real_roots
 
-    return real_roots(poly)
+    return rational + real_roots(poly)
 
 
 def eigenvalue_multiplicities(matrix, *, dense):
