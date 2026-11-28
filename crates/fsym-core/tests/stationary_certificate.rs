@@ -273,3 +273,36 @@ fn real_budgets_remain_cumulative_and_protect_the_verifier_pool() {
     ));
     assert_eq!(limited.snapshot(), used);
 }
+
+#[test]
+fn anisotropic_hessian_proves_a_unique_stationary_minimum_and_refuses_escape() {
+    let axes = [Symbol::new("x"), Symbol::new("y")];
+    let objective = fsym_core::parse_raw("x^2/2+64*y^2+4*x*y^2").unwrap();
+    let mut box_ = witness(vec![q(0, 1), q(0, 1)], q(2, 1));
+    box_.domain[1] = RealBall::new(q(0, 1), q(1, 4)).unwrap();
+    box_.preconditioner[1][1] = q(1, 128);
+    let proof = certify_stationary_point(&objective, &axes, &box_).unwrap();
+    assert_eq!(
+        proof.contraction_norm(),
+        fsym_core::ContractionNorm::BoxRadiusScaledInfinity
+    );
+    assert_eq!(proof.contraction_bound(), &q(1, 4));
+    assert_eq!(proof.kind(), StationaryPointKind::StrictMinimum);
+    assert!(
+        proof
+            .stationary_enclosure()
+            .iter()
+            .all(|v| v.contains(&q(0, 1)))
+    );
+    // Same Hessian and metric, but the linear tilt pushes the critical point outside.
+    let tilted = objective + Expr::from_i64(3) * Expr::Sym(axes[0].clone());
+    assert!(matches!(
+        certify_stationary_point(&tilted, &axes, &box_),
+        Err(RootBoxError::NoInteriorInclusion { coordinate: 0 })
+    ));
+    box_.preconditioner[1][1] = q(0, 1);
+    assert_eq!(
+        certify_stationary_point(&tilted, &axes, &box_),
+        Err(RootBoxError::NotContractive)
+    );
+}

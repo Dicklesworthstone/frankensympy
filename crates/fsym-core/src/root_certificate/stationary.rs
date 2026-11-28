@@ -4,12 +4,12 @@
 
 use super::objective::evaluate_objective;
 use super::{
-    RootBoxError, RootBoxWitness, Work, binding_bytes, check_rational, rational_limbs,
-    validate_inputs,
+    ContractionNorm, RootBoxError, RootBoxWitness, Work, binding_bytes, certify_contraction,
+    check_rational, rational_limbs, validate_inputs,
 };
 use crate::{BigRational, Expr, RealBall, Symbol};
 use fsym_budget::{BudgetMeter, Unbounded};
-use num_traits::{One, Signed, Zero};
+use num_traits::Zero;
 
 /// A proved local classification. `Unclassified` does not assert the absence
 /// of an extremum: interval LDL may be inconclusive even for a nonsingular
@@ -35,6 +35,7 @@ pub struct StationaryPointReceipt {
     objective_enclosure: RealBall,
     gradient_enclosure: Vec<RealBall>,
     hessian_enclosure: Vec<Vec<RealBall>>,
+    contraction_norm: ContractionNorm,
     contraction_bound: BigRational,
     kind: StationaryPointKind,
 }
@@ -64,6 +65,10 @@ impl StationaryPointReceipt {
     pub fn hessian_enclosure(&self) -> &[Vec<RealBall>] {
         &self.hessian_enclosure
     }
+    pub fn contraction_norm(&self) -> ContractionNorm {
+        self.contraction_norm
+    }
+    /// Exact Lipschitz upper bound in the reported contraction norm.
     pub fn contraction_bound(&self) -> &BigRational {
         &self.contraction_bound
     }
@@ -137,11 +142,9 @@ pub fn verify_stationary_point(
     let at_center = evaluate_objective(objective, variables, &point, &mut work)?;
 
     // Apply the fixed-point test to the independently evaluated gradient.
-    // ||I-C H(X)||_infinity < 1 also proves C and every H(x) nonsingular.
+    // A certified operator bound below one proves C and every H(x) nonsingular.
     let mut defect = vec![vec![RealBall::from_i64(0); n]; n];
-    let mut norm = BigRational::zero();
     for (i, row) in defect.iter_mut().enumerate() {
-        let mut row_sum = BigRational::zero();
         for (j, entry) in row.iter_mut().enumerate() {
             let mut product = RealBall::from_i64(0);
             for (coefficient, hessian_row) in witness.preconditioner[i].iter().zip(&whole.hessian) {
@@ -149,16 +152,9 @@ pub fn verify_stationary_point(
                 product = work.add(&product, &term)?;
             }
             *entry = work.sub(&RealBall::from_i64(i64::from(i == j)), &product)?;
-            work.arithmetic(&[entry], &[&row_sum])?;
-            row_sum += entry.midpoint().abs() + entry.radius();
-            check_rational(&row_sum)?;
         }
-        work.arithmetic(&[], &[&norm, &row_sum])?;
-        norm = norm.max(row_sum);
     }
-    if norm >= BigRational::one() {
-        return Err(RootBoxError::NotContractive);
-    }
+    let (contraction_norm, norm) = certify_contraction(&defect, &witness.domain, &mut work)?;
     let mut delta = Vec::with_capacity(n);
     for (coordinate, center) in witness.domain.iter().zip(&point) {
         delta.push(work.sub(coordinate, center)?);
@@ -198,6 +194,7 @@ pub fn verify_stationary_point(
         objective_enclosure: whole.value,
         gradient_enclosure: whole.gradient,
         hessian_enclosure: whole.hessian,
+        contraction_norm,
         contraction_bound: norm,
         kind,
     };
