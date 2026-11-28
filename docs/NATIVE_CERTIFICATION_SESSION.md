@@ -1622,6 +1622,20 @@ keys refuse. Native artifact replay also rejects noncanonical JSON, including
 pretty-printing or changed field order; clients should pass the exported
 string through their JSON encoder without parsing and rewriting its contents.
 
+
+### Contraction bounds on scaled boxes
+
+Root, stationary-point and parametric-family responses report the
+`contraction_norm` used for their exact `contraction_bound`. The value
+`infinity` uses the maximum absolute coordinate. For
+`box_radius_scaled_infinity`, divide each coordinate by its box radius
+before taking the maximum. For example, the system `(x-4*y^2, y-x^2/128)`
+on `[-2,2] × [-1/4,1/4]` has a certified scaled bound of `1/4`.
+The residual equations and reported enclosures stay in their original
+coordinates. Each root in a complete isolation result carries its own norm.
+A parametric cover reports the largest of its verified cell bounds and uses
+`per_leaf` when those cells used different norms.
+
 ### Export and replay a root proof from Python
 
 The compatibility shell exposes the same bounded native root-witness format
@@ -2103,3 +2117,25 @@ For a point input of `1/10` and residual `x`, binary32 returns
 mathematical function and its derivatives over the exact input box. The
 rounded domain endpoints are for interchange. Evaluating on the larger box
 formed by those endpoints requires a new enclosure request on that box.
+
+### Prove a supplied point attains a global extremum
+
+`CertifyBoxExtremum` checks an exact rational point on a closed, finite box
+against the registered objective. It takes the coordinates in the objective's
+variable order. It also works with the objective registered by
+`CompileLeastSquaresObjective`, so a bounded fit can be checked by submitting
+an exact candidate in a separate request.
+
+```json
+{"id":"source","type":"RegisterObjective","payload":{"schema_version":1,"objective":"objective:face","source":"5*x-x^2+(1+x)*(y-1/3)^2","variables":["y","x"]}}
+{"id":"check","type":"CertifyBoxExtremum","payload":{"schema_version":1,"objective":"objective:face","domain":[{"lower":"-1","upper":"1"},{"lower":"0","upper":"2"}],"point":["1/3","0"],"extremum":"minimum","precision_digits":24}}
+```
+
+Here the minimum value is exactly zero and the minimizer is unique. The full
+objective increases in `x` throughout the box. At `x=0`, the remaining
+quadratic reaches its unique minimum at `y=1/3`. The response includes the
+point, value enclosure, gradient at the point, Hessian over the original box
+and `uniqueness_proved`. A false uniqueness flag leaves uniqueness open.
+Choose `maximum` for the reversed inequality. The original-source check
+consumes protected verifier fuel. Insufficient curvature or first-order
+evidence returns `inconclusive`.

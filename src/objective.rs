@@ -13,7 +13,8 @@ use fsym_budget::BudgetMeter;
 use fsym_calculus::sparse_hessian::MAX_OBJECTIVE_VARIABLES;
 use fsym_core::root_certificate::artifact::check_source_expression;
 use fsym_core::{
-    Expr, MAX_ROOT_BOX_VARIABLES, ObjectiveEnclosure, RealBall, RootBoxError, RootBoxWitness,
+    BigRational, BoxExtremumError, BoxExtremumKind, BoxExtremumReceipt, Expr,
+    MAX_ROOT_BOX_VARIABLES, ObjectiveEnclosure, RealBall, RootBoxError, RootBoxWitness,
     StationaryPointReceipt, Symbol, metered_enclose_objective, verify_stationary_point,
 };
 
@@ -158,6 +159,26 @@ impl ObjectiveProblem {
             meter,
         )
         .map_err(Into::into)
+    }
+
+    /// Prove global optimality of an exact feasible point on a finite box.
+    pub fn verify_box_extremum(
+        &self,
+        domain: &[RealBall],
+        point: &[BigRational],
+        kind: BoxExtremumKind,
+        precision_digits: u32,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<BoxExtremumReceipt, BoxExtremumError> {
+        fsym_core::verify_box_extremum(
+            self.objective(),
+            self.variables(),
+            domain,
+            point,
+            kind,
+            precision_digits,
+            meter,
+        )
     }
 
     /// Independently check existence and uniqueness of a nonsingular stationary

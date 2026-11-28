@@ -298,8 +298,13 @@ impl ParametricState {
     ) -> Result<CertificationResponse, CertificationSessionError> {
         // The maximum local contraction bound is descriptive; each original
         // cell already passed its own independent strict contraction check.
-        let mut largest = receipt.leaves()[0].contraction_bound();
+        let first = &receipt.leaves()[0];
+        let mut largest = first.contraction_bound();
+        let mut uniform_norm = Some(first.contraction_norm());
         for leaf in receipt.leaves().iter().skip(1) {
+            if uniform_norm != Some(leaf.contraction_norm()) {
+                uniform_norm = None;
+            }
             let candidate = leaf.contraction_bound();
             let limbs = (largest.numer().limb_count()
                 + largest.denom().limb_count()
@@ -319,6 +324,7 @@ impl ParametricState {
             unknown_domain: render_domain(receipt.unknown_domain(), meter)?,
             parameter_domain: render_domain(receipt.parameter_domain(), meter)?,
             root_enclosure: render_domain(receipt.root_enclosure(), meter)?,
+            contraction_norm: uniform_norm.map_or("per_leaf", |norm| norm.as_str()),
             contraction_bound: render_scalar(largest, meter)?,
             leaf_count: receipt.leaf_count(),
             precision_digits: receipt.precision_digits(),

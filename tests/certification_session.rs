@@ -397,6 +397,7 @@ fn interactive_cli_exports_and_replays_an_actual_root_in_a_fresh_process() {
     let response = sender.send(serde_json::to_value(certify("original")).unwrap());
     assert_eq!(response["status"], "success", "{response}");
     assert_eq!(response["result"]["contraction_bound"], "1/15");
+    assert_eq!(response["result"]["contraction_norm"], "infinity");
     let original_result = response["result"].clone();
     let exported = sender.send(
         json!({"id":"export","type":"ExportRootCertificate","payload":{
@@ -418,6 +419,7 @@ fn interactive_cli_exports_and_replays_an_actual_root_in_a_fresh_process() {
     for field in [
         "domain",
         "root_enclosure",
+        "contraction_norm",
         "contraction_bound",
         "context_digest",
         "claim",
@@ -510,4 +512,163 @@ fn directed_ieee_enclosures_keep_the_exact_domain_and_all_jacobian_rows() {
             serde_json::json!([[[one, one]], [[minus_one, minus_one]], [[zero, zero]]])
         );
     }
+}
+
+#[test]
+fn cli_proves_or_refuses_an_exact_global_optimizer_on_the_registered_box() {
+    let mut cli = Cli::new(&[]);
+    let register = |name, src| {
+        json!({"id":"register","type":"RegisterObjective","payload":{
+        "schema_version":1,"objective":name,"source":src,"variables":["y","x"]}})
+    };
+    let request = |name, point: Value, upper, kind| {
+        json!({"id":"exact","type":"CertifyBoxExtremum","payload":{
+        "schema_version":1,"objective":name,"point":point,"extremum":kind,"precision_digits":24,
+        "domain":[{"lower":"-1","upper":"1"},{"lower":"0","upper":upper}]}})
+    };
+    let name = "objective:face";
+    assert_eq!(
+        cli.send(register(name, "5*x-x^2+(1+x)*(y-1/3)^2"))["status"],
+        "success"
+    );
+    let response = cli.send(request(name, json!(["1/3", "0"]), "2", "minimum"));
+    assert_eq!(response["status"], "success", "{response}");
+    let result = &response["result"];
+    assert_eq!(result["kind"], "box_extremum_certified");
+    assert_eq!(result["point"], json!(["1/3", "0"]));
+    assert_eq!(result["value"], json!({"lower":"0","upper":"0"}));
+    assert_eq!(result["uniqueness_proved"], true);
+    assert_eq!(
+        result["point_gradient"],
+        json!([{"lower":"0","upper":"0"},{"lower":"5","upper":"5"}])
+    );
+    assert_eq!(
+        result["box_hessian"][1][1],
+        json!({"lower":"-2","upper":"-2"})
+    );
+    for (test, code) in [
+        (
+            request(name, json!(["1/3", "0"]), "6", "minimum"),
+            "inconclusive",
+        ),
+        (
+            request(name, json!(["1/3", "0"]), "2", "maximum"),
+            "inconclusive",
+        ),
+        (
+            request(name, json!(["0", "0"]), "2", "minimum"),
+            "inconclusive",
+        ),
+        (
+            request(name, json!(["1/3", "3"]), "2", "minimum"),
+            "invalid_input",
+        ),
+        (
+            request(name, json!(["1/3", "NaN"]), "2", "minimum"),
+            "invalid_input",
+        ),
+    ] {
+        let r = cli.send(test);
+        assert_eq!(r["code"], code, "{r}");
+        assert!(r.get("result").is_none());
+    }
+    assert_eq!(
+        cli.send(register("objective:hole", "x+0*log(x)"))["status"],
+        "success"
+    );
+    assert_eq!(
+        cli.send(request("objective:hole", json!(["0", "0"]), "2", "minimum"))["code"],
+        "domain_not_certified"
+    );
+    cli.finish();
+}
+
+#[test]
+fn cli_certifies_the_exact_box_optimum_of_a_derived_least_squares_objective() {
+    let mut cli = Cli::new(&[]);
+    let system = "system:fit";
+    let program = "program:fit";
+    let objective = "objective:fit";
+    for (operation, mut payload) in [
+        (
+            "RegisterResidualSystem",
+            json!({"system":system,"variables":["x","y","z"],"residuals":["x-3","y+4","z-8","2"]}),
+        ),
+        (
+            "CompileResidualSystem",
+            json!({"system":system,"program":program}),
+        ),
+        (
+            "CompileLeastSquaresObjective",
+            json!({"residual_program":program,"objective":objective,"program":"objective_program:fit"}),
+        ),
+    ] {
+        payload["schema_version"] = json!(1);
+        let response = cli.send(json!({"type":operation,"payload":payload}));
+        assert_eq!(response["status"], "success", "{response}");
+    }
+    let response = cli.send(json!({"type":"CertifyBoxExtremum","payload":{
+        "schema_version":1, "objective":objective, "point":["1","-1","2"], "precision_digits":24,
+        "extremum":"minimum", "domain":[{"lower":"-5","upper":"1"},{"lower":"-1","upper":"5"},
+                                        {"lower":"2","upper":"2"}]
+    }}));
+    assert_eq!(response["status"], "success", "{response}");
+    assert_eq!(
+        response["result"]["value"],
+        json!({"lower":"53/2","upper":"53/2"})
+    );
+    assert_eq!(response["result"]["uniqueness_proved"], true);
+    cli.finish();
+}
+
+#[test]
+fn cli_reports_scaled_contractions_for_roots_families_and_stationary_points() {
+    let mut cli = Cli::new(&[]);
+    let send = |cli: &mut Cli, op, mut payload: Value| {
+        payload["schema_version"] = json!(1);
+        let res = cli.send(json!({"type":op,"payload":payload}));
+        assert_eq!(res["status"], "success", "{res}");
+        res["result"].clone()
+    };
+    let domain = json!([{"lower":"-2","upper":"2"},{"lower":"-1/4","upper":"1/4"}]);
+    let witness = json!({"domain": domain, "center":["0","0"], "preconditioner":[["1","0"],["0","1"]], "precision_digits":24});
+    send(
+        &mut cli,
+        "RegisterResidualSystem",
+        json!({"system":"system:scaled","residuals":["x-4*y^2","y-x^2/128"],"variables":["x","y"]}),
+    );
+    let root = send(
+        &mut cli,
+        "CertifyRootBox",
+        json!({"system":"system:scaled","certificate":"certificate:scaled","witness":witness}),
+    );
+    send(
+        &mut cli,
+        "RegisterParametricProblem",
+        json!({"problem":"parametric:scaled","residuals":["x-4*y^2","y-x^2/128-p"],"unknowns":["x","y"],"parameters":["p"]}),
+    );
+    let family = send(
+        &mut cli,
+        "CertifyParametricRoot",
+        json!({"problem":"parametric:scaled","family":"family:scaled","witness":{
+        "unknown_domain":domain, "parameter_domain":[{"lower":"-1/8","upper":"1/8"}], "center":["0","0"],
+        "preconditioner":witness["preconditioner"], "precision_digits":24}}),
+    );
+    send(
+        &mut cli,
+        "RegisterObjective",
+        json!({"objective":"objective:scaled","source":"x^2/2+64*y^2+4*x*y^2","variables":["x","y"]}),
+    );
+    let mut hessian_witness = witness;
+    hessian_witness["preconditioner"][1][1] = json!("1/128");
+    let stationary = send(
+        &mut cli,
+        "CertifyStationaryPoint",
+        json!({"objective":"objective:scaled","certificate":"stationary:scaled","witness":hessian_witness}),
+    );
+    for result in [root, family, stationary] {
+        assert_eq!(result["contraction_norm"], "box_radius_scaled_infinity");
+        assert_eq!(result["contraction_bound"], "1/4");
+    }
+    cli.finish();
 }

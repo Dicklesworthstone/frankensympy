@@ -377,6 +377,7 @@ pub struct IsolatedRoot {
     pub certificate: RootCertificateId,
     pub domain: Vec<ExactInterval>,
     pub root_enclosure: Vec<ExactInterval>,
+    pub contraction_norm: &'static str,
     pub contraction_bound: String,
 }
 
@@ -676,6 +677,15 @@ pub enum CertificationRequest {
         schema_version: u32,
         objective: ObjectiveId,
         domain: Vec<ExactInterval>,
+        precision_digits: u32,
+    },
+    /// Prove that the supplied exact point attains the global extremum on this finite box.
+    CertifyBoxExtremum {
+        schema_version: u32,
+        objective: ObjectiveId,
+        domain: Vec<ExactInterval>,
+        point: Vec<String>,
+        extremum: BoxExtremumKind,
         precision_digits: u32,
     },
     CertifyStationaryPoint {
@@ -1089,6 +1099,7 @@ impl CertificationRequest {
             | Self::ReplayParametricFamilyFromArtifact { schema_version, .. }
             | Self::RegisterObjective { schema_version, .. }
             | Self::EncloseObjective { schema_version, .. }
+            | Self::CertifyBoxExtremum { schema_version, .. }
             | Self::CertifyStationaryPoint { schema_version, .. }
             | Self::ExportStationaryCertificate { schema_version, .. }
             | Self::ReplayStationaryCertificate { schema_version, .. }
@@ -1453,6 +1464,7 @@ pub enum CertificationResponse {
         unknown_domain: Vec<ExactInterval>,
         parameter_domain: Vec<ExactInterval>,
         root_enclosure: Vec<ExactInterval>,
+        contraction_norm: &'static str,
         contraction_bound: String,
         leaf_count: usize,
         precision_digits: u32,
@@ -1493,6 +1505,21 @@ pub enum CertificationResponse {
         precision_digits: u32,
         context_digest: [u8; 32],
     },
+    BoxExtremumCertified {
+        schema_version: u32,
+        objective: ObjectiveId,
+        evidence: &'static str,
+        claim: &'static str,
+        extremum: BoxExtremumKind,
+        domain: Vec<ExactInterval>,
+        point: Vec<String>,
+        value: ExactInterval,
+        point_gradient: Vec<ExactInterval>,
+        box_hessian: Vec<Vec<ExactInterval>>,
+        uniqueness_proved: bool,
+        precision_digits: u32,
+        context_digest: [u8; 32],
+    },
     StationaryPointCertified {
         schema_version: u32,
         objective: ObjectiveId,
@@ -1505,6 +1532,7 @@ pub enum CertificationResponse {
         objective_enclosure: ExactInterval,
         gradient_enclosure: Vec<ExactInterval>,
         hessian_enclosure: Vec<Vec<ExactInterval>>,
+        contraction_norm: &'static str,
         contraction_bound: String,
         precision_digits: u32,
         context_digest: [u8; 32],
@@ -1614,6 +1642,7 @@ pub enum CertificationResponse {
         claim: &'static str,
         domain: Vec<ExactInterval>,
         root_enclosure: Vec<ExactInterval>,
+        contraction_norm: &'static str,
         contraction_bound: String,
         precision_digits: u32,
         context_digest: [u8; 32],
@@ -1771,6 +1800,8 @@ pub enum CertificationResponse {
 
 #[derive(Debug, Error)]
 pub enum CertificationSessionError {
+    #[error(transparent)]
+    BoxExtremum(#[from] fsym_core::BoxExtremumError),
     #[error(transparent)]
     FloatingEnclosure(#[from] fsym_core::FloatingEnclosureError),
 
@@ -1969,6 +2000,18 @@ impl CertificationSessionError {
             },
             Self::Integration(error) => integration_error_code(error),
             Self::ScalarBracket(error) => scalar_bracket::error_code(error),
+            Self::BoxExtremum(error) => match error {
+                fsym_core::BoxExtremumError::CurvatureNotProved
+                | fsym_core::BoxExtremumError::FirstOrderNotProved { .. } => "inconclusive",
+                fsym_core::BoxExtremumError::Verification(
+                    RootBoxError::CenterOutsideBox { .. }
+                    | RootBoxError::DimensionMismatch
+                    | RootBoxError::InvalidPrecision,
+                ) => "invalid_input",
+                fsym_core::BoxExtremumError::Verification(error) => {
+                    certification_error_code(&CertificationError::Root(error.clone()))
+                }
+            },
             Self::Optimization(error) => optimization_error_code(error),
             Self::Parametric(error) => parametric::error_code(error),
             Self::Transfer(error) => transfer_error_code(error),
@@ -2449,6 +2492,7 @@ fn root_response(
         claim: "unique_nonsingular_real_root_in_box",
         domain: render_domain(&receipt.witness().domain, meter)?,
         root_enclosure: render_domain(receipt.root_enclosure(), meter)?,
+        contraction_norm: receipt.contraction_norm().as_str(),
         contraction_bound: render_scalar(receipt.contraction_bound(), meter)?,
         precision_digits: receipt.witness().precision_digits,
         context_digest,
@@ -2498,6 +2542,7 @@ fn stationary_response(
         objective_enclosure: render_ball(receipt.objective_enclosure(), meter)?,
         gradient_enclosure: render_domain(receipt.gradient_enclosure(), meter)?,
         hessian_enclosure: render_hessian(receipt.hessian_enclosure(), meter)?,
+        contraction_norm: receipt.contraction_norm().as_str(),
         contraction_bound: render_scalar(receipt.contraction_bound(), meter)?,
         precision_digits: receipt.witness().precision_digits,
         context_digest,
@@ -2956,6 +3001,7 @@ impl CertificationState {
                 certificate: certificate.clone(),
                 domain: render_domain(&root.witness().domain, budget)?,
                 root_enclosure: render_domain(root.root_enclosure(), budget)?,
+                contraction_norm: root.contraction_norm().as_str(),
                 contraction_bound: render_scalar(root.contraction_bound(), budget)?,
             });
             members.push((certificate, (isolation.clone(), index)));
@@ -3727,6 +3773,60 @@ impl CertificationState {
                     gradient: render_domain(receipt.gradient(), budget)?,
                     hessian: render_hessian(receipt.hessian(), budget)?,
                     precision_digits: receipt.precision_digits(),
+                    context_digest,
+                };
+                admit_response(&response, budget)?;
+                Ok(response)
+            }
+            CertificationRequest::CertifyBoxExtremum {
+                objective,
+                domain,
+                point,
+                extremum,
+                precision_digits,
+                ..
+            } => {
+                let problem = self
+                    .objectives
+                    .get(&objective)
+                    .ok_or(CertificationSessionError::UnknownObjective)?;
+                let axes = problem.variables().len();
+                if point.len() != axes {
+                    return Err(CertificationSessionError::InvalidDomain);
+                }
+                let domain = parse_domain(&domain, axes, budget)?;
+                charge(budget, axes, axes * size_of::<BigRational>())?;
+                let point = point
+                    .iter()
+                    .map(|text| parse_scalar(text, budget))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let lease =
+                    lease.ok_or(MeterError::Budget(BudgetError::VerifierPoolAccessDenied))?;
+                let receipt = problem.verify_box_extremum(
+                    &domain,
+                    &point,
+                    extremum,
+                    precision_digits,
+                    &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
+                )?;
+                charge(budget, axes, axes * size_of::<String>())?;
+                let response = CertificationResponse::BoxExtremumCertified {
+                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
+                    objective,
+                    evidence: "certified_numeric",
+                    claim: "global_extremum_at_exact_point_on_closed_box",
+                    extremum,
+                    domain: render_domain(receipt.domain(), budget)?,
+                    point: receipt
+                        .point()
+                        .iter()
+                        .map(|q| render_scalar(q, budget))
+                        .collect::<Result<_, _>>()?,
+                    value: render_ball(receipt.value(), budget)?,
+                    point_gradient: render_domain(receipt.gradient(), budget)?,
+                    box_hessian: render_hessian(receipt.hessian(), budget)?,
+                    uniqueness_proved: receipt.uniqueness_proved(),
+                    precision_digits,
                     context_digest,
                 };
                 admit_response(&response, budget)?;

@@ -75,16 +75,16 @@ pub use fsym_calculus::root_isolation::{
 };
 pub use fsym_calculus::scalar_bracket::ScalarRootBracketOptions;
 pub use fsym_core::{
-    BigInt, BigRational, BoxExtremumKind, BoxOptimizationError, BoxOptimizationReceipt,
-    BoxOptimizationWitness, BoxPartitionStep, Expr, IntegralEnclosureReceipt, ObjectiveEnclosure,
-    ParametricRootBoxReceipt, ParametricRootBoxWitness, ParametricRootCoverError,
-    ParametricRootCoverReceipt, ParametricRootCoverStep, ParametricRootCoverWitness,
-    ParametricSensitivityReceipt, QuadratureError, QuadratureWitness, RealBall,
-    ResidualJacobianEnclosure, RootBoxReceipt, RootBoxWitness, RootIsolationError,
-    RootIsolationReceipt, RootIsolationStep, RootIsolationWitness, ScalarRootBracketError,
-    ScalarRootBracketReceipt, ScalarRootBracketWitness, StationaryPointKind,
-    StationaryPointReceipt, Symbol, SymbolIdentity, metered_enclose_parametric_cover_sensitivity,
-    metered_enclose_parametric_root_sensitivity,
+    BigInt, BigRational, BoxExtremumError, BoxExtremumKind, BoxExtremumReceipt,
+    BoxOptimizationError, BoxOptimizationReceipt, BoxOptimizationWitness, BoxPartitionStep,
+    ContractionNorm, Expr, IntegralEnclosureReceipt, ObjectiveEnclosure, ParametricRootBoxReceipt,
+    ParametricRootBoxWitness, ParametricRootCoverError, ParametricRootCoverReceipt,
+    ParametricRootCoverStep, ParametricRootCoverWitness, ParametricSensitivityReceipt,
+    QuadratureError, QuadratureWitness, RealBall, ResidualJacobianEnclosure, RootBoxReceipt,
+    RootBoxWitness, RootIsolationError, RootIsolationReceipt, RootIsolationStep,
+    RootIsolationWitness, ScalarRootBracketError, ScalarRootBracketReceipt,
+    ScalarRootBracketWitness, StationaryPointKind, StationaryPointReceipt, Symbol, SymbolIdentity,
+    metered_enclose_parametric_cover_sensitivity, metered_enclose_parametric_root_sensitivity,
 };
 pub use fsym_proof_kernel::{
     MergeCertError, MergePolicy, SemanticMergeCertificate, WitnessKind, verify_merge_certificate,

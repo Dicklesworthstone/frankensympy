@@ -1307,6 +1307,7 @@ impl Session {
                     | "ReplayParametricFamily"
                     | "ReplayParametricFamilyFromArtifact"
                     | "EncloseObjective"
+                    | "CertifyBoxExtremum"
                     | "CertifyStationaryPoint"
                     | "ExportStationaryCertificate"
                     | "ReplayStationaryCertificate"
