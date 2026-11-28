@@ -2,10 +2,11 @@
 //!
 //! The private root receipt supplies existence and uniqueness. This operation
 //! independently recomputes both Jacobian blocks on every complete parameter
-//! cell. With D = I - C*J_x, B = -C*J_p and q = ||D||_infinity < 1, the true
+//! cell. With D = I - C*J_x, B = -C*J_p and q = ||D|| < 1, the true
 //! solution derivative S satisfies S = B + D*S. For column j, let M_j bound
-//! every entry of B_j in absolute value. Then ||S_j|| <= M_j/(1-q), and each
-//! S_ij is in B_ij + [-q*M_j/(1-q), q*M_j/(1-q)]. No sampled derivative or
+//! the norm of B_j in the accepted metric. Then ||S_j|| <= M_j/(1-q), and the correction to B_j
+//! has norm at most q*M_j/(1-q). In the box-scaled metric each coordinate
+//! correction is multiplied by its unknown radius to recover physical units. No sampled derivative or
 //! user-supplied sensitivity matrix is accepted as evidence.
 //!
 //! Original-source C1 neighborhood checks and the accepted nonsingular roots
@@ -16,9 +17,9 @@
 //! requested accuracy, or existence outside the original boxes is claimed.
 
 use super::{
-    MAX_PARAMETRIC_ROOT_COVER_LEAVES, MAX_ROOT_BOX_VARIABLES, ParametricRootBoxReceipt,
-    ParametricRootCoverReceipt, RootBoxError, Work, binding_bytes, check_rational, checked,
-    rational_limbs, validate_inputs,
+    ContractionNorm, MAX_PARAMETRIC_ROOT_COVER_LEAVES, MAX_ROOT_BOX_VARIABLES,
+    ParametricRootBoxReceipt, ParametricRootCoverReceipt, RootBoxError, Work, binding_bytes,
+    check_rational, checked, jacobian_defect, rational_limbs, validate_inputs,
 };
 use crate::{BigRational, Expr, RealBall, Symbol};
 use fsym_budget::{BudgetMeter, Unbounded};
@@ -203,23 +204,9 @@ fn enclose_accepted_family(
         for residual in family.residuals {
             jets.push(work.eval(residual, &variables, &domain, 0)?);
         }
-        let mut q = BigRational::zero();
-        for (i, coefficients) in leaf.witness().preconditioner.iter().enumerate() {
-            let mut row_sum = BigRational::zero();
-            for j in 0..n {
-                let mut product = RealBall::from_i64(0);
-                for (coefficient, jet) in coefficients.iter().zip(&jets) {
-                    let term = work.scale(&jet.gradient[j], coefficient)?;
-                    product = work.add(&product, &term)?;
-                }
-                let defect = work.sub(&RealBall::from_i64(i64::from(i == j)), &product)?;
-                work.arithmetic(&[&defect], &[&row_sum])?;
-                row_sum += defect.midpoint().abs() + defect.radius();
-                check_rational(&row_sum)?;
-            }
-            work.arithmetic(&[], &[&q, &row_sum])?;
-            q = q.max(row_sum);
-        }
+        let defect = jacobian_defect(&jets, &leaf.witness().preconditioner, &mut work)?;
+        let metric = leaf.contraction_norm();
+        let q = metric.bound(&defect, family.unknown_domain, &mut work)?;
         work.arithmetic(&[], &[&q])?;
         if q >= BigRational::one() {
             return Err(RootBoxError::NotContractive);
@@ -240,9 +227,15 @@ fn enclose_accepted_family(
         check_rational(&margin)?;
         for j in 0..p {
             let mut magnitude = BigRational::zero();
-            for row in &rhs {
+            for (row, axis) in rhs.iter().zip(family.unknown_domain) {
                 work.arithmetic(&[&row[j]], &[&magnitude])?;
-                magnitude = magnitude.max(row[j].midpoint().abs() + row[j].radius());
+                let mut component = row[j].midpoint().abs() + row[j].radius();
+                if metric == ContractionNorm::BoxRadiusScaledInfinity {
+                    work.arithmetic(&[], &[&component, axis.radius()])?;
+                    component /= axis.radius();
+                    work.arithmetic(&[], &[&component, &magnitude])?;
+                }
+                magnitude = magnitude.max(component);
                 check_rational(&magnitude)?;
             }
             work.arithmetic(&[], &[&q, &magnitude])?;
@@ -252,8 +245,13 @@ fn enclose_accepted_family(
             let radius = numerator / &margin;
             check_rational(&radius)?;
             let remainder = checked(RealBall::new(BigRational::zero(), radius)?)?;
-            for row in &mut rhs {
-                row[j] = work.add(&row[j], &remainder)?;
+            for (row, axis) in rhs.iter_mut().zip(family.unknown_domain) {
+                row[j] = if metric == ContractionNorm::BoxRadiusScaledInfinity {
+                    let physical_remainder = work.scale(&remainder, axis.radius())?;
+                    work.add(&row[j], &physical_remainder)?
+                } else {
+                    work.add(&row[j], &remainder)?
+                };
             }
         }
         if let Some(hull) = &mut solution_jacobian {

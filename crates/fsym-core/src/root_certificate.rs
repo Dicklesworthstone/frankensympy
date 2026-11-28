@@ -25,6 +25,10 @@ pub mod integral_artifact;
 pub mod isolation_artifact;
 pub mod scalar_bracket_artifact;
 
+mod contraction;
+pub use contraction::ContractionNorm;
+use contraction::{certify_contraction, jacobian_defect};
+
 mod floating_enclosure;
 pub use floating_enclosure::{FloatingEnclosureError, FloatingResidualJacobianEnclosure};
 
@@ -99,6 +103,7 @@ pub struct RootBoxReceipt {
     variables: Vec<Symbol>,
     witness: RootBoxWitness,
     root_enclosure: Vec<RealBall>,
+    contraction_norm: ContractionNorm,
     contraction_bound: BigRational,
 }
 
@@ -115,6 +120,10 @@ impl RootBoxReceipt {
     pub fn root_enclosure(&self) -> &[RealBall] {
         &self.root_enclosure
     }
+    pub fn contraction_norm(&self) -> ContractionNorm {
+        self.contraction_norm
+    }
+    /// Exact Lipschitz upper bound in the reported contraction norm.
     pub fn contraction_bound(&self) -> &BigRational {
         &self.contraction_bound
     }
@@ -331,6 +340,7 @@ pub struct RootBoxReceipt2 {
     variables: [Symbol; 2],
     witness: RootBoxWitness2,
     root_enclosure: [RealBall; 2],
+    contraction_norm: ContractionNorm,
     contraction_bound: BigRational,
 }
 
@@ -347,6 +357,10 @@ impl RootBoxReceipt2 {
     pub fn root_enclosure(&self) -> &[RealBall; 2] {
         &self.root_enclosure
     }
+    pub fn contraction_norm(&self) -> ContractionNorm {
+        self.contraction_norm
+    }
+    /// Exact Lipschitz upper bound in the reported contraction norm.
     pub fn contraction_bound(&self) -> &BigRational {
         &self.contraction_bound
     }
@@ -435,6 +449,7 @@ pub fn verify_root_box_2x2(
         variables: variables.clone(),
         witness: witness.clone(),
         root_enclosure,
+        contraction_norm: receipt.contraction_norm,
         contraction_bound: receipt.contraction_bound,
     };
     meter.checkpoint()?;
@@ -633,27 +648,8 @@ fn verify_root_box_preflighted(
     for residual in residuals {
         values.push(work.eval(residual, variables, &point, 0)?.value);
     }
-    let mut defect = vec![vec![RealBall::from_i64(0); n]; n];
-    let mut norm = BigRational::zero();
-    for (i, row) in defect.iter_mut().enumerate() {
-        let mut row_sum = BigRational::zero();
-        for (j, entry) in row.iter_mut().enumerate() {
-            let mut product = RealBall::from_i64(0);
-            for (coefficient, jet) in witness.preconditioner[i].iter().zip(&jets) {
-                let term = work.scale(&jet.gradient[j], coefficient)?;
-                product = work.add(&product, &term)?;
-            }
-            *entry = work.sub(&RealBall::from_i64(i64::from(i == j)), &product)?;
-            work.arithmetic(&[entry], &[&row_sum])?;
-            row_sum += entry.midpoint().abs() + entry.radius();
-            check_rational(&row_sum)?;
-        }
-        work.arithmetic(&[], &[&norm, &row_sum])?;
-        norm = norm.max(row_sum);
-    }
-    if norm >= BigRational::one() {
-        return Err(RootBoxError::NotContractive);
-    }
+    let defect = jacobian_defect(&jets, &witness.preconditioner, work)?;
+    let (contraction_norm, norm) = certify_contraction(&defect, &witness.domain, work)?;
     let mut delta = Vec::with_capacity(n);
     for (ball, center) in witness.domain.iter().zip(&point) {
         delta.push(work.sub(ball, center)?);
@@ -689,6 +685,7 @@ fn verify_root_box_preflighted(
         variables: variables.to_vec(),
         witness: witness.clone(),
         root_enclosure: image,
+        contraction_norm,
         contraction_bound: norm,
     };
     work.step()?;

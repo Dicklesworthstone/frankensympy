@@ -12,12 +12,13 @@
 //! with respect to the explicitly ordered unknowns enter the Krawczyk map.
 
 use super::{
-    MAX_ROOT_BOX_PRECISION, MAX_ROOT_BOX_VARIABLES, RootBoxError, Work, binding_bytes, check_ball,
-    check_rational, rational_limbs, validate_inputs,
+    ContractionNorm, MAX_ROOT_BOX_PRECISION, MAX_ROOT_BOX_VARIABLES, RootBoxError, Work,
+    binding_bytes, certify_contraction, check_ball, check_rational, jacobian_defect,
+    rational_limbs, validate_inputs,
 };
 use crate::{BigRational, Expr, RealBall, Symbol};
 use fsym_budget::{BudgetMeter, Unbounded};
-use num_traits::{One, Signed, Zero};
+use num_traits::Zero;
 
 /// Untrusted uniform Krawczyk proposal. Unknowns and parameters are bound
 /// separately by the verifier. Parameter intervals may have zero width;
@@ -42,6 +43,7 @@ pub struct ParametricRootBoxReceipt {
     parameters: Vec<Symbol>,
     witness: ParametricRootBoxWitness,
     root_enclosure: Vec<RealBall>,
+    contraction_norm: ContractionNorm,
     contraction_bound: BigRational,
 }
 
@@ -61,6 +63,10 @@ impl ParametricRootBoxReceipt {
     pub fn root_enclosure(&self) -> &[RealBall] {
         &self.root_enclosure
     }
+    pub fn contraction_norm(&self) -> ContractionNorm {
+        self.contraction_norm
+    }
+    /// Exact Lipschitz upper bound in the reported contraction norm.
     pub fn contraction_bound(&self) -> &BigRational {
         &self.contraction_bound
     }
@@ -207,30 +213,8 @@ pub(super) fn verify_parametric_root_box_with_work(
     }
 
     work.charge(1, (n * n * 512) as u64, (n * n + 4) as u64)?;
-    let mut defect = vec![vec![RealBall::from_i64(0); n]; n];
-    let mut norm = BigRational::zero();
-    for (i, row) in defect.iter_mut().enumerate() {
-        let mut row_sum = BigRational::zero();
-        for (j, entry) in row.iter_mut().enumerate() {
-            let mut product = RealBall::from_i64(0);
-            for (coefficient, jet) in witness.preconditioner[i].iter().zip(&jets) {
-                // Variables are ordered [unknowns, parameters]. The j loop
-                // ranges over unknowns only; parameter partials do not
-                // belong to the square fixed-point map on X.
-                let term = work.scale(&jet.gradient[j], coefficient)?;
-                product = work.add(&product, &term)?;
-            }
-            *entry = work.sub(&RealBall::from_i64(i64::from(i == j)), &product)?;
-            work.arithmetic(&[entry], &[&row_sum])?;
-            row_sum += entry.midpoint().abs() + entry.radius();
-            check_rational(&row_sum)?;
-        }
-        work.arithmetic(&[], &[&norm, &row_sum])?;
-        norm = norm.max(row_sum);
-    }
-    if norm >= BigRational::one() {
-        return Err(RootBoxError::NotContractive);
-    }
+    let defect = jacobian_defect(&jets, &witness.preconditioner, work)?;
+    let (contraction_norm, norm) = certify_contraction(&defect, &witness.unknown_domain, work)?;
     let mut delta = Vec::with_capacity(n);
     for (interval, center) in witness.unknown_domain.iter().zip(&center_boxes) {
         delta.push(work.sub(interval, center)?);
@@ -267,6 +251,7 @@ pub(super) fn verify_parametric_root_box_with_work(
         parameters: parameters.to_vec(),
         witness: witness.clone(),
         root_enclosure: image,
+        contraction_norm,
         contraction_bound: norm,
     };
     work.step()?;
