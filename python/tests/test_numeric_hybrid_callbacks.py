@@ -674,6 +674,94 @@ def test_pure_native_source_and_floating_coefficients_remain_supported():
     assert program.evaluate_batch([[0], [2]]) == pytest.approx([0, 3 + math.sin(2)])
 
 
+@pytest.mark.parametrize("branch,point,expected", [
+    (None, 1, 0.5671432904097838),
+    (0, -0.25, -0.3574029561813889),
+    (-1, -0.25, -2.15329236411035),
+])
+def test_mixed_lambert_residual_keeps_branch_syntax_and_callback_order(branch, point, expected):
+    x = s.Symbol("hybrid_lambert")
+    class Argument(s.Function):
+        pass
+
+    class Derivative(s.Function):
+        pass
+
+    effects = []
+    args = (Argument(x),) if branch is None else (Argument(x), branch)
+    system = s.compile_hybrid_residual_system(
+        [s.LambertW(*args, evaluate=False)], x, jacobian=[[Derivative(x)]],
+        callbacks={
+            Argument: lambda v: effects.append(("argument", v)) or v,
+            Derivative: lambda v: effects.append(("derivative", v)) or 2,
+        },
+    )
+    assert effects == []
+    residual, jacobian = system.evaluate(point)
+    assert residual == pytest.approx([expected], rel=8e-14)
+    assert jacobian == [[2]] and system.jacobian_evidence == "user_supplied"
+    assert effects == [("argument", point), ("derivative", point)]
+    if branch == -1:
+        effects.clear()
+        with pytest.raises(ValueError):
+            system.evaluate(0)
+        assert effects == [("argument", 0)]
+
+
+def test_hybrid_native_matrix_captures_registered_intrinsics_in_source_argument_order():
+    x = s.Symbol("hybrid_native_kernels")
+    raw = _native.py_symbol("hybrid_native_kernels")
+    matrix = s.Matrix(_native.Matrix(1, 4, [
+        _native.py_function("atan2", raw, _native.py_integer(-1)),
+        _native.py_function("acos", raw),
+        _native.py_function("Abs", raw),
+        _native.py_function("LambertW", raw, _native.py_integer(-1)),
+    ]))
+    program = s.compile_numeric_hybrid(x, matrix, callbacks={})
+    matrix[0, 0] = 0
+    assert program(-0.25)[0] == pytest.approx([
+        math.atan2(-0.25, -1), math.acos(-0.25), 0.25, -2.15329236411035,
+    ])
+    assert program.callback_slots == ()
+
+
+@pytest.mark.parametrize("form", ["raw", "generic", "held"])
+@pytest.mark.parametrize("tag", ["acos", "LambertW", "__fsymFloat"])
+def test_hybrid_erased_callback_names_refuse_inside_all_native_wrappers(form, tag):
+    x = s.Symbol("hybrid_erased_intrinsic")
+    custom = FunctionClass(tag, (s.Function,), {"__module__": __name__})
+    raw = _native.py_function(tag, _native.py_integer(0))
+    source = raw if form == "raw" else s.Expr(raw)
+    if form == "held":
+        source = s.Add(x, source, evaluate=False)
+    effects = []
+    with pytest.raises(NotImplementedError, match="retained exact Python class"):
+        s.compile_numeric_hybrid(x, source, callbacks={custom: lambda v: effects.append(v)})
+    assert effects == []
+
+
+@pytest.mark.parametrize("tag", ["ln", "abs", "sqrt", "_fsym_lambert_w0_d1"])
+def test_hybrid_raw_aliases_cannot_gain_registered_kernel_semantics(tag):
+    raw = _native.py_function(tag, _native.py_integer(1))
+    with pytest.raises(NotImplementedError):
+        s.compile_numeric_hybrid((), raw, callbacks={})
+
+
+@pytest.mark.parametrize("bad", ["callback", "float", "held", "other"])
+def test_hybrid_lambert_branch_never_lowers_an_assertion_or_nonliteral(bad):
+    x = s.Symbol("hybrid_branch")
+    class Slot(s.Function):
+        pass
+
+    branch = {"callback": Slot(x), "float": s.Float(-1),
+              "held": s.Add(-1, 0, evaluate=False), "other": -2}[bad]
+    source = s.LambertW(Slot(x), branch, evaluate=False)
+    effects = []
+    with pytest.raises(ValueError, match="literal integer branch"):
+        s.compile_numeric_hybrid(x, source, callbacks={Slot: lambda v: effects.append(v)})
+    assert effects == []
+
+
 def test_public_exports_refer_to_the_same_explicit_preview_api():
     module = importlib.import_module("sympy.utilities.hybrid")
     from sympy.utilities import compile_numeric_hybrid

@@ -13,9 +13,8 @@ import threading
 
 from ..core import (
     Add, Basic, Float, Function, FunctionClass, Mul, Pow, SupervisedCallbackSession,
-    _ExactDecimalFloat, _FLOAT_INTERN, _active_callback_session, _bits_to_float,
-    _exact_surface_types, _known_functions, _native, _require_closed_function_class,
-    _require_closed_native_function_tag, _symbol_binding, supervised_callback_session,
+    _ExactDecimalFloat, _active_callback_session, _exact_surface_types, _known_functions,
+    _native, _symbol_binding, supervised_callback_session,
 )
 from ._piecewise_numeric import (
     Piecewise as _Piecewise, branches as _piecewise_branches,
@@ -24,8 +23,9 @@ from ._piecewise_numeric import (
 from .lambdify import (
     _MAX_LITERAL_BITS, _MAX_NODES, _MAX_OUTPUTS, _MAX_VARIABLES,
     _argument_layout, _batch_arguments, _call_arguments, _charge,
-    _check_evaluation_budget, _functions, _numeric_matrix_snapshot, _numeric_source,
-    _outputs, _restore_outputs,
+    _check_evaluation_budget, _functions, _native_function_name, _native_numeric_source,
+    _numeric_matrix_snapshot, _numeric_source, _outputs, _require_lambert_numeric_branch,
+    _require_numeric_function_arity, _restore_outputs,
 )
 
 __all__ = ["compile_numeric_hybrid"]
@@ -35,11 +35,6 @@ _MAX_GRAPH_ACTIONS = 4096
 _FUNCTION_ARGS = Function.__dict__["_args"]
 _BASIC_VALUE = Basic.__dict__["_value"]
 _SURFACE_ARGS = Basic.__dict__["_surface_args"]
-_NATIVE_FUNCTION_NAMES = (
-    "sin", "cos", "tan", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh",
-    "acot", "acoth", "asec", "acsc", "asech", "acsch",
-    "exp", "ln", "log", "sqrt", "abs", "erf", "erfc",
-)
 _request_state = threading.local()
 
 
@@ -159,9 +154,7 @@ def _snapshot_source(value, bindings, functions, count, depth=0, *, native_admis
                 ),
             ))
         return ("piecewise", None, tuple(captured), None)
-    intrinsic = next((spec[0] for builtin, spec in functions.items() if cls is builtin), None)
-    if intrinsic is not None:
-        _require_closed_function_class(cls)
+    intrinsic = _native_function_name(cls, functions)
     custom = next(((key, callback) for key, callback in bindings if cls is key), None)
     if custom is not None:
         try:
@@ -192,16 +185,27 @@ def _snapshot_source(value, bindings, functions, count, depth=0, *, native_admis
             # identity. Admit closed native tags only; never reconstruct a
             # custom class from a name or call its properties while compiling.
             original = _BASIC_VALUE.__get__(value, Basic)
-            _native.CompiledFunction._validate_source(original)
-            source = (native_admission(original, count, depth) if native_admission is not None
-                      else _native_source(original, bindings, functions, count, depth))
+            source = _closed_subtree(original, bindings, count, depth, native_admission)
             return ("closed", None, (), source)
         if type(children) is not tuple or len(children) > _MAX_NODES:
             raise ValueError("hybrid source requires bounded exact stored argument tuples")
-        children = tuple(
-            _snapshot_source(child, bindings, functions, count, depth + 1,
-                             native_admission=native_admission) for child in children
-        )
+        if intrinsic is not None:
+            _require_numeric_function_arity(intrinsic, len(children))
+        if operator == "pow" and len(children) != 2:
+            raise ValueError("hybrid power requires exactly two arguments")
+        if intrinsic == "LambertW" and len(children) == 2:
+            # The branch is syntax. Admit its original literal before any
+            # normalization can turn a Float or a held expression into -1/0.
+            _charge(count, depth + 1)
+            branch = _require_lambert_numeric_branch(children[1])
+            argument = _snapshot_source(children[0], bindings, functions, count, depth + 1,
+                                        native_admission=native_admission)
+            children = (argument, ("closed", None, (), branch))
+        else:
+            children = tuple(
+                _snapshot_source(child, bindings, functions, count, depth + 1,
+                                 native_admission=native_admission) for child in children
+            )
         kind = operator or "function"
         if all(child[3] is not None for child in children):
             return ("closed", None, (), _native_operator(kind, intrinsic, [child[3] for child in children]))
@@ -209,88 +213,28 @@ def _snapshot_source(value, bindings, functions, count, depth=0, *, native_admis
             raise ValueError("mixed numerical operators support at most 256 children")
         return (kind, intrinsic, children, None)
 
-    if cls is _native.Expr:
-        _native.CompiledFunction._validate_source(value)
-        source = (native_admission(value, count, depth) if native_admission is not None
-                  else _native_source(value, bindings, functions, count, depth))
-        return ("closed", None, (), source)
-    if (any(cls is builtin for builtin in _exact_surface_types())
-            or cls is int or cls is float or cls is bool or cls is _ExactDecimalFloat):
-        if (native_admission is not None
-                and not any(cls is literal for literal in (int, float, bool, Float, _ExactDecimalFloat))):
-            # Check provenance before normalization can turn an ambiguous
-            # native Float-intern function into an ordinary exact rational.
-            # Actual retained literal objects have their own exact-class lane.
-            original = _BASIC_VALUE.__get__(value, Basic)
-            _native.CompiledFunction._validate_source(original)
-            native_admission(original, count, depth)
+    if any(cls is literal for literal in (int, float, bool, Float, _ExactDecimalFloat)):
         source = _numeric_source(value, functions, count, depth)
         _native.CompiledFunction._validate_source(source)
+        return ("closed", None, (), source)
+    if cls is _native.Expr or any(cls is builtin for builtin in _exact_surface_types()):
+        original = value if cls is _native.Expr else _BASIC_VALUE.__get__(value, Basic)
+        if original is None:
+            raise NotImplementedError("custom or opaque objects have no closed numerical lowering")
+        source = _closed_subtree(original, bindings, count, depth, native_admission)
         return ("closed", None, (), source)
     raise NotImplementedError("custom numerical nodes require an explicit exact-class callback binding")
 
 
-def _native_condition_source(source, bindings, functions, count, depth):
-    _charge(count, depth)
-    tag, operands = _piecewise_condition(source, _MAX_NODES)
-    if tag == "True" or tag == "False":
-        return _native.Expr(tag)
-    lower = _native_condition_source if tag in ("And", "Or", "Not") else _native_source
-    return _native.py_function(tag, *(
-        lower(child, bindings, functions, count, depth + 1) for child in operands
-    ))
-
-
-def _native_source(source, bindings, functions, count, depth):
-    """Normalize closed native syntax without entering Python class lifting."""
-    _charge(count, depth)
-    if source.is_number or source.is_symbol:
-        return source
-    children = source.args
-    if len(children) > _MAX_NODES:
-        raise ValueError("hybrid native source exceeds the argument limit")
-    if source.is_add:
-        kind, name = "add", None
-    elif source.is_mul:
-        kind, name = "mul", None
-    elif source.is_pow:
-        kind, name = "pow", None
-    else:
-        name = source.func_name
-        if any(name == type.__getattribute__(cls, "__name__") for cls, _ in bindings):
-            raise NotImplementedError(
-                "native-only custom function source has no retained exact Python class; use held surface forms"
-            )
-        if name == "Piecewise":
-            pairs = []
-            for branch, condition in _piecewise_branches(source, _MAX_NODES):
-                _charge(count, depth + 1)
-                pairs.append(_native.py_function(
-                    "Tuple",
-                    _native_source(branch, bindings, functions, count, depth + 2),
-                    _native_condition_source(condition, bindings, functions, count, depth + 2),
-                ))
-            return _native.py_function("Piecewise", *pairs)
-        if name == _FLOAT_INTERN:
-            if len(children) != 1 or not children[0].is_integer:
-                raise ValueError("malformed floating literal in hybrid native source")
-            # The borrowed root preflight checked literal bit limits before
-            # any native child clone or Python integer conversion.
-            bits = children[0].exact_numerator()
-            if type(bits) is not int or bits < 0 or bits.bit_length() > 64:
-                raise ValueError("malformed floating literal in hybrid native source")
-            value = _bits_to_float(bits)
-            if not math.isfinite(value):
-                raise ValueError("hybrid numerical literals must be finite")
-            return _native.py_rational(*value.as_integer_ratio())
-        if name not in _NATIVE_FUNCTION_NAMES:
-            raise NotImplementedError(
-                "native-only custom function source has no retained exact Python class; use held surface forms"
-            )
-        _require_closed_native_function_tag(name)
-        kind = "function"
-    lowered = [_native_source(child, bindings, functions, count, depth + 1) for child in children]
-    return _native_operator(kind, name, lowered)
+def _closed_subtree(source, bindings, count, depth, admission):
+    if admission is not None:
+        # Retained equation sides require stricter provenance. No
+        # normalization may erase a function marker before that check.
+        _native.CompiledFunction._validate_source(source)
+        return admission(source, count, depth)
+    opaque_tags = tuple(str.__str__(type.__getattribute__(cls, "__name__"))
+                        for cls, _ in bindings)
+    return _native_numeric_source(source, count, depth, opaque_tags=opaque_tags)
 
 
 def _compile_graph(roots, variables, *, bindings=None):
@@ -377,18 +321,18 @@ def _compile_graph(roots, variables, *, bindings=None):
             callbacks.append((slot, payload[0], payload[1]))
             action = ("callback", (slot, payload[1]), arguments)
         else:
-            # A literal exponent stays syntax in its native combiner. Turning
-            # it into a variable would change Pow into the positive-base-only
-            # dynamic power lane and incorrectly reject negative bases.
+            # Keep a literal exponent or Lambert W branch in the native
+            # operation. A runtime slot would change its domain or branch.
             literal_power = kind == "pow" and children[1][3] is not None and (
                 children[1][3].is_integer or children[1][3].is_rational
             )
-            evaluated = children[:1] if literal_power else children
+            literal_argument = literal_power or (payload == "LambertW" and len(children) == 2)
+            evaluated = children[:1] if literal_argument else children
             arguments = tuple(emit(child) for child in evaluated)
             names = [f"__fsym_hybrid_argument_{index}" for index in range(len(arguments))]
             coordinates = [_native.SymbolBinding(name) for name in names]
             placeholders = [_native.py_symbol(name) for name in names]
-            if literal_power:
+            if literal_argument:
                 placeholders.append(children[1][3])
             action = ("native_slots", native(_native_operator(kind, payload, placeholders), coordinates), arguments)
         return append(action)
@@ -630,6 +574,10 @@ def compile_numeric_hybrid(args, expression, *, callbacks):
     ``evaluate_batch(rows, budget=None, session=None)``. Repeated occurrences
     and repeated invocations run their effects independently in stored source
     order. Native domain failures before a slot prevent that slot from running.
+    Native fragments accept the same registered intrinsic source tags as
+    compile_numeric, including ordered atan2 and the two fixed real Lambert W
+    branches. A callback may produce the Lambert argument; the branch itself
+    must be the exact literal integer 0 or -1 when supplied.
     Custom nodes must retain their original surface children: use explicit
     held Add/Mul/Pow forms when composing them. Native-only custom names cannot
     recover exact Python class identity and refuse. Matrices are snapshotted.

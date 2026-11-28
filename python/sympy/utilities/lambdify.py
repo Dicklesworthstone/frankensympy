@@ -284,6 +284,19 @@ def _functions():
     ))
 
 
+def _native_function_name(cls, functions):
+    """Resolve an exact surface class to a checked finite-real kernel tag."""
+    from ..functions.elementary.exponential import LambertW
+
+    # Python's math backend has no Lambert W. Its table remains independent
+    # of the native-only function even when both compilers share a shell.
+    name = ("LambertW" if cls is LambertW else
+            next((spec[0] for builtin, spec in functions.items() if cls is builtin), None))
+    if name is not None:
+        _require_closed_function_class(cls)
+    return name
+
+
 def _charge(count, depth, *, container=False):
     count[0] += 1
     if count[0] > _MAX_NODES or depth > (_MAX_CONTAINER_DEPTH if container else _MAX_DEPTH):
@@ -507,20 +520,28 @@ def _constant(value):
     raise NotImplementedError("unsupported typed numerical constant")
 
 
-def _native_numeric_source(source, count, depth, *, inexact=None):
+def _native_numeric_source(source, count, depth, *, inexact=None, opaque_tags=()):
     """Normalize bounded native syntax without reconstructing Python objects.
 
     The caller has counted the root. Borrowed admission precedes every .args,
     function-name or integer-payload clone; descendants then share the original
-    shell count/depth ledger. No public args getter or function registry runs.
+    shell count/depth ledger. Opaque callback names cannot recover a Python
+    class in a native subtree, even if they also name an intrinsic.
     """
     if type(source) is not _native.Expr:
         raise TypeError("native numerical source must be an exact native expression")
     _native.CompiledFunction._validate_source(source)
 
+    def require_unambiguous(tag):
+        if tag in opaque_tags:
+            raise NotImplementedError(
+                "native-only custom function source has no retained exact Python class; use held surface forms"
+            )
+
     def visit_condition(node, level):
         _charge(count, level)
         tag, operands = _piecewise_condition(node, _MAX_NODES)
+        require_unambiguous(tag)
         if tag in ("True", "False"):
             return _native.Expr(tag)
         if tag in ("And", "Or", "Not"):
@@ -542,6 +563,7 @@ def _native_numeric_source(source, count, depth, *, inexact=None):
             kind, name = "pow", None
         else:
             tag = node.func_name
+            require_unambiguous(tag)
             if tag == "Piecewise":
                 lowered = []
                 for value, condition in _piecewise_branches(node, _MAX_NODES):
@@ -635,16 +657,7 @@ def _numeric_source(value, functions, count, depth=0, *, inexact=None):
                 _numeric_condition_source(condition, functions, count, depth + 2, inexact=inexact),
             ))
         return _native.py_function("Piecewise", *lowered)
-    function = next((spec for builtin, spec in functions.items() if cls is builtin), None)
-    if function is None:
-        # Lambert W belongs to the native finite-real lane. Keep it outside
-        # the math function table: Python's math module has no such function,
-        # and symbolic source admission must never introduce a hidden backend.
-        from ..functions.elementary.exponential import LambertW
-        if cls is LambertW:
-            function = ("LambertW", None)
-    if function is not None:
-        _require_closed_function_class(cls)
+    function = _native_function_name(cls, functions)
     if not any(cls is builtin for builtin in _exact_surface_types()) and function is None:
         raise NotImplementedError("custom or opaque objects have no closed numerical lowering")
     if cls is Add or cls is Mul or cls is Pow or function is not None:
@@ -663,8 +676,8 @@ def _numeric_source(value, functions, count, depth=0, *, inexact=None):
         if type(arguments) is not tuple or len(arguments) > _MAX_NODES:
             raise ValueError("numeric source requires bounded exact stored arguments")
         if function is not None:
-            _require_numeric_function_arity(function[0], len(arguments))
-        if function is not None and function[0] == "LambertW" and len(arguments) == 2:
+            _require_numeric_function_arity(function, len(arguments))
+        if function == "LambertW" and len(arguments) == 2:
             _charge(count, depth + 1)
             branch = _require_lambert_numeric_branch(arguments[1])
             children = [_numeric_source(arguments[0], functions, count, depth + 1, inexact=inexact),
@@ -678,7 +691,7 @@ def _numeric_source(value, functions, count, depth=0, *, inexact=None):
             return _native.Mul(*children, evaluate=False).as_expr()
         if cls is Pow:
             return _native.Pow(*children, evaluate=False).as_expr()
-        return _native.py_function(function[0], *children)
+        return _native.py_function(function, *children)
     # Exact numeric atoms and constants already carry typed native payloads.
     # Unsupported operators are refused by the native compiler.
     native = _BASIC_VALUE.__get__(value, Basic)
