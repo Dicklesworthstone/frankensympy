@@ -267,8 +267,10 @@ def certify_box_extremum(objective, args, box, point, *, kind="minimum", precisi
     checks curvature along feasible directions and first-order conditions at
     the point. If full-box curvature is inconclusive, whole-box derivative
     signs can place the optimum on a boundary face. The checker then tests
-    curvature on that face. General nonconvex value bounds are available
-    through ``optimize_box_certified``.
+    curvature on that face. A candidate that exactly attains a proved range
+    endpoint can also establish a global extremum of a nonconvex objective,
+    including a zero of a sum of squares. For bounds on the extremum value
+    without an exact candidate, use ``optimize_box_certified``.
 
     The immutable ``BoxExtremumReceipt`` retains the original objective,
     variables, box and point, encloses the extremum value, and reports

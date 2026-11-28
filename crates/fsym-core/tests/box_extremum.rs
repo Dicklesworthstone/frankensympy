@@ -449,3 +449,28 @@ fn strict_active_bounds_and_relative_curvature_jointly_prove_uniqueness() {
             .uniqueness_proved()
     );
 }
+
+#[test]
+fn a_nonconvex_objective_attains_its_exact_range_at_distinct_global_extrema() {
+    let vars = [Symbol::new("x")];
+    let x = Expr::Sym(vars[0].clone());
+    let wells = power(power(x, 2) - Expr::from_i64(1), 2);
+    let box_ = [bounds(-2, 2)];
+    for (source, kind) in [
+        (Expr::from_i64(7) + wells.clone(), BoxExtremumKind::Minimum),
+        (Expr::from_i64(7) - wells.clone(), BoxExtremumKind::Maximum),
+    ] {
+        for point in [-1, 1] {
+            let receipt =
+                certify_box_extremum(&source, &vars, &box_, &[q(point, 1)], kind, 24).unwrap();
+            assert_eq!(receipt.value(), &RealBall::from_i64(7));
+            assert!(!receipt.uniqueness_proved());
+        }
+        assert!(certify_box_extremum(&source, &vars, &box_, &[q(0, 1)], kind, 24).is_err());
+    }
+    let hidden = Expr::Mul(vec![
+        Expr::from_i64(0),
+        power(Expr::Sym(vars[0].clone()), -1),
+    ]);
+    assert!(minimum(&Expr::Add(vec![wells, hidden]), &vars, &box_, &[q(1, 1)]).is_err());
+}

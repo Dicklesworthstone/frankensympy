@@ -610,3 +610,12 @@ def test_cancelled_global_source_operation_refuses_before_capturing_source(opera
             s.certify_box_extremum(source, x, [(-1, 1)], [0], budget=budget)
         else:
             s.optimize_box_certified(source, x, [(-1, 1)], budget=budget)
+
+
+def test_exact_nonconvex_range_endpoints_prove_global_optima_without_uniqueness():
+    x = s.Symbol("nonconvex_wells")
+    for point in [-1, 1]:
+        for expr, kind in [(7 + (x*x - 1)**2, "minimum"), (7 - (x*x - 1)**2, "maximum")]:
+            receipt = s.certify_box_extremum(expr, x, [(-2, 2)], [point], kind=kind)
+            assert receipt.value == (7, 7)
+            assert not receipt.uniqueness_proved

@@ -1,9 +1,9 @@
 //! Global extrema on a declared finite real box, checked from the original
 //! source. The candidate point has no authority: interval second-order AD,
-//! box monotonicity, a semidefinite LDL check, and first-order conditions decide.
+//! range attainment, box monotonicity, semidefinite LDL and first-order checks decide.
 //! No claim is made outside the box or about arbitrary nonconvex objectives.
 
-use super::objective::evaluate_objective;
+use super::objective::{ObjectiveJet, evaluate_objective};
 use super::{RootBoxError, Work, binding_bytes, check_rational, rational_limbs, validate_inputs};
 use crate::{BigRational, Expr, RealBall, Symbol};
 use fsym_budget::{BudgetMeter, Unbounded};
@@ -105,8 +105,8 @@ pub fn certify_box_extremum(
     )
 }
 
-/// Verify the convex first-order inequality for a minimum, or its concave
-/// counterpart for a maximum. Original-source C2 admission covers every box
+/// Prove the global inequality by curvature and first-order conditions or by
+/// attaining the independently enclosed global range endpoint. Original-source C2 admission covers every box
 /// point, including endpoints and children hidden by zero factors/powers.
 /// All preparation, arithmetic and publication share the supplied ledger.
 pub fn verify_box_extremum(
@@ -137,10 +137,72 @@ pub fn verify_box_extremum(
         }
     }
     let whole = evaluate_objective(objective, variables, domain, &mut work)?;
+    work.charge(1, (n * 256) as u64, (n + 1) as u64)?;
+    let at: Vec<_> = point.iter().cloned().map(RealBall::exact).collect();
+    let candidate = evaluate_objective(objective, variables, &at, &mut work)?;
+    let unique = match curvature_and_first_order(
+        objective, variables, domain, point, kind, &whole, &candidate, &mut work,
+    ) {
+        Ok(unique) => unique,
+        Err(
+            error @ (BoxExtremumError::CurvatureNotProved
+            | BoxExtremumError::FirstOrderNotProved { .. }),
+        ) => {
+            // The candidate belongs to the box. If its entire enclosure
+            // reaches the global bound, every other feasible value is no better.
+            // This argument allows distinct optimizers and gives no uniqueness claim.
+            work.arithmetic(&[&whole.value, &candidate.value], &[])?;
+            let attained = match kind {
+                BoxExtremumKind::Minimum => candidate.value.upper() <= whole.value.lower(),
+                BoxExtremumKind::Maximum => candidate.value.lower() >= whole.value.upper(),
+            };
+            if !attained {
+                return Err(error);
+            }
+            false
+        }
+        Err(error) => return Err(error),
+    };
+    let point_bytes = point
+        .iter()
+        .map(|q| 128 + 16 * rational_limbs(q))
+        .sum::<u64>();
+    work.charge(
+        1,
+        work.source_bytes + binding_bytes(variables, domain) + point_bytes,
+        (n + 6) as u64,
+    )?;
+    let receipt = BoxExtremumReceipt {
+        objective: objective.clone(),
+        variables: variables.to_vec(),
+        domain: domain.to_vec(),
+        point: point.to_vec(),
+        precision_digits,
+        kind,
+        value: candidate.value,
+        gradient: candidate.gradient,
+        hessian: whole.hessian,
+        uniqueness_proved: unique,
+    };
+    work.step()?;
+    Ok(receipt)
+}
+
+fn curvature_and_first_order(
+    objective: &Expr,
+    variables: &[Symbol],
+    domain: &[RealBall],
+    point: &[BigRational],
+    kind: BoxExtremumKind,
+    whole: &ObjectiveJet,
+    candidate: &ObjectiveJet,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<bool, BoxExtremumError> {
+    let n = variables.len();
     // A fixed coordinate never contributes a feasible displacement.
     work.charge(1, (n * std::mem::size_of::<usize>()) as u64, 1)?;
     let movable: Vec<_> = (0..n).filter(|&i| !domain[i].radius().is_zero()).collect();
-    let curvature = semidefinite_hessian(&whole.hessian, &movable, kind, &mut work);
+    let curvature = semidefinite_hessian(&whole.hessian, &movable, kind, work);
     let (mut axes, definite, strict_reduction) = match curvature {
         Ok(definite) => (movable, definite, true),
         Err(BoxExtremumError::CurvatureNotProved) => {
@@ -169,17 +231,14 @@ pub fn verify_box_extremum(
             let definite = if retained.is_empty() {
                 true
             } else {
-                let restricted = evaluate_objective(objective, variables, &face, &mut work)?;
-                semidefinite_hessian(&restricted.hessian, &retained, kind, &mut work)?
+                let restricted = evaluate_objective(objective, variables, &face, work)?;
+                semidefinite_hessian(&restricted.hessian, &retained, kind, work)?
             };
             (retained, definite, strict)
         }
         Err(error) => return Err(error),
     };
 
-    work.charge(1, (n * 256) as u64, (n + 1) as u64)?;
-    let at: Vec<_> = point.iter().cloned().map(RealBall::exact).collect();
-    let candidate = evaluate_objective(objective, variables, &at, &mut work)?;
     // A strict supporting linear form on every movable coordinate also proves
     // uniqueness, including an affine objective minimized at a strict corner.
     let mut strict_at = [false; super::MAX_ROOT_BOX_VARIABLES];
@@ -221,36 +280,14 @@ pub fn verify_box_extremum(
         } else if axes.len() == count {
             false
         } else {
-            match semidefinite_hessian(&whole.hessian, &axes, kind, &mut work) {
+            match semidefinite_hessian(&whole.hessian, &axes, kind, work) {
                 Ok(definite) => definite,
                 Err(BoxExtremumError::CurvatureNotProved) => false,
                 Err(error) => return Err(error),
             }
         }
     };
-    let point_bytes = point
-        .iter()
-        .map(|q| 128 + 16 * rational_limbs(q))
-        .sum::<u64>();
-    work.charge(
-        1,
-        work.source_bytes + binding_bytes(variables, domain) + point_bytes,
-        (n + 6) as u64,
-    )?;
-    let receipt = BoxExtremumReceipt {
-        objective: objective.clone(),
-        variables: variables.to_vec(),
-        domain: domain.to_vec(),
-        point: point.to_vec(),
-        precision_digits,
-        kind,
-        value: candidate.value,
-        gradient: candidate.gradient,
-        hessian: whole.hessian,
-        uniqueness_proved: unique,
-    };
-    work.step()?;
-    Ok(receipt)
+    Ok(unique)
 }
 
 fn is_exact_zero(value: &RealBall) -> bool {
