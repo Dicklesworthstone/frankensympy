@@ -720,3 +720,58 @@ fn source_only_squared_loss_retains_repeated_residuals_and_hidden_poles() {
     }
     cli.finish();
 }
+
+#[test]
+fn weighted_fits_certify_the_same_fractional_optimum_from_source_and_compilation() {
+    let mut cli = Cli::new(&["--compute-steps", "6000000"]);
+    let mut call = |op, mut payload: Value| {
+        payload["schema_version"] = json!(1);
+        cli.send(json!({"type":op, "payload":payload}))
+    };
+    assert_eq!(
+        call(
+            "RegisterResidualSystem",
+            json!({"system":"system:w", "residuals":["x-1","x-4"], "variables":["x"]})
+        )["status"],
+        "success"
+    );
+    assert_eq!(
+        call(
+            "CompileResidualSystem",
+            json!({"system":"system:w", "program":"program:w"})
+        )["status"],
+        "success"
+    );
+    for (op, original) in [
+        (
+            "RegisterWeightedLeastSquaresObjective",
+            json!({"system":"system:w","objective":"objective:direct"}),
+        ),
+        (
+            "CompileWeightedLeastSquaresObjective",
+            json!({"residual_program":"program:w","objective":"objective:compiled","program":"objective_program:w"}),
+        ),
+    ] {
+        let mut payload = original;
+        for bad in [json!(["1"]), json!(["1", "-1"]), json!(["1", "NaN"])] {
+            payload["weights"] = bad;
+            let refused = call(op, payload.clone());
+            assert_eq!(refused["code"], "invalid_input", "{refused}");
+        }
+        payload["weights"] = json!(["1/2", "1/4"]);
+        let derived = call(op, payload.clone());
+        assert_eq!(derived["status"], "success", "{derived}");
+        let checked = call(
+            "CertifyBoxExtremum",
+            json!({"objective":payload["objective"],
+            "point":["2"],"domain":[{"lower":"0","upper":"5"}],"precision_digits":24,"extremum":"minimum"}),
+        );
+        assert_eq!(checked["status"], "success", "{checked}");
+        assert_eq!(
+            checked["result"]["value"],
+            json!({"lower":"3/4","upper":"3/4"})
+        );
+        assert_eq!(checked["result"]["uniqueness_proved"], true);
+    }
+    cli.finish();
+}

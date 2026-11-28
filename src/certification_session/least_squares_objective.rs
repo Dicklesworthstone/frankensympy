@@ -7,19 +7,86 @@
 
 use super::{
     CertificationResponse, CertificationSessionError, CertificationState, CompiledObjectiveId,
-    CompiledResidualSystemId, MAX_OBJECTIVES, ObjectiveId, charge,
+    CompiledResidualSystemId, MAX_OBJECTIVES, ObjectiveId, ResidualSystemId, charge, parse_scalar,
 };
 use crate::certification::{CertificationError, check_problem_sources};
 use crate::objective::ObjectiveProblem;
 use crate::request_budget::RequestBudget;
 use fsym_budget::{BudgetError, BudgetMeter, MeterError, VerifierLease};
 
+use fsym_calculus::sparse_hessian::{
+    MAX_OBJECTIVE_SOURCE_NODES, ObjectiveCompilationError, least_squares_objective_source,
+    weighted_least_squares_objective_source,
+};
+use fsym_core::BigRational;
+
+fn parse_weights(
+    weights: &[String],
+    row_count: usize,
+    budget: &mut RequestBudget<'_>,
+) -> Result<Vec<BigRational>, CertificationSessionError> {
+    if weights.len() != row_count {
+        return Err(ObjectiveCompilationError::InvalidWeights(
+            "one weight is required per residual",
+        )
+        .into());
+    }
+    if row_count > MAX_OBJECTIVE_SOURCE_NODES {
+        return Err(ObjectiveCompilationError::ResourceLimit {
+            resource: "expression nodes",
+            limit: MAX_OBJECTIVE_SOURCE_NODES,
+        }
+        .into());
+    }
+    charge(
+        budget,
+        1 + row_count,
+        row_count * std::mem::size_of::<BigRational>(),
+    )?;
+    weights
+        .iter()
+        .map(|value| parse_scalar(value, budget))
+        .collect()
+}
+
 impl CertificationState {
+    pub(super) fn register_squared_loss(
+        &mut self,
+        system: ResidualSystemId,
+        objective: ObjectiveId,
+        weights: Option<&[String]>,
+        context_digest: [u8; 32],
+        budget: &mut RequestBudget<'_>,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        self.admit_source_objective(&objective, budget)?;
+        let residuals = self
+            .systems
+            .get(&system)
+            .ok_or(CertificationSessionError::UnknownSystem)?;
+        let rows = residuals.residuals();
+        let loss = match weights {
+            Some(weights) => {
+                let weights = parse_weights(weights, rows.len(), budget)?;
+                weighted_least_squares_objective_source(rows, &weights, budget)?
+            }
+            None => least_squares_objective_source(rows, budget)?,
+        };
+        let variables = residuals.variables();
+        crate::certification::check_problem_sources(
+            std::slice::from_ref(&loss),
+            variables,
+            budget,
+        )?;
+        let problem = ObjectiveProblem::new(loss, variables.to_vec(), budget)?;
+        self.publish_source_objective(objective, problem, context_digest, budget)
+    }
+
     pub(super) fn compile_least_squares_objective(
         &mut self,
         residual_program: CompiledResidualSystemId,
         objective: ObjectiveId,
         program: CompiledObjectiveId,
+        weights: Option<&[String]>,
         context_digest: [u8; 32],
         budget: &mut RequestBudget<'_>,
         lease: Option<&VerifierLease>,
@@ -48,8 +115,12 @@ impl CertificationState {
         // before spending ordinary work on a candidate that cannot be admitted.
         let _ = budget.verifier_meter(lease).map_err(MeterError::from)?;
         charge(budget, 1, 4096)?;
-        let candidate = system.propose_least_squares_objective_with_meter(budget)?;
-        let admitted = system.verify_least_squares_objective_with_meter(
+        let weights = weights
+            .map(|values| parse_weights(values, system.residuals().len(), budget))
+            .transpose()?;
+        let candidate = system.propose_squared_loss_with_meter(weights.as_deref(), budget)?;
+        let admitted = system.verify_squared_loss_with_meter(
+            weights.as_deref(),
             candidate,
             &mut budget.verifier_meter(lease).map_err(MeterError::from)?,
         )?;
@@ -140,6 +211,7 @@ mod tests {
             residual_program(),
             objective(),
             program(),
+            None,
             context,
             &mut RequestBudget::new(budget, &mut checkpoint),
             lease,

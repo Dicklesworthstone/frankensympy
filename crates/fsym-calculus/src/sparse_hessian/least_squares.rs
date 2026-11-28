@@ -14,7 +14,7 @@ use super::{
 use crate::{CompileError, VerifiedResidualSystem};
 use fsym_budget::{BudgetMeter, Unbounded};
 use fsym_core::{BigInt, BigRational, Expr};
-use num_traits::{One, Signed};
+use num_traits::One;
 use std::sync::Arc;
 
 fn objective_source<M: BudgetMeter + ?Sized>(
@@ -86,9 +86,9 @@ fn compose_source<M: BudgetMeter + ?Sized>(
                 ));
             }
             charge_compilation_work(meter, 2 * bits.div_ceil(64) as usize + 1, 0, 0)?;
-            if w.numer().is_negative() || !w.denom().is_positive() {
+            if w.numer().is_negative() {
                 return Err(ObjectiveCompilationError::InvalidWeights(
-                    "weights must be nonnegative rationals with positive denominators",
+                    "weights must be nonnegative",
                 ));
             }
             if !w.is_one() {

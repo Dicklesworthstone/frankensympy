@@ -429,6 +429,14 @@ pub enum CertificationRequest {
         objective: ObjectiveId,
         program: CompiledObjectiveId,
     },
+    /// Compile the weighted squared loss using one exact nonnegative weight per residual.
+    CompileWeightedLeastSquaresObjective {
+        schema_version: u32,
+        residual_program: CompiledResidualSystemId,
+        objective: ObjectiveId,
+        program: CompiledObjectiveId,
+        weights: Vec<String>,
+    },
     /// Independently admit a frozen objective, its gradient and sparse Hessian.
     /// The receipt does not establish interval accuracy or optimality.
     CompileObjective {
@@ -672,6 +680,13 @@ pub enum CertificationRequest {
         schema_version: u32,
         system: ResidualSystemId,
         objective: ObjectiveId,
+    },
+    /// Register a held weighted squared loss without compiling derivatives.
+    RegisterWeightedLeastSquaresObjective {
+        schema_version: u32,
+        system: ResidualSystemId,
+        objective: ObjectiveId,
+        weights: Vec<String>,
     },
     RegisterObjective {
         schema_version: u32,
@@ -1073,6 +1088,8 @@ impl CertificationRequest {
     fn schema_version(&self) -> u32 {
         match self {
             Self::CompileLeastSquaresObjective { schema_version, .. }
+            | Self::CompileWeightedLeastSquaresObjective { schema_version, .. }
+            | Self::RegisterWeightedLeastSquaresObjective { schema_version, .. }
             | Self::CompileObjective { schema_version, .. }
             | Self::ExportCompiledObjective { schema_version, .. }
             | Self::ReplayCompiledObjective { schema_version, .. }
@@ -3354,6 +3371,22 @@ impl CertificationState {
                 residual_program,
                 objective,
                 program,
+                None,
+                context_digest,
+                budget,
+                lease,
+            ),
+            CertificationRequest::CompileWeightedLeastSquaresObjective {
+                residual_program,
+                objective,
+                program,
+                weights,
+                ..
+            } => self.compile_least_squares_objective(
+                residual_program,
+                objective,
+                program,
+                Some(&weights),
                 context_digest,
                 budget,
                 lease,
@@ -3768,25 +3801,19 @@ impl CertificationState {
             }
             CertificationRequest::RegisterLeastSquaresObjective {
                 system, objective, ..
-            } => {
-                self.admit_source_objective(&objective, budget)?;
-                let residuals = self
-                    .systems
-                    .get(&system)
-                    .ok_or(CertificationSessionError::UnknownSystem)?;
-                let loss = fsym_calculus::sparse_hessian::least_squares_objective_source(
-                    residuals.residuals(),
-                    budget,
-                )?;
-                let variables = residuals.variables();
-                crate::certification::check_problem_sources(
-                    std::slice::from_ref(&loss),
-                    variables,
-                    budget,
-                )?;
-                let problem = ObjectiveProblem::new(loss, variables.to_vec(), budget)?;
-                self.publish_source_objective(objective, problem, context_digest, budget)
-            }
+            } => self.register_squared_loss(system, objective, None, context_digest, budget),
+            CertificationRequest::RegisterWeightedLeastSquaresObjective {
+                system,
+                objective,
+                weights,
+                ..
+            } => self.register_squared_loss(
+                system,
+                objective,
+                Some(&weights),
+                context_digest,
+                budget,
+            ),
             CertificationRequest::RegisterObjective {
                 objective,
                 source,
