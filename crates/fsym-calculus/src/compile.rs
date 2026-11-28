@@ -1925,6 +1925,12 @@ impl CompiledExpr {
                     if left.is_nan() || right.is_nan() {
                         return Err(EvalError::NonFiniteValue);
                     }
+                    // A verified branch derivative only applies on a stable open
+                    // region. Equality of the compared values may be a seam,
+                    // including when the selected value or derivative is zero.
+                    if smooth_only && left == right {
+                        return Err(EvalError::NonsmoothSource("Piecewise guard"));
+                    }
                     let truth = match op {
                         CompiledOp::Equal => left == right,
                         CompiledOp::NotEqual => left != right,
@@ -2375,6 +2381,9 @@ impl CompiledResidualSystem {
                 actual: expressions.len(),
             });
         }
+        if smooth_only {
+            FinitePoint::check(x, meter)?;
+        }
         charge_evaluation_allocation(meter, expected)?;
         let mut evaluated = Vec::new();
         evaluated
@@ -2382,7 +2391,13 @@ impl CompiledResidualSystem {
             .map_err(|_| EvalError::AllocationFailure)?;
         for expression in expressions {
             charge_evaluation_steps(meter, 1)?;
-            evaluated.push(expression.try_eval_with_reuse(x, false, smooth_only, None, meter)?);
+            evaluated.push(expression.try_eval_with_reuse(
+                x,
+                smooth_only,
+                smooth_only,
+                None,
+                meter,
+            )?);
         }
         meter.checkpoint()?;
         Ok(evaluated)

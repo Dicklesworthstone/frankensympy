@@ -1304,6 +1304,16 @@ impl<M: BudgetMeter + ?Sized> Normalizer<'_, M> {
                 self.charge(1, 2 * (size_of::<Expr>() + 16), 2)?;
                 Ok(Expr::Pow(Arc::new(base), Arc::new(exponent)))
             }
+            Expr::Function(name, pair) if name == "Tuple" && pair.len() == 2 => {
+                // In numeric source tuples are Piecewise arms. Their predicate
+                // must execute precisely the same operations as in the source:
+                // an exact algebraic simplification can change a binary64 comparison.
+                let mut arguments = self.buffer(2)?;
+                arguments.push(self.normalize(&pair[0], depth + 1)?);
+                arguments.push(self.clone_expr(&pair[1])?);
+                self.charge(name.len(), name.len(), 1)?;
+                Ok(Expr::Function(name.clone(), arguments))
+            }
             Expr::Function(name, arguments) => {
                 let arguments = self.normalize_children(arguments, depth)?;
                 if arguments.len() == 1 && arguments[0].is_zero() {

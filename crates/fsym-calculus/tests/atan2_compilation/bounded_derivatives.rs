@@ -468,22 +468,10 @@ fn bounded_dense_piecewise_derivatives_preserve_branches_without_claiming_a_seam
         close(jacobian[0], expected_first);
     }
 
-    // Preserving the existing dense branch recipe does not establish a
-    // derivative at the branch seam. The independent objective proof lane
-    // still refuses this unsupported theorem instead of admitting it on the
-    // strength of the numerical generator alone.
-    let error = VerifiedObjective::try_compile(&source, &variables).unwrap_err();
-    assert!(
-        matches!(
-            error,
-            ObjectiveCompilationError::Verification(JacobianVerificationError::ProofFailed {
-                row: 0,
-                col: 0,
-                ..
-            })
-        ),
-        "{error:?}"
-    );
+    let checked = VerifiedObjective::try_compile(&source, &variables).unwrap();
+    close(checked.evaluate(&[2.0]).unwrap().gradient[0], 4.0);
+    close(checked.evaluate(&[-2.0]).unwrap().gradient[0], -1.0);
+    assert!(checked.evaluate(&[0.0]).is_err());
 }
 
 struct Interruptible {

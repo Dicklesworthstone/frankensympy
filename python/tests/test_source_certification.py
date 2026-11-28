@@ -181,8 +181,10 @@ def test_piecewise_root_retains_original_source_and_skips_inactive_logarithm():
     assert result.domain == tuple(box)
     assert result.preconditioner == ((1,),)
     assert result.contraction_bound == 0
+    compiled = s.compile_residual_system(source, x)
+    assert compiled.jacobian(1) == [[1]]
     with pytest.raises(ValueError):
-        s.compile_residual_system(source, x)
+        compiled.jacobian(0)
 
 
 def test_piecewise_branch_selection_uses_exact_bounds_beyond_float_resolution():
@@ -208,8 +210,10 @@ def test_piecewise_stationary_point_has_local_second_order_evidence():
     assert result.kind == "strict_minimum"
     assert result.preconditioner == ((s.Rational(1, 2),),)
     assert result.contraction_bound == 0
+    compiled = s.compile_objective(source, x)
+    assert compiled.evaluate(2) == (0.0, [0.0], [[2.0]])
     with pytest.raises(ValueError):
-        s.compile_objective(source, x)
+        compiled.evaluate(0)
 
 
 def test_nested_piecewise_preserves_first_matching_branch_inside_arithmetic():

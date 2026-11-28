@@ -87,6 +87,8 @@ pub const RULE_DIFF_SINC_D1: &str = "diff_sinc_d1";
 pub const RULE_DIFF_ABS: &str = "diff_abs_nonzero_real";
 pub const RULE_DIFF_ABS_D1: &str = "diff_abs_d1_nonzero_real";
 pub const RULE_DIFF_SQRT: &str = "diff_sqrt";
+/// Formal real derivative on open regions where each reached predicate is stable.
+pub const RULE_DIFF_PIECEWISE: &str = "diff_piecewise_stable_real";
 pub const RULE_DIFF_GENERAL: &str = "diff_general";
 
 /// Constructs the canonical diff application node: $\frac{\partial}{\partial \text{var}}(\text{expr})$.
@@ -160,7 +162,25 @@ fn reference_lambert_first_jet(arguments: &[Expr]) -> Option<&'static str> {
     }
 }
 
+fn reference_piecewise_branches(expr: &Expr) -> Option<&[Expr]> {
+    match expr {
+        Expr::Function(name, branches)
+            if name == "Piecewise"
+                && !branches.is_empty()
+                && branches.iter().all(
+                    |b| matches!(b, Expr::Function(tag, pair) if tag == "Tuple" && pair.len() == 2),
+                ) =>
+        {
+            Some(branches)
+        }
+        _ => None,
+    }
+}
+
 fn classify_diff_rule_with_form(expr: &Expr, var: &Symbol, form: DerivativeForm) -> &'static str {
+    if form == DerivativeForm::Numeric && reference_piecewise_branches(expr).is_some() {
+        return RULE_DIFF_PIECEWISE;
+    }
     if form == DerivativeForm::Numeric
         && let Expr::Function(name, arguments) = expr
         && arguments.len() == 1
@@ -651,6 +671,12 @@ fn reference_eliminate_zero_products(expr: &Expr) -> Expr {
             Arc::new(reference_eliminate_zero_products(base)),
             Arc::new(reference_eliminate_zero_products(exp)),
         ),
+        // A Piecewise guard is executable source. Cleanup of its operands
+        // could switch branches or erase a domain obligation.
+        Expr::Function(name, pair) if name == "Tuple" && pair.len() == 2 => Expr::Function(
+            name.clone(),
+            vec![reference_eliminate_zero_products(&pair[0]), pair[1].clone()],
+        ),
         Expr::Function(name, args) => Expr::Function(
             name.clone(),
             args.iter().map(reference_eliminate_zero_products).collect(),
@@ -933,6 +959,22 @@ fn reference_unsimplified_diff_with<E>(
                     ])
                 }
             }
+        }
+        Expr::Function(name, branches)
+            if form == DerivativeForm::Numeric && reference_piecewise_branches(expr).is_some() =>
+        {
+            let mut result = Vec::with_capacity(branches.len());
+            for branch in branches {
+                let Expr::Function(tag, pair) = branch else {
+                    unreachable!()
+                };
+                let derivative = reference_sub_derivative(&pair[0], var)?;
+                result.push(Expr::Function(
+                    tag.clone(),
+                    vec![derivative, pair[1].clone()],
+                ));
+            }
+            Expr::Function(name.clone(), result)
         }
         Expr::Function(name, args)
             if form == DerivativeForm::Symbolic
@@ -2326,6 +2368,16 @@ fn verify_rule_reduction_semantics_with<E: From<KernelError>>(
                 .into());
             }
         }
+        RULE_DIFF_PIECEWISE => {
+            if reference_piecewise_branches(expr).is_none()
+                || deriv != &differentiate(expr, var, true)?
+            {
+                return Err((KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Piecewise derivative must preserve each guard and its independently differentiated value".to_string(),
+                }).into());
+            }
+        }
         RULE_DIFF_GENERAL => {
             // Unsupported derivatives are represented by the unevaluated
             // derivative term.  This establishes only reflexive equality; it
@@ -2521,6 +2573,37 @@ mod tests {
                     Expr::from_i64(3),
                 ])
             );
+        }
+    }
+
+    #[test]
+    fn numeric_piecewise_proofs_reject_changed_guards_values_and_branch_order() {
+        let x = Symbol::new("piecewise_proof");
+        let sx = Expr::Sym(x.clone());
+        let comparison =
+            |name: &str| Expr::Function(name.into(), vec![sx.clone(), Expr::from_i64(0)]);
+        let pair = |value, guard| Expr::Function("Tuple".into(), vec![value, guard]);
+        let cases = |a, b| Expr::Function("Piecewise".into(), vec![a, b]);
+        let truth = Expr::symbol("True");
+        let positive = comparison("StrictGreaterThan");
+        let source = cases(
+            pair(sx.clone(), positive.clone()),
+            pair(Expr::from_i64(7), truth.clone()),
+        );
+        let (first, proof) = verified_numeric_diff(&source, &x);
+        verify_numeric_diff_derivation(&proof, &source, &x, &first).unwrap();
+        let zero = pair(Expr::from_i64(0), truth);
+        let one = pair(Expr::from_i64(1), positive.clone());
+        for forged in [
+            cases(
+                pair(Expr::from_i64(1), comparison("GreaterThan")),
+                zero.clone(),
+            ),
+            cases(pair(Expr::from_i64(0), positive), zero.clone()),
+            cases(zero, one),
+        ] {
+            let (_, proof) = derivative_tree(&source, &x, forged.clone(), DerivativeForm::Numeric);
+            assert!(verify_numeric_diff_derivation(&proof, &source, &x, &forged).is_err());
         }
     }
 

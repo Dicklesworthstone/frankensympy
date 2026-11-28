@@ -482,5 +482,66 @@ fn scalar_branch_support_does_not_claim_derivatives_across_seams() {
         (integer(0), relation("StrictLessThan", x(), integer(0))),
         (integer(1), truth(true)),
     ]);
-    assert!(VerifiedResidualSystem::try_compile(&[source], &[Symbol::new("x")]).is_err());
+    let verified = VerifiedResidualSystem::try_compile(&[source], &[Symbol::new("x")]).unwrap();
+    assert!(verified.evaluate_sparse(&[-1.0]).is_ok());
+    assert!(verified.evaluate_sparse(&[1.0]).is_ok());
+    assert!(verified.evaluate_sparse(&[0.0]).is_err());
+}
+
+#[test]
+fn derivative_only_evaluation_rejects_guard_poles_before_they_can_cancel() {
+    use fsym_calculus::compile::CompiledResidualSystem;
+    let pole = Expr::Pow(Arc::new(x()), Arc::new(integer(-1)));
+    let hole = Expr::Pow(Arc::new(pole.clone()), Arc::new(integer(-1)));
+    for guard_value in [pole, hole] {
+        let source = piecewise(vec![
+            (x(), relation("StrictGreaterThan", guard_value, integer(-1))),
+            (integer(0), truth(true)),
+        ]);
+        let dense =
+            CompiledResidualSystem::try_compile(&[source.clone()], &[Symbol::new("x")]).unwrap();
+        let verified = VerifiedResidualSystem::try_compile(&[source], &[Symbol::new("x")]).unwrap();
+        let mut row = [17.0];
+        let mut jacobian = [23.0];
+        assert!(dense.try_eval_jacobian(&[0.0], &mut jacobian).is_err());
+        assert!(
+            dense
+                .try_eval_system(&[0.0], &mut row, &mut jacobian)
+                .is_err()
+        );
+        assert_eq!((row, jacobian), ([17.0], [23.0]));
+        assert!(verified.evaluate_sparse(&[0.0]).is_err());
+        assert!(verified.jacobian_vector_product(&[0.0], &[0.0]).is_err());
+        assert!(
+            dense
+                .try_eval_system(&[2.0], &mut row, &mut jacobian)
+                .is_ok()
+        );
+    }
+}
+
+#[test]
+fn nested_derivative_normalization_preserves_the_original_guard_in_both_orders() {
+    use fsym_calculus::VerifiedObjective;
+    let large = integer(10_000_000_000_000_000);
+    let guard = Expr::Add(vec![Expr::Add(vec![x(), large.clone()]), -large]);
+    let row = piecewise(vec![
+        (
+            Expr::Pow(Arc::new(x()), Arc::new(integer(2))),
+            relation("StrictGreaterThan", guard, Expr::rational(1, 2).unwrap()),
+        ),
+        (
+            Expr::Mul(vec![
+                integer(3),
+                Expr::Pow(Arc::new(x()), Arc::new(integer(2))),
+            ]),
+            truth(true),
+        ),
+    ]);
+    let source = Expr::Add(vec![row, x()]);
+    let objective = VerifiedObjective::try_compile(&source, &[Symbol::new("x")]).unwrap();
+    let result = objective.evaluate(&[0.75]).unwrap();
+    assert_eq!(result.value, 2.4375);
+    assert_eq!(result.gradient, [5.5]);
+    assert_eq!(result.hessian, [6.0]);
 }

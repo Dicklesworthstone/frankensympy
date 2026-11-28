@@ -183,14 +183,34 @@ def test_unsupported_boolean_grammar_is_not_treated_as_numerical(backend):
         s.lambdify((x, y), expression, modules=backend)
 
 
-def test_piecewise_scalar_support_does_not_grant_derivative_certificates():
+def test_piecewise_derivatives_are_admitted_only_away_from_guard_ties():
     x = s.Symbol("piecewise_seam")
     expression = s.Piecewise((x, x < 0), (2*x, True))
     assert s.compile_numeric(x, expression)(0) == 0.0
-    with pytest.raises((ValueError, NotImplementedError)):
-        s.compile_residual_system([expression], x)
-    with pytest.raises((ValueError, NotImplementedError)):
-        s.compile_objective(expression, x)
+    system = s.compile_residual_system([expression], x)
+    objective = s.compile_objective(expression, x)
+    assert system.jacobian(-1) == [[1]]
+    assert system.jacobian(1) == [[2]]
+    assert objective.evaluate(-1)[1] == [1]
+    assert objective.evaluate(1)[1] == [2]
+    for evaluate in (system.jacobian, objective.evaluate):
+        with pytest.raises(ValueError):
+            evaluate(0)
+
+
+def test_guarded_calculus_replay_preserves_predicate_and_rejects_swapped_boundary():
+    x = s.Symbol("replay_piecewise_x")
+    source = s.Piecewise((x**2, x < 0), (x, True), evaluate=False)
+    other = s.Piecewise((x**2, x <= 0), (x, True), evaluate=False)
+    program = s.compile_objective(source, x)
+    data = program.to_bytes()
+    restored = s.load_objective(data, objective=source, args=x)
+    assert restored.evaluate(-2) == (4, [-4], [[2]])
+    assert restored.evaluate(3) == (3, [1], [[0]])
+    with pytest.raises(ValueError):
+        restored.evaluate(0)
+    with pytest.raises(ValueError):
+        s.load_objective(data, objective=other, args=x)
 
 
 def test_native_comparison_is_explicitly_binary64_while_math_keeps_integer_values():
@@ -331,3 +351,16 @@ def test_substitution_of_numeric_true_named_symbol_does_not_change_boolean_fallb
         compiled = s.lambdify(value, substituted, modules=backend)
         assert compiled(2) == 10
         assert compiled(-2) == 5
+
+
+def test_nested_derivative_evaluates_the_original_held_binary64_guard():
+    x = s.Symbol("nested_binary64_guard")
+    large = s.Integer(10**16)
+    held = s.Add(s.Add(x, large, evaluate=False), -large, evaluate=False)
+    branch = s.Piecewise((x, s.Gt(held, s.Rational(1, 2), evaluate=False)), (3*x, True), evaluate=False)
+    for expression, slope in [(s.Add(branch, x, evaluate=False), 4), (s.Mul(2, branch, evaluate=False), 6)]:
+        program = s.compile_residual_system([expression], x)
+        objective = s.compile_objective(expression, x)
+        for point in [0.7, 0.75, 0.8]:
+            assert program.evaluate(point) == ([slope*point], [[slope]])
+            assert objective.evaluate(point) == (slope*point, [slope], [[0]])

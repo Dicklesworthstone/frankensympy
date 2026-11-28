@@ -1233,6 +1233,12 @@ fn eliminate_zero_products(expr: &Expr) -> Expr {
             Arc::new(eliminate_zero_products(base)),
             Arc::new(eliminate_zero_products(exp)),
         ),
+        // A Piecewise guard is executable source. Cleanup of its operands
+        // could switch branches or erase a domain obligation.
+        Expr::Function(name, pair) if name == "Tuple" && pair.len() == 2 => Expr::Function(
+            name.clone(),
+            vec![eliminate_zero_products(&pair[0]), pair[1].clone()],
+        ),
         Expr::Function(name, args) => Expr::Function(
             name.clone(),
             args.iter().map(eliminate_zero_products).collect(),

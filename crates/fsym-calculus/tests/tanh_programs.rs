@@ -140,7 +140,8 @@ fn stable_tanh_products_preserve_the_piecewise_certification_boundary() {
     );
     // Formal branch derivatives are available to the raw dense adapter.
     // Certified derivatives across Piecewise seams remain unsupported.
-    assert!(VerifiedObjective::try_compile(&expression, &variables).is_err());
+    let guarded = VerifiedObjective::try_compile(&expression, &variables).unwrap();
+    assert!(guarded.evaluate(&[2.0, 0.0]).is_err());
     let conditional = CompiledResidualSystem::try_compile(&[expression], &variables).unwrap();
     let point = [-20.0, 20.0];
     let result = objective.evaluate(&point).unwrap();
