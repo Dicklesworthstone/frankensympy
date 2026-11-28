@@ -268,8 +268,9 @@ class _ObjectiveCallable:
 
         The exact rational candidate may lie on a boundary face. Independent
         native second-order evaluation checks the original source on the full
-        box, sufficient convexity/concavity, and exact first-order face signs.
-        The returned BoxExtremumReceipt encloses the optimum value; it reports
+        box. Fixed coordinates impose no curvature condition. Whole-box derivative
+        signs may reduce the remaining curvature check to a boundary face.
+        The returned BoxExtremumReceipt encloses the optimum value and reports
         uniqueness only when proved. No claim extends outside the box.
 
         Bounds and point coordinates must be exact rational inputs in flat

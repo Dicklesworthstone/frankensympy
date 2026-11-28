@@ -264,10 +264,11 @@ def certify_box_extremum(objective, args, box, point, *, kind="minimum", precisi
 
     ``kind`` is ``"minimum"`` or ``"maximum"``. The exact rational ``point``
     may lie on a boundary face. Independent original-source C2 evaluation
-    checks sufficient convexity/concavity and exact first-order signs on the
-    free and constrained coordinates. An arbitrary stationary point is not
-    assumed to be a global extremum. Insufficient curvature or a false point
-    refuses; nonconvex search is available through ``optimize_box_certified``.
+    checks curvature along feasible directions and first-order conditions at
+    the point. If full-box curvature is inconclusive, whole-box derivative
+    signs can place the optimum on a boundary face. The checker then tests
+    curvature on that face. General nonconvex value bounds are available
+    through ``optimize_box_certified``.
 
     The immutable ``BoxExtremumReceipt`` retains the original objective,
     variables, box and point, encloses the extremum value, and reports

@@ -351,3 +351,69 @@ fn failure_retains_cumulative_budget_and_never_consumes_protected_resources() {
     ));
     assert_eq!(budget.snapshot(), consumed);
 }
+
+#[test]
+fn curvature_is_restricted_to_coordinates_that_can_move() {
+    let vars = [Symbol::new("x"), Symbol::new("y")];
+    let source = fsym_core::parse("x^2-y^2+3*x*y").unwrap();
+    let domain = [bounds(-3, 3), bounds(1, 1)];
+    let point = [q(-3, 2), q(1, 1)];
+    let receipt = minimum(&source, &vars, &domain, &point).unwrap();
+    assert!(receipt.uniqueness_proved());
+    assert_eq!(receipt.value(), &RealBall::exact(q(-13, 4)));
+    assert_eq!(receipt.hessian()[1][1], RealBall::from_i64(-2));
+    assert!(minimum(&source, &vars, &[bounds(-3, 3), bounds(0, 2)], &point).is_err());
+
+    let singleton = [bounds(0, 0), bounds(1, 1)];
+    for kind in [BoxExtremumKind::Minimum, BoxExtremumKind::Maximum] {
+        let receipt =
+            certify_box_extremum(&source, &vars, &singleton, &[q(0, 1), q(1, 1)], kind, 24)
+                .unwrap();
+        assert!(receipt.uniqueness_proved());
+    }
+}
+
+#[test]
+fn whole_box_derivative_signs_reduce_a_nonconvex_problem_to_a_convex_face() {
+    // f(0,y)=y^2, while f_x=5-2x+y^2 stays strictly positive on the box.
+    let vars = [Symbol::new("x"), Symbol::new("y")];
+    let source = fsym_core::parse("5*x-x^2+(1+x)*y^2").unwrap();
+    let domain = [bounds(0, 2), bounds(-1, 1)];
+    let origin = [q(0, 1), q(0, 1)];
+    let minimum_receipt = minimum(&source, &vars, &domain, &origin).unwrap();
+    assert!(minimum_receipt.uniqueness_proved());
+    assert_eq!(minimum_receipt.value(), &RealBall::from_i64(0));
+    let maximum = certify_box_extremum(
+        &(-source.clone()),
+        &vars,
+        &domain,
+        &origin,
+        BoxExtremumKind::Maximum,
+        24,
+    )
+    .unwrap();
+    assert!(maximum.uniqueness_proved());
+    assert!(minimum(&source, &vars, &domain, &[q(2, 1), q(0, 1)]).is_err());
+    assert!(minimum(&source, &vars, &domain, &[q(0, 1), q(1, 1)]).is_err());
+    // The gradient at (0,0) alone gives the same signs; f(6,0)=-6.
+    assert!(minimum(&source, &vars, &[bounds(0, 6), bounds(-1, 1)], &origin).is_err());
+    let flat_face = fsym_core::parse("5*x-x^2").unwrap();
+    assert!(
+        !minimum(&flat_face, &vars, &domain, &origin)
+            .unwrap()
+            .uniqueness_proved()
+    );
+}
+
+#[test]
+fn weak_monotonicity_can_prove_an_optimum_shared_by_entire_faces() {
+    let vars = [Symbol::new("x"), Symbol::new("y")];
+    let source = fsym_core::parse("x*y").unwrap();
+    let domain = [bounds(0, 1), bounds(0, 1)];
+    for point in [[q(0, 1), q(0, 1)], [q(0, 1), q(1, 2)], [q(1, 2), q(0, 1)]] {
+        let receipt = minimum(&source, &vars, &domain, &point).unwrap();
+        assert_eq!(receipt.value(), &RealBall::from_i64(0));
+        assert!(!receipt.uniqueness_proved());
+    }
+    assert!(minimum(&source, &vars, &domain, &[q(1, 2), q(1, 2)]).is_err());
+}

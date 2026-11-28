@@ -1,6 +1,6 @@
 //! Global extrema on a declared finite real box, checked from the original
 //! source. The candidate point has no authority: interval second-order AD,
-//! a sufficient semidefinite LDL check, and box first-order conditions decide.
+//! box monotonicity, a semidefinite LDL check, and first-order conditions decide.
 //! No claim is made outside the box or about arbitrary nonconvex objectives.
 
 use super::objective::evaluate_objective;
@@ -137,14 +137,52 @@ pub fn verify_box_extremum(
         }
     }
     let whole = evaluate_objective(objective, variables, domain, &mut work)?;
-    let definite = semidefinite_hessian(&whole.hessian, kind, &mut work)?;
+    // A fixed coordinate never contributes a feasible displacement.
+    work.charge(1, (n * std::mem::size_of::<usize>()) as u64, 1)?;
+    let movable: Vec<_> = (0..n).filter(|&i| !domain[i].radius().is_zero()).collect();
+    let curvature = semidefinite_hessian(&whole.hessian, &movable, kind, &mut work);
+    let (axes, definite, strict_reduction) = match curvature {
+        Ok(definite) => (movable, definite, true),
+        Err(BoxExtremumError::CurvatureNotProved) => {
+            // Each projection onto a sign-proved boundary face can only
+            // improve the oriented objective, even when mixed derivatives
+            // couple the projected variables. Check curvature on that face.
+            work.charge(1, binding_bytes(variables, domain), (n + 2) as u64)?;
+            let mut face = domain.to_vec();
+            let mut retained = Vec::with_capacity(movable.len());
+            let mut strict = true;
+            for &i in &movable {
+                work.arithmetic(&[&domain[i], &whole.gradient[i]], &[&point[i]])?;
+                let derivative = orient(&whole.gradient[i], kind);
+                let lower = point[i] == domain[i].lower() && !derivative.lower().is_negative();
+                let upper = point[i] == domain[i].upper() && !derivative.upper().is_positive();
+                if lower || upper {
+                    face[i] = RealBall::exact(point[i].clone());
+                    strict &= derivative.is_positive() || derivative.is_negative();
+                } else {
+                    retained.push(i);
+                }
+            }
+            if retained.len() == movable.len() {
+                return Err(BoxExtremumError::CurvatureNotProved);
+            }
+            let definite = if retained.is_empty() {
+                true
+            } else {
+                let restricted = evaluate_objective(objective, variables, &face, &mut work)?;
+                semidefinite_hessian(&restricted.hessian, &retained, kind, &mut work)?
+            };
+            (retained, definite, strict)
+        }
+        Err(error) => return Err(error),
+    };
 
     work.charge(1, (n * 256) as u64, (n + 1) as u64)?;
     let at: Vec<_> = point.iter().cloned().map(RealBall::exact).collect();
     let candidate = evaluate_objective(objective, variables, &at, &mut work)?;
     // A strict supporting linear form on every movable coordinate also proves
     // uniqueness, including an affine objective minimized at a strict corner.
-    let mut strict_first_order = true;
+    let mut strict_at = [false; super::MAX_ROOT_BOX_VARIABLES];
     for (coordinate, ((interval, value), gradient)) in domain
         .iter()
         .zip(point)
@@ -166,8 +204,9 @@ pub fn verify_box_extremum(
         if !admitted {
             return Err(BoxExtremumError::FirstOrderNotProved { coordinate });
         }
-        strict_first_order &= strict;
+        strict_at[coordinate] = strict;
     }
+    let unique = strict_reduction && (definite || axes.iter().all(|&i| strict_at[i]));
     let point_bytes = point
         .iter()
         .map(|q| 128 + 16 * rational_limbs(q))
@@ -187,7 +226,7 @@ pub fn verify_box_extremum(
         value: candidate.value,
         gradient: candidate.gradient,
         hessian: whole.hessian,
-        uniqueness_proved: definite || strict_first_order,
+        uniqueness_proved: unique,
     };
     work.step()?;
     Ok(receipt)
@@ -211,17 +250,18 @@ fn orient(value: &RealBall, kind: BoxExtremumKind) -> RealBall {
 /// not excuse an indefinite off-diagonal block such as [[0,1],[1,0]].
 fn semidefinite_hessian(
     hessian: &[Vec<RealBall>],
+    axes: &[usize],
     kind: BoxExtremumKind,
     work: &mut Work<'_, impl BudgetMeter>,
 ) -> Result<bool, BoxExtremumError> {
-    let n = hessian.len();
+    let n = axes.len();
     work.charge(1, (n * n * 512) as u64, (n + 3) as u64)?;
     let mut lower = vec![vec![RealBall::from_i64(0); n]; n];
     let mut pivots = Vec::<RealBall>::with_capacity(n);
     let mut definite = true;
-    for i in 0..n {
-        work.arithmetic(&[&hessian[i][i]], &[])?;
-        let mut diagonal = orient(&hessian[i][i], kind);
+    for (i, &axis) in axes.iter().enumerate() {
+        work.arithmetic(&[&hessian[axis][axis]], &[])?;
+        let mut diagonal = orient(&hessian[axis][axis], kind);
         for (k, pivot) in pivots.iter().enumerate() {
             let square = work.power(&lower[i][k], 2)?;
             let contribution = work.mul(&square, pivot)?;
@@ -233,9 +273,9 @@ fn semidefinite_hessian(
         }
         let positive = diagonal.is_positive();
         definite &= positive;
-        for j in i + 1..n {
-            work.arithmetic(&[&hessian[j][i]], &[])?;
-            let mut entry = orient(&hessian[j][i], kind);
+        for (j, &other) in axes.iter().enumerate().skip(i + 1) {
+            work.arithmetic(&[&hessian[other][axis]], &[])?;
+            let mut entry = orient(&hessian[other][axis], kind);
             for (k, pivot) in pivots.iter().enumerate() {
                 let product = work.mul(&lower[j][k], &lower[i][k])?;
                 let contribution = work.mul(&product, pivot)?;
