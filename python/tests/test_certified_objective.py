@@ -76,6 +76,18 @@ def test_curvature_classification_does_not_overstate_inconclusive_pivots(kind):
     assert result.contraction_bound == 0
 
 
+def test_anisotropic_coupled_objective_certifies_a_strict_minimum():
+    x, y = s.symbols("scaled_hessian_x scaled_hessian_y")
+    objective = x**2/2 + 64*y**2 + 4*x*y**2
+    program = s.compile_objective(objective, (x, y))
+    domain = [(-2, 2), (Fraction(-1, 4), Fraction(1, 4))]
+    proof = program.certify_stationary_point(domain)
+    assert proof.contraction_norm == "box_radius_scaled_infinity"
+    assert proof.contraction_bound == s.Rational(1, 4)
+    assert proof.kind == "strict_minimum"
+    assert all(lo <= 0 <= hi for lo, hi in proof.stationary_enclosure)
+
+
 def test_transcendental_stationary_point_uses_original_interval_derivatives():
     x = s.Symbol("objective_exponential_x")
     result = s.compile_objective(s.exp(x)-x, x).certify_stationary_point(

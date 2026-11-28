@@ -190,6 +190,11 @@ class RootBoxReceipt(_Receipt):
         return _bounds(self._receipt.root_enclosure)
 
     @property
+    def contraction_norm(self):
+        """The infinity norm, or the infinity norm scaled by the unknown box radii."""
+        return self._receipt.contraction_norm
+
+    @property
     def contraction_bound(self):
         return _wrap(self._receipt.contraction_bound)
 

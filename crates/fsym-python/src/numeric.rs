@@ -382,6 +382,11 @@ impl PyRootBoxReceipt {
     }
 
     #[getter]
+    fn contraction_norm(&self) -> &'static str {
+        self.receipt.contraction_norm().as_str()
+    }
+
+    #[getter]
     fn contraction_bound(&self) -> PyExpr {
         rational_expr(self.receipt.contraction_bound())
     }
@@ -563,6 +568,11 @@ impl PyParametricRootBoxReceipt {
     #[getter]
     fn root_enclosure(&self) -> Vec<(PyExpr, PyExpr)> {
         ball_bounds(self.receipt.root_enclosure())
+    }
+
+    #[getter]
+    fn contraction_norm(&self) -> &'static str {
+        self.receipt.contraction_norm().as_str()
     }
 
     #[getter]

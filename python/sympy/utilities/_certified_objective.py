@@ -122,6 +122,11 @@ class StationaryPointReceipt(_ObjectiveReceipt):
         return tuple(_bounds(row) for row in self._receipt.hessian_enclosure)
 
     @property
+    def contraction_norm(self):
+        """The infinity norm, or the infinity norm scaled by the coordinate box radii."""
+        return self._receipt.contraction_norm
+
+    @property
     def contraction_bound(self):
         return _wrap(self._receipt.contraction_bound)
 
