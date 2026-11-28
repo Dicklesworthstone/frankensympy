@@ -3,7 +3,7 @@
 import pytest
 
 from sympy import (
-    Dummy, Eq, Mul, Poly, Pow, Rational, Symbol, solve_triangulated, symbols,
+    CRootOf, Dummy, Eq, Mul, Poly, Pow, Rational, Symbol, solve_triangulated, symbols,
 )
 from sympy.polys.polyerrors import PolynomialError
 from sympy.solvers import solve_triangulated as solver_export
@@ -69,3 +69,33 @@ def test_branch_limit_never_publishes_a_truncated_product():
         equations.append(equation)
     with pytest.raises(ValueError, match="branch limit"):
         solve_triangulated(equations, x, y, z)
+
+
+def test_algebraic_extension_selects_paired_conjugates_in_distinct_coordinates():
+    x, y = symbols("x y")
+    a = [CRootOf(x**2-2*x-1, i) for i in (0, 1)]
+    b = [CRootOf(x**2-2, i) for i in (0, 1)]
+    assert solve_triangulated([x-y-1, (y**2-2)**2], x, y, extension=True) == list(zip(a, b))
+    assert solve_triangulated([x-y-1, (y**2-2)**2], y, x, extension=True) == list(zip(b, a))
+
+
+def test_independent_quadratic_extensions_keep_all_four_embeddings():
+    x, y = symbols("x y")
+    a = [CRootOf(x**2-2, i) for i in (0, 1)]
+    b = [CRootOf(x**2-3, i) for i in (0, 1)]
+    assert solve_triangulated([x**2-2, y**2-3], x, y, extension=True) == [
+        (u, v) for u in a for v in b]
+
+
+def test_extension_keeps_rational_points_and_shared_real_embeddings():
+    x, y, z = symbols("x y z")
+    f = [x*x+y+z-1, x+y*y+z-1, x+y+z*z-1]
+    r = [CRootOf(x*x+2*x-1, i) for i in (0, 1)]
+    assert solve_triangulated(f, x, y, z, extension=True) == [
+        (0, 0, 1), (0, 1, 0), (1, 0, 0), (r[0],)*3, (r[1],)*3]
+
+
+def test_nonreal_projection_refuses_even_if_other_points_are_rational_or_real():
+    x, y = symbols("x y")
+    with pytest.raises(NotImplementedError, match="totally real"):
+        solve_triangulated([x-y, (y-1)*(y**2+1)], x, y, extension=True)

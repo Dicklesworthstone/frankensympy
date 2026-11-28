@@ -42,12 +42,13 @@ def _is_zero(value):
     return value.exact_numerator() == 0
 
 
-def solve_rational_triangular(polys, gens, options):
+def solve_triangular(polys, gens, options):
     unknown = options.keys() - {"domain", "extension"}
     if unknown:
         raise NotImplementedError("unsupported triangular solver option %r" % min(unknown))
-    if options.get("extension", False) is not False:
-        raise NotImplementedError("triangular algebraic-extension solving is not implemented")
+    extension = options.get("extension", False)
+    if type(extension) is not bool:
+        raise NotImplementedError("triangular solving supports extension=True or False")
     domain = options.get("domain", "QQ")
     if type(domain) is not str or domain not in ("ZZ", "QQ"):
         raise DomainError("triangular ground solving supports rational coefficients")
@@ -79,6 +80,12 @@ def solve_rational_triangular(polys, gens, options):
     if triangular is None:
         return []
     pivots, blocks = triangular
+    if extension:
+        from ._triangular_algebraic import algebraic_points
+
+        result = algebraic_points(request, pivots, blocks)
+        request.unchanged()
+        return result
     evaluations = 0
 
     def evaluate(equation, assignments):

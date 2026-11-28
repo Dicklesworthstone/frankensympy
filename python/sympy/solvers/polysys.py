@@ -218,16 +218,18 @@ def solve_poly_system(
 
 
 def solve_triangulated(polys, *gens, **args):
-    """Return the rational points of a zero-dimensional rational system.
+    """Solve a zero-dimensional rational system in its requested ground field.
 
     A checked lexicographic Groebner basis supplies degree-preserving pivots
     for each fiber. All rational roots of each pivot are tried, and each
     surviving tuple is verified against the original equations. Coordinates
-    follow the requested generator order. Algebraic extensions are unsupported.
+    follow the requested generator order. With extension=True, exact indexed
+    roots cover systems whose coordinate eliminants have only real roots.
+    A nonreal projection or inconclusive exact residual refuses the full set.
     """
-    from ._triangulated import solve_rational_triangular
+    from ._triangulated import solve_triangular
 
-    return solve_rational_triangular(polys, gens, args)
+    return solve_triangular(polys, gens, args)
 
 
 def _solve_source_system(seq, *gens):
