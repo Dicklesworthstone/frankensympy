@@ -18,7 +18,7 @@ from .ode import (
     verify_linear_first_order_solution,
 )
 from .pde import pdsolve
-from .recurr import rsolve_poly
+from .recurr import rsolve_poly, rsolve_ratio
 from .polysys import nonlinsolve, solve_poly_system
 from .solvers import linsolve, nsolve, solve_linear, solve_linear_system, solve_linear_system_LU
 
@@ -42,6 +42,7 @@ __all__ = [
     "RootSearchError",
     "pdsolve",
     "rsolve_poly",
+    "rsolve_ratio",
     "solve",
     "solve_linear",
     "solve_linear_system",

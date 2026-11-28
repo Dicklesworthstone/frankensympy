@@ -30,6 +30,7 @@ from __future__ import annotations
 from typing import Any
 
 from ._polynomial_recurrence import rsolve_poly
+from ._rational_recurrence import rsolve_ratio
 
 
 _MAX_SHIFT = 1024
@@ -797,4 +798,4 @@ def rsolve(f: Any, y: Any, init: Any = None) -> Any:
     return sol
 
 
-__all__ = ["rsolve", "rsolve_poly"]
+__all__ = ["rsolve", "rsolve_poly", "rsolve_ratio"]

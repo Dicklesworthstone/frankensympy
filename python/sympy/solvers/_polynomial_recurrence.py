@@ -177,6 +177,10 @@ def rsolve_poly(coeffs, f, n, shift=0, **hints):
     polynomial system. The bounded lane admits orders through 32 and degrees
     through 64, and refuses when it cannot exclude higher solution degrees.
     """
+    return _solve_recurrence(coeffs, f, n, shift, hints, rational=False)
+
+
+def _solve_recurrence(coeffs, f, n, shift, hints, *, rational):
     if type(coeffs) not in (tuple, list) or not 1 <= len(coeffs) <= _MAX_ORDER + 1:
         raise ValueError("rsolve_poly requires 1 through 33 ordered coefficients")
     if type(n) not in (Symbol, Dummy):
@@ -208,6 +212,11 @@ def rsolve_poly(coeffs, f, n, shift=0, **hints):
             return None
         raise NotImplementedError("zero recurrence operator has unbounded polynomial freedom")
 
+    original_coefficients, original_rhs = coefficients, rhs
+    if rational:
+        from ._rational_recurrence import clear_denominators, verify_rational
+        coefficients, rhs, denominator = clear_denominators(coefficients, rhs, n, work)
+
     moments = _moments(coefficients, work)
     degree = max(max(a, default=-1) for a in coefficients)
     bound = _degree_bound(moments, degree, len(coefficients) - 1, rhs, work)
@@ -216,16 +225,26 @@ def rsolve_poly(coeffs, f, n, shift=0, **hints):
         unchanged()
         return None
     _verify(coefficients, rhs, result, work)
+    if rational:
+        verify_rational(original_coefficients, original_rhs, denominator, result, work)
+
+    def lift(poly):
+        value = _expression(poly, n)
+        if rational and denominator != {0: 1} and poly:
+            from ..polys import cancel
+            return cancel(value / _expression(denominator, n))
+        return value
+
     particular, basis = result
     constants = []
     index = shift
-    expression = _expression(particular, n)
+    expression = lift(particular)
     for direction in basis:
         while "C%d" % index == n.name:
             index += 1
         constant = Symbol("C%d" % index)
         constants.append(constant)
-        expression += constant * _expression(direction, n)
+        expression += constant * lift(direction)
         index += 1
     unchanged()
     return (expression, constants) if hints.get("symbols") else expression
