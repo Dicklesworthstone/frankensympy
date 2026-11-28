@@ -14,6 +14,7 @@ pub use sparse::*;
 pub mod structured;
 pub use structured::*;
 mod sparse_rref;
+mod tridiagonal;
 pub use sparse_rref::{
     MAX_SPARSE_AFFINE_PARAMETER_NAME_BYTES, MAX_SPARSE_AFFINE_PARAMETER_TOTAL_BYTES,
     SparseAffineSolutionCandidate, SparseDeterminantCandidate, SparseRrefCandidate,
@@ -919,7 +920,8 @@ impl Matrix {
     /// Exact integer/rational matrices use row-denominator clearing followed
     /// by fraction-free Bareiss elimination. Closed Gaussian-rational sources
     /// use independently checked LU through dimension32 with cumulative work
-    /// limits. Symbolic matrices retain bounded Laplace expansion, which makes
+    /// limits. Larger tridiagonal matrices over Q[x] use a checked continuant.
+    /// Other symbolic matrices retain bounded Laplace expansion, which makes
     /// no unproved symbolic pivot decision.
     pub fn det(&self) -> Result<Expr, MatrixError> {
         self.validate_shape()?;
@@ -940,6 +942,9 @@ impl Matrix {
             return self.metered_gaussian_det(&mut fsym_budget::Unbounded);
         }
         if self.rows > MAX_DETERMINANT_DIMENSION {
+            if let Some(det) = self.tridiagonal_polynomial_det()? {
+                return Ok(det);
+            }
             return Err(MatrixError::ResourceLimit(format!(
                 "Laplace determinant expansion supports dimensions up to {MAX_DETERMINANT_DIMENSION}"
             )));
@@ -3702,6 +3707,8 @@ mod tests {
         );
         let mut symbolic_large = Matrix::eye(9).unwrap();
         symbolic_large.data[0] = Expr::symbol("x");
+        assert_eq!(symbolic_large.det().unwrap(), Expr::symbol("x"));
+        symbolic_large.data[8] = Expr::symbol("x");
         assert!(matches!(
             symbolic_large.det(),
             Err(MatrixError::ResourceLimit(_))
