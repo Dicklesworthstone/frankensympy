@@ -312,3 +312,49 @@ fn cancellation_during_composition_or_admission_returns_no_objective() {
         assert!(cancelled(&error), "{error}");
     }
 }
+
+#[test]
+fn exact_weights_bind_value_curvature_and_independent_admission() {
+    let residuals = system(&["x^2-1", "x-3"], &["x"]);
+    let weights = [q(3, 2), q(1, 2)];
+    let objective = residuals
+        .weighted_least_squares_objective_with_meter(&weights, &mut Unbounded)
+        .unwrap();
+    let eval = objective.evaluate(&[0.0]).unwrap();
+    assert_eq!(
+        (eval.value, eval.gradient, eval.hessian),
+        (3.0, vec![-1.5], vec![-2.5])
+    );
+    let candidate = residuals
+        .propose_squared_loss_with_meter(Some(&weights), &mut Unbounded)
+        .unwrap();
+    assert!(matches!(
+        residuals.verify_squared_loss_with_meter(
+            Some(&[q(1, 2), q(3, 2)]),
+            candidate,
+            &mut Unbounded
+        ),
+        Err(ObjectiveCompilationError::SourceMismatch(_))
+    ));
+    let ordinary = residuals.least_squares_objective().unwrap();
+    let unit = residuals
+        .weighted_least_squares_objective_with_meter(&[q(1, 1), q(1, 1)], &mut Unbounded)
+        .unwrap();
+    assert_eq!(ordinary.objective(), unit.objective());
+}
+
+#[test]
+fn zero_weight_preserves_domains_and_invalid_weights_refuse() {
+    let residuals = system(&["x", "1/x"], &["x"]);
+    let loss = residuals
+        .weighted_least_squares_objective_with_meter(&[q(2, 1), q(0, 1)], &mut Unbounded)
+        .unwrap();
+    assert!(loss.evaluate(&[0.0]).is_err());
+    assert_eq!(loss.evaluate(&[2.0]).unwrap().value, 4.0);
+    for weights in [vec![], vec![q(1, 1), q(-1, 2)]] {
+        assert!(matches!(
+            residuals.weighted_least_squares_objective_with_meter(&weights, &mut Unbounded),
+            Err(ObjectiveCompilationError::InvalidWeights(_))
+        ));
+    }
+}

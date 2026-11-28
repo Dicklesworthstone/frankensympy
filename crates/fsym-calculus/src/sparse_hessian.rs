@@ -30,7 +30,7 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 mod least_squares;
-pub use least_squares::least_squares_objective_source;
+pub use least_squares::{least_squares_objective_source, weighted_least_squares_objective_source};
 
 pub const MAX_OBJECTIVE_VARIABLES: usize = 64;
 pub const MAX_OBJECTIVE_SOURCE_NODES: usize = 256;
@@ -89,6 +89,8 @@ pub enum ObjectiveCompilationError {
         resource: &'static str,
         limit: usize,
     },
+    #[error("invalid least-squares weights: {0}")]
+    InvalidWeights(&'static str),
     #[error("objective differentiation proof must be one bounded definitional equality")]
     InvalidProofEnvelope,
 }

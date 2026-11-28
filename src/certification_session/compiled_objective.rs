@@ -427,6 +427,7 @@ pub(super) fn compilation_error_code(error: &ObjectiveCompilationError) -> &'sta
         ObjectiveCompilationError::Verification(JacobianVerificationError::Eval(error)) => {
             super::compiled::eval_error_code(error, "verification_rejected")
         }
+        ObjectiveCompilationError::InvalidWeights(_) => "invalid_input",
         ObjectiveCompilationError::ResourceLimit { .. } => "resource_limit_exceeded",
         ObjectiveCompilationError::Verification(_)
         | ObjectiveCompilationError::SourceMismatch(_)
