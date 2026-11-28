@@ -31,6 +31,7 @@ from pathlib import Path
 import platform
 import subprocess
 import sys
+import tempfile
 import time
 
 if __package__:
@@ -42,7 +43,6 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 BUNDLE_DIR = ROOT / "artifacts" / "campaign" / "jacobian-v1"
 HERO_DIR = ROOT / "artifacts" / "campaign" / "hero-v1"
 RECEIPTS_DIR = ROOT / "artifacts" / "audit" / "receipts"
-PERF_DIR = ROOT / "artifacts" / "perf"
 
 CARGO_BIN = "/home/ubuntu/.rustup/toolchains/nightly-2026-08-20-x86_64-unknown-linux-gnu/bin/cargo"
 if not Path(CARGO_BIN).is_file():
@@ -526,32 +526,27 @@ def run_property_11_remote_rejection():
     }
 
 
-def run_property_12_paired_benchmark():
-    """Property 12: Parity-gated paired benchmarks against live upstream SymPy 1.14.0 and native lanes."""
-    run_cmd([
-        "cargo", "test", "-p", "fsym-runtime", "--lib", "--",
-        "test_paired_benchmark_with_semantic_admission"
-    ])
-    hero_perf_path = PERF_DIR / "paired_incumbent_hero.json"
-    if not hero_perf_path.is_file():
-        raise RuntimeError(f"Missing live paired hero benchmark artifact: {hero_perf_path}")
+def run_property_12_paired_benchmark(commit_sha):
+    """Run the live sweep for this campaign, retaining refused cases and raw samples."""
+    hero_perf_path = BUNDLE_DIR / "paired_incumbent.json"
+    # A successful command must actually produce new bytes. Never read an old
+    # bundle's report if the producer exits without writing anything.
+    with tempfile.TemporaryDirectory(dir=BUNDLE_DIR) as directory:
+        fresh = Path(directory) / "paired_incumbent.json"
+        run_cmd([sys.executable, str(ROOT / "tools/perf/paired_bench.py"),
+                 "run", "--out", str(fresh)], extra_env={
+                     "FSYM_REPO_ROOT": str(ROOT), "FSYM_SUBJECT_PY": sys.executable,
+                 })
+        fresh.replace(hero_perf_path)
 
-    # Validate the paired report with the independent validator requiring matched settings
+    # Keep the raw outcome even when the independent validator refuses it.
     run_cmd([
         sys.executable,
         str(ROOT / "tools" / "perf" / "verify_paired_report.py"),
         str(hero_perf_path),
+        "--expected-subject-head", commit_sha,
+        "--expected-profile", "sympy-1.14.0-cpython",
         "--require-settings",
-    ])
-    run_cmd([
-        sys.executable,
-        "-m",
-        "unittest",
-        "discover",
-        "-s",
-        str(ROOT / "tools" / "perf"),
-        "-p",
-        "test_*.py",
     ])
 
     raw_paired = json.loads(hero_perf_path.read_text(encoding="utf-8"))
@@ -566,11 +561,12 @@ def run_property_12_paired_benchmark():
     return {
         "property_id": 12,
         "name": "parity_gated_paired_benchmarks",
-        "status": "passed",
+        "status": "passed" if all(r["status"] == "admitted" for r in paired_records) else "blocked",
         "semantic_admission_before_timing": True,
         "incumbent_same_invocation": True,
         "report_path": str(hero_perf_path.relative_to(ROOT)),
-        "report_git_commit": raw_paired.get("git_commit"),
+        "report_git_commit": raw_paired["subject_head"],
+        "checks_digest": compute_sha256(json.dumps(paired_records, sort_keys=True).encode()),
         "settings": raw_paired.get("settings", {}),
         "paired_records": paired_records,
         "paired_summary": raw_paired.get("summary", {}),
@@ -652,6 +648,12 @@ def validate_campaign_bundle(run_manifest: dict) -> tuple[bool, str]:
     # Check Property 12 non-empty paired records and matched settings
     p12 = props[11]
     records = p12.get("paired_records", [])
+    if not run_manifest.get("commit") or p12.get("report_git_commit") != run_manifest["commit"]:
+        return False, "property 12 paired report belongs to another revision"
+    if any(record.get("status") != "admitted" for record in records):
+        return False, "property 12 includes workloads that failed semantic admission"
+    if p12.get("checks_digest") != compute_sha256(json.dumps(records, sort_keys=True).encode()):
+        return False, "property 12 raw paired records differ from the evidence digest input"
     if len(records) < 15:
         return False, f"property 12 paired_records empty or incomplete ({len(records)})"
     settings = p12.get("settings", {})
@@ -660,8 +662,8 @@ def validate_campaign_bundle(run_manifest: dict) -> tuple[bool, str]:
     if not subj_s or subj_s != ora_s:
         return False, "property 12 missing verified paired settings"
     hero_ids = {r.get("case_id") for r in records}
-    if "hero_constitutive_jacobian" not in hero_ids:
-        return False, "property 12 missing connected hero_constitutive_jacobian case"
+    if not {"hero_constitutive_jacobian", NUMERIC_CASE_ID}.issubset(hero_ids):
+        return False, "property 12 missing a connected Jacobian workload"
 
     # Check corpus execution and terminal digests
     corpus = run_manifest.get("hero_corpus", {})
@@ -844,8 +846,10 @@ def main():
     properties.append(p11)
 
     print("[12/12] Verifying Property 12: Parity-Gated Paired Benchmarks...")
-    p12 = run_property_12_paired_benchmark()
+    p12 = run_property_12_paired_benchmark(commit_sha)
     (BUNDLE_DIR / "property_12_paired_benchmark.json").write_text(json.dumps(p12, indent=2), encoding="utf-8")
+    if p12["status"] != "passed":
+        raise RuntimeError(f"Paired campaign admission blocked; see {p12['report_path']} for per-case outcomes")
     properties.append(p12)
 
     semantic_digest = hero_corpus["semantic_digest"]

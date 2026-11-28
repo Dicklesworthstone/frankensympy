@@ -233,6 +233,19 @@ def run():
         val = expr.evalf(30)
     return val
 """),
+    ("hero_transcendental_2x2_enclosure", """
+def run():
+    import sympy as sp
+    from campaign.numeric_case import build_system
+    x = sp.Symbol("x0", positive=True, real=True)
+    y = sp.Symbol("x1", real=True)
+    rows = build_system(sp, x, y)
+    # Observe both coordinates and all four derivatives at the campaign point.
+    # This paired lane compares symbolic evaluation on the same source; the
+    # original-source box verification runs separately in campaign property 6.
+    entries = (*rows, *(row.diff(axis) for row in rows for axis in (x, y)))
+    return tuple(entry.subs({x: 1, y: 1}) for entry in entries)
+"""),
 ]
 
 
@@ -339,6 +352,11 @@ def attest_engine_isolated(engine: str) -> dict[str, Any]:
 def case_worker(case_name: str, timed: bool = True) -> None:
     """Run ONE case (in this process); print a JSON line."""
     code = dict(CASES)[case_name]
+    # Shared workload definitions contain no engine implementation. Add only
+    # the tools directory, so the oracle retains its isolated SymPy import.
+    tools_dir = os.path.join(REPO, "tools")
+    if tools_dir not in sys.path:
+        sys.path.append(tools_dir)
     ns: dict[str, Any] = {}
     exec(code, ns)
     elapsed = None
