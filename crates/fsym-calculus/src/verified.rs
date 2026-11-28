@@ -85,8 +85,8 @@ pub struct SparseResidualEvaluation {
     pub jacobian: Vec<f64>,
 }
 
-/// Finite original residuals and an explicitly requested row-major Jacobian.
-/// Dense output is bounded separately from the retained sparse program.
+/// Finite original residuals and a row-major numerical matrix. Dense evaluation
+/// uses one column per variable; compressed evaluation uses one per color.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResidualEvaluation {
     pub residuals: Vec<f64>,
@@ -761,6 +761,11 @@ impl VerifiedResidualSystem {
         Self::check_dense_size(self.num_residuals(), self.num_vars())
     }
 
+    /// Preflight row-major storage with one column per admitted color.
+    pub fn compressed_jacobian_len(&self) -> Result<usize, VerifiedCompilationError> {
+        Self::check_dense_size(self.num_residuals(), self.sparse_jacobian.num_colors)
+    }
+
     fn copy_program(program: &CompiledExpr) -> Result<CompiledExpr, CompileError> {
         let mut ops = Vec::new();
         ops.try_reserve_exact(program.ops().len())
@@ -852,10 +857,10 @@ impl VerifiedResidualSystem {
         Ok(result)
     }
 
-    fn dense_evaluation_len(&self) -> Result<usize, ResidualEvaluationError> {
+    fn rectangular_evaluation_len(&self, columns: usize) -> Result<usize, ResidualEvaluationError> {
         let entries = self
             .num_residuals()
-            .checked_mul(self.num_vars())
+            .checked_mul(columns)
             .ok_or(EvalError::DimensionOverflow)?;
         if entries > MAX_VERIFIED_JACOBIAN_ENTRIES {
             return Err(ResidualEvaluationError::DenseJacobianLimit {
@@ -882,7 +887,44 @@ impl VerifiedResidualSystem {
         point: &[f64],
         meter: &mut M,
     ) -> Result<ResidualEvaluation, ResidualEvaluationError> {
-        let dense_len = self.dense_evaluation_len()?;
+        self.evaluate_columns_with_meter(point, self.num_vars(), |col| col, meter)
+    }
+
+    /// Evaluate the checked residuals and their column-color-compressed Jacobian.
+    /// The result has `num_residuals × sparse_jacobian().num_colors` entries in
+    /// row-major order. For each structural (row, column), read its derivative
+    /// at (row, column_colors[column]); unoccupied color slots contain zero.
+    pub fn try_eval_compressed(
+        &self,
+        point: &[f64],
+    ) -> Result<ResidualEvaluation, ResidualEvaluationError> {
+        self.try_eval_compressed_with_meter(point, &mut Unbounded)
+    }
+
+    /// Evaluate the frozen source and derivative programs with one caller
+    /// ledger and point-local memo. Only the compressed rectangle needs to
+    /// fit the output bound, even when the full dense Jacobian exceeds it.
+    pub fn try_eval_compressed_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        point: &[f64],
+        meter: &mut M,
+    ) -> Result<ResidualEvaluation, ResidualEvaluationError> {
+        self.evaluate_columns_with_meter(
+            point,
+            self.sparse_jacobian.num_colors,
+            |col| self.sparse_jacobian.column_colors[col],
+            meter,
+        )
+    }
+
+    fn evaluate_columns_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        point: &[f64],
+        columns: usize,
+        storage_column: impl Fn(usize) -> usize,
+        meter: &mut M,
+    ) -> Result<ResidualEvaluation, ResidualEvaluationError> {
+        let output_len = self.rectangular_evaluation_len(columns)?;
         let point = Self::input_with_meter(point, self.num_vars(), "point", meter)?;
         let mut memo = self.shared_evaluation.begin(point, meter)?;
         let mut residuals = Self::evaluation_buffer(self.num_residuals(), meter)?;
@@ -893,9 +935,9 @@ impl VerifiedResidualSystem {
                     .evaluate(index, program, &mut memo, meter)?,
             );
         }
-        let mut jacobian = Self::evaluation_buffer(dense_len, meter)?;
-        charge_evaluation_steps(meter, dense_len)?;
-        jacobian.resize(dense_len, 0.0);
+        let mut jacobian = Self::evaluation_buffer(output_len, meter)?;
+        charge_evaluation_steps(meter, output_len)?;
+        jacobian.resize(output_len, 0.0);
         for (index, entry) in self.sparse_jacobian.entries.iter().enumerate() {
             let value = self.shared_evaluation.evaluate(
                 self.num_residuals() + index,
@@ -904,7 +946,7 @@ impl VerifiedResidualSystem {
                 meter,
             )?;
             charge_evaluation_steps(meter, 1)?;
-            jacobian[entry.row * self.num_vars() + entry.col] = value;
+            jacobian[entry.row * columns + storage_column(entry.col)] = value;
         }
         charge_evaluation_steps(meter, 1)?;
         Ok(ResidualEvaluation {
@@ -933,7 +975,7 @@ impl VerifiedResidualSystem {
         jacobian: &mut [f64],
         meter: &mut M,
     ) -> Result<(), ResidualEvaluationError> {
-        let dense_len = self.dense_evaluation_len()?;
+        let dense_len = self.rectangular_evaluation_len(self.num_vars())?;
         charge_evaluation_steps(meter, 1)?;
         for (lane, expected, actual) in [
             ("residual output", self.num_residuals(), residuals.len()),

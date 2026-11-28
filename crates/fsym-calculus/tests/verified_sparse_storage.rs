@@ -106,11 +106,72 @@ fn sparse_storage_transport_and_products_exceed_the_dense_shape_cap() {
     assert_eq!(restored.stored_operation_count(), 2 * rows);
     assert_eq!(restored.sparse_jacobian(), system.sparse_jacobian());
     assert_eq!(restored.evaluate_sparse(&point).unwrap(), values);
+    let compressed = restored.try_eval_compressed(&point).unwrap();
+    assert_eq!(restored.sparse_jacobian().num_colors, 1);
+    assert_eq!(restored.compressed_jacobian_len().unwrap(), rows);
+    assert_eq!(compressed.residuals, values.residuals);
+    assert_eq!(compressed.jacobian, vec![1.0; rows]);
     assert_eq!(restored.to_json_bytes().unwrap(), saved);
     assert!(matches!(
         restored.try_dense_program(),
         Err(VerifiedCompilationError::DenseJacobianLimit { .. })
     ));
+}
+
+#[test]
+fn verified_color_slots_follow_the_admitted_coloring() {
+    let system = VerifiedResidualSystem::try_compile(
+        &[
+            parse("x^2+y").unwrap(),
+            parse("z^2+y").unwrap(),
+            Expr::from_i64(7),
+        ],
+        &[Symbol::new("x"), Symbol::new("y"), Symbol::new("z")],
+    )
+    .unwrap();
+    // Color labels are arbitrary. Swap them in a valid imported artifact to
+    // ensure evaluation uses the admitted labels rather than recomputing them.
+    let mut candidate = system.sparse_jacobian().clone();
+    candidate.column_colors = vec![1, 0, 1];
+    let imported = VerifiedResidualSystem::try_from_sparse_jacobian(&candidate).unwrap();
+    let result = imported.try_eval_compressed(&[2.0, 4.0, 3.0]).unwrap();
+    assert_eq!(result.residuals, [8.0, 13.0, 7.0]);
+    assert_eq!(result.jacobian, [1.0, 4.0, 1.0, 6.0, 0.0, 0.0]);
+    let mut measured = Probe::default();
+    imported
+        .try_eval_compressed_with_meter(&[2.0, 4.0, 3.0], &mut measured)
+        .unwrap();
+    let mut cancelled = Probe {
+        cancel_at: Some(measured.checkpoints),
+        ..Probe::default()
+    };
+    assert_eq!(
+        imported.try_eval_compressed_with_meter(&[2.0, 4.0, 3.0], &mut cancelled),
+        Err(ResidualEvaluationError::Evaluation(EvalError::Meter(
+            MeterError::Cancelled
+        )))
+    );
+}
+
+#[test]
+fn compressed_rectangle_limit_precedes_point_evaluation() {
+    let system = row_local(257, 256);
+    let mut candidate = system.sparse_jacobian().clone();
+    candidate.column_colors = (0..256).collect();
+    candidate.num_colors = 256;
+    let imported = VerifiedResidualSystem::try_from_sparse_jacobian(&candidate).unwrap();
+    let mut meter = Probe {
+        cancel_at: Some(1),
+        ..Probe::default()
+    };
+    assert_eq!(
+        imported.try_eval_compressed_with_meter(&[], &mut meter),
+        Err(ResidualEvaluationError::DenseJacobianLimit {
+            entries: 257 * 256,
+            max: MAX_VERIFIED_JACOBIAN_ENTRIES,
+        })
+    );
+    assert_eq!(meter.checkpoints, 0);
 }
 
 #[test]
@@ -193,6 +254,10 @@ fn dense_original_and_derivative_domains_are_strict_and_atomic() {
             VerifiedResidualSystem::try_compile(&[source], std::slice::from_ref(&x)).unwrap();
         let mut residual = [901.0];
         let mut jacobian = [902.0];
+        assert_eq!(
+            system.try_eval_compressed(&[point]).unwrap_err(),
+            ResidualEvaluationError::Evaluation(expected.clone()),
+        );
         assert_eq!(
             system
                 .try_eval_dense_into(&[point], &mut residual, &mut jacobian)
