@@ -30,6 +30,7 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 mod least_squares;
+pub use least_squares::least_squares_objective_source;
 
 pub const MAX_OBJECTIVE_VARIABLES: usize = 64;
 pub const MAX_OBJECTIVE_SOURCE_NODES: usize = 256;

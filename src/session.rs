@@ -1289,6 +1289,7 @@ impl Session {
                     | "ReplayIntegralCertificate"
                     | "ReplayIntegralCertificateFromArtifact"
                     | "RegisterObjective"
+                    | "RegisterLeastSquaresObjective"
                     | "CompileLeastSquaresObjective"
                     | "CompileObjective"
                     | "ExportCompiledObjective"

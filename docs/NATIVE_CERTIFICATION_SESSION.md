@@ -2139,3 +2139,19 @@ and `uniqueness_proved`. A false uniqueness flag leaves uniqueness open.
 Choose `maximum` for the reversed inequality. The original-source check
 consumes protected verifier fuel. Insufficient curvature or first-order
 evidence returns `inconclusive`.
+
+For an exact bounded least-squares fit, start with the registered residual
+system. `RegisterLeastSquaresObjective` stores one half the sum of squares
+of its original rows in their declared order. Each repeated row contributes
+separately and each held expression keeps its original domain. The resulting
+objective works with `EncloseObjective`, `CertifyBoxExtremum`, and the other
+source-based objective operations. Numerical evaluation or optimization can
+subsequently compile the objective if needed.
+
+```json
+{"id":"rows","type":"RegisterResidualSystem","payload":{"schema_version":1,"system":"system:fit","variables":["x","y","z"],"residuals":["x-3","y+4","z-8","2"]}}
+{"id":"loss","type":"RegisterLeastSquaresObjective","payload":{"schema_version":1,"system":"system:fit","objective":"objective:loss"}}
+{"id":"minimum","type":"CertifyBoxExtremum","payload":{"schema_version":1,"objective":"objective:loss","domain":[{"lower":"-5","upper":"1"},{"lower":"-1","upper":"5"},{"lower":"2","upper":"2"}],"point":["1","-1","2"],"extremum":"minimum","precision_digits":24}}
+```
+
+This gives the unique minimizer `(1,-1,2)` and an exact optimum value of `53/2`.

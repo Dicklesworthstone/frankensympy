@@ -20,11 +20,24 @@ fn objective_source<M: BudgetMeter + ?Sized>(
     system: &VerifiedResidualSystem,
     meter: &mut M,
 ) -> Result<Expr, ObjectiveCompilationError> {
-    charge_compilation_work(meter, 1, 0, 0)?;
     if system.vars().len() > MAX_OBJECTIVE_VARIABLES {
+        charge_compilation_work(meter, 1, 0, 0)?;
         return Err(resource("variable count", MAX_OBJECTIVE_VARIABLES));
     }
-    let residuals = system.residuals();
+    least_squares_objective_source(system.residuals(), meter)
+}
+
+/// Construct the held loss from the ordered original residuals without
+/// compiling derivative programs. A zero factor or repeated row keeps all
+/// its original domain obligations. An empty sum has exact value zero.
+pub fn least_squares_objective_source<M: BudgetMeter + ?Sized>(
+    residuals: &[Expr],
+    meter: &mut M,
+) -> Result<Expr, ObjectiveCompilationError> {
+    charge_compilation_work(meter, 1, 0, 0)?;
+    if residuals.is_empty() {
+        return Ok(Expr::from_i64(0));
+    }
     // Three outer nodes (Mul, 1/2, Add) and two per residual (Pow, 2).
     // Preflight the complete transformed size before cloning any source.
     let mut total = residuals

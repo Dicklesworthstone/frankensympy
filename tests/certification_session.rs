@@ -585,40 +585,50 @@ fn cli_proves_or_refuses_an_exact_global_optimizer_on_the_registered_box() {
 
 #[test]
 fn cli_certifies_the_exact_box_optimum_of_a_derived_least_squares_objective() {
-    let mut cli = Cli::new(&[]);
+    let run = |cli: &mut Cli, op, mut payload: Value| {
+        payload["schema_version"] = json!(1);
+        let r = cli.send(json!({"type":op, "payload":payload}));
+        assert_eq!(r["status"], "success", "{r}");
+        r["result"].clone()
+    };
     let system = "system:fit";
-    let program = "program:fit";
     let objective = "objective:fit";
-    for (operation, mut payload) in [
-        (
+    let mut direct = Cli::new(&[]);
+    let mut compiled = Cli::new(&["--compute-steps", "4000000"]);
+    for cli in [&mut direct, &mut compiled] {
+        run(
+            cli,
             "RegisterResidualSystem",
             json!({"system":system,"variables":["x","y","z"],"residuals":["x-3","y+4","z-8","2"]}),
-        ),
-        (
-            "CompileResidualSystem",
-            json!({"system":system,"program":program}),
-        ),
-        (
-            "CompileLeastSquaresObjective",
-            json!({"residual_program":program,"objective":objective,"program":"objective_program:fit"}),
-        ),
-    ] {
-        payload["schema_version"] = json!(1);
-        let response = cli.send(json!({"type":operation,"payload":payload}));
-        assert_eq!(response["status"], "success", "{response}");
+        );
     }
-    let response = cli.send(json!({"type":"CertifyBoxExtremum","payload":{
-        "schema_version":1, "objective":objective, "point":["1","-1","2"], "precision_digits":24,
-        "extremum":"minimum", "domain":[{"lower":"-5","upper":"1"},{"lower":"-1","upper":"5"},
-                                        {"lower":"2","upper":"2"}]
-    }}));
-    assert_eq!(response["status"], "success", "{response}");
-    assert_eq!(
-        response["result"]["value"],
-        json!({"lower":"53/2","upper":"53/2"})
+    run(
+        &mut direct,
+        "RegisterLeastSquaresObjective",
+        json!({"system":system,"objective":objective}),
     );
-    assert_eq!(response["result"]["uniqueness_proved"], true);
-    cli.finish();
+    run(
+        &mut compiled,
+        "CompileResidualSystem",
+        json!({"system":system,"program":"program:fit"}),
+    );
+    run(
+        &mut compiled,
+        "CompileLeastSquaresObjective",
+        json!({"residual_program":"program:fit","objective":objective,"program":"objective_program:fit"}),
+    );
+    let check = json!({"objective":objective, "point":["1","-1","2"], "precision_digits":24,
+        "extremum":"minimum", "domain":[{"lower":"-5","upper":"1"},{"lower":"-1","upper":"5"},{"lower":"2","upper":"2"}]});
+    let result = run(&mut direct, "CertifyBoxExtremum", check.clone());
+    assert_eq!(result, run(&mut compiled, "CertifyBoxExtremum", check));
+    assert_eq!(result["value"], json!({"lower":"53/2","upper":"53/2"}));
+    assert_eq!(result["uniqueness_proved"], true);
+    let duplicate = direct.send(json!({"type":"RegisterLeastSquaresObjective","payload":{
+        "schema_version":1,"system":system,"objective":objective
+    }}));
+    assert_eq!(duplicate["code"], "duplicate_object");
+    direct.finish();
+    compiled.finish();
 }
 
 #[test]
@@ -669,6 +679,44 @@ fn cli_reports_scaled_contractions_for_roots_families_and_stationary_points() {
     for result in [root, family, stationary] {
         assert_eq!(result["contraction_norm"], "box_radius_scaled_infinity");
         assert_eq!(result["contraction_bound"], "1/4");
+    }
+    cli.finish();
+}
+
+#[test]
+fn source_only_squared_loss_retains_repeated_residuals_and_hidden_poles() {
+    let mut cli = Cli::new(&[]);
+    for (name, residuals) in [
+        ("regular", json!(["x", "x", "3", "0"])),
+        ("pole", json!(["x", "0*(1/x)"])),
+    ] {
+        let system = format!("system:{name}");
+        let objective = format!("objective:{name}");
+        let registered = cli.send(json!({"type":"RegisterResidualSystem","payload":{
+            "schema_version":1,"system":system,"variables":["x"],"residuals":residuals
+        }}));
+        assert_eq!(registered["status"], "success", "{registered}");
+        let derived = cli.send(json!({"type":"RegisterLeastSquaresObjective","payload":{
+            "schema_version":1,"system":system,"objective":objective
+        }}));
+        assert_eq!(derived["status"], "success", "{derived}");
+        let proof = cli.send(json!({"type":"CertifyBoxExtremum","payload":{
+            "schema_version":1,"objective":objective,"point":["0"],"domain":[{"lower":"-1","upper":"1"}],
+            "extremum":"minimum","precision_digits":24
+        }}));
+        if name == "regular" {
+            assert_eq!(proof["status"], "success", "{proof}");
+            assert_eq!(
+                proof["result"]["value"],
+                json!({"lower":"9/2","upper":"9/2"})
+            );
+            assert_eq!(
+                proof["result"]["box_hessian"],
+                json!([[{"lower":"2","upper":"2"}]])
+            );
+        } else {
+            assert_eq!(proof["code"], "domain_not_certified", "{proof}");
+        }
     }
     cli.finish();
 }

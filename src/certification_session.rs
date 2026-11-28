@@ -667,6 +667,12 @@ pub enum CertificationRequest {
         parameter_domain: Vec<ExactInterval>,
         transfer: ArtifactTransferId,
     },
+    /// Register the exact held half-sum of squares of a resident residual system.
+    RegisterLeastSquaresObjective {
+        schema_version: u32,
+        system: ResidualSystemId,
+        objective: ObjectiveId,
+    },
     RegisterObjective {
         schema_version: u32,
         objective: ObjectiveId,
@@ -1097,6 +1103,7 @@ impl CertificationRequest {
             | Self::ExportParametricFamily { schema_version, .. }
             | Self::ReplayParametricFamily { schema_version, .. }
             | Self::ReplayParametricFamilyFromArtifact { schema_version, .. }
+            | Self::RegisterLeastSquaresObjective { schema_version, .. }
             | Self::RegisterObjective { schema_version, .. }
             | Self::EncloseObjective { schema_version, .. }
             | Self::CertifyBoxExtremum { schema_version, .. }
@@ -2008,6 +2015,11 @@ impl CertificationSessionError {
                     | RootBoxError::DimensionMismatch
                     | RootBoxError::InvalidPrecision,
                 ) => "invalid_input",
+                fsym_core::BoxExtremumError::Verification(RootBoxError::Ball(
+                    fsym_core::ball::BallError::DivisionByZero(_)
+                    | fsym_core::ball::BallError::IndeterminatePower(_)
+                    | fsym_core::ball::BallError::NonRealSquareRoot(_),
+                )) => "domain_not_certified",
                 fsym_core::BoxExtremumError::Verification(error) => {
                     certification_error_code(&CertificationError::Root(error.clone()))
                 }
@@ -2694,6 +2706,44 @@ pub(crate) struct CertificationState {
 }
 
 impl CertificationState {
+    fn admit_source_objective(
+        &self,
+        objective: &ObjectiveId,
+        budget: &mut impl BudgetMeter,
+    ) -> Result<(), CertificationSessionError> {
+        if self.objectives.contains_key(objective) {
+            return Err(CertificationSessionError::DuplicateObject);
+        }
+        if self.objectives.len() >= MAX_OBJECTIVES {
+            return Err(CertificationSessionError::ObjectLimit);
+        }
+        charge(budget, 1, 4096)
+    }
+
+    fn publish_source_objective(
+        &mut self,
+        objective: ObjectiveId,
+        problem: ObjectiveProblem,
+        context_digest: [u8; 32],
+        budget: &mut impl BudgetMeter,
+    ) -> Result<CertificationResponse, CertificationSessionError> {
+        let variables = problem.variables();
+        charge(
+            budget,
+            variables.len(),
+            variables.iter().map(|v| v.name.len() + 128).sum(),
+        )?;
+        let response = CertificationResponse::ObjectiveRegistered {
+            schema_version: CERTIFICATION_REQUEST_SCHEMA,
+            variables: variables.to_vec(),
+            objective: objective.clone(),
+            context_digest,
+        };
+        admit_response(&response, budget)?;
+        self.objectives.insert(objective, problem);
+        Ok(response)
+    }
+
     pub(crate) fn compiled_system(
         &self,
         id: &CompiledResidualSystemId,
@@ -3716,34 +3766,36 @@ impl CertificationState {
                     lease,
                 )
             }
+            CertificationRequest::RegisterLeastSquaresObjective {
+                system, objective, ..
+            } => {
+                self.admit_source_objective(&objective, budget)?;
+                let residuals = self
+                    .systems
+                    .get(&system)
+                    .ok_or(CertificationSessionError::UnknownSystem)?;
+                let loss = fsym_calculus::sparse_hessian::least_squares_objective_source(
+                    residuals.residuals(),
+                    budget,
+                )?;
+                let variables = residuals.variables();
+                crate::certification::check_problem_sources(
+                    std::slice::from_ref(&loss),
+                    variables,
+                    budget,
+                )?;
+                let problem = ObjectiveProblem::new(loss, variables.to_vec(), budget)?;
+                self.publish_source_objective(objective, problem, context_digest, budget)
+            }
             CertificationRequest::RegisterObjective {
                 objective,
                 source,
                 variables,
                 ..
             } => {
-                if self.objectives.contains_key(&objective) {
-                    return Err(CertificationSessionError::DuplicateObject);
-                }
-                if self.objectives.len() >= MAX_OBJECTIVES {
-                    return Err(CertificationSessionError::ObjectLimit);
-                }
-                charge(budget, 1, 4096)?;
+                self.admit_source_objective(&objective, budget)?;
                 let problem = ObjectiveProblem::parse_source(&source, &variables, budget)?;
-                charge(
-                    budget,
-                    variables.len(),
-                    variables.iter().map(|v| v.len() + 128).sum(),
-                )?;
-                let response = CertificationResponse::ObjectiveRegistered {
-                    schema_version: CERTIFICATION_REQUEST_SCHEMA,
-                    variables: problem.variables().to_vec(),
-                    objective: objective.clone(),
-                    context_digest,
-                };
-                admit_response(&response, budget)?;
-                self.objectives.insert(objective, problem);
-                Ok(response)
+                self.publish_source_objective(objective, problem, context_digest, budget)
             }
             CertificationRequest::EncloseObjective {
                 objective,
