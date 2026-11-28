@@ -2323,6 +2323,14 @@ impl PySparseMatrix {
         self.inner.det().map(PyExpr::from_expr).map_err(matrix_err)
     }
 
+    /// Checked symbolic tridiagonal determinant without a dense source conversion.
+    pub fn tridiagonal_polynomial_det(&self) -> PyResult<Option<PyExpr>> {
+        self.inner
+            .tridiagonal_polynomial_det()
+            .map(|value| value.map(PyExpr::from_expr))
+            .map_err(matrix_err)
+    }
+
     /// Borrowed sparse admission before any dense inertia storage.
     pub fn validate_rational_inertia_source(&self) -> PyResult<()> {
         self.inner

@@ -1127,6 +1127,10 @@ class SparseMatrix(MatrixBase):
             return exact
         if self._native.is_exact_rational:
             return _wrap(self._native.det())
+        if self.rows > 8 and self.rows == self.cols:
+            value = self._native.tridiagonal_polynomial_det()
+            if value is not None:
+                return _wrap(value)
         return self.to_dense().det(method=method)
 
     def inv(self, method: Any = None, **kwargs: Any) -> "SparseMatrix":
