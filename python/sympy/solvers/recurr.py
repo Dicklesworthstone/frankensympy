@@ -692,7 +692,9 @@ def rsolve(f: Any, y: Any, init: Any = None) -> Any:
     """Solve a bounded exact recurrence, checking its original residual and ICs.
 
     The index denotes an integer lattice even when its Symbol has no declared
-    assumptions. Unsupported source domains, parameter-dependent order and
+    assumptions. Polynomial-coefficient equations with regular integer
+    endpoints are also solved when a rational fundamental system spans the
+    full solution space. Unsupported source domains, parameter-dependent order and
     inconclusive verification raise NotImplementedError, not a no-solution
     assertion. Initial keys must belong to the solved function or be exact
     integers; inconsistent exact conditions raise ValueError.
@@ -709,6 +711,10 @@ def rsolve(f: Any, y: Any, init: Any = None) -> Any:
     original = sympify(f)
     _admit_source(original, func, n)
     conditions = _initial_conditions(init, func, n)
+    from ._rational_sequence import complete_rational_sequence
+    rational = complete_rational_sequence(original, func, n, conditions)
+    if rational is not None:
+        return rational
     # Keep the original Eq and held source intact for independent replay.
     f = original.lhs-original.rhs if type(original) is Eq else original
     shifts = _shifts(f, func, n)
