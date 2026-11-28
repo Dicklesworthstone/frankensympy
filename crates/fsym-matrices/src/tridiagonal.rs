@@ -331,7 +331,13 @@ fn checked<'a>(
     let candidate = band.continuant(&mut meter)?;
     band.verify(&candidate, &mut meter)?;
     storage(&mut meter, candidate.coeffs.len() * 128)?;
-    let output = candidate.to_expr();
+    let mut output = candidate.to_expr();
+    // Dense polynomial coefficients are stored by degree. Public Add equality
+    // and hashing require the scalar expression's canonical argument order.
+    if let Expr::Add(terms) = &mut output {
+        steps(&mut meter, terms.len() * terms.len().ilog2() as usize)?;
+        fsym_core::canonicalize_add_args(terms);
+    }
     steps(&mut meter, 1)?;
     Ok(Some(output))
 }

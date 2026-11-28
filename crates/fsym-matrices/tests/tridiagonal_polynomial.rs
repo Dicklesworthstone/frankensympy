@@ -130,9 +130,15 @@ fn characteristic_polynomial_of_a_path_and_large_sparse_boundary() {
             .map(|v| BigRational::from_integer(i64::from(v).into()))
             .collect(),
     );
-    assert_eq!(
-        Matrix::new(n, n, cells).unwrap().det().unwrap(),
-        polynomial.to_expr()
+    let determinant = Matrix::new(n, n, cells).unwrap().det().unwrap();
+    assert_eq!(Poly::from_expr(&determinant, &x).unwrap(), polynomial);
+    let Expr::Add(terms) = determinant else {
+        panic!("expected the characteristic polynomial sum")
+    };
+    assert!(
+        terms
+            .windows(2)
+            .all(|pair| fsym_core::cmp_add_args(&pair[0], &pair[1]).is_le())
     );
     let n = 600;
     let mut cells: std::collections::BTreeMap<_, _> =
