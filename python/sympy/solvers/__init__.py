@@ -19,7 +19,7 @@ from .ode import (
 )
 from .pde import pdsolve
 from .recurr import rsolve_poly, rsolve_ratio
-from .polysys import nonlinsolve, solve_poly_system
+from .polysys import nonlinsolve, solve_poly_system, solve_triangulated
 from .solvers import linsolve, nsolve, solve_linear, solve_linear_system, solve_linear_system_LU
 
 __all__ = [
@@ -48,6 +48,7 @@ __all__ = [
     "solve_linear_system",
     "solve_linear_system_LU",
     "solve_poly_system",
+    "solve_triangulated",
     "solve_univariate_inequality",
     "solveset",
     "verify_cauchy_euler_solution",

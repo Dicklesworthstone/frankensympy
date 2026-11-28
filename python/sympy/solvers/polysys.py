@@ -217,6 +217,19 @@ def solve_poly_system(
     return _checked_polynomial_solutions(wrapped_eqs, syms, allow_families=False) or None
 
 
+def solve_triangulated(polys, *gens, **args):
+    """Return the rational points of a zero-dimensional rational system.
+
+    A checked lexicographic Groebner basis supplies degree-preserving pivots
+    for each fiber. All rational roots of each pivot are tried, and each
+    surviving tuple is verified against the original equations. Coordinates
+    follow the requested generator order. Algebraic extensions are unsupported.
+    """
+    from ._triangulated import solve_rational_triangular
+
+    return solve_rational_triangular(polys, gens, args)
+
+
 def _solve_source_system(seq, *gens):
     """Generate finite solve candidates without erasing original source admission.
 
@@ -267,4 +280,5 @@ def nonlinsolve(system: Iterable[Any], *symbols: Any) -> Set:
 __all__ = [
     "nonlinsolve",
     "solve_poly_system",
+    "solve_triangulated",
 ]

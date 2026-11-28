@@ -1575,6 +1575,7 @@ from .solvers import (
     solve_linear_system,
     solve_linear_system_LU,
     solve_poly_system,
+    solve_triangulated,
     solve_univariate_inequality,
 )
 from .tensor import (
@@ -2876,6 +2877,7 @@ __all__ = [
     "solve_linear_system",
     "solve_linear_system_LU",
     "solve_poly_system",
+    "solve_triangulated",
     "solveset",
     "sqf",
     "sqf_list",

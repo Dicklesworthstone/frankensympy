@@ -14,10 +14,9 @@ def _ratio(value):
     return Fraction(value.exact_numerator(), value.exact_denominator())
 
 
-def _rational_ground_roots(request, domain, session):
+def rational_ground_roots(raw, binding, domain, session):
     """Check the primitive leading-coefficient grid against every real root."""
-    raw = request.raw[0]
-    rows = queries._project(raw, request.bindings, domain, "lex", session)
+    rows = queries._project(raw, [binding], domain, "lex", session)
     if not rows or rows[0][0][0] == 0:
         return {}
     degree = rows[0][0][0]
@@ -41,7 +40,7 @@ def _rational_ground_roots(request, domain, session):
             raise ValueError("rational root denominator grid exceeds its bit limit")
     width = _native_expr(Rational(1, 2 * grid))
     intervals = _native.real_root_analysis_native(
-        raw, request.bindings[0], "intervals", None, None, width,
+        raw, binding, "intervals", None, None, width,
         None, False, domain == "ZZ", session,
     )
     roots = {}
@@ -128,7 +127,7 @@ def ground_roots_entry(source, gens, options):
     request = retained._Request([expression], axes, (state,) if state else ())
     _validate_atoms(request.snapshot)
     queries._check_dummies(request)
-    result = _rational_ground_roots(request, domain, session)
+    result = rational_ground_roots(request.raw[0], request.bindings[0], domain, session)
     queries._interfaces()
     queries._current(session)
     request.unchanged()
