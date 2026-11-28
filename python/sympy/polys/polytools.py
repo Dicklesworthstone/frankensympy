@@ -680,6 +680,10 @@ class Poly(Basic):
 
         return _ar(self, multiple=multiple, radicals=radicals)
 
+    def ground_roots(self) -> dict:
+        """Return ground-field roots and their original multiplicities."""
+        return ground_roots(self)
+
     def real_roots(self, multiple: bool = True, radicals: bool = True) -> list:
         if _finitefield.is_finite(self):
             return _finitefield.unsupported(self, "real roots")
@@ -3760,6 +3764,13 @@ def _factor_primitive(rest, syms):
     return factored * rest
 
 
+def ground_roots(f: Any, *gens: Any, **args: Any) -> dict:
+    """Find all rational roots over QQ/ZZ, or roots in a retained prime field."""
+    from ._ground_roots import ground_roots_entry
+
+    return ground_roots_entry(f, gens, args)
+
+
 def roots(p: Any, *gens: Any) -> dict[Any, int]:
     """Compute roots of a polynomial with their multiplicities."""
     poly_p = p if isinstance(p, Poly) else Poly(p, *gens)
@@ -4673,6 +4684,7 @@ __all__ = [
     "gcd",
     "gcdex",
     "groebner",
+    "ground_roots",
     "half_gcdex",
     "lcm",
     "monic",

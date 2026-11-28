@@ -16,6 +16,10 @@ class PolynomialError(BasePolynomialError):
     """An expression is not a valid polynomial in the given generators."""
 
 
+class MultivariatePolynomialError(PolynomialError):
+    """A univariate operation was requested in a multivariate ring."""
+
+
 class NotInvertible(PolynomialError):
     """An element has no multiplicative inverse in the specified quotient."""
 
