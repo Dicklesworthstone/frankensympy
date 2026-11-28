@@ -55,8 +55,6 @@ def test_refusals_do_not_publish_an_empty_or_partial_set():
         solve_triangulated([1, Mul(0, Pow(x, -1, evaluate=False), evaluate=False)], x)
     with pytest.raises(NotImplementedError):
         solve_triangulated([Poly(x+1, x, modulus=3)], x)
-    with pytest.raises(NotImplementedError):
-        solve_triangulated([x**2+1], x, extension=True)
 
 
 def test_branch_limit_never_publishes_a_truncated_product():
@@ -113,3 +111,47 @@ def test_zero_leading_coefficient_in_a_source_fiber_cannot_remove_points():
     f = [y*(y-1), y*x, x*(x-2)]
     assert solve_triangulated(f, x, y) == [(0, 0), (0, 1), (2, 0)]
     assert solve_triangulated(f, y, x) == [(0, 0), (0, 2), (1, 0)]
+
+
+def test_irreducible_quintic_keeps_every_complex_embedding_once(monkeypatch):
+    from sympy.polys import rootoftools
+
+    x = Symbol("x")
+    f = x**5-x+1
+    expected = [(CRootOf(f, i),) for i in range(5)]
+
+    def no_approximations(*args):
+        raise AssertionError("complete local index enumeration must not select roots numerically")
+
+    monkeypatch.setattr(rootoftools, "_approximate_factor_roots", no_approximations)
+    roots = solve_triangulated([f**2], x, extension=True)
+    assert roots == expected
+    assert [root.poly.as_expr() for root, in roots] == [f]*5
+
+
+def test_joint_source_equations_reduce_to_independent_complex_axes():
+    x, y = symbols("x y")
+    f, g = x**2+1, y**2-2
+    # Neither original equation involves only one axis.
+    equations = [f+g, f-g]
+    expected = [(CRootOf(x**2+1, i), CRootOf(x**2-2, j))
+                for i in range(2) for j in range(2)]
+    assert solve_triangulated(equations, x, y, extension=True) == expected
+
+
+def test_complex_and_rational_factors_preserve_indices_and_remove_multiplicities():
+    x, y = symbols("x y")
+    f = [(x-1)*(x**2+1)**2, y**2+2]
+    a = [1, CRootOf(x**2+1, 0), CRootOf(x**2+1, 1)]
+    b = [CRootOf(x**2+2, 0), CRootOf(x**2+2, 1)]
+    assert solve_triangulated(f, x, y, extension=True) == [(u, v) for u in a for v in b]
+
+
+def test_positive_integer_scaling_preserves_canonical_complex_indices_and_real_pairs():
+    x, y = symbols("x y")
+    f = x**5+512*x+1024
+    assert solve_triangulated([f], x, extension=True) == [
+        (4*CRootOf(x**5+2*x+1, i),) for i in range(5)]
+    roots = [2*CRootOf(x**2-2*x-1, i) for i in (0, 1)]
+    assert solve_triangulated([x**2-4*x-4, y-x], x, y, extension=True) == [
+        (root, root) for root in roots]

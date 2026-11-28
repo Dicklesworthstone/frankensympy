@@ -224,8 +224,9 @@ def solve_triangulated(polys, *gens, **args):
     for each fiber. All rational roots of each pivot are tried, and each
     surviving tuple is verified against the original equations. Coordinates
     follow the requested generator order. With extension=True, exact indexed
-    roots cover systems whose coordinate eliminants have only real roots.
-    A nonreal projection or inconclusive exact residual refuses the full set.
+    roots cover separated coordinate bases over the complex numbers and coupled
+    systems whose coordinate eliminants have only real roots. A coupled nonreal
+    projection or inconclusive exact residual refuses the full set.
     """
     from ._triangulated import solve_triangular
 
