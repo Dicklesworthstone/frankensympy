@@ -1120,10 +1120,16 @@ class SparseMatrix(MatrixBase):
         return self._new(_checked_exponential(self, sparse=True))
 
     def charpoly(self, x=None):
-        """Return det(xI-A) as a PurePoly, preserving sparse tridiagonal storage."""
+        """Return det(xI-A) as a PurePoly using checked sparse diagonal blocks."""
         from ._charpoly import characteristic_polynomial
 
         return characteristic_polynomial(self, x, dense=False)
+
+    def eigenvals(self):
+        """Return exact eigenvalues and algebraic multiplicities by diagonal block."""
+        from ._charpoly import eigenvalue_multiplicities
+
+        return eigenvalue_multiplicities(self, dense=False)
 
     def det(self, method: Any = None) -> Any:
         from ._determinant import determinant_if_needed

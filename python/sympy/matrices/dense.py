@@ -918,6 +918,9 @@ class Matrix(MatrixBase):
         Roots of the characteristic polynomial from the exact radical
         roots() engine (canonical forms, upstream order); falls back to the
         native eigenvalue lane when some roots are not expressible."""
+        if self.rows > 32:
+            from ._charpoly import eigenvalue_multiplicities
+            return eigenvalue_multiplicities(self, dense=True)
         try:
             from ..core import Dummy
             from ..polys.polytools import Poly, roots

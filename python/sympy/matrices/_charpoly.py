@@ -1,6 +1,9 @@
 """Characteristic polynomial dispatch for bounded exact structured matrices."""
 
-from ..core import Add, Dummy, Mul, Symbol, _charge_nested_if_active, _native, _native_expr, _symbol_binding, _wrap
+from ..core import (
+    Add, Dummy, Mul, Symbol, _charge_nested_if_active, _native, _native_expr,
+    _symbol_binding, _wrap,
+)
 from ..polys.polytools import PurePoly
 from . import sparse
 from .exceptions import NonSquareMatrixError
@@ -100,9 +103,7 @@ def _block_factor(n, entries, gen):
     return _expression(block.checked_char_poly(), gen)
 
 
-def _structured_polynomial(n, entries, gen):
-    if not n:
-        return PurePoly(1, gen)
+def _checked_blocks(n, entries):
     _charge_nested_if_active(1 + 5*(n + len(entries)))
     blocks = _components(n, entries)
     # A candidate partition need not be maximally fine. A permutation of
@@ -133,8 +134,14 @@ def _structured_polynomial(n, entries, gen):
             if height > _MAX_BLOCK_INPUT_BITS:
                 raise ValueError("characteristic-polynomial diagonal blocks exceed coefficient height limit")
             diagonal[source][i, j] = entry
-    factors = [_block_factor(len(block), cells, gen)
-               for block, cells in zip(blocks, diagonal)]
+    return [(len(block), cells) for block, cells in zip(blocks, diagonal)], height
+
+
+def _structured_polynomial(n, entries, gen):
+    if not n:
+        return PurePoly(1, gen)
+    blocks, height = _checked_blocks(n, entries)
+    factors = [_block_factor(size, cells, gen) for size, cells in blocks]
     if len(factors) == 1:
         return PurePoly(factors[0], gen)
     # Native univariate multiplication collects the exact product over QQ.
@@ -146,32 +153,87 @@ def _structured_polynomial(n, entries, gen):
     return PurePoly(_expression(coefficients, gen), gen)
 
 
-def characteristic_polynomial(matrix, x, *, dense):
-    """Return det(xI-A) from an exact rational source or bounded symbolic block."""
+def _capture(matrix, dense):
     rows, cols = matrix.shape
     if rows != cols:
         raise NonSquareMatrixError("Characteristic polynomial requires a square matrix")
     if rows > _MAX_DIMENSION:
         raise ValueError(f"structured characteristic polynomial supports dimensions up to {_MAX_DIMENSION}")
     snapshot = sparse._structural_sources(matrix)
-    name = generator_name(x)
     _charge_nested_if_active(1 + rows)
     rational = sparse._rational_source_snapshot(
         matrix, dense=dense, context="characteristic polynomial")
+    entries = None
     if rational is None:
         if dense or rows > 32:
             raise NotImplementedError(
                 "large characteristic polynomial requires literal rational coefficients")
-        # Preserve source coefficient identity and generator-name collision rules.
-        result = matrix.to_dense().charpoly(x)
     else:
         native, retained = rational
         if dense:
             native = sparse._SOLVE_DENSE_MEMBERS["to_sparse"](native)
         entries = sparse._REDUCTION_NATIVE_MEMBERS["todok"](native)
+
+    def unchanged():
+        sparse._check_structural_sources(snapshot)
+        if rational is not None:
+            sparse._check_rational_source(retained)
+
+    unchanged()
+    return rows, entries, unchanged
+
+
+def characteristic_polynomial(matrix, x, *, dense):
+    """Return det(xI-A) from an exact rational source or bounded symbolic block."""
+    rows, entries, unchanged = _capture(matrix, dense)
+    name = generator_name(x)
+    if entries is None:
+        # Preserve source coefficient identity and generator-name collision rules.
+        result = matrix.to_dense().charpoly(x)
+    else:
         result = _structured_polynomial(rows, entries, Symbol(name))
     _charge_nested_if_active()
-    sparse._check_structural_sources(snapshot)
-    if rational is not None:
-        sparse._check_rational_source(retained)
+    unchanged()
+    return result
+
+
+def _block_eigenvalues(size, entries):
+    if size == 1:
+        return [_wrap(entries.get((0, 0), sparse._REDUCTION_NATIVE_ZERO))]
+    if size <= 32:
+        # The existing dense radical and indexed-real-root lanes handle a
+        # single diagonal block. Cross-block couplings have already been checked.
+        _charge_nested_if_active(1 + size**4)
+        native = sparse._NativeSparseMatrix(size, size, entries).to_dense()
+        return sparse.Matrix(native).eigenvalues()
+
+    gen = Symbol("lambda")
+    poly = PurePoly(_block_factor(size, entries, gen), gen)
+    # Keep exactly expressible complex radicals. For an unresolved higher
+    # degree factor only exact real isolation can supply indexed identities.
+    radical = poly.roots()
+    if sum(radical.values()) == size:
+        return [root for root, multiplicity in radical.items() for _ in range(multiplicity)]
+    from ..polys.rootoftools import real_roots
+
+    return real_roots(poly)
+
+
+def eigenvalue_multiplicities(matrix, *, dense):
+    """Compose complete diagonal-block spectra with algebraic multiplicities."""
+    rows, entries, unchanged = _capture(matrix, dense)
+    if entries is None:
+        result = matrix.to_dense().eigenvals()
+    else:
+        blocks, _ = _checked_blocks(rows, entries)
+        result = {}
+        for size, cells in blocks:
+            roots = _block_eigenvalues(size, cells)
+            if len(roots) != size:
+                raise ValueError("unable to establish the complete exact spectrum of a diagonal block")
+            for root in roots:
+                result[root] = result.get(root, 0) + 1
+            _charge_nested_if_active(1 + size)
+    _charge_nested_if_active()
+    unchanged()
     return result
